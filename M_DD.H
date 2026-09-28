@@ -77,4 +77,9 @@ const char* dd_zoom_name( void );
 void dd_next_zoom( void ); // Kovetkezo nagyitasra valt es elmenti
 const char* dd_zoom_textures_name( void );
 void dd_next_zoom_textures( void ); // Masikra valt es elmenti
+// A nagyitott kepek szuroje (szuro.h: SZURO_HQX, SZURO_SIMA,
+// SZURO_LEGKOZELEBBI) es Options menu sora (NULL, ha nem allithato):
+int dd_texture_filter( void );
+const char* dd_texture_filter_name( void );
+void dd_next_texture_filter( void ); // Kovetkezore valt es elmenti
 

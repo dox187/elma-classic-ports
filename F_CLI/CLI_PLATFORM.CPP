@@ -254,6 +254,9 @@ int dd_zoom_key(int) { return 0; }
 const char* dd_zoom_name() { return NULL; }
 void dd_next_zoom() {}
 const char* dd_zoom_textures_name() { return NULL; }
+int dd_texture_filter() { return SZURO_LEGKOZELEBBI; }
+const char* dd_texture_filter_name() { return NULL; }
+void dd_next_texture_filter() {}
 void dd_next_zoom_textures() {}
 
 void mk_init() {

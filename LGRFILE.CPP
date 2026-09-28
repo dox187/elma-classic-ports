@@ -42,10 +42,15 @@ static void kivantnagyitasok( double* pnagyitas, double* ptexturanagyitas,
 	}
 }
 
+// Nagyitott kepeknel a szuronek is egyeznie kell:
 int lgrfile::megfelel( double nagyitas_p, double texturanagyitas_p,
 					   double funagyitas_p ) {
-	return nagyitas == nagyitas_p && texturanagyitas == texturanagyitas_p &&
-		   funagyitas == funagyitas_p;
+	if( nagyitas != nagyitas_p || texturanagyitas != texturanagyitas_p ||
+		funagyitas != funagyitas_p )
+		return 0;
+	if( nagyitas == 1.0 && texturanagyitas == 1.0 && funagyitas == 1.0 )
+		return 1;
+	return szuro == dd_texture_filter();
 }
 
 int lgrnagyitasjo( void ) {
@@ -136,10 +141,18 @@ void loadlgrfile( char* nev ) {
 	return;
 }
 
+// Az LGR betoltese kozben a nagyitas szuroje es a kepek palettaja (amig a
+// q1bike.pcx palettaja nincs meg, az eppen olvasott kepe):
+static int Nagyitoszuro = SZURO_LEGKOZELEBBI;
+static unsigned char* Nagyitopal = NULL;
+static unsigned char* Sajatpal = NULL;
+
 // A kep nagyitas-szoros masolata, vagy maga ppic, ha a meret nem valtozik:
 // felfele: a meretet felfele kerekiti (kepek, maszkok), hogy az egymas mellett
-// levo kepek kozott nem egesz nagyitasnal se maradjon res:
-static pic8* nagyitottkep( pic8* ppic, double nagyitas, int felfele = 0 ) {
+// levo kepek kozott nem egesz nagyitasnal se maradjon res. atlatszo: a kep
+// atlatszo szine (-1: nincs), ismetlodo: textura (szuro.h):
+static pic8* nagyitottkep( pic8* ppic, double nagyitas, int felfele = 0,
+						   int atlatszo = -1, int ismetlodo = 0 ) {
 	if( nagyitas == 1.0 )
 		return ppic;
 	int xsize = nagyitpixel( ppic->getxsize(), nagyitas );
@@ -150,12 +163,14 @@ static pic8* nagyitottkep( pic8* ppic, double nagyitas, int felfele = 0 ) {
 	}
 	if( xsize == ppic->getxsize() && ysize == ppic->getysize() )
 		return ppic;
-	return atmeretez( ppic, xsize, ysize );
+	return atmeretez_szurovel( ppic, xsize, ysize, Nagyitoszuro, Nagyitopal,
+							   atlatszo, ismetlodo );
 }
 
 // Ugyanez, de ppic-et torli, ha masolatot adott vissza:
-static pic8* nagyitlgrkep( pic8* ppic, double nagyitas, int felfele = 0 ) {
-	pic8* pnagy = nagyitottkep( ppic, nagyitas, felfele );
+static pic8* nagyitlgrkep( pic8* ppic, double nagyitas, int felfele = 0,
+						   int atlatszo = -1, int ismetlodo = 0 ) {
+	pic8* pnagy = nagyitottkep( ppic, nagyitas, felfele, atlatszo, ismetlodo );
 	if( pnagy != ppic )
 		delete ppic;
 	return pnagy;
@@ -270,7 +285,7 @@ void lgrfile::beirkepet( pic8* ppic, piclist* ppiclist, int index ) {
 	int atlatszo = getatlatszosag( ppiclist->atlatszosagok[index], ppic );
 
 	pic8* peredeti = ppic;
-	ppic = nagyitottkep( ppic, nagyitas, 1 );
+	ppic = nagyitottkep( ppic, nagyitas, 1, atlatszo );
 
 	// Beetetjuk kepadatokat:
 	pkep->xsize = ppic->getxsize();
@@ -398,7 +413,7 @@ void lgrfile::beirmaszkot( pic8* ppic, piclist* ppiclist, int index ) {
 
 	// Az atlatszo szin az eredeti kep sarkabol:
 	int atlatszo = getatlatszosag( ppiclist->atlatszosagok[index], ppic );
-	ppic = nagyitlgrkep( ppic, nagyitas, 1 );
+	ppic = nagyitlgrkep( ppic, nagyitas, 1, atlatszo );
 
 	strcpy( pm->nev, &ppiclist->nevek[index*10] );
 	pm->xsize = ppic->getxsize();
@@ -533,6 +548,9 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	nagyitas = nagyitas_p;
 	texturanagyitas = texturanagyitas_p;
 	funagyitas = funagyitas_p;
+	szuro = dd_texture_filter();
+	Nagyitoszuro = szuro;
+	Nagyitopal = NULL;
 	objektummeret = nagyitpixel( Animsize, nagyitas );
 	objektumsugar = objektummeret/2;
 	objektumlebeges = 5.0*nagyitas;
@@ -630,6 +648,21 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 		long kurpos = ftell( h );
 		pic8* ppic = new pic8( nev, h );
 		fseek( h, kurpos+hossz, SEEK_SET );
+		// A nagyitas szurojehez kell a paletta (a kep vegen van), amig a
+		// q1bike.pcx-e nincs meg:
+		if( !paltomb && Nagyitoszuro != SZURO_LEGKOZELEBBI &&
+			(nagyitas != 1.0 || texturanagyitas != 1.0 || funagyitas != 1.0) ) {
+			if( !Sajatpal )
+				Sajatpal = new unsigned char[768];
+			unsigned char jel = 0;
+			if( fseek( h, -769, SEEK_CUR ) == 0 && fread( &jel, 1, 1, h ) == 1 &&
+				jel == 0x0c && fread( Sajatpal, 1, 768, h ) == 768 ) {
+				for( int j = 0; j < 768; j++ )
+					Sajatpal[j] >>= 2;
+				Nagyitopal = Sajatpal;
+			}
+			fseek( h, kurpos+hossz, SEEK_SET );
+		}
 		// Jatek kozbeni nagyitaskor ne szakadjon meg a hang:
 		ujraepiteshang();
 
@@ -652,6 +685,7 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 			paltomb = getnewpalfromh( h );
 			idonegtomb = makenegalttomb( paltomb );
 			pal = new ddpal( paltomb );
+			Nagyitopal = paltomb;
 			continue; }
 		if( strcmpi( nev, "q2bike.pcx" ) == 0 ) {
 			p2biker = ppic;
@@ -706,12 +740,12 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 
 		// Objektumok:
 		if( strcmpi( nev, "qkiller.pcx" ) == 0 ) {
-			pkiller = new anim( ppic, "qkiller.pcx", objektummeret );
+			pkiller = new anim( ppic, "qkiller.pcx", objektummeret, Nagyitoszuro, Nagyitopal );
 			delete ppic; ppic = NULL;
 			continue;
 		}
 		if( strcmpi( nev, "qexit.pcx" ) == 0 ) {
-			pexit = new anim( ppic, "qexit.pcx", objektummeret );
+			pexit = new anim( ppic, "qexit.pcx", objektummeret, Nagyitoszuro, Nagyitopal );
 			delete ppic; ppic = NULL;
 			continue;
 		}
@@ -729,7 +763,7 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 				char uzenet_filenev[80];
 				sprintf( uzenet_filenev, "Picture name: %s. In LGR file: %s.",
 														nev, lgrnev );
-				foodtomb[foodi] = new anim( ppic, tmpnev, objektummeret );
+				foodtomb[foodi] = new anim( ppic, tmpnev, objektummeret, Nagyitoszuro, Nagyitopal );
 				delete ppic;
 				ppic = NULL;
 				ezfoodvolt = 1;
@@ -742,13 +776,13 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 		if( _fstrnicmp( nev, "qup_", 4 ) == 0 ) {
 			unsigned char atlatszo = ppic->gpixel( 0, 0 );
 			int lejtes = fulejtes( ppic, funagyitas );
-			pkoveto->addkep( nagyitlgrkep( ppic, funagyitas ), 1, atlatszo, lejtes );
+			pkoveto->addkep( nagyitlgrkep( ppic, funagyitas, 0, atlatszo ), 1, atlatszo, lejtes );
 			continue;
 		}
 		if( _fstrnicmp( nev, "qdown_", 6 ) == 0 ) {
 			unsigned char atlatszo = ppic->gpixel( 0, 0 );
 			int lejtes = fulejtes( ppic, funagyitas );
-			pkoveto->addkep( nagyitlgrkep( ppic, funagyitas ), 0, atlatszo, lejtes );
+			pkoveto->addkep( nagyitlgrkep( ppic, funagyitas, 0, atlatszo ), 0, atlatszo, lejtes );
 			continue;
 		}
 
@@ -763,7 +797,7 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 
 		// Grass:
 		if( strcmpi( nev, "qgrass" ) == 0 ) {
-			beirtexturat( nagyitlgrkep( ppic, funagyitas ), NULL, 0 );
+			beirtexturat( nagyitlgrkep( ppic, funagyitas, 0, -1, 1 ), NULL, 0 );
 			continue;
 		}
 
@@ -778,7 +812,7 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 			continue;
 		}
 		if( ppiclist->tipusok[index] == PLTIP_TEXT ) {
-			beirtexturat( nagyitlgrkep( ppic, texturanagyitas ), ppiclist, index );
+			beirtexturat( nagyitlgrkep( ppic, texturanagyitas, 0, -1, 1 ), ppiclist, index );
 			continue;
 		}
 		if( ppiclist->tipusok[index] == PLTIP_MINTA ) {

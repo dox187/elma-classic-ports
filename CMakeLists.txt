@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(elma_classic LANGUAGES CXX)
+project(elma_classic LANGUAGES C CXX)
 
 # Without a build type, single-configuration generators such as Ninja and
 # Make compile without optimization.
@@ -52,7 +52,7 @@ set(ELMA_CORE
     LGRFILE.CPP LOAD.CPP MAIN.CPP MAINMENU.CPP MENUKEP.CPP NEWUJ.CPP
     OPTIONS.CPP PEXTMENU.CPP PIC8.CPP PICLIST.CPP PLAY.CPP
     QOPEN.CPP README.CPP RECORDER.CPP SKIP.CPP SPRITE.CPP
-    STATE.CPP SZAKASZ.CPP TELJES.CPP TOPOL.CPP UPGRADE.CPP UTKOZES.CPP
+    STATE.CPP SZAKASZ.CPP SZURO.CPP TELJES.CPP TOPOL.CPP UPGRADE.CPP UTKOZES.CPP
     UTKOZES2.CPP VALASZT2.CPP VEKT2.CPP
 )
 
@@ -74,8 +74,14 @@ foreach(header ${ELMA_HEADERS})
     endif()
 endforeach()
 
+# The hq2x, hq3x and hq4x scalers enlarge the pictures of the level when it is
+# zoomed (LGPL 2.1, see third_party/hqx).
+add_library(hqx STATIC third_party/hqx/init.c third_party/hqx/hq2x.c
+            third_party/hqx/hq3x.c third_party/hqx/hq4x.c)
+
 function(elma_target target)
     target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${ELMA_HEADER_DIR})
+    target_link_libraries(${target} PRIVATE hqx)
     # The code was written for x86, where char is signed, and for compilers
     # that let signed integers wrap around instead of optimizing on their
     # overflow. It also reads values through pointers of other types (the

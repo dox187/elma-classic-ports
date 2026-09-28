@@ -70,6 +70,12 @@ void set_config_zoom(double zoom);
 bool config_zoom_textures();
 void set_config_zoom_textures(bool on);
 bool config_zoom_grass();
+// How the pictures of the level are resized for the zoom (texture_filter):
+// hqx (default), smooth or nearest, as SZURO_HQX, SZURO_SIMA and
+// SZURO_LEGKOZELEBBI of SZURO.H. Read once; set_config_texture_filter saves.
+int config_texture_filter();
+void set_config_texture_filter(int filter);
+const char* texture_filter_name(int filter); // as in the Options menu: HQx
 // The DirectInput code of the key that zooms in or out during a game or a
 // replay (zoom_in_key, zoom_out_key: a name such as PRIOR, DIK_NEXT, PGUP or
 // ADD, or a hex code such as 0xC9; none for no key). Default PageUp and

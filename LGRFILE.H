@@ -78,6 +78,7 @@ public:
 
 	// Nagyitasok, amivel keszult (1: eredeti meret):
 	double nagyitas, texturanagyitas, funagyitas;
+	int szuro; // a nagyitas szuroje (szuro.h)
 	int megfelel( double nagyitas, double texturanagyitas, double funagyitas );
 	// A kepekhez tartozo pixel meretek nagyitva (1-es nagyitasnal az eredetiek):
 	int objektummeret;      // objektumok kepkockainak merete (40)

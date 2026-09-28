@@ -2,7 +2,8 @@
 
 const int Animsize = 40;
 
-anim::anim( pic8* nagykep, char* uzenet_filenev, int meret ) {
+anim::anim( pic8* nagykep, char* uzenet_filenev, int meret, int szuro,
+			unsigned char* paltomb ) {
 	int i;
 	if( meret <= 0 )
 		meret = Animsize;
@@ -28,7 +29,8 @@ anim::anim( pic8* nagykep, char* uzenet_filenev, int meret ) {
 		ppictomb[i] = new pic8( Animsize, Animsize );
 		blt8( ppictomb[i], nagykep, -Animsize*i, 0 );
 		if( meret != Animsize ) {
-			pic8* pnagy = atmeretez( ppictomb[i], meret, meret );
+			pic8* pnagy = atmeretez_szurovel( ppictomb[i], meret, meret, szuro, paltomb,
+											  nagykep->gpixel( 0, 0 ), 0 );
 			delete ppictomb[i];
 			ppictomb[i] = pnagy;
 		}

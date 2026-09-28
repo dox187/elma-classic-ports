@@ -65,6 +65,7 @@ build=build-$target
 # credits the authors and tells which source and game data the build needs.
 add_license() {
     cp "$root/LICENSE.md" "$root/handheld/NOTICE.txt" "$1/"
+    cp "$root/third_party/hqx/COPYING" "$1/LICENSE-hqx.txt"
     commit=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || true)
     if [ -n "$commit" ]; then
         git -C "$root" diff --quiet HEAD 2>/dev/null || commit="$commit, with uncommitted changes"

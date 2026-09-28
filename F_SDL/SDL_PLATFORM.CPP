@@ -723,6 +723,8 @@ const char* dd_zoom_name() { return NULL; }
 void dd_next_zoom() {}
 const char* dd_zoom_textures_name() { return NULL; }
 void dd_next_zoom_textures() {}
+const char* dd_texture_filter_name() { return NULL; }
+void dd_next_texture_filter() {}
 #else
 void ddinit() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
@@ -825,6 +827,12 @@ const char* dd_zoom_name() { return zoom_name(config_zoom()); }
 void dd_next_zoom() { set_config_zoom(next_zoom_option(config_zoom())); }
 const char* dd_zoom_textures_name() { return config_zoom_textures() ? "Yes" : "No"; }
 void dd_next_zoom_textures() { set_config_zoom_textures(!config_zoom_textures()); }
+// HQx, Smooth, Nearest; the next level is loaded with it.
+const char* dd_texture_filter_name() { return texture_filter_name(config_texture_filter()); }
+void dd_next_texture_filter() {
+    static const int next[3] = { SZURO_HQX, SZURO_LEGKOZELEBBI, SZURO_SIMA };
+    set_config_texture_filter(next[config_texture_filter()]);
+}
 #endif
 
 #ifdef ELMA_MIYOO
@@ -838,6 +846,7 @@ double dd_zoom() { return std::min(config_zoom(), max_zoom); }
 void dd_set_zoom(double zoom) { set_config_zoom(std::min(zoom, max_zoom)); }
 int dd_zoom_textures() { return config_zoom_textures(); }
 int dd_zoom_grass() { return config_zoom_grass(); }
+int dd_texture_filter() { return config_texture_filter(); }
 int dd_zoom_key(int zoom_in) { return config_zoom_key(zoom_in != 0); }
 
 #ifdef ELMA_SDL1

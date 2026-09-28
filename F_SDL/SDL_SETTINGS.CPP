@@ -303,6 +303,33 @@ void set_config_zoom_textures(bool on) {
 bool config_zoom_grass() { return config_flag("zoom_grass", true); }
 
 namespace {
+const char* const filter_keys[3] = { "nearest", "smooth", "hqx" };
+const char* const filter_names[3] = { "Nearest", "Smooth", "HQx" };
+bool filter_read = false;
+int current_filter = SZURO_HQX;
+}
+
+int config_texture_filter() {
+    if (!filter_read) {
+        filter_read = true;
+        const char* value = config_get("texture_filter", NULL);
+        if (value)
+            for (int i = 0; i < 3; ++i)
+                if (stricmp(value, filter_keys[i]) == 0) current_filter = i;
+    }
+    return current_filter;
+}
+
+void set_config_texture_filter(int filter) {
+    filter_read = true;
+    current_filter = filter;
+    config_set("texture_filter", filter_keys[filter]);
+    config_save();
+}
+
+const char* texture_filter_name(int filter) { return filter_names[filter]; }
+
+namespace {
 struct KeyName { const char* name; int code; };
 const KeyName key_names[] = {
     {"ESCAPE", DIK_ESCAPE}, {"1", DIK_1}, {"2", DIK_2}, {"3", DIK_3}, {"4", DIK_4},

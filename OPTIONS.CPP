@@ -176,6 +176,13 @@ void options( void ) {
 			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_zoom_textures_name() );
 			rubrikaszam++;
 		}
+		int szurosor = -1;
+		if( dd_texture_filter_name() ) {
+			szurosor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Texture Filter:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_texture_filter_name() );
+			rubrikaszam++;
+		}
 
 		val.bead( rubrikaszam+vantagis, 1 );
 
@@ -262,6 +269,9 @@ void options( void ) {
 
 		if( zoomtexturasor >= 0 && kurrens == zoomtexturasor )
 			dd_next_zoom_textures();
+
+		if( szurosor >= 0 && kurrens == szurosor )
+			dd_next_texture_filter();
 
 
 		if( vantagis ) // Visszaalitjuk eredeti helyzetebe

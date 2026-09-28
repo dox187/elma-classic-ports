@@ -22,6 +22,10 @@ https://elastomania.com
 > from the code of [x0o1y](https://github.com/x0o1y/elma) (commit
 > [`d2280c7`](https://github.com/x0o1y/elma/commit/d2280c7337f0953ab39549561299101a411c067a),
 > *Add native Apple Silicon macOS port*).
+>
+> The pictures of a zoomed level are enlarged with the
+> [hqx](https://github.com/grom358/hqx) scalers (GNU LGPL 2.1, in
+> `third_party/hqx`).
 
 ## Fixed bugs
 
@@ -145,6 +149,7 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 | `zoom`       | size of the bike and the level on the screen, `0.5` to `4` (default `1`, the original size); also under **Options → Zoom** and with the zoom keys in a game |
 | `zoom_textures` | `1` (default): the textures, the sky and the ground as well, are enlarged with the zoom; `0`: they keep their original pixel size, crisper but denser; also under **Options → Zoom Textures** |
 | `zoom_grass` | `1` (default): the grass pictures are enlarged with the zoom; `0`: they keep their original size |
+| `texture_filter` | how the pictures of the level are resized for the zoom and the resolution: `hqx` (default) enlarges them with the hq2x, hq3x and hq4x pixel art scalers and shrinks them by averaging, `smooth` averages the pixels in both directions (whole multiples stay exact copies), `nearest` repeats or drops pixels as the original scaling did; also under **Options → Texture Filter**. The colors are matched to the palette of the LGR file |
 | `zoom_in_key`, `zoom_out_key` | the keys that zoom in and out during a game and a replay: a DirectInput name (`PRIOR`, `NEXT`, `HOME`, `END`, `ADD`, `SUBTRACT`, `Z`, `F5`, ...) or a hex code (`0xC9`), `none` for no key; default `PRIOR` (Page Up) and `NEXT` (Page Down) |
 
 - `sharp` enlarges the picture by a whole number with hard pixel edges and

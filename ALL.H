@@ -50,6 +50,7 @@ int elma_access(const char* path, int mode);
 
 #include	"main.h"
 #include	"pic8.h"
+#include	"szuro.h"
 #include	"anim.h"
 //#include	"picmcga.h"
 //#include	"picl8ves.h"
