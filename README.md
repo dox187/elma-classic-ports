@@ -193,11 +193,11 @@ that is also set for a player, for the screen size or for the screenshot in
 picture of the level, which can take a moment on big levels; that time is not
 counted in the game. The level editor always shows the original size.
 
-The pictures of the LGR file are enlarged with the nearest pixel when the
-level is loaded. At whole-number zooms every pixel becomes an even square; at
-other zooms (1.5x, 0.75x, ...) some rows and columns of pixels are wider than
-others, which looks uneven on the textures; `zoom_textures = 0` keeps them
-crisp.
+The pictures of the LGR file are resized when the level is loaded, with the
+`texture_filter` setting: by default they are enlarged with the hqx pixel art
+scalers and shrunk by averaging their pixels, so that zooms that are not
+whole numbers (1.5x, 0.75x, ...) look even as well; `zoom_textures = 0` keeps
+the textures at their original size.
 
 ## Handheld Linux devices
 
