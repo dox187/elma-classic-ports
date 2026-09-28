@@ -107,7 +107,9 @@ mixer of the Windows version, played through SDL.
 The game draws a 640x480 picture. The window opens at the largest whole
 multiple of that which fits on the screen, and at any window size the
 picture keeps its 4:3 shape, with black bars around it. **Alt+Enter** or
-**F11** switches between the window and full screen.
+**F11** switches between the window and full screen. The 6-bit palette of the
+game is widened as VGA hardware showed it, so white is 255 instead of the
+252 of the earlier SDL port.
 
 Settings that `state.dat` has no room for (it stays readable by the original
 game) are kept in `elma.cfg` in the game directory, one `key = value` per

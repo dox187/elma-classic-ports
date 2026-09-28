@@ -219,11 +219,15 @@ void unlockbackbuffer() {
 unsigned char** lockfrontbuffer() { return lockbackbuffer(0); }
 void unlockfrontbuffer() { unlockbackbuffer(); }
 
+// 6 bits per color, as a VGA card takes them; repeating the top bits makes
+// 63 full brightness instead of 252.
+static uint32_t vga_color(unsigned char c) { return uint32_t(c) << 2 | c >> 4; }
+
 ddpal::ddpal(unsigned char* colors) {
     std::array<uint32_t, 256>* value = new std::array<uint32_t, 256>;
     for (int i = 0; i < 256; ++i)
-        (*value)[i] = uint32_t(colors[i * 3] << 2) << 16 | uint32_t(colors[i * 3 + 1] << 2) << 8 |
-                      uint32_t(colors[i * 3 + 2] << 2);
+        (*value)[i] = vga_color(colors[i * 3]) << 16 | vga_color(colors[i * 3 + 1]) << 8 |
+                      vga_color(colors[i * 3 + 2]);
     pddpal = value;
 }
 ddpal::~ddpal() { delete static_cast<std::array<uint32_t, 256>*>(pddpal); }
