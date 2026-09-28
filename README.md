@@ -80,6 +80,9 @@ cmake -S . -B build -DELMA_REGISTERED=ON
 cmake --build build -j
 ```
 
+The build is optimized (`Release`) unless another `CMAKE_BUILD_TYPE` is
+given.
+
 ### Running
 
 Run the executable from the game directory, next to `elma.res`:

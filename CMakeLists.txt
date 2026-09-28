@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.13)
 project(elma_classic LANGUAGES CXX)
 
+# Without a build type, single-configuration generators such as Ninja and
+# Make compile without optimization.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 option(ELMA_REGISTERED "Build the registered version; needs the registered game data" OFF)
 set(ELMA_PLATFORM "desktop" CACHE STRING
     "Target device: desktop, handheld (SDL 2 handhelds such as the RGB30) or miyoomini")
