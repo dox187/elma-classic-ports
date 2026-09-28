@@ -26,7 +26,6 @@ SDL_Surface* screen = NULL;
 // but not when flipping.
 SDL_Surface* frame = NULL;
 std::array<uint32_t, 256> screen_palette;
-Uint32 last_flip = 0;
 #else
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
@@ -53,6 +52,16 @@ bool fullscreen() {
 #else
     return config_flag("fullscreen", false);
 #endif
+}
+
+// Where showing a frame does not wait for the display, frames are kept to
+// frame_time milliseconds so that the menus do not keep the CPU busy. Where
+// it does wait, frames take that long already and nothing is added.
+Uint32 last_frame = 0;
+void wait_for_frame(Uint32 frame_time) {
+    const Uint32 elapsed = SDL_GetTicks() - last_frame;
+    if (elapsed < frame_time) SDL_Delay(frame_time - elapsed);
+    last_frame = SDL_GetTicks();
 }
 
 #ifndef ELMA_SDL1
@@ -562,12 +571,8 @@ void present() {
     place.h = 480;
     SDL_BlitSurface(frame, NULL, screen, &place);
     SDL_Flip(screen);
-    // SDL 1.2 does not always wait for the display; keep to 60 frames per
-    // second so the menus do not keep the CPU busy.
-    const Uint32 frame_time = 16;
-    const Uint32 elapsed = SDL_GetTicks() - last_flip;
-    if (elapsed < frame_time) SDL_Delay(frame_time - elapsed);
-    last_flip = SDL_GetTicks();
+    // SDL 1.2 does not always wait for the display.
+    wait_for_frame(16);
 }
 #else
 // Draws the frame without showing it.
@@ -581,9 +586,24 @@ void draw_frame() {
     draw(picture);
 }
 
+// A frame at the refresh rate of the display that the window is on, a
+// little shorter so that the wait never makes a frame miss the display.
+Uint32 frame_time() {
+    int rate = 60;
+    SDL_DisplayMode mode;
+    const int display = SDL_GetWindowDisplayIndex(window);
+    if (display >= 0 && SDL_GetDesktopDisplayMode(display, &mode) == 0 && mode.refresh_rate > 0)
+        rate = mode.refresh_rate;
+    return 900 / rate;
+}
+
 void present() {
     draw_frame();
     SDL_RenderPresent(renderer);
+    // Whether presenting waits for the display is not known: the software
+    // renderer of SDL 2.0.18 and later reports vertical sync even where it
+    // cannot wait.
+    wait_for_frame(frame_time());
 }
 #endif
 }
@@ -659,6 +679,9 @@ void ddinit() {
     SDL_SetWindowMinimumSize(window, 320, 240);
 #endif
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE | SDL_RENDERER_PRESENTVSYNC);
+    // Up to SDL 2.0.16 the software renderer does not offer vertical sync,
+    // and asking for it finds no renderer.
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (renderer) {
         SDL_GetRendererInfo(renderer, &renderer_info);

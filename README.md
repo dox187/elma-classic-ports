@@ -132,6 +132,9 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
   itself it looks like `smooth`; the software renderer of SDL 3 (through
   sdl2-compat) shows it like `nearest`.
 
+The game waits for the vertical sync of the display; where showing a frame
+does not wait for it, the game keeps to the refresh rate of the display.
+
 ## Handheld Linux devices
 
 The Miyoo Mini build has been tested on a Miyoo Mini with Onion OS 4.3. The
