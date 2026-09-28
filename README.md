@@ -104,8 +104,10 @@ mixer of the Windows version, played through SDL.
 
 ### Picture and settings
 
-The game draws a 640x480 picture. At any window size the picture keeps its
-4:3 shape, with black bars around it.
+The game draws a 640x480 picture. The window opens at the largest whole
+multiple of that which fits on the screen, and at any window size the
+picture keeps its 4:3 shape, with black bars around it. **Alt+Enter** or
+**F11** switches between the window and full screen.
 
 Settings that `state.dat` has no room for (it stays readable by the original
 game) are kept in `elma.cfg` in the game directory, one `key = value` per
@@ -116,7 +118,7 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 | Key          | Values |
 |--------------|--------|
 | `scale`      | `sharp` (default), `smooth`, `nearest`, `integer` or `pixelart`; also under **Options → Scaling** |
-| `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds |
+| `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds. Alt+Enter and F11 save it |
 
 - `sharp` enlarges the picture by a whole number with hard pixel edges and
   smooths only the rest of the way: crisp pixels of even width.

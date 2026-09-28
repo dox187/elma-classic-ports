@@ -217,6 +217,14 @@ void drawable_ratio(double* x, double* y) {
     *y = window_h > 0 && out_h > 0 ? double(out_h) / window_h : 1.0;
 }
 
+#ifndef ELMA_HANDHELD
+void toggle_fullscreen() {
+    const bool on = !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN);
+    if (SDL_SetWindowFullscreen(window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) != 0) return;
+    config_set("fullscreen", on ? "1" : "0");
+    config_save();
+}
+#endif
 #endif
 
 // Game pad buttons, named as in SDL's game controller API. The Miyoo Mini
@@ -453,6 +461,17 @@ void key_event(const SDL_KeyboardEvent& event, bool down, bool repeat) {
         return;
     }
 #endif
+#if !defined(ELMA_SDL1) && !defined(ELMA_HANDHELD)
+    // Alt+Enter and F11 switch between the window and full screen; the game
+    // does not get these presses. Ctrl+Alt+Enter is left to the menus, which
+    // save the times of a replay with it.
+    const Uint16 mod = event.keysym.mod;
+    if (down && (event.keysym.sym == SDLK_F11 ||
+                 (event.keysym.sym == SDLK_RETURN && (mod & KMOD_ALT) && !(mod & KMOD_CTRL)))) {
+        if (!repeat) toggle_fullscreen();
+        return;
+    }
+#endif
 #ifdef ELMA_SDL1
     const int code = dik(event.keysym.sym);
 #else
@@ -615,15 +634,30 @@ void ddinit() {
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0)
         SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
     scale = configured_scale();
+    int width = 640, height = 480;
+#ifndef ELMA_HANDHELD
+    // The window starts at the largest whole multiple of 640x480 that fits
+    // on the screen with room for the title bar and the window frame.
+    SDL_Rect usable;
+    const int decorations = 64;
+    if (SDL_GetDisplayUsableBounds(0, &usable) == 0)
+        while (width + 640 + decorations <= usable.w && height + 480 + decorations <= usable.h) {
+            width += 640;
+            height += 480;
+        }
+#endif
     Uint32 flags = SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
     if (fullscreen()) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     window = SDL_CreateWindow("Elasto Mania", SDL_WINDOWPOS_CENTERED,
-                              SDL_WINDOWPOS_CENTERED, 640, 480, flags);
+                              SDL_WINDOWPOS_CENTERED, width, height, flags);
     if (!window) {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         SDL_Quit();
         exit(1);
     }
+#ifndef ELMA_HANDHELD
+    SDL_SetWindowMinimumSize(window, 320, 240);
+#endif
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (renderer) {
