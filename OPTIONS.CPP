@@ -134,7 +134,7 @@ void options( void ) {
 			rubrikaszam = 11;
 		#endif
 
-		// Kep nagyitasa, ha a platformon allithato:
+		// Image scaling, if adjustable on the platform:
 		int nagyitassor = -1;
 		if( dd_scale_name() ) {
 			nagyitassor = rubrikaszam;
@@ -143,7 +143,7 @@ void options( void ) {
 			rubrikaszam++;
 		}
 
-		// Jatek kepenek oldalaranya, ha a platformon allithato:
+		// The game image's aspect ratio, if adjustable on the platform:
 		int aranysor = -1;
 		if( dd_aspect_name() ) {
 			aranysor = rubrikaszam;
@@ -152,7 +152,7 @@ void options( void ) {
 			rubrikaszam++;
 		}
 
-		// Jatek kepenek felbontasa, ha a platformon allithato:
+		// The game image's resolution, if adjustable on the platform:
 		int felbontassor = -1;
 		if( dd_resolution_name() ) {
 			felbontassor = rubrikaszam;
@@ -161,7 +161,7 @@ void options( void ) {
 			rubrikaszam++;
 		}
 
-		// Motor nagyitasa es a texturak nagyitasa, ha a platformon allithato:
+		// Engine zoom and texture zoom, if adjustable on the platform:
 		int zoomsor = -1;
 		if( dd_zoom_name() ) {
 			zoomsor = rubrikaszam;
@@ -263,7 +263,7 @@ void options( void ) {
 		if( felbontassor >= 0 && kurrens == felbontassor )
 			dd_next_resolution();
 
-		// A kovetkezo palya betoltesekor ervenyes (floadlevel_p):
+		// Takes effect when the next level loads (floadlevel_p):
 		if( zoomsor >= 0 && kurrens == zoomsor )
 			dd_next_zoom();
 

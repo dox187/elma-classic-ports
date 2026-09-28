@@ -4,7 +4,7 @@ int Volttopsave = 0;
 
 static char Bentlevelnev[20] = "";
 
-// Jatek kozbeni nagyitas valtasakor igaz (ujraepiteshang):
+// True while the in-game zoom is changing (ujraepiteshang):
 static int Ujraepites = 0;
 
 void ujraepiteshang( void ) {
@@ -12,8 +12,8 @@ void ujraepiteshang( void ) {
 		hang();
 }
 
-// Mas nagyitashoz ujratolti az LGR-t es ujraepiti az ecseteket (Ptop es
-// Pszak marad). Ptop kerekjei nem lehetnek fejjel lefele:
+// Reloads the LGR and rebuilds the brushes for a different zoom (Ptop and
+// Pszak stay). Ptop's wheels must not be upside down:
 static void ujranagyit( void ) {
 	beallitarany( 1 );
 	loadlgrfile( Ptop->lgrnev );
@@ -28,7 +28,7 @@ static void ujranagyit( void ) {
 int floadlevel_p( char* nev ) {
 	if( !nev )
 		hiba( "floadlevel_p-ben !nev!" );
-	// Gyujtemeny palyainak neve hosszabb is lehet 8.3-nal (tutorial01.lev):
+	// A collection's level names can be longer than 8.3 (tutorial01.lev):
 	if( strlen( nev ) > 15 || !nev[0] )
 		hiba( "floadlevel_p-ben strlen( nev ) > 15 || !nev[0]!: ", nev );
 	if( Volttopsave || !Ptop || !Pszak || strcmpi( nev, Bentlevelnev ) != 0 ) {
@@ -57,7 +57,7 @@ int floadlevel_p( char* nev ) {
 			Ptop = NULL;
 			return 0;
 		}
-		// A jatek a kivant nagyitassal, az ahhoz nagyitott LGR-rel megy:
+		// The game runs at the desired zoom, with the LGR scaled to it:
 		beallitarany( 1 );
 		loadlgrfile( Ptop->lgrnev );
 		Ptop->pic_selejtez( Plgr );
@@ -73,8 +73,8 @@ int floadlevel_p( char* nev ) {
 		betoltecseteket();
 	}
 	else {
-		// Ugyanaz a palya, de a nagyitas azota valtozott (Options), vagy az
-		// editor eredeti meretu LGR-t toltott be:
+		// Same level, but the zoom has changed since (Options), or the
+		// editor loaded the LGR at its original size:
 		if( maskellarany() || !lgrnagyitasjo() )
 			ujranagyit();
 	}
@@ -86,17 +86,18 @@ void nagyitasvaltas( void ) {
 		hiba( "nagyitasvaltas !Ptop || !Pszak!" );
 	if( !maskellarany() && lgrnagyitasjo() )
 		return;
-	// Az ujraepites ideje nem jatekido:
+	// The time spent rebuilding does not count as game time:
 	mv_pausestopper( 1 );
 	Ujraepites = 1;
 	hang();
-	// Kajak egesz koordjait (kitoltfoodkoordokat) allo kerekekkel szamoljuk:
+	// We compute the food's whole coordinates (kitoltfoodkoordokat) with
+	// upright wheels:
 	int fejjellefele = Ptop->kerekekfejjellefele;
 	Ptop->kerekjolalljon();
 	ujranagyit();
 	if( fejjellefele )
 		Ptop->kereklefejjel();
-	// Keretet ujra kirakja kirajzol320:
+	// kirajzol320 puts the frame back in place again:
 	Kitoltestmegrak = Kitoltestmegrakkezd;
 	hang();
 	Ujraepites = 0;
@@ -121,7 +122,7 @@ void editornagyitas( void ) {
 int floadlevel_e( char* nev, int forceload ) {
 	int levoltzarva = 0;
 
-	// Az editor mindig az eredeti meretben, nagyitatlan LGR-rel dolgozik:
+	// The editor always works at the original size, with an unscaled LGR:
 	beallitarany( 0 );
 
 	if( !nev )
@@ -159,7 +160,7 @@ int floadlevel_e( char* nev, int forceload ) {
 			dialogselejtez();
 	}
 	else
-		// Jatek utan a palya maradt, de az LGR nagyitva lehet:
+		// The level stayed after the game, but the LGR may be scaled:
 		editornagyitas();
 	Ptop->checklevelforsarvari();
 

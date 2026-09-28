@@ -7,8 +7,8 @@ public:
 	int frameszam;
 	pic8* ppictomb[MAXANIMFRAME];
 
-	// Meg is forditja kepet. A nagykep Animsize szeles kepkockait meret
-	// mereture nagyitja (0: marad Animsize):
+	// Also flips the picture. Zooms the Animsize wide frames of nagykep to
+	// the size meret (0: stays Animsize):
 	// meret: size of the frames when zoomed (0: original), resized with szuro
 	// and the LGR palette paltomb (szuro.h). forraskocka: size of the frames in
 	// nagykep (0: 40; in LGR13 the height of the picture, a higher resolution):

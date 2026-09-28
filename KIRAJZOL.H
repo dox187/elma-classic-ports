@@ -10,8 +10,8 @@ extern double   Hatarx1,
 
 extern int	Cxsize, Cysize; // Belso kep meretei
 
-// A jatek kepe (lockbackbuffer, m_dd.h) legfeljebb ekkora; ehhez vannak
-// meretezve a kep meretetol fuggo statikus tombok:
+// The game's picture (lockbackbuffer, m_dd.h) is at most this size; the
+// static arrays that depend on the picture's size are sized for this:
 #define MAXKEPXSIZE (4096)
 #define MAXKEPYSIZE (2400)
 

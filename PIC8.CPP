@@ -28,7 +28,7 @@ int pic8::lefoglal( long xsizep, long ysizep ) {
         hiba( "Bhiba pic8::lefoglalban!" );
         return 0;
     }
-    // A meretek short-ban vannak (getxsize, getysize):
+    // The sizes are stored in a short (getxsize, getysize):
     if( xsizep > 32767 || ysizep > 32767 ) {
         hiba( "pic8::lefoglal: a kep tul nagy!" );
         return 0;
@@ -47,7 +47,7 @@ int pic8::lefoglal( long xsizep, long ysizep ) {
     }
     long egyszegben = 0x0ff00l/long(xsizep); // Nehogy szegmens merete
                 // megkozelitse 65536-ot
-    if( egyszegben < 1 ) // 65280-nal szelesebb kep: soronkent egy szegmens
+    if( egyszegben < 1 ) // a picture wider than 65280: one segment per row
         egyszegben = 1;
     // szegnum meg inkrementalva lesz a vegen, ha plussz is van!:
     szegnum = unsigned(ysizep)/egyszegben;
@@ -1032,9 +1032,10 @@ void pic8::keszitbelsot( int x1, int y1, int x2, int y2, pic8* ppic ) {
 		sormuttomb[y] = ppic->getptr( y+y1 ) + x1;
 }
 
-// Legkozelebbi szomszeddal atmeretezett uj kep, a regit nem torli. Minden cel
-// pixel a kozepe alatt levo forras pixel szinindexet kapja (az atlatszo
-// indexet is), egesz szorzonal ez a forras pixelek pontos ismetlese:
+// New picture resized with the nearest neighbor, does not delete the old one.
+// Each target pixel gets the color index of the source pixel below its
+// center (the transparent index too); at a whole-number factor this repeats
+// the source pixels exactly:
 pic8* atmeretez( pic8* ps, int ujxsize, int ujysize ) {
 	if( ujxsize < 1 || ujysize < 1 )
 		hiba( "atmeretez ujxsize < 1 || ujysize < 1!" );

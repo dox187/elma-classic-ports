@@ -30,8 +30,8 @@ unsigned char* spriteadat8( pic8* ppic, unsigned char szin,
 	*pspritehossz = 0;
 	int xsize = ppic->getxsize();
 	int ysize = ppic->getysize();
-	// Soronkent legfeljebb xsize darab, egyenkent 2 byte (nagyitott
-	// objektumok kepei nagyobbak lehetnek MAXBUFFER-nel):
+	// At most xsize per row, 2 bytes each (zoomed objects' pictures can be
+	// larger than MAXBUFFER):
 	unsigned bufmeret = MAXBUFFER;
 	if( bufmeret < 2u*xsize*ysize+2 )
 		bufmeret = 2u*xsize*ysize+2;
@@ -60,7 +60,7 @@ unsigned char* spriteadat8( pic8* ppic, unsigned char szin,
 				buffer[buf++] = 'N';
 				buffer[buf++] = nemkellhossz;
 			}
-			// spritehossz unsigned short:
+			// spritehossz is an unsigned short:
 			if( buf >= bufmeret || buf > 65535u ) {
 				hiba( "Nem fer be egy szegmensbe spriteadat!" );
 				DELETE buffer; }

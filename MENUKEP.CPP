@@ -57,7 +57,7 @@ void initmenukep2( void ) {
 	menumeretbeallit();
 }
 
-static pic8* Tmpbuffer = NULL; // Ideiglenes
+static pic8* Tmpbuffer = NULL; // Temporary
 
 void golyofalak( int xsize, int ysize ); // golyutk.cpp
 
@@ -389,7 +389,7 @@ void szoveglista::kirajzol( int nemkellgolyo,
 		else
 			sisakframe = Psisak->getframebyindex( 25 );
 
-		// (-100 a kepen kivul van, ott is marad:)
+		// (-100 is off screen, it stays there too:)
 		if( sisakx == -100 && sisaky == -100 )
 			blt8( Tmpbuffer, sisakframe, sisakx-20, sisaky-7 );
 		else
@@ -486,8 +486,8 @@ int szoveglista::kirajzolanim( double ido ) {
 
 	frame -= 480;*/
 
-	// A menu kepe alulrol (Menuysize magasrol) jon fel, az intro kep lefele
-	// megy le rola:
+	// The menu image rises from below (from Menuysize height), the intro
+	// image moves down off it:
 	if( frame >= Menuysize ) {
 		Scrolly1 = 0;
 		return 0;

@@ -73,7 +73,7 @@ static void meghelyez( double* pd, double arany ) {
 	*pd = (pixel+0.5)/arany;
 }
 
-// Az eredeti jatek Arany-a (initadatok, 100.0*0.48):
+// The original game's Arany (initadatok, 100.0*0.48):
 #define EREDETIARANY (48.0)
 
 void ecset::getorigoandsize( void ) {
@@ -108,9 +108,9 @@ void ecset::getorigoandsize( void ) {
 		psz = Pszak->getnextszak();
 	}
 
-	// A szelek meterben ugyanakkorak minden nagyitasnal (az eredeti
-	// Arany-nyal 10000, 4000 es 1000 pixel), igy ugyanazok a kepek esnek bele,
-	// es a texturak a vilagban ugyanott kezdodnek:
+	// The edges are the same size in meters at every zoom (10000, 4000 and
+	// 1000 pixel with the original Arany), so the same pictures fall into
+	// them, and the textures start at the same place in the world:
 	if( view ) {
 		// VIEW VIEW VIEW VIEW VIEW VIEW VIEW VIEW VIEW VIEW
 		// x-re jol ra lehet hagyni, nem noveli memoria foglalast:
@@ -128,8 +128,8 @@ void ecset::getorigoandsize( void ) {
 		xsizedb = (maxx+10000/Aranyalap)-origo.x;
 		ysizedb = (maxy+1000/Aranyalap)-origo.y;
 
-		// Ugyanez az eredeti Arany-nyal, kilogna-hoz (ecset::ecset
-		// szamolja igy maxx-et es sorszam-ot):
+		// The same with the original Arany, for kilogna (ecset::ecset
+		// computes maxx and sorszam this way):
 		eredetiorigo = vekt2( minx-10000/EREDETIARANY, miny-1000/EREDETIARANY );
 		meghelyez( &eredetiorigo.x, EREDETIARANY );
 		meghelyez( &eredetiorigo.y, EREDETIARANY );
@@ -139,7 +139,7 @@ void ecset::getorigoandsize( void ) {
 }
 
 void ecset::addszakasz( vonal* psz ) {
-	// A terkep (view) nem nagyitodik:
+	// The map (view) is not zoomed:
 	double arany = Arany;
 	if( view )
 		arany = Aranyalap;
@@ -462,7 +462,7 @@ void ecset::kitoltfoodkoordokat( void ) {
 			pker->ryint_v = (-pker->r.y-origo.y)*Aranyalap/Viewzoom;
 		}
 		else {
-			// Nagyitott objektum kep bal also sarka:
+			// Bottom left corner of the zoomed object picture:
 			pker->rxint = (pker->r.x-origo.x)*Arany-Plgr->objektumsugar;
 			pker->ryint = (-pker->r.y-origo.y)*Arany-Plgr->objektumsugar;
 		}
@@ -655,8 +655,8 @@ void ecset::addbytesor( unsigned char* ujpixelek, int ujtavolsag,
 	//if( y != 1039 )
 	//	return;
 
-	// Ecseten kivuli sorok es balra kilogo darabok kimaradnak (a fu
-	// poligonok nincsenek Pszak-ban, ezert kilohetnek belole):
+	// Rows outside the ecset and pieces sticking out to the left are left
+	// out (grass polygons are not in Pszak, so they can stick out of it):
 	if( y < 0 || y >= sorszam )
 		return;
 	if( ujx2 < kurxposok_A[y] )
@@ -735,9 +735,9 @@ int teliszam( int x, int xsize, unsigned char* sor, unsigned char lyuk ) {
 	return szam;
 }
 
-// A kepek es maszkok bal szele legalabb ennyire, jobb szele legalabb ennyire
-// legyen az ecset szeletol (eredetileg 120 es 50 pixel, nagyitva ugyanannyi
-// meter), addspriteok allitja:
+// The left edge of pictures and masks must be at least this far, the right
+// edge at least this far, from the ecset's edge (originally 120 and 50
+// pixel, the same in meters when zoomed), addspriteok sets it:
 static int Kepszelbal = 120, Kepszeljobb = 50;
 
 // addspriteok hivja:
@@ -763,7 +763,7 @@ void ecset::addegymaszk( sprite* psp, int index_t, int index_m, int fazis ) {
 		int x = 0;
 		// Maszkos eljaras:
 		while( pm->adatok[i].tipus != ME_SOREMELES ) {
-			// Negativ iranyban haladunk y-on (y1-y):
+			// We go in the negative direction on y (y1-y):
 			if( pm->adatok[i].tipus == ME_TELI && y1-y >= 0 && y1-y < sorszam ) {
 				addbytesor( (unsigned char*)(index_t+10), tavolsag,
 					x1+x, x1+x+pm->adatok[i].hossz-1,
@@ -829,7 +829,7 @@ void ecset::addspriteok( int fazis ) {
 		int xsize = pkep->xsize;
 		int ysize = pkep->ysize;
 
-		// Innen az osszes tobbi kep is kimarad (mint eredetileg):
+		// From here on all further pictures are left out too (as originally):
 		if( x1 < Kepszelbal || x1+xsize >= maxx-Kepszeljobb )
 			return;
 
@@ -896,10 +896,10 @@ static int getanyagszam( unsigned char* sor, int x, int xsize,
 }
 
 
-// Ilyen hosszu (ecset pixelben, nagyitva ugyanannyi meter) lehet egy fu vonala:
+// A grass line can be this long (in ecset pixels, the same in meters when zoomed):
 #define KOVVONALHOSSZ (10000)
 
-// Fu kepenek sajat segedkepe (eredetileg a menuk Buffsima-ja volt):
+// The grass picture's own helper picture (originally the menus' Buffsima):
 static pic8* Kovetosegedkep = NULL;
 
 void ecset::kovetotextura( koveto* pkov, int index, int xo, int yo, int fazis ) {
@@ -937,8 +937,8 @@ void ecset::kovetotextura( koveto* pkov, int index, int xo, int yo, int fazis ) 
 	}
 	pic8* pseged = Kovetosegedkep;
 
-	// Toroljuk seged kepet (sormutatokkal, a nagyitott kepek miatt):
-	// pseged: 0 -> atlatszo, 1 -> van textura:
+	// Clear the helper picture (with row pointers, because of zoomed pictures):
+	// pseged: 0 -> transparent, 1 -> has texture:
 	for( y = 0; y < ysize; y++ )
 		memset( pseged->getptr( y ), 0, xsize );
 	// Feltoltjuk segedkepet:
@@ -1006,8 +1006,8 @@ void ecset::kiegykovetokep( koveto* pkov, int index, int xo, int yo, int fazis )
 	int keltolas = Plgr->keltolas;
 
 	// Kiszamoljuk kep tetejenek helyet:
-	// (Lefele meno kep a vonalba a jobb oldalan lep be, ott a teteje
-	// keltolas+lejtes-sel van feljebb; nagyitas nelkul ysize-1-keltolas.)
+	// (A picture going downward enters the line on its right side, where its
+	// top is higher by keltolas+lejtes; without zoom, ysize-1-keltolas.)
 	if( pkov->feltomb[index] )
 		yo -= keltolas;
 	else
@@ -1028,8 +1028,8 @@ void ecset::kiegykovetokep( koveto* pkov, int index, int xo, int yo, int fazis )
 		}
 	}
 
-	// Eredetileg a 640x480-as Buffsima-ba kellett fernie (nagyitva ugyanazok
-	// a kepek kapnak texturat):
+	// Originally it had to fit in the 640x480 Buffsima (zoomed, the same
+	// pictures get a texture):
 	if( xsize > Plgr->kovetomaxx || ysize > Plgr->kovetomaxy ) {
 		#ifdef TEST
 			hiba( "7yfg4" );
@@ -1236,7 +1236,7 @@ void ecset::levon10000t( void ) {
 	}
 };
 
-// sorszam alapjan, nullazva:
+// Based on sorszam, cleared:
 void ecset::lefoglalsortomboket( void ) {
 	if( sorszam < 0 || sorszam > MAXECSETSOR )
 		hibanincsmem();
@@ -1302,8 +1302,8 @@ ecset::ecset( int view_p ) {
 		sorszam = ysizedb*Arany;
 	}
 
-	// A sortombok a palya magassagahoz igazodnak (eredetileg 12000 soros fix
-	// tombok voltak, hiba-val):
+	// The row arrays adjust to the level's height (originally they were
+	// fixed 12000-row arrays, with hiba):
 	lefoglalsortomboket();
 
 	// Inicializaljuk minden sor elejet foldre:
@@ -1955,11 +1955,11 @@ static void egetkeszit( pic8* peg, int xhely, int xkezd, int xmodulus ) {
 	blt8( peg, Felho, x, 0 );
 } */
 
-// Az ecset szeletol ennyi pixelnyi savot nem rajzolunk ki (eredetileg a kep
-// nem is kozelithette meg jobban, kulonben hiba-val kilepett):
+// A band of this many pixels along the edge of the ecset is not drawn
+// (originally the picture could not come closer, or the game quit with hiba):
 #define ECSETSZEL (20)
 
-// Nemnegativ maradek, negativ ecset koordinatakra is:
+// Non-negative remainder, also for negative ecset coordinates:
 static int pozmaradek( int a, int m ) {
 	int maradek = a % m;
 	if( maradek < 0 )
@@ -1967,21 +1967,21 @@ static int pozmaradek( int a, int m ) {
 	return maradek;
 }
 
-// Lefele kerekitett osztas (negativ ecset koordinatakra is):
+// Division rounded down (also for negative ecset coordinates):
 static int lefeleoszt( int a, int b ) {
 	if( a >= 0 )
 		return a/b;
 	return -((b-1-a)/b);
 }
 
-// Az eg nem scrollozodik fol-le, a kep also sorahoz igazodik. A 480-nal
-// alacsonyabb eg kepek mar eredetileg is ismetlodtek (ugy keszultek), azok
-// ugy folytatodnak. A legalabb 480 magas kepet (pl. sky.pcx) az eredeti sosem
-// ismetelte: magasabb kepen a teteje felett tukrozve folytatodik, hogy ne
-// legyen vagas:
-// A 480-nal alacsonyabb eget (eredeti meretben) az eredeti ismetli, a
-// magasabbat folotte tukrozzuk; nagyitott eg eseten a nagyitott 480-hoz
-// hasonlitunk, kulonben kicsinyitve a 640x480-as eg is ismetlodne:
+// The sky does not scroll vertically, it is aligned to the bottom row of the
+// picture. Sky pictures lower than 480 were repeated already in the original
+// (they are made for it) and go on repeating. A picture at least 480 high
+// (e.g. sky.pcx) was never repeated in the original: on a taller picture it
+// continues mirrored above its top, so that there is no seam:
+// A sky lower than 480 (at its original size) is repeated as in the original,
+// a taller one is mirrored above; for a zoomed sky the zoomed 480 is the
+// limit, otherwise a shrunk 640x480 sky would be repeated as well:
 static int egkepsor( int sor, int egymodulus ) {
 	if( egymodulus < nagyitpixel( 480, Plgr->texturanagyitas ) )
 		return sor % egymodulus;
@@ -1991,8 +1991,8 @@ static int egkepsor( int sor, int egymodulus ) {
 	return sor;
 }
 
-// Ha a kep az ecseten kivulre esik, kivul foldet rajzol (also es view
-// ecset), vagy semmit (felso ecset), belul ugyanazt, mint regen:
+// Where the picture falls outside the ecset, draws ground (bottom and view
+// ecset) or nothing (top ecset) there, and the same as before inside:
 void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int x2, int y2 ) {
 	if( x1 >= x2 || y1 >= y2 )
 		hiba( "ecset::kitesz x1 >= x2 || y1 >= y2!" );
@@ -2000,11 +2000,11 @@ void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int
 	Kisordarabszam = 0;
 
 	int ye1 = 0;
-	int kepxe1 = 0; // Kep bal szele ecsetben
+	int kepxe1 = 0; // Left edge of the picture in the ecset
 	getbalalso_int( balalso, &kepxe1, &ye1 );
 	int kepxe2 = kepxe1 + x2-x1;
 
-	// Ecsetbol ennyi oszlop latszik (kilogo resz nelkul):
+	// This many columns of the ecset are visible (without the part sticking out):
 	Xe1 = kepxe1;
 	Xe2 = kepxe2;
 	if( Xe1 < ECSETSZEL )
@@ -2012,8 +2012,8 @@ void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int
 	if( Xe2 > maxx-ECSETSZEL )
 		Xe2 = maxx-ECSETSZEL;
 	Xe2plussz1 = Xe2+1;
-	int balra = Xe1-kepxe1; // Balra kilogo oszlopok
-	int jobbra = kepxe2-Xe2; // Jobbra kilogo oszlopok
+	int balra = Xe1-kepxe1; // Columns sticking out to the left
+	int jobbra = kepxe2-Xe2; // Columns sticking out to the right
 	int sorhossz = kepxe2-kepxe1+1;
 	int kilogofold = this != Pecsetfelso;
 
@@ -2041,7 +2041,7 @@ void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int
 		Egsor = Plgr->peg->getptr( egkepsor( y-y1, egymodulus ) ) + egdx;
 
 		if( ye < ECSETSZEL || ye > sorszam-ECSETSZEL || Xe1 > Xe2 ) {
-			// Egesz sor kilog:
+			// The whole row sticks out:
 			if( kilogofold )
 				BYTECOPY( pc, Foldsor, sorhossz );
 			continue;
@@ -2052,7 +2052,7 @@ void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int
 			if( jobbra > 0 )
 				BYTECOPY( pc+sorhossz-jobbra, Foldsor+sorhossz-jobbra, jobbra );
 		}
-		// kiegysor Foldsor es Egsor elejet Xe1-hez veszi:
+		// kiegysor takes the start of Foldsor and Egsor at Xe1:
 		Foldsor += balra;
 		Egsor += balra;
 		pc += balra;
@@ -2076,7 +2076,7 @@ void ecset::kiteszview( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1,
 	int ye1 = 0;
 	int kepxe1 = 0;
 	getbalalso_int( balalso, &kepxe1, &ye1 );
-	// Egy oszloppal tobbet rak ki (azt kesobb keret fedi el):
+	// Draws one more column (a frame covers it later):
 	int kepxe2 = kepxe1 + x2-x1+1;
 
 	Xe1 = kepxe1;
@@ -2114,13 +2114,13 @@ void ecset::kiteszview( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1,
 	}
 }
 
-// Az eredeti jatek (1.11a) kepe 640x480-as volt, Arany 48, es a motor kozepe
-// korul (vizszintesen a ket szelso helyzet kozott felezve) latszott a palya;
-// ha ez a kep az ecset szelehez ECSETSZEL-nel kozelebb kerult, kitesz
-// hiba-val kilepett. Ez itt ugyanazt vizsgalja meg, a kep valodi meretetol
-// es Arany-tol fuggetlenul:
+// The original game's (1.11a) picture was 640x480, Arany was 48, and the
+// level was seen around the motorbike's center (halved between the two
+// extreme positions horizontally); if this picture got closer than
+// ECSETSZEL to the ecset's edge, kitesz exited with hiba. This checks the
+// same thing, independent of the picture's actual size and of Arany:
 int ecset::kilogna( vekt2 r ) {
-	// Kep bal also sarka ecset pixelben (getbalalso_int egeszre csonkitja):
+	// Bottom left corner of the picture in ecset pixels (getbalalso_int truncates to integer):
 	double x = (r.x - 320.0/EREDETIARANY - eredetiorigo.x)*EREDETIARANY;
 	double y = (r.y - 240.0/EREDETIARANY - eredetiorigo.y)*EREDETIARANY;
 	if( x < ECSETSZEL || y < ECSETSZEL )
@@ -2135,7 +2135,7 @@ int ecset::kilogna( vekt2 r ) {
 
 static mdarab* Glb_pfoltdarab = NULL;
 
-// A felette levo sor egy mdarab-jarol (ezfolt csak ettol fugg):
+// About one mdarab of the row above (ezfolt depends only on this):
 static int ezfoltdarab( mdarab* pmd ) {
 	if( !Glb_pfoltdarab )
 		hiba( "65rw5r7twe" );
@@ -2156,14 +2156,14 @@ static int ezfoltdarab( mdarab* pmd ) {
 	return 1;
 }
 
-// x1-tol xkov-ig hany egymas utani pixel folt (folt igaz) vagy nem folt: a
-// felette levo sor mdarab-jait egyben lepi at (eredetileg pixelenkent
-// vizsgalta, ugyanezzel az eredmennyel):
+// How many consecutive pixels from x1 to xkov are folt (spot, if folt is
+// true) or not folt: it steps over the mdarab pieces of the row above in one
+// go (originally it checked pixel by pixel, with the same result):
 static int getazonosszam( int x1, int xkov, int y, mdbiter* piter1, int folt ) {
 	int szam = 0;
 	int x = x1;
 	while( x < xkov ) {
-		// Felette levo sort vizsgaljuk:
+		// We check the row above:
 		mdarab* pmd = piter1->getpmd( x, y+1 );
 		if( ezfoltdarab( pmd ) != folt )
 			return szam;
@@ -2352,8 +2352,8 @@ mdarab* mdbiter::getpmd( int x, int y ) {
 		}
 	}
 	else {
-		// Ujra kell olvasni (a sort meg is jegyezzuk, eredetileg ybent
-		// sosem valtozott, igy minden hivas a sor elejerol indult):
+		// We need to read again (we also remember the row; originally ybent
+		// never changed, so every call started from the beginning of the row):
 		if( y < 0 || y >= pecset->sorszam )
 			hiba( "789eygrq" );
 		ybent = y;

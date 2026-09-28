@@ -409,7 +409,7 @@ void mainmenu( void ) {
 
 		if( eredmeny == 6 ) {
 			Editorban_dialnak = 1;
-			// Az editor 640x480-as menukepbe rajzol:
+			// The editor draws into the 640x480 menu image:
 			Menueredeti = 1;
 			menumeretbeallit();
 			editor();

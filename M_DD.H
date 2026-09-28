@@ -21,65 +21,67 @@ public:
 // Ha igaz, alulrol indul y (kirajz320 allitja igazba):
 extern int Locky0_alul; 
 
-// A jatek kepe (kirajzol320) sajat xsize*ysize meretu kep, a lockbackbuffer
-// ysize sormutatot ad vissza (Locky0_alul eseten forditva). A menuk, dialogusok
-// es az editor kepe (lockfrontbuffer) mindig 640x480-as es megmarad ket
-// rajzolas kozott.
+// The game's picture (kirajzol320) is its own xsize*ysize picture, lockbackbuffer
+// returns ysize row pointers (reversed when Locky0_alul). The menus', dialogs'
+// and the editor's picture (lockfrontbuffer) is always 640x480 and stays
+// unchanged between draws.
 unsigned char** lockbackbuffer( int fizikai );
-void unlockbackbuffer( void ); // Ki is teszi
-// A kovetkezo lockbackbuffer altal adott kep merete, lockolt allapotban a
-// lockolte. Csak ket kep kozott valtozhat, legalabb 640x480, legfeljebb
+void unlockbackbuffer( void ); // Also presents it
+// The size of the picture given by the next lockbackbuffer, valid while
+// locked. Can only change between two pictures, at least 640x480, at most
 // MAXKEPXSIZE*MAXKEPYSIZE (kirajzol.h):
 void backbuffersize( int* xsize, int* ysize );
 
 unsigned char** lockfrontbuffer( void );
 void unlockfrontbuffer( void );
-// A menuk kepenek (front buffer) merete: dd_menumeret a platform javaslata az
-// ablakhoz (legalabb 640x480, a szovegek 1:1 pixelen maradnak),
-// frontbuffermeret beallitja, a kovetkezo lockfrontbuffer mar ekkora kepet
-// ad (menukep.cpp menumeretbeallit hivja):
+// Size of the menus' picture (front buffer): dd_menumeret is the platform's
+// suggestion for the window (at least 640x480, texts stay on 1:1 pixels),
+// frontbuffermeret sets it, the next lockfrontbuffer already gives a picture
+// this size (called by menukep.cpp menumeretbeallit):
 void dd_menumeret( int* xsize, int* ysize );
 void frontbuffermeret( int xsize, int ysize );
 
-// Kep nagyitasanak modja az ablakban, Options menuben allithato. NULL-t ad
-// vissza, ha a platformon nem allithato (terminal, SDL 1.2):
+// How the picture is scaled in the window, settable in the Options menu.
+// Returns NULL if not settable on the platform (terminal, SDL 1.2):
 const char* dd_scale_name( void );
-void dd_next_scale( void ); // Kovetkezo modra valt es elmenti
+void dd_next_scale( void ); // Switches to the next mode and saves it
 
-// Jatek kepenek oldalaranya (kepernyoe vagy 4:3), Options menuben allithato,
-// a kovetkezo kephez ervenyes. NULL-t ad vissza, ha a platformon nem
-// allithato (terminal, SDL 1.2):
+// Aspect ratio of the game picture (screen's or 4:3), settable in the
+// Options menu, valid from the next picture. Returns NULL if not settable
+// on the platform (terminal, SDL 1.2):
 const char* dd_aspect_name( void );
-void dd_next_aspect( void ); // Masikra valt es elmenti
+void dd_next_aspect( void ); // Switches to the other one and saves it
 
-// Jatek kepenek felbontasa (hany pixel ugyanarra a reszre), Options menuben
-// allithato, a kovetkezo palyatol ervenyes. NULL, ha nem allithato:
+// Resolution of the game picture (how many pixels for the same part),
+// settable in the Options menu, valid from the next level. NULL if not
+// settable:
 const char* dd_resolution_name( void );
-void dd_next_resolution( void ); // Kovetkezore valt es elmenti
+void dd_next_resolution( void ); // Switches to the next one and saves it
 
 
-// A motor merete a kepen (nagyitas, zoom): 1 az eredeti, NAGYITASMIN..
-// NAGYITASMAX (adatok.h). A kovetkezo palya betoltesekor, jatek kozben pedig
-// a nagyito billentyukkel azonnal ervenyes (load.cpp). Terminalban mindig 1:
+// Size of the bike on the screen (zoom): 1 is the original, NAGYITASMIN..
+// NAGYITASMAX (adatok.h). Takes effect when the next level loads, and
+// during the game immediately with the zoom keys (load.cpp). Always 1 in
+// the terminal:
 double dd_zoom( void );
-void dd_set_zoom( double zoom ); // Elmenti (jatek kozbeni billentyuk)
-// Igaz, ha nagyitaskor a texturak (az eg es a fold is) is nagyitodnak, kulonben
-// eredeti pixelmeretuek maradnak:
+void dd_set_zoom( double zoom ); // Saves it (in-game keys)
+// True if the textures (both sky and ground) also scale when zooming,
+// otherwise they stay original pixel size:
 int dd_zoom_textures( void );
-// Igaz, ha nagyitaskor a fu kepei (qup_, qdown_, qgrass) is nagyitodnak:
+// True if the grass pictures (qup_, qdown_, qgrass) also scale when zooming:
 int dd_zoom_grass( void );
-// Jatek es visszajatszas kozben a nagyito (nagyit igaz) es kicsinyito
-// billentyu DIK kodja, 0 ha nincs:
+// DIK code of the zoom-in (nagyit true) and zoom-out key during the game
+// and replay, 0 if none:
 int dd_zoom_key( int nagyit );
-// Options menu sorai (Zoom, Zoom Textures). NULL-t adnak vissza, ha a
-// platformon nem allithato (terminal, SDL 1.2):
+// Options menu rows (Zoom, Zoom Textures). Return NULL if not settable on
+// the platform (terminal, SDL 1.2):
 const char* dd_zoom_name( void );
-void dd_next_zoom( void ); // Kovetkezo nagyitasra valt es elmenti
+void dd_next_zoom( void ); // Switches to the next zoom level and saves it
 const char* dd_zoom_textures_name( void );
-void dd_next_zoom_textures( void ); // Masikra valt es elmenti
-// A nagyitott kepek szuroje (szuro.h: SZURO_HQX, SZURO_SIMA,
-// SZURO_LEGKOZELEBBI) es Options menu sora (NULL, ha nem allithato):
+void dd_next_zoom_textures( void ); // Switches to the other one and saves it
+// Filter of the scaled pictures (szuro.h: SZURO_HQX, SZURO_SIMA,
+// SZURO_LEGKOZELEBBI) and its Options menu row (NULL if not settable):
 int dd_texture_filter( void );
 const char* dd_texture_filter_name( void );
-void dd_next_texture_filter( void ); // Kovetkezore valt es elmenti
+void dd_next_texture_filter( void ); // Switches to the next one and saves it
 

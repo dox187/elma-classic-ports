@@ -240,7 +240,7 @@ const char* dd_scale_name() { return NULL; }
 void dd_next_scale() {}
 const char* dd_aspect_name() { return NULL; }
 void dd_next_aspect() {}
-// A terminalban a menuk 640x480-asak:
+// The menus are 640x480 in the terminal:
 void dd_menumeret(int* w, int* h) { *w = 640; *h = 480; }
 void frontbuffermeret(int, int) {}
 const char* dd_resolution_name() { return NULL; }

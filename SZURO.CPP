@@ -2,8 +2,8 @@
 #include	"third_party/hqx/hqx.h"
 #include	<vector>
 
-// Egy kep 8 bites RGB-ben es atlatszosaggal (0 vagy 255, szures utan koztes),
-// soronkent, fentrol lefele:
+// A picture in 8-bit RGB with transparency (0 or 255, in-between after
+// filtering), row by row, top to bottom:
 struct szinkep {
 	int xsize, ysize;
 	std::vector<unsigned> rgb;   // 0x00RRGGBB
@@ -34,8 +34,8 @@ static void kepbolszinkep( pic8* ps, unsigned char* paltomb, int atlatszo,
 	}
 	if( atlatszo < 0 )
 		return;
-	// Az atlatszo pixelek a szomszedaik szinet kapjak (nehany lepesben), hogy
-	// a szures a kep szelen ne keverjen bele idegen szint:
+	// The transparent pixels get their neighbors' color (over a few steps),
+	// so filtering does not mix in a foreign color at the picture's edge:
 	std::vector<unsigned char> van( pk->a );
 	for( int lepes = 0; lepes < 4; lepes++ ) {
 		std::vector<unsigned char> ujvan( van );
@@ -68,8 +68,8 @@ static void kepbolszinkep( pic8* ps, unsigned char* paltomb, int atlatszo,
 
 typedef void (*hqfuggveny)( const uint32_t*, uint32_t*, int, int );
 
-// hqNx egy 32 bites kepre; ismetlodo kepnel a szelek korbe erik egymast
-// (2 pixel keret a masik oldalrol, a vegen levagva):
+// hqNx on a 32-bit picture; for a repeating picture the edges wrap around
+// (a 2-pixel border from the other side, cut off at the end):
 static std::vector<unsigned> hqkep( const std::vector<unsigned>& forras, int xs, int ys,
 									int n, int ismetlodo ) {
 	static const hqfuggveny fuggvenyek[5] = { NULL, NULL, hq2x_32, hq3x_32, hq4x_32 };
@@ -95,7 +95,8 @@ static void hqnagyit( const szinkep& k, int n, int ismetlodo, szinkep* pk ) {
 	pk->xsize = k.xsize*n;
 	pk->ysize = k.ysize*n;
 	pk->rgb = hqkep( k.rgb, k.xsize, k.ysize, n, ismetlodo );
-	// Az atlatszosag kulon, fekete-feher kepkent, hogy a szele is simuljon:
+	// Transparency separately, as a black-and-white picture, so its edge
+	// gets smoothed too:
 	std::vector<unsigned> maszk( k.a.size() );
 	for( size_t i = 0; i < k.a.size(); i++ )
 		maszk[i] = k.a[i] ? 0xffffff : 0;
@@ -105,8 +106,9 @@ static void hqnagyit( const szinkep& k, int n, int ismetlodo, szinkep* pk ) {
 		pk->a[i] = (unsigned char)( (nagymaszk[i] >> 8) & 255 );
 }
 
-// Teruletatlag: minden cel pixel a lefedett forras pixelek atlaga, a lefedett
-// terulet aranyaban (az atlatszok szine nem szamit bele):
+// Area average: each target pixel is the average of the source pixels it
+// covers, weighted by covered area (transparent pixels' color does not
+// count):
 static void teruletatlag( const szinkep& k, int ujx, int ujy, szinkep* pk ) {
 	pk->xsize = ujx;
 	pk->ysize = ujy;
@@ -139,7 +141,7 @@ static void teruletatlag( const szinkep& k, int ujx, int ujy, szinkep* pk ) {
 	}
 }
 
-// RGB -> legkozelebbi palettaszin tabla, 6 bit szinenkent, mint a paletta:
+// RGB -> nearest palette color table, 6 bits per channel, like the palette:
 static unsigned char Szintabla[262144];
 static unsigned char Szintablapal[768];
 static int Vanszintabla = 0;
@@ -181,7 +183,7 @@ static void szintablakell( unsigned char* paltomb ) {
 pic8* atmeretez_szurovel( pic8* ps, int ujxsize, int ujysize, int szuro,
 						  unsigned char* paltomb, int atlatszo, int ismetlodo ) {
 	int xs = ps->getxsize(), ys = ps->getysize();
-	// Egesz szorzonal sima szurovel is a pixelek pontos ismetlese:
+	// At a whole-number factor, even with the plain filter pixels repeat exactly:
 	int egesz = ujxsize % xs == 0 && ujysize % ys == 0 && ujxsize/xs == ujysize/ys;
 	if( szuro == SZURO_LEGKOZELEBBI || !paltomb || (szuro == SZURO_SIMA && egesz) )
 		return atmeretez( ps, ujxsize, ujysize );
@@ -189,9 +191,10 @@ pic8* atmeretez_szurovel( pic8* ps, int ujxsize, int ujysize, int szuro,
 	szinkep k;
 	kepbolszinkep( ps, paltomb, atlatszo, &k );
 
-	// HQx-szel nagyitaskor eloszor egesz szorosra (legfeljebb 4x), onnan
-	// teruletatlaggal a meretre (az nagyitani is tud: egesz szorzonal a
-	// pixelek ismetlese, kulonben a szomszedos pixelek aranyos keverese):
+	// With HQx, first zoom to a whole-number factor (at most 4x), then to the
+	// final size with the area average (it can zoom up too: at a whole-number
+	// factor pixels repeat, otherwise neighboring pixels are blended
+	// proportionally):
 	if( szuro == SZURO_HQX && (xs < ujxsize || ys < ujysize) ) {
 		int n = 1;
 		while( n < 4 && (xs*n < ujxsize || ys*n < ujysize) )
@@ -209,7 +212,7 @@ pic8* atmeretez_szurovel( pic8* ps, int ujxsize, int ujysize, int szuro,
 	else
 		teruletatlag( k, ujxsize, ujysize, &cel );
 
-	// Vissza a palettara:
+	// Back to the palette:
 	szintablakell( paltomb );
 	pic8* pd = new pic8( ujxsize, ujysize );
 	for( int y = 0; y < ujysize; y++ ) {

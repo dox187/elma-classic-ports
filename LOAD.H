@@ -18,16 +18,16 @@ int floadlevel_e( char* nev, int forceload = 0 );
 // Opciok minibike-ja hasznalja:
 void invalidate_ptop( void );
 
-// Jatek es visszajatszas kozben, ket kep kozott: ha a kivant nagyitas (vagy a
-// texturak, fu nagyitasa) mas, mint amivel az LGR es az ecsetek keszultek,
-// ujratolti es ujraepiti oket (az objektumok allapota marad, az ido nem
-// szamit jatekidonek):
+// During the game and replay, between two pictures: if the desired zoom (or
+// the texture/grass scaling) differs from what the LGR and the brushes were
+// built with, reloads and rebuilds them (the objects' state stays, the time
+// does not count as game time):
 void nagyitasvaltas( void );
-// Editorba visszateresre (editplay): Arany es az LGR ujra az eredeti meretu,
-// a palya sprite-jainak merete is ahhoz igazodik:
+// For returning to the editor (editplay): Arany and the LGR are back at the
+// original size, the level's sprite sizes follow that too:
 void editornagyitas( void );
-// Jatek kozbeni nagyitas ujraepitese kozben hang()-ot hiv (LGR betoltes,
-// ecset epites), hogy ne szakadjon meg a hang, kulonben semmit:
+// Calls hang() while rebuilding the in-game zoom (LGR loading, brush
+// building), so the sound does not break, otherwise does nothing:
 void ujraepiteshang( void );
 
 void dialogselejtez( void );

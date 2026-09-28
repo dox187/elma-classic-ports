@@ -58,15 +58,15 @@ class lgrfile {
 	// Konstruktor hasznalja:
 	void chopbiker( pic8* pbiker, motkepek* pkepek );
 
-	// ppic az eredeti kep, beirkepet es beirmaszkot nagyitva tarolja:
+	// ppic is the original picture; beirkepet and beirmaszkot store it zoomed:
 	void beirkepet( pic8* ppic, piclist* ppiclist, int index );
 	void beirtexturat( pic8* ppic, piclist* ppiclist, int index );
 	void beirmaszkot( pic8* ppic, piclist* ppiclist, int index );
 
-	// nev kiterj es ut nelkul. A kepeket, maszkokat es objektumokat nagyitas-,
-	// a texturakat texturanagyitas-, a fu kepeit (qup_, qdown_, qgrass)
-	// funagyitas-szorosra nagyitja (legkozelebbi szomszeddal), a motor
-	// reszeit, qcolors-t es qframe-et nem:
+	// nev without extension and path. Zooms the pictures, masks and objects
+	// by nagyitas, the textures by texturanagyitas, the grass pictures
+	// (qup_, qdown_, qgrass) by funagyitas (with nearest neighbor), but not
+	// the engine parts, qcolors or qframe:
 	lgrfile( char* nev, double nagyitas, double texturanagyitas,
 			 double funagyitas );
 	~lgrfile( void );
@@ -76,18 +76,18 @@ public:
 	friend void loadlgrfile( char* nev ); // Leiras alul
 	friend void tesztloadlgr( void );
 
-	// Nagyitasok, amivel keszult (1: eredeti meret):
+	// Zoom levels it was made with (1: original size):
 	double nagyitas, texturanagyitas, funagyitas;
-	int szuro; // a nagyitas szuroje (szuro.h)
+	int szuro; // the zoom filter (szuro.h)
 	int nagyfelbontasu; // LGR13: the pictures are larger than their target size
 	int megfelel( double nagyitas, double texturanagyitas, double funagyitas );
-	// A kepekhez tartozo pixel meretek nagyitva (1-es nagyitasnal az eredetiek):
-	int objektummeret;      // objektumok kepkockainak merete (40)
-	int objektumsugar;      // objektummeret fele (OBJEKTUMSUGAR_I)
-	double objektumlebeges; // kaja es cel fel-le lebegese (5)
-	int keltolas;           // fu kepe ennyivel log a vonal ala, fole (20)
-	int fuggtoldas;         // qgrass ennyivel log a fu kep fole (FUGGTOLDAS)
-	int kovetomaxx, kovetomaxy; // ennel nagyobb fu kep folott nincs qgrass
+	// Pixel sizes belonging to the pictures, zoomed (at zoom 1 the originals):
+	int objektummeret;      // size of an object's picture frames (40)
+	int objektumsugar;      // half of objektummeret (OBJEKTUMSUGAR_I)
+	double objektumlebeges; // up-down float of food and exit (5)
+	int keltolas;           // grass picture sticks below/above the line by this (20)
+	int fuggtoldas;         // qgrass sticks above the grass picture by this (FUGGTOLDAS)
+	int kovetomaxx, kovetomaxy; // above a grass picture larger than this there is no qgrass
 
 	int kepszam;
 	kep kepek[MAXKEPSZAM];
@@ -129,7 +129,7 @@ public:
 	// Ezt betoltecseteket hivja (Ptop-bol szedi kep neveket):
 	void betolthattereket();
 
-	// Ezeket colors.pcx file-bol veszi (View ablak egy sora ezekbol jon):
+	// Taken from the colors.pcx file (a row of the View window comes from these):
 	unsigned char viewfoldsor[MAXKEPXSIZE];
 	unsigned char viewegsor[MAXKEPXSIZE];
 	unsigned char viewmotorindex1;
@@ -148,12 +148,13 @@ public:
 };
 
 extern lgrfile* Plgr; // Az eppen bentlevo lgrfile-ra mutat
-// Ha nincs ilyen nevu file, akkor default-ot olvassa. A mostani Arany-hoz
-// nagyitva tolti be (kepnagyitas(), dd_zoom_textures, dd_zoom_grass), ujra
-// is, ha a bent levo mas nagyitassal keszult:
+// If there is no file with this name, it reads default instead. Loads it
+// zoomed for the current Arany (kepnagyitas(), dd_zoom_textures,
+// dd_zoom_grass), also reloading it if the loaded one was made with a
+// different zoom:
 void loadlgrfile( char* nev );
-// Igaz, ha van bent LGR, es az a mostani Arany-hoz es beallitasokhoz valo
-// nagyitassal keszult:
+// True if an LGR is loaded, and it was made with the zoom level for the
+// current Arany and settings:
 int lgrnagyitasjo( void );
 
 extern int Allandokepszam;

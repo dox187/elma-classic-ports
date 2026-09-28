@@ -11,7 +11,7 @@ class mdbiter {
 public:
 	mdbiter( ecset* pecset );
 	mdarab* getpmd( int x, int y );
-	// Az utoljara visszaadott mdarab elso pixelenek x-e:
+	// The x of the first pixel of the last returned mdarab:
 	int getxpos( void ) { return xposbent; }
 };
 
@@ -36,8 +36,8 @@ struct mdarabtomb {
 	mdarabtomb* kovtomb;
 };
 
-// Ennel tobb sora nem lehet egy ecsetnek (a sortombok a palya magassagahoz
-// igazodnak; eredetileg 12000 volt a fix meretuk):
+// An ecset cannot have more rows than this (the row arrays adjust to the
+// level's height; originally their fixed size was 12000):
 #define MAXECSETSOR (1000000)
 
 struct darab {
@@ -63,10 +63,10 @@ class ecset {
 	vekt2 origo;
 	double xsizedb, ysizedb;
 	int maxx, sorszam;
-	// origo, maxx es sorszam az eredeti 48-as Arany-nyal (kilogna-hoz):
+	// origo, maxx and sorszam with the original Arany of 48 (for kilogna):
 	vekt2 eredetiorigo;
 	int eredetimaxx, eredetisorszam;
-	// A sortombok sorszam+10 elemuek (lefoglalsortomboket):
+	// The row arrays have sorszam+10 elements (lefoglalsortomboket):
 	int     sortombmeret;
 	mdarab** msorok;
 	darab**  sorok;
@@ -116,13 +116,14 @@ class ecset {
 public:
 	void getbalalso_int( vekt2 balalso, int* px, int* py );
 	// Beallitja Kisordarabszam-ot is ha define-olt (escet.cpp eleje):
-	// Az ecseten kivul eso reszre also es view ecset foldet rajzol, felso
-	// semmit:
+	// For the part outside the ecset, the bottom and view ecset draw ground,
+	// the top draws nothing:
 	void kitesz(     int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int x2, int y2 );
 	void kiteszview( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int x2, int y2 );
-	// Igaz, ha az eredeti jatek 640x480-as kepe (Arany 48) a motor kozepenek
-	// ebben a helyzeteben mar kilogott volna az (also) ecsetbol; ott az
-	// eredeti hiba-val kilepett, most a motor meghal (vizsgalat):
+	// True if the original game's 640x480 picture (Arany 48) would already
+	// have stuck out of the (bottom) ecset with the motorbike's center in
+	// this position; there the original exited with hiba, now the motorbike
+	// dies (check):
 	int kilogna( vekt2 motorkozep );
 
 	//void egetkeszit( void );

@@ -132,8 +132,8 @@ int valaszt2::valassz( egyszovsor* preszovegek, int preszovegszam,
 	if( kur > szam-1 )
 		kur = szam-1;
 
-	// Magasabb menukepen tobb sor fer ki, a lista kozepen marad (fel-lel
-	// feljebb kerul):
+	// A taller menu image fits more rows, the list stays centered (it moves
+	// up by fel):
 	menumeretbeallit();
 	int eredetiegykepen = egykepen;
 	egykepen = eredetiegykepen + 2*(Menueltolasy/dy);

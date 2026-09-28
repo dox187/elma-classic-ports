@@ -1,9 +1,10 @@
 #include	"all.h"
 
-// Eredetileg itt meg egy +-200 pixeles (ecset pixel) elozetes szures is volt
-// az objektum kep bal also sarka (rxint, ryint) korul: nagyitva a pontos
-// vizsgalat elott kiszurte volna a kozeli objektumokat is, nagyitas nelkul
-// pedig sosem szurt ki olyat, ami a pontos vizsgalaton atment volna.
+// Originally there was also a +-200 pixel (brush pixel) preliminary filter
+// here around the object picture's bottom-left corner (rxint, ryint): when
+// scaled it would have filtered out nearby objects too before the exact
+// check, and without scaling it never filtered out anything that would have
+// passed the exact check anyway.
 int utkozikesprite( vekt2 r, double sugar ) {
 	if( !Pecsetalso )
 		hiba( "uovruor" );

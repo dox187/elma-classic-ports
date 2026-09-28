@@ -1,8 +1,8 @@
 #include	"all.h"
 
-// A gyujtemenyek nevei es sorrendje a Steam-es kiadaset koveti; palyaik
-// elma.res-ben resnev01.lev, resnev02.lev, ... neven vannak, a jatekban
-// pedig QWQ + kod + 001.LEV az azonositojuk:
+// The collections' names and order follow the Steam release; their levels
+// are in elma.res as resnev01.lev, resnev02.lev, ..., while in the game
+// their id is QWQ + code + 001.LEV:
 struct gyujtemeny {
 	char* nev;
 	char* resnev;
@@ -17,14 +17,14 @@ static gyujtemeny Gyujtemenyek[GYUJTEMENYSZAM] = {
 	{ "Quick & Hard by Sla", "hard", "HA" },
 };
 
-// Menu sorai: gyujtemeny indexek, es a belso es kulso palyak:
+// Menu rows: collection indices, and the internal and external levels:
 #define EREDETI (-1)
 #define KULSO (-2)
 static int Sorrend[] = { 0, EREDETI, 1, 2, 3, KULSO };
 #define SORSZAM (int(sizeof( Sorrend )/sizeof( Sorrend[0] )))
 
 #define MAXGYUJTEMENYPALYA (99)
-// Palya sorok hossza, hogy kiferjenek a kepre:
+// Length of a level row, so it fits on screen:
 #define MAXPALYASORHOSSZ (28)
 
 static void palyanev( int g, int i, char* nev ) {
@@ -35,7 +35,7 @@ static void palyaresnev( int g, int i, char* nev ) {
 	sprintf( nev, "%s%02d.lev", Gyujtemenyek[g].resnev, i+1 );
 }
 
-// elma.res-ben levo palyak szama gyujtemenyenkent (-1: meg nem szamoltuk):
+// Number of levels in elma.res per collection (-1: not counted yet):
 static int Palyaszamok[GYUJTEMENYSZAM] = { -1, -1, -1, -1 };
 
 static int gyujtemenypalyaszam( int g ) {
@@ -61,7 +61,7 @@ int vannakgyujtemenyek( void ) {
 	return 0;
 }
 
-// QWQST001.LEV-bol gyujtemeny es palya index, hamis ha nem ilyen nev:
+// Collection and level index from QWQST001.LEV, false if not such a name:
 static int nevbol( char* nev, int* pg, int* pi ) {
 	if( strlen( nev ) != 12 || _fstrnicmp( nev, "QWQ", 3 ) != 0 ||
 		strcmpi( nev+8, ".LEV" ) != 0 )
@@ -95,17 +95,17 @@ void gyujtemenyresnev( char* nev, char* resnev ) {
 	palyaresnev( g, i, resnev );
 }
 
-// GYUJTEMENYSTATE: azonosito, verzio, idok szama, titkositott idok,
-// jatekosok szama, titkositott jatekosok, ellenorzo osszeg, azonosito.
+// GYUJTEMENYSTATE: id, version, number of times, encrypted times,
+// number of players, encrypted players, checksum, id.
 struct gyujtemenyido {
 	char nev[16];
 	int32_t belyeg;
 	palyaidok idok;
 };
 
-// Jatekosonkent es gyujtemenyenkent a teljesitett palyak. Ahogy belso
-// palyaknal sikerespalyakszama, ez sem fugg attol, hogy ideje bent maradt-e
-// a legjobb tiz kozott:
+// Completed levels per player and per collection. Like sikerespalyakszama
+// for internal levels, this too does not depend on whether its time stayed
+// among the best ten:
 struct gyujtemenyjatekos {
 	char nev[16];
 	char gyujtemeny[16];
@@ -153,7 +153,7 @@ static void betoltallapot( void ) {
 
 	FILE* h = fopen( GYUJTEMENYSTATE, "rb" );
 	if( !h )
-		return; // Meg nem jatszott gyujtemeny palyan
+		return; // No collection level played yet
 	int32_t azon1 = 0, verzio = 0, idoszam = 0, jatekosszam = 0;
 	int32_t ellenorzo = 0, azon2 = 0;
 	int jo = fread( &azon1, 1, 4, h ) == 4 && azon1 == GYUJTEMENYAZON1 &&
@@ -267,7 +267,7 @@ static gyujtemenyjatekos* keresjatekost( int g, char* jatekosnev, int letrehoz )
 	return pj;
 }
 
-// Igaz, ha jatekosnev egyedul mar teljesitette a gyujtemeny i-edik palyajat:
+// True if jatekosnev alone has already completed the collection's level i:
 static int teljesitette( int g, int i, char* jatekosnev ) {
 	gyujtemenyjatekos* pj = keresjatekost( g, jatekosnev, 0 );
 	return pj && pj->kesz[i];
@@ -290,7 +290,7 @@ static int teljesitettek( int g ) {
 	return db;
 }
 
-// Ennyi palya van meg az elejetol kezdve megszakitas nelkul:
+// This many levels are complete from the start without a break:
 static int elejenkeszek( int g ) {
 	int db = 0;
 	while( db < gyujtemenypalyaszam( g ) && teljesitette( g, db, State->jatekosa ) )
@@ -298,8 +298,8 @@ static int elejenkeszek( int g ) {
 	return db;
 }
 
-// Az utolso belso palya (Visit, sharewareben End) nem szamit bele, mint a
-// Steam-es kiadasban:
+// The last internal level (Visit, End in shareware) does not count, like
+// in the Steam release:
 static int belsopalyaszam( void ) {
 	return Palyaszam-1;
 }
@@ -314,8 +314,8 @@ static int belsoteljesitettek( void ) {
 	return db;
 }
 
-// Palya neve elma.res-bol (cim legalabb LEVELNAMEHOSSZ+1 byte), hiba
-// eseten ures:
+// Level name from elma.res (cim at least LEVELNAMEHOSSZ+1 bytes), empty
+// on error:
 static void palyacim( int g, int i, char* cim ) {
 	cim[0] = 0;
 	char nev[30];
@@ -323,8 +323,8 @@ static void palyacim( int g, int i, char* cim ) {
 	FILE* h = qopen( nev, "rb" );
 	char tmp[10] = "AAAAA";
 	if( fread( tmp, 1, 5, h ) == 5 && strncmp( tmp, "POT", 3 ) == 0 ) {
-		// Nev elott (13-as verziotol 2 byte,) belyeg es negy double all,
-		// ld. topol::loadkulso:
+		// Before the name there is (from version 13, 2 bytes,) a stamp and four
+		// doubles, see topol::loadkulso:
 		int verzio = tmp[4] - '0' + 10*(tmp[3] - '0');
 		long hely = 5 + (verzio >= 13 ? 2 : 0) + 4 + 4*sizeof( double );
 		int hossz = verzio >= 14 ? LEVELNAMEHOSSZ : 14;
@@ -337,9 +337,9 @@ static void palyacim( int g, int i, char* cim ) {
 	qclose( h );
 }
 
-// Ha a sorok nem ferenek ki, levagjuk a palyanevek kozos elejet (utolso
-// szava kivetelevel) es kozos veget, szohatarnal, pl.
-// "Elastomania Pack - Level #001 by Sla"-bol "Level #001" lesz:
+// If the rows do not fit, we cut the common start of the level names
+// (except its last word) and the common end, at a word boundary, e.g.
+// "Elastomania Pack - Level #001 by Sla" becomes "Level #001":
 static void rovidit( char cimek[][LEVELNAMEHOSSZ+1], int szam ) {
 	int tulhosszu = 0;
 	for( int i = 0; i < szam; i++ ) {
@@ -363,7 +363,7 @@ static void rovidit( char cimek[][LEVELNAMEHOSSZ+1], int szam ) {
 			j++;
 		vege = j;
 	}
-	// Eleje szohatarra, utolso szavat meghagyva:
+	// Round the start to a word boundary, keeping its last word:
 	int szavak = 0;
 	while( eleje > 0 && szavak < 2 ) {
 		eleje--;
@@ -374,13 +374,13 @@ static void rovidit( char cimek[][LEVELNAMEHOSSZ+1], int szam ) {
 		eleje++;
 	else
 		eleje = 0;
-	// Vege szohatarra (szokozzel kezdodjon):
+	// Round the end to a word boundary (should start with a space):
 	while( vege > 0 && cimek[0][hossz0-vege] != ' ' )
 		vege--;
 
 	for( int i = 0; i < szam; i++ ) {
 		if( int(strlen( cimek[i] ))-eleje-vege <= 0 )
-			return; // Semmi nem maradna belole
+			return; // Nothing would remain of it
 	}
 	for( int i = 0; i < szam; i++ ) {
 		int hossz = strlen( cimek[i] );
@@ -389,8 +389,8 @@ static void rovidit( char cimek[][LEVELNAMEHOSSZ+1], int szam ) {
 	}
 }
 
-// Igaz, ha a palya neve a sorszamaval kezdodik vagy vegzodik
-// (pl. "01 Worm Up", "Tutorial 1"), ilyenkor nem irjuk ele meg egyszer:
+// True if the level name starts or ends with its number
+// (e.g. "01 Worm Up", "Tutorial 1"), in which case we do not prepend it again:
 static int cimbensorszam( char* cim, int sorszam ) {
 	if( isdigit( (unsigned char)cim[0] ) && atoi( cim ) == sorszam )
 		return 1;
@@ -398,8 +398,8 @@ static int cimbensorszam( char* cim, int sorszam ) {
 	return szokoz && isdigit( (unsigned char)szokoz[1] ) && atoi( szokoz+1 ) == sorszam;
 }
 
-// A gyujtemeny level-edik palyajan jatszik (ld. playlevel es playextmenu),
-// Play next-tel tovabb is lephet. Az utoljara jatszott palyat adja vissza:
+// Plays the collection's level-th level (see playlevel and playextmenu),
+// can also advance with Play next. Returns the last level played:
 static int gyujtemenyjatek( int g, int level ) {
 	int szam = gyujtemenypalyaszam( g );
 	while( 1 ) {
@@ -414,11 +414,11 @@ static int gyujtemenyjatek( int g, int level ) {
 		long ido = lejatszo( nev );
 		Pmenupal->set();
 		char valasz[100] = "";
-		// Kulso palyakent intezi, saveidok GYUJTEMENYSTATE-be menti:
+		// Handled as an external level, saveidok saves it to GYUJTEMENYSTATE:
 		idoelintezes( ido, valasz, 0, nev );
 		int ujpalya = 0;
 		if( ido > 0 && Single ) {
-			// Csak SINGLE jatek alatt teljesitheto, mint belso palyaknal:
+			// Can only be completed during SINGLE play, like internal levels:
 			teljesitettnek( g, level, State->jatekosa );
 			if( !eddigkesz && level < szam-1 )
 				ujpalya = 1;
@@ -434,8 +434,8 @@ static int gyujtemenyjatek( int g, int level ) {
 	}
 }
 
-// Mint belso palyaknal, a teljesitett palyak es az utanuk kovetkezo latszik;
-// ha meg egy sincs meg, rogton az elsovel kezd:
+// Like for internal levels, the completed levels and the one after them are
+// shown; if none are done yet, it starts right at the first one:
 static void gyujtemenypalyai( int g ) {
 	static int Kurzorok[GYUJTEMENYSZAM] = { -1, -1, -1, -1 };
 

@@ -5,7 +5,7 @@ int qseek( FILE *stream, long offset, int whence );
 
 void initqopen( void );
 
-// Igaz, ha elma.res-ben benne van nev nevu file:
+// True if the file named nev is in elma.res:
 int qvan( char* nev );
 void becsomagol( void );
 

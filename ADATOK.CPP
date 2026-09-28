@@ -35,9 +35,10 @@ double Arany = 0.0, Aranyrec = 0.0;
 double Aranyalap = 48.0, Aranyalaprec = 1.0/48.0;
 double Motornagyitas = 1.0;
 
-// A jatek kepenek illesztese a kepernyohoz: a 640x480-nal (4:3-on tul a
-// szelessegben vagy magassagban) hanyszor tobb pixele van, annyiszor nagyobb
-// Arany, igy a kep ugyanannyi metert mutat, mint az eredetiben:
+// Fits the game picture to the screen: however many times more pixels it
+// has than 640x480 (beyond 4:3, in width or height), Arany is that many
+// times bigger, so the picture shows the same number of meters as the
+// original:
 static double kepillesztes( void ) {
 	int xsize = 640, ysize = 480;
 	backbuffersize( &xsize, &ysize );
@@ -45,7 +46,7 @@ static double kepillesztes( void ) {
 	return illesztes > 1.0 ? illesztes : 1.0;
 }
 
-// A platform beallitasa (elma.cfg zoom), a megengedett tartomanyban:
+// The platform's setting (elma.cfg zoom), clamped to the allowed range:
 static double kivantnagyitas( void ) {
 	double nagyitas = dd_zoom();
 	if( !(nagyitas >= NAGYITASMIN) ) // NaN is
@@ -55,7 +56,7 @@ static double kivantnagyitas( void ) {
 	return nagyitas;
 }
 
-// Csak ez szamolja ki Arany-t (1-es illesztessel es nagyitassal pontosan
+// Only this computes Arany (with 1x fit and zoom it is exactly
 // Aranyalap):
 static double aranyszamitas( int jatekhoz, double* pnagyitas ) {
 	double illesztes = 1.0;
@@ -152,8 +153,8 @@ void initadatok( void ) {
 
 	Aranyalap = 100.0*fakt;
 	Aranyalaprec = 1.0/Aranyalap;
-	// Arany-t a bent levo palya es LGR epitese allitja (load.cpp), azok
-	// ezzel keszultek; itt csak eloszor (inditaskor) kap erteket:
+	// Arany is set by loading the level and LGR (load.cpp), which are built
+	// with it; here it only gets a value the first time (at startup):
 	if( Arany <= 0.0 )
 		beallitarany( 0 );
 

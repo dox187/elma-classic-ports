@@ -50,9 +50,9 @@ static int feldolgvonalszakasz( gyuru* pgy, int p1, int p2, int* px0,
 	int    x2 = (r2.x - porigo->x) * Arany;
 	double y2 = (-r2.y - porigo->y) * Arany;
 
-	// A fu poligonok nincsenek Pszak-ban, ezert kilohetnek az ecsetbol
-	// (eredetileg itt hiba-val kilepett): balra kilogo vonalat makevonal
-	// eldobja, a fel-le kilogo sorokat ecset::addbytesor kihagyja:
+	// Grass polygons are not in Pszak, so they can stick out of the brush
+	// (originally exited here with hiba): makevonal discards a line sticking
+	// out to the left, and ecset::addbytesor skips rows sticking out up/down:
 	if( x1 < 0 || x2 < 0 ) {
 		*pkilog = 1;
 		return cur;

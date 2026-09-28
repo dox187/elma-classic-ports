@@ -96,7 +96,7 @@ int dialog( char* text1, char* text2, char* text3,
 		if( xsize < Pabc2->len( texttomb[i] ) + 16 )
 			xsize = Pabc2->len( texttomb[i] ) + 16;
 
-	// A menuk kepenek kozepen (640x480-on 320, 240):
+	// At the center of the menus' image (320, 240 on 640x480):
 	int kozepx = Buffsima->getxsize()/2, kozepy = Buffsima->getysize()/2;
 	int dy = 20;
 	int ysize = textszam*dy + 50;

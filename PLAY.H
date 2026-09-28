@@ -1,6 +1,6 @@
 
 void play( void );
-// Belso palyak listaja, kulsovel eseten elso sora az External File:
+// List of internal levels, with kulsovel its first row is External File:
 void belsopalyak( int kulsovel );
 
 // A jelenleg beolvasott palyan jatszik vissza:
@@ -20,8 +20,8 @@ void saveplay( long belyeg );
 
 void idoelintezes( long ido, char* valasz, int level, char* filenev );
 // 0-ESC, 1-this level, 2-next level, 3-skip level
-// Ha filenev nem NULL, akkor external file, ilyenkor kovetkezovan eseten
-// (gyujtemenyek palyainal) is van Play next:
+// If filenev is not NULL, it is an external file, and then with kovetkezovan
+// (for collection levels) there is also a Play next:
 int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 			   int kovetkezovan = 0 );
 

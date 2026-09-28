@@ -746,7 +746,7 @@ static void playlevel( int level ) {
 	}
 }
 
-// Belso palyak listaja, kulsovel eseten elso sora az External File:
+// List of internal levels, with kulsovel its first row is External File:
 void belsopalyak( int kulsovel ) {
 	int elso = kulsovel ? 1 : 0;
 	while( 1 ) {
@@ -816,8 +816,8 @@ void belsopalyak( int kulsovel ) {
 }
 
 void play( void ) {
-	// Ha elma.res-ben palyagyujtemenyek is vannak (pl. Steam-es kiadas),
-	// eloszor azok kozul lehet valasztani:
+	// If there are level collections in elma.res (e.g. Steam release), they
+	// can be chosen from first:
 	if( vannakgyujtemenyek() )
 		gyujtemenymenu();
 	else

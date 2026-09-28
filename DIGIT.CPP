@@ -162,8 +162,8 @@ void kidigit( char* time1, double fogoido, double time2d, pic8* ppic8,
 	Ppic8 = ppic8;
 	Lookup = Plgr->idonegtomb;
 
-	// Az idok a kep szeletol teljes meretben mindig 28 pixelre vannak (mint
-	// 640 szeles kepen), kicsinyitett kepen aranyosan kozelebb:
+	// The times are always 28 pixel from the picture's edge at full size
+	// (like on a 640-wide picture), proportionally closer on a shrunk picture:
 	double kepmeretx = double(kepxsize)/teljesxsize;
 	double kepmerety = kepysize/480.0;
 

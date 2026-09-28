@@ -957,7 +957,7 @@ void topol::loadkulso( char* filenev ) {
         spritetomb[i] = NULL;
 
     FILE* h = NULL;
-    // A palyagyujtemenyek palyai elma.res-ben vannak (gyujtem.cpp):
+    // The collections' levels are in elma.res (gyujtem.cpp):
     int gyujtemenybol = gyujtemenypalya( filenev );
     if( !gyujtemenybol ) {
 		char tmpnev[40];
@@ -1227,7 +1227,7 @@ void topol::loadkulso( char* filenev ) {
     }
     else {
         qclose( h );
-        // Idoit nem a palya tartalmazza:
+        // Its times are not stored in the level itself:
         gyujtemenyidok( filenev, belyeg, &idok );
     }
 

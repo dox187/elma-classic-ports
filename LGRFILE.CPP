@@ -28,7 +28,7 @@ kisbox KisboxB = { 32, 183, 147, 297 };
 kisbox KisboxC = { 146, 141, 273, 264 };
 kisbox KisboxD = { 272, 181, 353, 244 };
 
-// A mostani Arany-hoz es beallitasokhoz valo nagyitasok:
+// Zoom levels for the current Arany and settings:
 static void kivantnagyitasok( double* pnagyitas, double* ptexturanagyitas,
 							  double* pfunagyitas ) {
 	*pnagyitas = kepnagyitas();
@@ -42,7 +42,7 @@ static void kivantnagyitasok( double* pnagyitas, double* ptexturanagyitas,
 	}
 }
 
-// Nagyitott kepeknel a szuronek is egyeznie kell:
+// For zoomed pictures the filter must also match:
 int lgrfile::megfelel( double nagyitas_p, double texturanagyitas_p,
 					   double funagyitas_p ) {
 	if( nagyitas != nagyitas_p || texturanagyitas != texturanagyitas_p ||
@@ -71,7 +71,7 @@ void loadlgrfile( char* nev ) {
 	if( strlen( nev ) > 8 )
 		hiba( "loadlgrfile-ban strlen( nev ) > 8!" );
 
-	// A bent levo csak akkor jo, ha ugyanekkora nagyitassal keszult:
+	// The loaded one is only good if it was made with the same zoom:
 	double nagyitas = 1.0, texturanagyitas = 1.0, funagyitas = 1.0;
 	kivantnagyitasok( &nagyitas, &texturanagyitas, &funagyitas );
 	int nagyitasjo = Plgr && Plgr->megfelel( nagyitas, texturanagyitas, funagyitas );
@@ -123,8 +123,8 @@ void loadlgrfile( char* nev ) {
 			uzenet( "Could not open file LGR\\DEFAULT.LGR!" );
 	}
 
-	// Ugyanaz az LGR mas nagyitassal: az editorban kivalasztott kep,
-	// maszk es textura megmarad:
+	// Same LGR with a different zoom: the picture, mask and texture selected
+	// in the editor stays selected:
 	char aktiv_kepnev[10] = "", aktiv_maszknev[10] = "", aktiv_texturanev[10] = "";
 	if( Plgr && strcmpi( regilgrnev, nev ) == 0 ) {
 		strcpy( aktiv_kepnev, Plgr->aktiv_kepnev );
@@ -143,8 +143,8 @@ void loadlgrfile( char* nev ) {
 	return;
 }
 
-// Az LGR betoltese kozben a nagyitas szuroje es a kepek palettaja (amig a
-// q1bike.pcx palettaja nincs meg, az eppen olvasott kepe):
+// While the LGR is loading: the zoom filter, and the pictures' palette
+// (until q1bike.pcx's palette is known, that of the picture being read):
 static int Nagyitoszuro = SZURO_LEGKOZELEBBI;
 static unsigned char* Nagyitopal = NULL;
 static unsigned char* Sajatpal = NULL;
@@ -174,7 +174,7 @@ static pic8* nagyitottkep( pic8* ppic, double nagyitas, int felfele = 0,
 							   atlatszo, ismetlodo );
 }
 
-// Ugyanez, de ppic-et torli, ha masolatot adott vissza:
+// Same, but deletes ppic if it returned a copy:
 static pic8* nagyitlgrkep( pic8* ppic, double nagyitas, int felfele = 0,
 						   int atlatszo = -1, int ismetlodo = 0 ) {
 	pic8* pnagy = nagyitottkep( ppic, nagyitas, felfele, atlatszo, ismetlodo );
@@ -211,10 +211,11 @@ void lgrfile::chopbiker( pic8* pbiker, motkepek* pkepek ) {
 	pkepek->pkisb->lyuk = pkepek->pkisc->lyuk = pkepek->pkisd->lyuk = pkepek->pkisa->lyuk;
 }
 
-// Ecset kitesz egy kepsorba (legfeljebb MAXKEPXSIZE) egy cellasize-nal
-// kisebb helytol kezdve masol belole (eredetileg 640 volt):
-// Fu kep ennyi pixelt lep a vonalon: a nagyitatlan kepbol szamolva, igy
-// nagyitva is pontosan a nagyitott kep lejtese (nem ysize-2*keltolas-1):
+// Ecset puts it into a picture row (at most MAXKEPXSIZE), copying from a
+// position less than cellasize (originally 640):
+// How many pixels the grass picture steps along the line: computed from the
+// unzoomed picture, so this stays exactly the zoomed picture's slope even
+// zoomed (not ysize-2*keltolas-1):
 static int fulejtes( pic8* ppic, double funagyitas ) {
 	double lejtes = ((Celysize > 0 ? Celysize : ppic->getysize()) - (2*20+1)) * funagyitas;
 	return lejtes < 0 ? -int( -lejtes + 0.5 ) : int( lejtes + 0.5 );
@@ -222,8 +223,8 @@ static int fulejtes( pic8* ppic, double funagyitas ) {
 
 static pic8* kepetbovitvizszint( textura* pt ) {
 	int cellasize = pt->origxsize;
-	// Egy keppel szelesebb MAXKEPXSIZE-nal; nem kell egesz kepekre kerekiteni,
-	// igy nagyitott szeles textura sem lesz tul szeles pic8-nak:
+	// One picture wider than MAXKEPXSIZE; no need to round up to whole
+	// pictures, so a zoomed wide texture never gets too wide for a pic8:
 	int xsize = cellasize + MAXKEPXSIZE;
 	pic8* ppic = new pic8( xsize, pt->ppic->getysize() );
 	for( int x = 0; x < xsize; x += cellasize ) {
@@ -277,7 +278,7 @@ static int getatlatszosag( int tipus, pic8* ppic ) {
 static unsigned char* Tmptomb = NULL;
 static int Tmptombmeret = 0;
 
-// ppic-et nem torli (a hivo torli), a nagyitott masolatat igen:
+// Does not delete ppic (the caller does), but deletes its zoomed copy:
 void lgrfile::beirkepet( pic8* ppic, piclist* ppiclist, int index ) {
 	if( kepszam >= MAXKEPSZAM )
 		uzenet( "Too many pictures in lgr file!" );
@@ -288,7 +289,7 @@ void lgrfile::beirkepet( pic8* ppic, piclist* ppiclist, int index ) {
 	pkep->tavolsag = ppiclist->tavolsagok[index];
 	pkep->hatarol = ppiclist->hatarolok[index];
 
-	// Az atlatszo szin az eredeti kep sarkabol:
+	// The transparent color, from the corner of the original picture:
 	int atlatszo = getatlatszosag( ppiclist->atlatszosagok[index], ppic );
 
 	pic8* peredeti = ppic;
@@ -304,7 +305,7 @@ void lgrfile::beirkepet( pic8* ppic, piclist* ppiclist, int index ) {
 	if( atlatszo < 0 )
 		uzenet( "Picture must be transparent in lgr file!", pkep->nev );
 
-	// Egy sor legfeljebb 3*xsize+4 byte (felvaltva 1 ures es 1 teli pixel):
+	// One row is at most 3*xsize+4 bytes (alternating 1 empty and 1 full pixel):
 	int tombmeret = PICTOMBMERET;
 	if( tombmeret < pkep->ysize*(3*pkep->xsize+4) )
 		tombmeret = pkep->ysize*(3*pkep->xsize+4);
@@ -418,7 +419,7 @@ void lgrfile::beirmaszkot( pic8* ppic, piclist* ppiclist, int index ) {
 
 	maszk* pm = &maszkok[maszkszam];
 
-	// Az atlatszo szin az eredeti kep sarkabol:
+	// The transparent color, from the corner of the original picture:
 	int atlatszo = getatlatszosag( ppiclist->atlatszosagok[index], ppic );
 	ppic = nagyitlgrkep( ppic, nagyitas, 1, atlatszo );
 
@@ -426,7 +427,7 @@ void lgrfile::beirmaszkot( pic8* ppic, piclist* ppiclist, int index ) {
 	pm->xsize = ppic->getxsize();
 	pm->ysize = ppic->getysize();
 
-	// Egy sor legfeljebb xsize+1 elem (felvaltva ures es teli, soremeles):
+	// One row is at most xsize+1 elements (alternating empty and full, line jump):
 	int elemszam = MAXMASZKELEM;
 	if( elemszam < pm->ysize*(pm->xsize+1)+10 )
 		elemszam = pm->ysize*(pm->xsize+1)+10;
@@ -562,11 +563,12 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	objektummeret = nagyitpixel( Animsize, nagyitas );
 	objektumsugar = objektummeret/2;
 	objektumlebeges = 5.0*nagyitas;
-	// A fu kep a vonal alatt es felett keltolas pixelre log ki, a qgrass
-	// textura meg fuggtoldas pixellel feljebb: egyutt a vonaltol 40 pixel
-	// (nagyitva), mert a fold szele a vilagban is ugyanott van. keltolas
-	// lefele kerekit, igy a legalabb 2*20+1 magas fu kep nagyitva is legalabb
-	// 2*keltolas+1 magas (ecset.cpp):
+	// The grass picture sticks out keltolas pixels below and above the line,
+	// and the qgrass texture another fuggtoldas pixels above that: together
+	// 40 pixels from the line (zoomed), since the edge of the ground is at
+	// the same place in the world too. keltolas rounds down, so a grass
+	// picture at least 2*20+1 high stays at least 2*keltolas+1 high even
+	// zoomed (ecset.cpp):
 	keltolas = int( 20*funagyitas + 1e-6 );
 	fuggtoldas = nagyitpixel( 20+FUGGTOLDAS, nagyitas ) - keltolas;
 	if( fuggtoldas < 0 )
@@ -665,8 +667,8 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 		fseek( h, kurpos+hossz, SEEK_SET );
 		Celxsize = celx > 0 ? celx : ppic->getxsize();
 		Celysize = cely > 0 ? cely : ppic->getysize();
-		// A nagyitas szurojehez kell a paletta (a kep vegen van), amig a
-		// q1bike.pcx-e nincs meg:
+		// The zoom filter needs the palette (it is at the end of the
+		// picture), until q1bike.pcx's is known:
 		if( !paltomb && Nagyitoszuro != SZURO_LEGKOZELEBBI &&
 			(lgr13 || nagyitas != 1.0 || texturanagyitas != 1.0 || funagyitas != 1.0) ) {
 			if( !Sajatpal )
@@ -680,7 +682,7 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 			}
 			fseek( h, kurpos+hossz, SEEK_SET );
 		}
-		// Jatek kozbeni nagyitaskor ne szakadjon meg a hang:
+		// So sound is not interrupted by an in-game zoom change:
 		ujraepiteshang();
 
 		// Kimentjuk osszes kepet:

@@ -16,13 +16,13 @@ struct fileleiro {
 static fileleiro* Leirotomb = NULL;
 
 #define FILESZAM (150)
-// A kesobbi (pl. Steam-es) kiadasok elma.res-eben 3000 leironak van hely:
+// Later (e.g. Steam) releases have room for 3000 descriptors in elma.res:
 #define UJFILESZAM (3000)
 
 #define AZONNUMBER (1347839l)
 
 static int32_t Fileszam = 0;
-// Ennyi leiro fer el elma.res leirotombjeben:
+// This many descriptors fit in elma.res's descriptor array:
 static int Leiroszam = FILESZAM;
 
 static void titkosit( void ) {
@@ -48,7 +48,7 @@ static void titkosit( void ) {
 
 static int Qopeninited = 0;
 
-// Igaz, ha leiroszam darab leiro utan all a magic number:
+// True if the magic number stands after leiroszam descriptors:
 static int vanmagicnumber( FILE* h, int leiroszam ) {
 	int32_t magicnumber = 0;
 	if( fseek( h, 4+leiroszam*long(sizeof( fileleiro )), SEEK_SET ) != 0 )
@@ -77,7 +77,7 @@ void initqopen( void ) {
 	if( fread( &Fileszam, 1, 4, h ) != 4 )
 		hiba( "initqopen-ben nem sikerult olvasni!" );
 
-	// Leirotomb meretet a mogotte allo magic number helye mutatja meg:
+	// The location of the magic number after it shows Leirotomb's size:
 	Leiroszam = FILESZAM;
 	if( !vanmagicnumber( h, FILESZAM ) && vanmagicnumber( h, UJFILESZAM ) )
 		Leiroszam = UJFILESZAM;

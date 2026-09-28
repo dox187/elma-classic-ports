@@ -64,8 +64,9 @@ struct vonal {
 
 extern szakaszok *Pszak;
 
-// felsorolasreset igazba allitja, ha a keresett pont jobbra vagy felfele tul
-// messze van a palyatol (eredetileg hiba volt), vizsgalat torli:
+// felsorolasreset sets it true if the searched point is too far to the
+// right or up from the level (originally this was hiba), vizsgalat clears
+// it:
 extern int Racsonkivul;
 
 

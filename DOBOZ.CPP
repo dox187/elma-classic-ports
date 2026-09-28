@@ -115,7 +115,7 @@ void egysor( unsigned char lyuk,  short szam,
 
 #else
 
-// szam egy kepsor darabja (nagyitott motoron 255 pixelnel hosszabb is lehet):
+// szam is a picture row's piece (can be longer than 255 pixel on a zoomed motorbike):
 void egysor( unsigned char lyuk, int szam, unsigned char* sor,
 		unsigned char* tomb, long futox, long futoy, long dx, long dy ) {
 	short* pf_futox = (short*)(&futox);

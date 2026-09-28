@@ -1,16 +1,18 @@
 #include    "all.h"
 
-// Menuk kepe (front buffer), Menuxsize*Menuysize (menukep.cpp, legalabb
-// 640x480):
+// The menus' image (front buffer), Menuxsize*Menuysize (menukep.cpp, at
+// least 640x480):
 static pic8 *Lockbuff = NULL;
-// Jatek kepe (back buffer), merete lockbackbuffer-enkent a platformtol jon:
+// The game's image (back buffer), its size comes from the platform per
+// lockbackbuffer:
 static pic8 *Backbuff = NULL;
 
 static int Backpiclocked = 0, Frontpiclocked = 0;
 
 //int Mindigfront = 0;
 
-// Ezt bltfront teszi ki a 640x480-as front bufferbe, ezert o is 640x480:
+// bltfront puts this into the 640x480 front buffer, so this is also
+// 640x480:
 static pic8* Pmindigfpic = NULL;
 
 pic8* lockbackbuffer_pic( int fizikai ) {
@@ -85,8 +87,8 @@ void  ppixelfront( int x, int y, unsigned char szin ) {
 }
 
 // WINDOWSOS:
-// A menuk kepenel kisebb kep (a 640x480-as intro, vege kepek) kozepre kerul,
-// korulotte a bal felso sarka szinevel:
+// An image smaller than the menus' image (the 640x480 intro, ending images)
+// is centered, surrounded by the color of its top-left corner:
 void  bltfront( pic8* ppic ) {
 	lockfrontbuffer_pic();
 	int xsize = ppic->getxsize(), ysize = ppic->getysize();

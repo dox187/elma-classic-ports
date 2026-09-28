@@ -15,7 +15,7 @@ void editplay( void ) {
 	Prec2->erase( State->editfilenev );
 	lejatszo( State->editfilenev );
 
-	// Az editor az eredeti meretu LGR-rel dolgozik tovabb:
+	// The editor keeps working with the original-size LGR:
 	editornagyitas();
 
 	mk_emptychar();

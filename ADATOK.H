@@ -29,28 +29,31 @@ extern double Kerekrajzsugar;
 
 // MCGA kirajzolasos:
 
-// Pixel/meter: amivel a bent levo LGR kepei es az ecsetek keszultek. Csak
-// beallitarany valtoztatja, az LGR ujratoltesevel es az ecsetek ujraepitesevel
-// egyutt (load.cpp):
+// Pixel/meter: what the built-in LGR's pictures and the brushes were made
+// with. Only changed by beallitarany, together with reloading the LGR and
+// rebuilding the brushes (load.cpp):
 extern double Arany, Aranyrec;
-// Az eredeti jatek Arany-a nagyitas nelkul (initadatok: 100*0.48 = 48):
+// The original game's Arany without zoom (initadatok: 100*0.48 = 48):
 extern double Aranyalap, Aranyalaprec;
-// A motor nagyitasa (zoom), amivel Arany keszult (1: eredeti meret):
+// The engine's zoom, which Arany was built with (1: original size):
 extern double Motornagyitas;
 
-// Nagyitas (zoom) hatarai:
+// Zoom limits:
 #define NAGYITASMIN (0.5)
 #define NAGYITASMAX (4.0)
 
-// Arany = Aranyalap * kep illesztese a kepernyohoz * nagyitas. Jatekhoz
-// (jatekhoz igaz) a kivant nagyitassal allitja be, editorhoz az eredetire:
+// Arany = Aranyalap * picture fit to the screen * zoom. For the game
+// (jatekhoz true) sets it with the desired zoom, for the editor with the
+// original:
 void beallitarany( int jatekhoz );
-// Igaz, ha jatekhoz beallitarany( 1 ) mas Arany-t adna, mint a mostani:
+// True if beallitarany( 1 ) for the game would give a different Arany than
+// the current one:
 int maskellarany( void );
-// Ennyiszeresere nagyitjuk az LGR kepeit a mostani Arany-hoz (Arany/Aranyalap):
+// How many times bigger the LGR's pictures are scaled to the current Arany
+// (Arany/Aranyalap):
 double kepnagyitas( void );
-// Egy pixelben megadott (a kepekhez tartozo) meret nagyitva, kerekitve,
-// legalabb 1; 1-es nagyitasnal pontosan pixel:
+// A size given in one pixel (belonging to the pictures), scaled, rounded,
+// at least 1; exactly the pixel value at 1x zoom:
 int nagyitpixel( int pixel, double nagyitas );
 
 
@@ -59,12 +62,12 @@ extern double Kord2x, Kord2y, Kord4x, Kord4y,
 
 extern double Fekegyutthato;
 
-// Objektumok (40x40 kepek) fel merete nagyitas nelkul, nagyitva
+// Half size of objects (40x40 pictures) without zoom, scaled it is
 // Plgr->objektumsugar:
 #define OBJEKTUMSUGAR_I (20)
 
-// View ablak (terkep) ennyiszer kisebb aranyu, mint Aranyalap; a terkep a
-// nagyitastol fuggetlenul mindig Aranyalap/Viewzoom pixel/meter:
+// The view window (map) has this many times smaller a ratio than Aranyalap;
+// the map is always Aranyalap/Viewzoom pixel/meter regardless of zoom:
 extern int Viewzoom;
 
 struct motorst {

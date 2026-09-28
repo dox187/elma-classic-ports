@@ -2,7 +2,7 @@
 
 #define MAXKOVETOKEPSZAM (100)
 
-// Hany pixel magasan log tul textura (nagyitas nelkul, nagyitva
+// How many pixels a texture sticks out above (without zoom; when zoomed,
 // Plgr->fuggtoldas):
 #define FUGGTOLDAS (20)
 
@@ -11,11 +11,11 @@ public:
 	int   kepszam;
 	pic8* pkeptomb[MAXKOVETOKEPSZAM];
 	int   feltomb[MAXKOVETOKEPSZAM];
-	// A kep atlatszo szine (az eredeti kep bal felso pixele, a kicsinyitett
-	// kepen az mar mas pixelbol johet):
+	// The picture's transparent color (the original picture's top-left pixel;
+	// on the shrunk picture it may already come from a different pixel):
 	unsigned char atlatszotomb[MAXKOVETOKEPSZAM];
-	// Ennyit lep a kep a vonalon (nagyitva is a nagyitatlan kep lejtese
-	// szorozva, ysize-2*20-1 eredetileg):
+	// How much the picture steps along the line (even zoomed, the unzoomed
+	// picture's slope times the zoom; originally ysize-2*20-1):
 	int   lejtestomb[MAXKOVETOKEPSZAM];
 	koveto( void );
 	~koveto( void );

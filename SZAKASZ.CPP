@@ -298,8 +298,8 @@ void szakaszok::felsorolasreset( vekt2 r ) {
 	if( r.y > 0 )
 		cellay = r.y;
 
-	// Jobbra vagy felfele tul messze van a palyatol: eredetileg itt hiba-val
-	// kilepett, most vizsgalat megoli a motort:
+	// Too far to the right or up from the level: originally exited with
+	// hiba here, now vizsgalat kills the bike:
 	if( cellax > xdim ) {
 		Racsonkivul = 1;
 		cellax = xdim;

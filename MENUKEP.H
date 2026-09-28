@@ -9,13 +9,13 @@ void grafikushiba( char* text1, char* text2 = NULL, char* text3 = NULL );
 extern pic8* Buffsima;
 extern pic8* Buffgolyo;
 
-// A menuk kepenek merete (Buffsima, Buffgolyo is ekkora) es a 640x480-ra
-// tervezett menuk eltolasa, hogy kozepre keruljenek:
+// The size of the menus' image (Buffsima and Buffgolyo are this size too)
+// and the offset of the menus designed for 640x480, so they end up centered:
 extern int Menuxsize, Menuysize, Menueltolasx, Menueltolasy;
-// Igaz eseten a menuk kepe 640x480 (editor):
+// True means the menus' image is 640x480 (editor):
 extern int Menueredeti;
-// A platform javaslata (vagy Menueredeti) szerint allitja a menuk meretet,
-// igazat ad, ha valtozott (ilyenkor ujra kell rajzolni):
+// Sets the menus' size per the platform's suggestion (or Menueredeti),
+// returns true if it changed (then it needs to be redrawn):
 int menumeretbeallit( void );
 
 extern abc8* Pmenuabc;
@@ -29,7 +29,8 @@ struct egyszovsor {
 	int kozep; // addszoveg_kozep-pel kerult be (terminalos kiirashoz)
 };
 
-// Magas menukepen a listak tobb sora is (valaszt2), cimmel es tabokkal:
+// On a tall menu image, lists can have more rows too (valaszt2), with a
+// title and tabs:
 #define MAXSZOVEGSOR (300)
 
 class szoveglista {

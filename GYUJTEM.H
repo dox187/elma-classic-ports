@@ -1,23 +1,24 @@
 // gyujtem.h
 
-// A kesobbi (pl. Steam-es) kiadasok elma.res-eben tovabbi palyagyujtemenyek
-// is vannak. Palyaik elma.res-ben maradnak, igy nem szerkeszthetok. Idoiket
-// es a jatekosok haladasat ebben a file-ban taroljuk, mert state.dat-ban
-// nincs nekik hely, es state.dat formatumat az eredeti es a Steam-es jatek
-// is olvassa:
+// Later (e.g. Steam) releases have further level collections in elma.res.
+// Their levels stay in elma.res, so they cannot be edited. We store their
+// times and the players' progress in this file, because state.dat has no
+// room for them, and both the original and the Steam release read the
+// state.dat format:
 #define GYUJTEMENYSTATE "state-elma-ports.dat"
 
-// Igaz, ha elma.res-ben vannak palyagyujtemenyek:
+// True if there are level collections in elma.res:
 int vannakgyujtemenyek( void );
-// A gyujtemenyek palyait a belso palyakhoz hasonlo nevvel (QWQST001.LEV)
-// kapja topol es recorder. Igaz, ha nev ilyen:
+// topol and recorder get the collections' levels with a name similar to the
+// internal levels (QWQST001.LEV). True if nev is such a name:
 int gyujtemenypalya( char* nev );
-// A palya elma.res-beli neve (pl. stolen01.lev):
+// The level's name in elma.res (e.g. stolen01.lev):
 void gyujtemenyresnev( char* nev, char* resnev );
-// Gyujtemeny palyajanak idoi GYUJTEMENYSTATE-bol (topol ide olvassa be), es
-// mentese (idoelintezes utan saveidok hivja); belyeg a palya belyege, mas
-// belyegu palya idoit nem hasznaljuk:
+// A collection level's times from GYUJTEMENYSTATE (topol reads them here),
+// and saving them (saveidok calls this after idoelintezes); belyeg is the
+// level's stamp, we do not use times of a level with a different stamp:
 void gyujtemenyidok( char* nev, long belyeg, palyaidok* pidok );
 void mentgyujtemenyidok( char* nev, long belyeg, palyaidok* pidok );
-// Play menu gyujtemenyekkel (belso es kulso palyak is itt valaszthatok):
+// Play menu with collections (internal and external levels are also
+// selected here):
 void gyujtemenymenu( void );
