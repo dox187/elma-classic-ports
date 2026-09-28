@@ -1,4 +1,5 @@
 #include "all.h"
+#include "SDL_SETTINGS.H"
 #include <SDL.h>
 #include <array>
 #include <chrono>
@@ -40,17 +41,17 @@ bool locked = false;
 bool running = true;
 std::chrono::steady_clock::time_point stopper_start;
 
-bool env_flag(const char* name, bool fallback) {
-    const char* value = getenv(name);
-    if (!value || !*value) return fallback;
-    return strcmp(value, "0") != 0;
+// A setting of elma.cfg (or ELMA_<KEY>) that is 0 or 1.
+bool config_flag(const char* key, bool fallback) {
+    const char* value = config_get(key, NULL);
+    return value ? strcmp(value, "0") != 0 : fallback;
 }
 
 bool fullscreen() {
 #ifdef ELMA_HANDHELD
-    return env_flag("ELMA_FULLSCREEN", true);
+    return config_flag("fullscreen", true);
 #else
-    return env_flag("ELMA_FULLSCREEN", false);
+    return config_flag("fullscreen", false);
 #endif
 }
 
@@ -563,6 +564,7 @@ void mv_exit(char*) { ddfinish(); exit(0); }
 int main(int, char**) {
     void upgradehakell(); void initqopen();
     void initmenukep1(); void initmenukep2();
+    config_load();
     upgradehakell(); initqopen(); mk_init(); initmenukep1();
     ddinit(); initmenukep2(); mv_main();
     return 0;

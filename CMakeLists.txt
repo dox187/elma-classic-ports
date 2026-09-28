@@ -96,7 +96,7 @@ endfunction()
 set(ELMA_SDL_SOUND F_SDL/SDL_SOUND.CPP F_SDL/SDL_HHIGH.CPP)
 
 if(SDL_FOUND)
-    add_executable(elma ${ELMA_CORE} F_SDL/SDL_PLATFORM.CPP ${ELMA_SDL_SOUND})
+    add_executable(elma ${ELMA_CORE} F_SDL/SDL_PLATFORM.CPP F_SDL/SDL_SETTINGS.CPP ${ELMA_SDL_SOUND})
     elma_target(elma)
     target_link_libraries(elma PRIVATE PkgConfig::SDL)
     if(NOT ELMA_PLATFORM STREQUAL "desktop")

@@ -98,6 +98,17 @@ renaming. The on-disk `state.dat` structures use 32-bit fields, so existing
 `state.dat` files keep their players and best times. Sound uses the original
 mixer of the Windows version, played through SDL.
 
+### Settings
+
+Settings that `state.dat` has no room for (it stays readable by the original
+game) are kept in `elma.cfg` in the game directory, one `key = value` per
+line, `#` starting a comment. An environment variable `ELMA_<KEY>` overrides
+the file, for example `ELMA_FULLSCREEN=1`.
+
+| Key          | Values |
+|--------------|--------|
+| `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds |
+
 ## Handheld Linux devices
 
 The Miyoo Mini build has been tested on a Miyoo Mini with Onion OS 4.3. The
