@@ -216,6 +216,8 @@ void unlockbackbuffer() {
     locked = false;
     present();
 }
+// The game view is the 640x480 picture of the menus as well.
+void backbuffersize(int* w, int* h) { *w = 640; *h = 480; }
 unsigned char** lockfrontbuffer() { return lockbackbuffer(0); }
 void unlockfrontbuffer() { unlockbackbuffer(); }
 

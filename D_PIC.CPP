@@ -1,11 +1,15 @@
 #include    "all.h"
 
+// Menuk kepe (front buffer), mindig 640x480:
 static pic8 *Lockbuff = NULL;
+// Jatek kepe (back buffer), merete lockbackbuffer-enkent a platformtol jon:
+static pic8 *Backbuff = NULL;
 
 static int Backpiclocked = 0, Frontpiclocked = 0;
 
 //int Mindigfront = 0;
 
+// Ezt bltfront teszi ki a 640x480-as front bufferbe, ezert o is 640x480:
 static pic8* Pmindigfpic = NULL;
 
 pic8* lockbackbuffer_pic( int fizikai ) {
@@ -13,16 +17,17 @@ pic8* lockbackbuffer_pic( int fizikai ) {
 		hiba( "lbb_p lock!" );
 	Backpiclocked = 1;
 
-	if( !Lockbuff ) {
-		Lockbuff = new pic8( 10, 10 );
-		Lockbuff->xsize = 640;
-		Lockbuff->ysize = 480;
-		Lockbuff->sormuttomb = NULL;
+	if( !Backbuff ) {
+		Backbuff = new pic8( 10, 10 );
+		Backbuff->xsize = 640;
+		Backbuff->ysize = 480;
+		Backbuff->sormuttomb = NULL;
 	}
 
 	if( Waitforretrace ) {
-		Lockbuff->sormuttomb = lockbackbuffer( fizikai );
-		return Lockbuff;
+		Backbuff->sormuttomb = lockbackbuffer( fizikai );
+		backbuffersize( &Backbuff->xsize, &Backbuff->ysize );
+		return Backbuff;
 	}
 	else {
 		if( !Pmindigfpic )
@@ -38,7 +43,7 @@ void  unlockbackbuffer_pic( void ) {
 
 	if( Waitforretrace ) {
 		unlockbackbuffer();
-		Lockbuff->sormuttomb = NULL;
+		Backbuff->sormuttomb = NULL;
 	}
 	else {
 		bltfront( Pmindigfpic );	

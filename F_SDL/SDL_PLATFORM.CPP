@@ -26,13 +26,13 @@ SDL_Surface* screen = NULL;
 // but not when flipping.
 SDL_Surface* frame = NULL;
 std::array<uint32_t, 256> screen_palette;
+// The game, the menus and the editor all draw into this 640x480 picture.
+std::array<unsigned char, 640 * 480> pixels;
+std::array<unsigned char*, 480> rows;
 #else
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
-std::array<uint32_t, 640 * 480> rgba;
 #endif
-std::array<unsigned char, 640 * 480> pixels;
-std::array<unsigned char*, 480> rows;
 std::array<uint32_t, 256> palette;
 std::array<BYTE, 256> keys;
 std::deque<int> chars;
@@ -96,14 +96,33 @@ enum Filter { FILTER_NEAREST, FILTER_LINEAR, FILTER_PIXELART };
 // edges by factor into upscaled, which is then smoothed to place.
 struct Picture {
     int w, h;
+    std::vector<unsigned char> pixels; // top row first
+    std::vector<unsigned char*> rows;  // handed out by the lock functions
+    std::vector<uint32_t> rgba;
     SDL_Texture* texture;
     Filter filter;
     SDL_Texture* upscaled;
     int factor;
     SDL_Rect place;
+
+    Picture(int width, int height)
+        : w(0), h(0), texture(NULL), filter(FILTER_NEAREST), upscaled(NULL), factor(0) {
+        resize(width, height);
+    }
+    // The pixels are black again; the textures are made again by layout().
+    void resize(int width, int height);
+    // The in-game renderer sets Locky0_alul: row 0 is then the bottom row.
+    unsigned char** lock(bool bottom_up) {
+        for (int y = 0; y < h; ++y) rows[bottom_up ? h - 1 - y : y] = &pixels[size_t(y) * w];
+        return rows.data();
+    }
 };
-// The 640x480 screen of the menus, the game and the editor.
-Picture screen_picture = { 640, 480, NULL, FILTER_NEAREST, NULL, 0, { 0, 0, 640, 480 } };
+// The menus, dialogs and the editor draw into this 640x480 picture, which
+// keeps what they drew; the game draws its view into the other one.
+Picture ui_picture(640, 480);
+Picture game_picture(640, 480);
+// The one unlocked last is shown.
+Picture* shown = &ui_picture;
 SDL_RendererInfo renderer_info;
 bool targets = false; // the renderer can draw into textures
 // The largest texture that sharp scaling draws into, in pixels. It is
@@ -132,6 +151,23 @@ void reset_textures(Picture& picture) {
     destroy(picture.texture);
     destroy(picture.upscaled);
     picture.factor = 0;
+}
+
+void reset_textures() {
+    reset_textures(ui_picture);
+    reset_textures(game_picture);
+}
+
+void Picture::resize(int width, int height) {
+    reset_textures(*this);
+    w = width;
+    h = height;
+    pixels.assign(size_t(w) * h, 0);
+    rows.assign(h, NULL);
+    rgba.assign(size_t(w) * h, 0);
+    place.x = place.y = 0;
+    place.w = w;
+    place.h = h;
 }
 
 // Fits the picture into the window with its own aspect ratio and chooses how
@@ -523,7 +559,9 @@ void events() {
             controller_axis(event.caxis.axis, event.caxis.value);
             break;
         case SDL_WINDOWEVENT:
-            if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) layout(screen_picture);
+            // The menus keep their place for the mouse; the game view gets
+            // its new size with the next frame.
+            if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) layout(ui_picture);
             // The editor only draws when something changes, so the last
             // picture is shown again.
             if ((event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
@@ -532,7 +570,7 @@ void events() {
             break;
         case SDL_RENDER_TARGETS_RESET: case SDL_RENDER_DEVICE_RESET:
             max_target_pixels = target_pixels;
-            reset_textures(screen_picture);
+            reset_textures();
             break;
 #endif
         }
@@ -577,10 +615,10 @@ void present() {
 #else
 // Draws the frame without showing it.
 void draw_frame() {
-    for (size_t i = 0; i < pixels.size(); ++i) rgba[i] = palette[pixels[i]];
-    Picture& picture = screen_picture;
+    Picture& picture = *shown;
+    for (size_t i = 0; i < picture.pixels.size(); ++i) picture.rgba[i] = palette[picture.pixels[i]];
     layout(picture);
-    SDL_UpdateTexture(picture.texture, NULL, rgba.data(), picture.w * sizeof(uint32_t));
+    SDL_UpdateTexture(picture.texture, NULL, picture.rgba.data(), picture.w * sizeof(uint32_t));
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
     draw(picture);
@@ -687,9 +725,9 @@ void ddinit() {
         SDL_GetRendererInfo(renderer, &renderer_info);
         targets = SDL_RenderTargetSupported(renderer) == SDL_TRUE;
         max_target_pixels = target_pixels;
-        layout(screen_picture);
+        layout(ui_picture);
     }
-    if (!screen_picture.texture) {
+    if (!ui_picture.texture) {
         fprintf(stderr, "SDL renderer: %s\n", SDL_GetError());
         SDL_Quit();
         exit(1);
@@ -701,7 +739,7 @@ void ddinit() {
 }
 
 void ddfinish() {
-    reset_textures(screen_picture);
+    reset_textures();
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
     renderer = NULL; window = NULL;
@@ -714,11 +752,13 @@ void dd_next_scale() {
     scale = Scale((scale + 1) % SCALE_COUNT);
     config_set("scale", scale_keys[scale]);
     config_save();
-    reset_textures(screen_picture);
-    layout(screen_picture);
+    reset_textures();
+    layout(ui_picture);
 }
 #endif
 
+#ifdef ELMA_SDL1
+// SDL 1.2 shows the 640x480 picture unscaled.
 unsigned char** lockbackbuffer(int) {
     if (locked) hiba((char*)"framebuffer already locked");
     locked = true;
@@ -728,8 +768,39 @@ unsigned char** lockbackbuffer(int) {
 }
 
 void unlockbackbuffer() { locked = false; present(); }
+void backbuffersize(int* w, int* h) { *w = 640; *h = 480; }
 unsigned char** lockfrontbuffer() { return lockbackbuffer(0); }
 void unlockfrontbuffer() { unlockbackbuffer(); }
+#else
+unsigned char** lockbackbuffer(int) {
+    if (locked) hiba((char*)"framebuffer already locked");
+    locked = true;
+    return game_picture.lock(Locky0_alul != 0);
+}
+
+void unlockbackbuffer() {
+    locked = false;
+    shown = &game_picture;
+    present();
+}
+
+void backbuffersize(int* w, int* h) {
+    *w = game_picture.w;
+    *h = game_picture.h;
+}
+
+unsigned char** lockfrontbuffer() {
+    if (locked) hiba((char*)"framebuffer already locked");
+    locked = true;
+    return ui_picture.lock(Locky0_alul != 0);
+}
+
+void unlockfrontbuffer() {
+    locked = false;
+    shown = &ui_picture;
+    present();
+}
+#endif
 
 // 6 bits per color, as a VGA card takes them; repeating the top bits makes
 // 63 full brightness instead of 252.
@@ -799,11 +870,12 @@ int s_random(int max) { return max > 0 ? rand() % max : 0; }
 void getmou(int* x, int* y) { SDL_GetMouseState(x, y); }
 void setmou(int x, int y) { SDL_WarpMouse(x, y); }
 #else
-// The game gets the mouse in its 640x480 screen, wherever that is shown.
+// The game gets the mouse in the 640x480 picture of the menus and the
+// editor, wherever that is shown.
 void getmou(int* x, int* y) {
     int window_x = 0, window_y = 0;
     SDL_GetMouseState(&window_x, &window_y);
-    const Picture& picture = screen_picture;
+    const Picture& picture = ui_picture;
     const SDL_Rect& place = picture.place;
     double ratio_x, ratio_y;
     drawable_ratio(&ratio_x, &ratio_y);
@@ -814,7 +886,7 @@ void getmou(int* x, int* y) {
 }
 
 void setmou(int x, int y) {
-    const Picture& picture = screen_picture;
+    const Picture& picture = ui_picture;
     const SDL_Rect& place = picture.place;
     double ratio_x, ratio_y;
     drawable_ratio(&ratio_x, &ratio_y);

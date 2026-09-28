@@ -21,8 +21,16 @@ public:
 // Ha igaz, alulrol indul y (kirajz320 allitja igazba):
 extern int Locky0_alul; 
 
+// A jatek kepe (kirajzol320) sajat xsize*ysize meretu kep, a lockbackbuffer
+// ysize sormutatot ad vissza (Locky0_alul eseten forditva). A menuk, dialogusok
+// es az editor kepe (lockfrontbuffer) mindig 640x480-as es megmarad ket
+// rajzolas kozott.
 unsigned char** lockbackbuffer( int fizikai );
 void unlockbackbuffer( void ); // Ki is teszi
+// A kovetkezo lockbackbuffer altal adott kep merete, lockolt allapotban a
+// lockolte. Csak ket kep kozott valtozhat, legalabb 640x480, legfeljebb
+// MAXKEPXSIZE*MAXKEPYSIZE (kirajzol.h):
+void backbuffersize( int* xsize, int* ysize );
 
 unsigned char** lockfrontbuffer( void );
 void unlockfrontbuffer( void );
