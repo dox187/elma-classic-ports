@@ -22,7 +22,12 @@ void csokkentkepmeret( void ) {
     Kitoltestmegrak = Kitoltestmegrakkezd;
 }
 
-// Kirajzolando terulet nagysaga:
+// A jatek kepenek (lockbackbuffer) merete, kirajzol320 allitja be minden
+// kep elejen (az eredeti jatekban mindig 640x480):
+static int Kepxsize = 640, Kepysize = 480;
+
+// Kirajzolando terulet nagysaga (beallitmereteket szamolja ki a kep
+// meretebol, mielott barmit kirajzolnank):
 static int Cx1 = 0, Cy1 = 0, Cx2 = 639, Cy2 = 479,
            Cy1Bplayer = 0, Cy2Bplayer = 0;
 int Cxsize = 640, Cysize = 480;
@@ -39,27 +44,38 @@ double  Hatarx1,
 static int Viewxsize, Viewysize;
 static int Viewxorig, Viewxtolas;
 
+// A ket jatekos kepe kozotti sav magassaga split screen-ben:
+#define SPLITKOZ (12)
+
+// Kepxsize*Kepysize meretu kepbe:
 void beallitmereteket( int splitscreen ) {
     Cy1Bplayer = 100, Cy2Bplayer = 200;
 
-    Cxsize = 640*(Kepmeret*1.001);
-    Cysize = 480*(Kepmeret*1.001);
-    Cx1 = (640-Cxsize)/2;
-    Cy1 = (480-Cysize)/2;
+    // A 1.001 miatt 640x480-ban minden Kepmeret-re ugyanaz jon ki, mint
+    // regen, nagyobb kepen viszont kilogna belole:
+    Cxsize = Kepxsize*(Kepmeret*1.001);
+    Cysize = Kepysize*(Kepmeret*1.001);
+    if( Cxsize > Kepxsize )
+        Cxsize = Kepxsize;
+    if( Cysize > Kepysize )
+        Cysize = Kepysize;
+    Cx1 = (Kepxsize-Cxsize)/2;
+    Cy1 = (Kepysize-Cysize)/2;
     Cx2 = Cx1 + Cxsize - 1;
     Cy2 = Cy1 + Cysize - 1;
     if( splitscreen ) {
-        Cysize = 234;
-		Cy1 = 246; // Mivel kep fejjel lefele van, forditva vannak koordok
-        Cy2 = 479; // Vagyis A player van felul, B pedig lent
+        // 480 magas kepben: 234 magas kepek, koztuk 12 sor:
+        Cysize = (Kepysize-SPLITKOZ)/2;
+		Cy1 = Kepysize-Cysize; // Mivel kep fejjel lefele van, forditva vannak koordok
+        Cy2 = Kepysize-1; // Vagyis A player van felul, B pedig lent
         Cy1Bplayer = 0;
-        Cy2Bplayer = 233;
+        Cy2Bplayer = Cysize-1;
     }
     #ifdef TEST
-        if( Cx2 >= 640 )
-            hiba( "beallitmereteket Cx2 >= 640!" );
-        if( Cy2 >= 480 )
-            hiba( "beallitmereteket Cy2 >= 480!" );
+        if( Cx2 >= Kepxsize )
+            hiba( "beallitmereteket Cx2 >= Kepxsize!" );
+        if( Cy2 >= Kepysize )
+            hiba( "beallitmereteket Cy2 >= Kepysize!" );
     #endif
 
     // Ezek csak doboz kirajzolashoz kellenek:
@@ -69,7 +85,7 @@ void beallitmereteket( int splitscreen ) {
     Hatary2 = Cysize-3.0;
 
     // Motoros kepernyo mely reszen helyezkedik el:
-    Mo_bal = (640/Arany)*0.15;
+    Mo_bal = (Kepxsize/Arany)*0.15;
     Mo_dx  = Cxsize/Arany - 2.0*Mo_bal;
     Mo_y   = Cysize/Arany/2.0;
 
@@ -77,6 +93,13 @@ void beallitmereteket( int splitscreen ) {
     Viewysize = 70*sqrt(double(Cysize)/480.0);  // 80
     Viewxorig = 40*(Kepmeret-0.6)/0.4;
     Viewxtolas = Cxsize-2*Viewxorig-Viewxsize;
+    // View ablak kerettel egyutt (1 pixel korben) is kiferjen a kepbe:
+    if( Viewxtolas < 0 ) {
+        Viewxsize += Viewxtolas;
+        Viewxtolas = 0;
+    }
+    if( Viewysize > Cysize-2 )
+        Viewysize = Cysize-2;
 }
 
 void forditkepet( pic8* ppic ) {
@@ -295,9 +318,9 @@ static void menteshakell( pic8* ppic ) {
 
 static void kitolthatteret( pic8* ppic ) {
     int y = 0;
-    while( y < 480 ) {
+    while( y < ppic->getysize() ) {
         int x = 0;
-        while( x < 640 ) {
+        while( x < ppic->getxsize() ) {
 			// hiba( "Itt van 14!" ); idejott
 			// hiba( tmp ); (16) kiirja koordokat szepen
 			
@@ -607,8 +630,10 @@ static void kirakegyjatekost(
 	Pecsetalso->getbalalso_int( sarok, &balalsox, &balalsoy );
 	int objminx = balalsox - 2*OBJEKTUMSUGAR_I - 2;
 	int objminy = balalsoy - 2*OBJEKTUMSUGAR_I - 2;
-	int objmaxx = balalsox + 640;
-	int objmaxy = balalsoy + 480;
+	// Eredetileg + 640 es + 480 volt (a kep merete, kicsinyitett kep es
+	// split screen eseten is):
+	int objmaxx = balalsox + Kepxsize;
+	int objmaxy = balalsoy + Kepysize;
 	for( int i = 0; i < MAXKEREK; i++ ) {
 		kerek* pker = Ptop->kerektomb[i];
 		if( !pker )
@@ -677,10 +702,13 @@ static void kirakegyjatekost(
 	}
 
 	if( !Single ) {
-		// Hatso motoros kirajzolasa:
-		vekt2 kozep( sarok.x + 320.0*Aranyrec, sarok.y + 240.0*Aranyrec );
+		// Hatso motoros kirajzolasa, ha a kep kozepetol legfeljebb a kep
+		// atlojanak fele + 140 pixelre van (640x480-ban 540 pixel):
+		double felx = Kepxsize/2.0;
+		double fely = Kepysize/2.0;
+		vekt2 kozep( sarok.x + felx*Aranyrec, sarok.y + fely*Aranyrec );
 		double tav = abs( pmot2->kor1.r - kozep );
-		if( tav < 540.0*Aranyrec )
+		if( tav < (sqrt( felx*felx + fely*fely ) + 140.0)*Aranyrec )
 			kibike( !ajatekos, ppic, t, sarok, pmot2, pvalt2, pmkepek2 );
 	}
 
@@ -720,13 +748,13 @@ static void kirakegyjatekost(
 			darabok[6] = darabok[4];
 			darabok[4] = darabok[3];
 			darabok[3] = darabok[2];
-			kidigit( darabok, fogoido, t, ppic, Cxsize, Cysize );
+			kidigit( darabok, fogoido, t, ppic, Cxsize, Cysize, Kepxsize );
 		}
 		else*/
 			if( Tag )
-				kidigit( Ezenlegjobbido, fogoido, t, ppic, Cxsize, Cysize );
+				kidigit( Ezenlegjobbido, fogoido, t, ppic, Cxsize, Cysize, Kepxsize );
 			else
-				kidigit( Ezenlegjobbido, -1.0, t, ppic, Cxsize, Cysize );
+				kidigit( Ezenlegjobbido, -1.0, t, ppic, Cxsize, Cysize, Kepxsize );
 	}
 }
 
@@ -763,8 +791,17 @@ void kirajzol320(
     pic8* npic = lockbackbuffer_pic( 0 );
     Locky0_alul = 0;
 
+    // Ha a kep merete valtozott (ablak atmeretezese), ujra kell szamolni
+    // mereteket es keretet:
+    if( npic->getxsize() != Kepxsize || npic->getysize() != Kepysize ) {
+        Kepxsize = npic->getxsize();
+        Kepysize = npic->getysize();
+        Kitoltestmegrak = Kitoltestmegrakkezd;
+    }
+
+    // keszitbelsot ennyi sormutatot ir bele:
     if( !Bpic )
-        Bpic = new pic8( 10, 480 );
+        Bpic = new pic8( 10, MAXKEPYSIZE );
 
 
 	// hiba( "Itt van 11!" ); idejott

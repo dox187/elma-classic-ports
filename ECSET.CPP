@@ -1641,7 +1641,7 @@ void ecset::kiegysor_B( unsigned char* pc, int ye ) {
 
 #ifdef FFECSET
 
-static unsigned char Feketesor[650], Fehersor[650];
+static unsigned char Feketesor[MAXKEPXSIZE+10], Fehersor[MAXKEPXSIZE+10];
 static unsigned char* FFsor = Feketesor;
 static int FFallapot = 0, FFinited = 0;
 static void ffmutvalt( void ) {
@@ -1656,7 +1656,7 @@ static void ffmutvalt( void ) {
 void ecset::kiegysor_FF( unsigned char* pc, int ye ) {
 	if( !FFinited ) {
 		FFinited = 1;
-		for( int i = 0; i < 640; i++) {
+		for( int i = 0; i < MAXKEPXSIZE; i++) {
 			Feketesor[i] = 10;
 			Fehersor[i] = 120;
 		}
@@ -1891,6 +1891,20 @@ static int lefeleoszt( int a, int b ) {
 	return -((b-1-a)/b);
 }
 
+// Az eg nem scrollozodik fol-le, a kep also sorahoz igazodik. A 480-nal
+// alacsonyabb eg kepek mar eredetileg is ismetlodtek (ugy keszultek), azok
+// ugy folytatodnak. A legalabb 480 magas kepet (pl. sky.pcx) az eredeti sosem
+// ismetelte: magasabb kepen a teteje felett tukrozve folytatodik, hogy ne
+// legyen vagas:
+static int egkepsor( int sor, int egymodulus ) {
+	if( egymodulus < 480 )
+		return sor % egymodulus;
+	sor %= 2*egymodulus;
+	if( sor >= egymodulus )
+		sor = 2*egymodulus-1-sor;
+	return sor;
+}
+
 // Ha a kep az ecseten kivulre esik, kivul foldet rajzol (also es view
 // ecset), vagy semmit (felso ecset), belul ugyanazt, mint regen:
 void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int x2, int y2 ) {
@@ -1938,7 +1952,7 @@ void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int
 		//Egsor = Plgr->peg->getptr( (y-y1+egdy) % egymodulus ) + egdx;
 
 		// Eg fol-le nem scrollozodik:
-		Egsor = Plgr->peg->getptr( (y-y1) % egymodulus ) + egdx;
+		Egsor = Plgr->peg->getptr( egkepsor( y-y1, egymodulus ) ) + egdx;
 
 		if( ye < ECSETSZEL || ye > sorszam-ECSETSZEL || Xe1 > Xe2 ) {
 			// Egesz sor kilog:

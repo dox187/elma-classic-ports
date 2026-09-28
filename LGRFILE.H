@@ -110,9 +110,9 @@ public:
 	// Ezt betoltecseteket hivja (Ptop-bol szedi kep neveket):
 	void betolthattereket();
 
-	// Ezeket colors.pcx file-bol veszi:
-	unsigned char viewfoldsor[640];
-	unsigned char viewegsor[640];
+	// Ezeket colors.pcx file-bol veszi (View ablak egy sora ezekbol jon):
+	unsigned char viewfoldsor[MAXKEPXSIZE];
+	unsigned char viewegsor[MAXKEPXSIZE];
 	unsigned char viewmotorindex1;
 	unsigned char viewmotorindex2;
 	unsigned char idoszin1; // Ezt torolni lehet

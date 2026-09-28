@@ -10,6 +10,11 @@ extern double   Hatarx1,
 
 extern int	Cxsize, Cysize; // Belso kep meretei
 
+// A jatek kepe (lockbackbuffer, m_dd.h) legfeljebb ekkora; ehhez vannak
+// meretezve a kep meretetol fuggo statikus tombok:
+#define MAXKEPXSIZE (4096)
+#define MAXKEPYSIZE (2400)
+
 extern int Kitoltestmegrak;
 // Es ennyire toltjuk:
 extern int Kitoltestmegrakkezd; 

@@ -157,12 +157,14 @@ static void kiegyszam( char* time, int x, int y ) {
 }
 
 void kidigit( char* time1, double fogoido, double time2d, pic8* ppic8,
-					int kepxsize, int kepysize ) {
+					int kepxsize, int kepysize, int teljesxsize ) {
 
 	Ppic8 = ppic8;
 	Lookup = Plgr->idonegtomb;
 
-	double kepmeretx = kepxsize/640.0;
+	// Az idok a kep szeletol teljes meretben mindig 28 pixelre vannak (mint
+	// 640 szeles kepen), kicsinyitett kepen aranyosan kozelebb:
+	double kepmeretx = double(kepxsize)/teljesxsize;
 	double kepmerety = kepysize/480.0;
 
 	//unsigned char szin1 = Plgr->idoszin1;
