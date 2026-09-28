@@ -7,16 +7,18 @@ koveto::koveto( void ) {
 		pkeptomb[i] = NULL;
 		feltomb[i] = 0;
 		atlatszotomb[i] = 0;
+		lejtestomb[i] = 0;
 	}
 }
 
 // nev kiterjesztes nelkuli:
-void koveto::addkep( pic8* ppic, int up, unsigned char atlatszo ) {
+void koveto::addkep( pic8* ppic, int up, unsigned char atlatszo, int lejtes ) {
 	if( kepszam >= MAXKOVETOKEPSZAM )
 		uzenet( "Too many grass pictures in lgr file!" );
 	pkeptomb[kepszam] = ppic;
 	feltomb[kepszam] = up;
 	atlatszotomb[kepszam] = atlatszo;
+	lejtestomb[kepszam] = lejtes;
 
 	kepszam++;
 }

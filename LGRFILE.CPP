@@ -185,15 +185,21 @@ void lgrfile::chopbiker( pic8* pbiker, motkepek* pkepek ) {
 
 // Ecset kitesz egy kepsorba (legfeljebb MAXKEPXSIZE) egy cellasize-nal
 // kisebb helytol kezdve masol belole (eredetileg 640 volt):
+// Fu kep ennyi pixelt lep a vonalon: a nagyitatlan kepbol szamolva, igy
+// nagyitva is pontosan a nagyitott kep lejtese (nem ysize-2*keltolas-1):
+static int fulejtes( pic8* ppic, double funagyitas ) {
+	double lejtes = (ppic->getysize() - (2*20+1)) * funagyitas;
+	return lejtes < 0 ? -int( -lejtes + 0.5 ) : int( lejtes + 0.5 );
+}
+
 static pic8* kepetbovitvizszint( textura* pt ) {
 	int cellasize = pt->origxsize;
-	int szorzo = 1;
-	while( cellasize * szorzo < MAXKEPXSIZE )
-		szorzo++;
-	szorzo++; // Igy mar legalabb egy keppel szelesebb MAXKEPXSIZE-nal
-	pic8* ppic = new pic8( cellasize * szorzo, pt->ppic->getysize() );
-	for( int i = 0; i < szorzo; i++ ) {
-		blt8( ppic, pt->ppic, i*cellasize, 0 );
+	// Egy keppel szelesebb MAXKEPXSIZE-nal; nem kell egesz kepekre kerekiteni,
+	// igy nagyitott szeles textura sem lesz tul szeles pic8-nak:
+	int xsize = cellasize + MAXKEPXSIZE;
+	pic8* ppic = new pic8( xsize, pt->ppic->getysize() );
+	for( int x = 0; x < xsize; x += cellasize ) {
+		blt8( ppic, pt->ppic, x, 0 );
 	}
 	return ppic;
 }
@@ -729,12 +735,14 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 		// Kovetok:
 		if( _fstrnicmp( nev, "qup_", 4 ) == 0 ) {
 			unsigned char atlatszo = ppic->gpixel( 0, 0 );
-			pkoveto->addkep( nagyitlgrkep( ppic, funagyitas ), 1, atlatszo );
+			int lejtes = fulejtes( ppic, funagyitas );
+			pkoveto->addkep( nagyitlgrkep( ppic, funagyitas ), 1, atlatszo, lejtes );
 			continue;
 		}
 		if( _fstrnicmp( nev, "qdown_", 6 ) == 0 ) {
 			unsigned char atlatszo = ppic->gpixel( 0, 0 );
-			pkoveto->addkep( nagyitlgrkep( ppic, funagyitas ), 0, atlatszo );
+			int lejtes = fulejtes( ppic, funagyitas );
+			pkoveto->addkep( nagyitlgrkep( ppic, funagyitas ), 0, atlatszo, lejtes );
 			continue;
 		}
 

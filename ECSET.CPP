@@ -1006,10 +1006,12 @@ void ecset::kiegykovetokep( koveto* pkov, int index, int xo, int yo, int fazis )
 	int keltolas = Plgr->keltolas;
 
 	// Kiszamoljuk kep tetejenek helyet:
+	// (Lefele meno kep a vonalba a jobb oldalan lep be, ott a teteje
+	// keltolas+lejtes-sel van feljebb; nagyitas nelkul ysize-1-keltolas.)
 	if( pkov->feltomb[index] )
 		yo -= keltolas;
 	else
-		yo -= ysize - 1 - keltolas;
+		yo -= keltolas + pkov->lejtestomb[index];
 
 	for( int y = 0; y < ysize; y++ ) {
 		int x = 0;
@@ -1055,19 +1057,17 @@ void ecset::kikovetokepek( koveto* pkov, int* ytomb, int hossz,
 			return; // Befejezte
 
 		// Megkeressuk legjobb kepet:
-		int keltolas = Plgr->keltolas;
 		int elteres = 10000;
 		int joindex = -1;
 		int jody = 0;
 		for( int i = 0; i < pkov->kepszam; i++ ) {
-			int dy = pkov->pkeptomb[i]->getysize();
-			if( dy < 2*keltolas+1 ) {
+			int dy = pkov->lejtestomb[i];
+			if( dy < 0 ) {
 				char tmp[60];
 				sprintf( tmp, "picture's y size is less than %d!",
-							2*keltolas+1 );
+							2*20+1 );
 				uzenet( "In grass picture ", tmp );
 			}
-			dy -= 2*keltolas+1;
 			if( !pkov->feltomb[i] )
 				dy = -dy;
 

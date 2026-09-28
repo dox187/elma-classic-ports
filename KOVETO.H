@@ -14,9 +14,12 @@ public:
 	// A kep atlatszo szine (az eredeti kep bal felso pixele, a kicsinyitett
 	// kepen az mar mas pixelbol johet):
 	unsigned char atlatszotomb[MAXKOVETOKEPSZAM];
+	// Ennyit lep a kep a vonalon (nagyitva is a nagyitatlan kep lejtese
+	// szorozva, ysize-2*20-1 eredetileg):
+	int   lejtestomb[MAXKOVETOKEPSZAM];
 	koveto( void );
 	~koveto( void );
-	void addkep( pic8* ppic, int up, unsigned char atlatszo );
+	void addkep( pic8* ppic, int up, unsigned char atlatszo, int lejtes );
 };
 
 // Ez nem hasznal semmit koveto adatokbol, csak Ptop-bol:
