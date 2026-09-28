@@ -72,9 +72,12 @@ function(elma_target target)
     target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${ELMA_HEADER_DIR})
     # The code was written for x86, where char is signed, and for compilers
     # that let signed integers wrap around instead of optimizing on their
-    # overflow. Floating point contraction (fused multiply-add on ARM) would
-    # change the physics results, so replays stay the same on every platform.
-    target_compile_options(${target} PRIVATE -fpermissive -fsigned-char -fwrapv -ffp-contract=off)
+    # overflow. It also reads values through pointers of other types (the
+    # engine sound in H_WAV.CPP), which optimizing on strict aliasing breaks.
+    # Floating point contraction (fused multiply-add on ARM) would change the
+    # physics results, so replays stay the same on every platform.
+    target_compile_options(${target} PRIVATE -fpermissive -fsigned-char -fwrapv -fno-strict-aliasing
+                           -ffp-contract=off)
     if(ELMA_REGISTERED)
         target_compile_definitions(${target} PRIVATE ELMA_REGISTERED)
     endif()
