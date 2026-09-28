@@ -115,9 +115,12 @@ renaming. The on-disk `state.dat` structures use 32-bit fields, so existing
 mixer of the Windows version, played through SDL.
 
 The data of the Steam release works with the registered build as well. Copy
-`base/elma.res` from the Steam installation, and `base/lgr/orig.lgr` as
-`lgr/default.lgr`: the `default.lgr` of the Steam release uses a newer LGR
-format that this code cannot read.
+`base/elma.res` and the `base/lgr` folder from the Steam installation. Its
+`default.lgr` is in the newer LGR13 format of the Steam release, with
+pictures of four times the resolution and a larger sky; they are resized to
+their size in the game when the level is loaded, so with a zoom or a higher
+resolution they show more detail. Copy `base/lgr/orig.lgr` as
+`lgr/default.lgr` instead for the look of the original game.
 
 With the Steam data, Play first offers the level collections of the Steam
 release (Tutorial, Stolen Internals, Quick & Easy and Quick & Hard) next to

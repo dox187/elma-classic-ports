@@ -48,7 +48,9 @@ int lgrfile::megfelel( double nagyitas_p, double texturanagyitas_p,
 	if( nagyitas != nagyitas_p || texturanagyitas != texturanagyitas_p ||
 		funagyitas != funagyitas_p )
 		return 0;
-	if( nagyitas == 1.0 && texturanagyitas == 1.0 && funagyitas == 1.0 )
+	// (The pictures of an LGR13 file are resized to their target size even
+	// without a zoom:)
+	if( nagyitas == 1.0 && texturanagyitas == 1.0 && funagyitas == 1.0 && !nagyfelbontasu )
 		return 1;
 	return szuro == dd_texture_filter();
 }
@@ -147,19 +149,24 @@ static int Nagyitoszuro = SZURO_LEGKOZELEBBI;
 static unsigned char* Nagyitopal = NULL;
 static unsigned char* Sajatpal = NULL;
 
-// A kep nagyitas-szoros masolata, vagy maga ppic, ha a meret nem valtozik:
-// felfele: a meretet felfele kerekiti (kepek, maszkok), hogy az egymas mellett
-// levo kepek kozott nem egesz nagyitasnal se maradjon res. atlatszo: a kep
-// atlatszo szine (-1: nincs), ismetlodo: textura (szuro.h):
+// Size in the game, without zoom, of the picture being read: in LGR12 its own
+// size, in LGR13 (Steam release) the target size stored in the file; the
+// picture itself may have a higher resolution (pictures, textures, objects):
+static int Celxsize = 0, Celysize = 0;
+
+// A copy of the picture at nagyitas times its target size, or ppic itself if
+// the size does not change. felfele rounds the size up (pictures, masks), so
+// that no gap is left between neighbouring pictures at fractional zooms.
+// atlatszo: the transparent color (-1: none), ismetlodo: a texture (szuro.h):
 static pic8* nagyitottkep( pic8* ppic, double nagyitas, int felfele = 0,
 						   int atlatszo = -1, int ismetlodo = 0 ) {
-	if( nagyitas == 1.0 )
-		return ppic;
-	int xsize = nagyitpixel( ppic->getxsize(), nagyitas );
-	int ysize = nagyitpixel( ppic->getysize(), nagyitas );
+	int celx = Celxsize > 0 ? Celxsize : ppic->getxsize();
+	int cely = Celysize > 0 ? Celysize : ppic->getysize();
+	int xsize = nagyitpixel( celx, nagyitas );
+	int ysize = nagyitpixel( cely, nagyitas );
 	if( felfele ) {
-		xsize = int( ceil( ppic->getxsize()*nagyitas - 1e-6 ) );
-		ysize = int( ceil( ppic->getysize()*nagyitas - 1e-6 ) );
+		xsize = int( ceil( celx*nagyitas - 1e-6 ) );
+		ysize = int( ceil( cely*nagyitas - 1e-6 ) );
 	}
 	if( xsize == ppic->getxsize() && ysize == ppic->getysize() )
 		return ppic;
@@ -209,7 +216,7 @@ void lgrfile::chopbiker( pic8* pbiker, motkepek* pkepek ) {
 // Fu kep ennyi pixelt lep a vonalon: a nagyitatlan kepbol szamolva, igy
 // nagyitva is pontosan a nagyitott kep lejtese (nem ysize-2*keltolas-1):
 static int fulejtes( pic8* ppic, double funagyitas ) {
-	double lejtes = (ppic->getysize() - (2*20+1)) * funagyitas;
+	double lejtes = ((Celysize > 0 ? Celysize : ppic->getysize()) - (2*20+1)) * funagyitas;
 	return lejtes < 0 ? -int( -lejtes + 0.5 ) : int( lejtes + 0.5 );
 }
 
@@ -549,6 +556,7 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	texturanagyitas = texturanagyitas_p;
 	funagyitas = funagyitas_p;
 	szuro = dd_texture_filter();
+	nagyfelbontasu = 0;
 	Nagyitoszuro = szuro;
 	Nagyitopal = NULL;
 	objektummeret = nagyitpixel( Animsize, nagyitas );
@@ -613,7 +621,11 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	tmp2[5] = 0;
 	if( strncmp( tmp2, "LGR", 3 ) != 0 )
 		uzenet( "This is not an LGR file!:", lgrtmp );
-	if( strcmp( tmp2+3, "12" ) != 0 )
+	// LGR13 (Steam release): the name of every picture is followed by its target
+	// size:
+	int lgr13 = strcmp( tmp2+3, "13" ) == 0;
+	nagyfelbontasu = lgr13;
+	if( strcmp( tmp2+3, "12" ) != 0 && !lgr13 )
 		uzenet( "LGR file's version is too new!:", lgrtmp );
 
 	// Most osszes kep szamat taroljuk kepszam-ban, kesobb csak indexeseket:
@@ -638,6 +650,9 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 		char nev[30];
 		if( fread( nev, 1, 20, h ) != 20 )
 			uzenet( "Corrupt LGR file!:", lgrtmp );
+		short celx = 0, cely = 0;
+		if( lgr13 && (fread( &celx, 1, 2, h ) != 2 || fread( &cely, 1, 2, h ) != 2) )
+			uzenet( "Corrupt LGR file!:", lgrtmp );
 		int hossz = 0;
 		if( fread( &hossz, 1, 4, h ) != 4 )
 			uzenet( "Corrupt LGR file!:", lgrtmp );
@@ -648,10 +663,12 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 		long kurpos = ftell( h );
 		pic8* ppic = new pic8( nev, h );
 		fseek( h, kurpos+hossz, SEEK_SET );
+		Celxsize = celx > 0 ? celx : ppic->getxsize();
+		Celysize = cely > 0 ? cely : ppic->getysize();
 		// A nagyitas szurojehez kell a paletta (a kep vegen van), amig a
 		// q1bike.pcx-e nincs meg:
 		if( !paltomb && Nagyitoszuro != SZURO_LEGKOZELEBBI &&
-			(nagyitas != 1.0 || texturanagyitas != 1.0 || funagyitas != 1.0) ) {
+			(lgr13 || nagyitas != 1.0 || texturanagyitas != 1.0 || funagyitas != 1.0) ) {
 			if( !Sajatpal )
 				Sajatpal = new unsigned char[768];
 			unsigned char jel = 0;
@@ -740,12 +757,14 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 
 		// Objektumok:
 		if( strcmpi( nev, "qkiller.pcx" ) == 0 ) {
-			pkiller = new anim( ppic, "qkiller.pcx", objektummeret, Nagyitoszuro, Nagyitopal );
+			pkiller = new anim( ppic, "qkiller.pcx", objektummeret, Nagyitoszuro, Nagyitopal,
+							 lgr13 ? ppic->getysize() : 0 );
 			delete ppic; ppic = NULL;
 			continue;
 		}
 		if( strcmpi( nev, "qexit.pcx" ) == 0 ) {
-			pexit = new anim( ppic, "qexit.pcx", objektummeret, Nagyitoszuro, Nagyitopal );
+			pexit = new anim( ppic, "qexit.pcx", objektummeret, Nagyitoszuro, Nagyitopal,
+							 lgr13 ? ppic->getysize() : 0 );
 			delete ppic; ppic = NULL;
 			continue;
 		}
@@ -763,7 +782,8 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 				char uzenet_filenev[80];
 				sprintf( uzenet_filenev, "Picture name: %s. In LGR file: %s.",
 														nev, lgrnev );
-				foodtomb[foodi] = new anim( ppic, tmpnev, objektummeret, Nagyitoszuro, Nagyitopal );
+				foodtomb[foodi] = new anim( ppic, tmpnev, objektummeret, Nagyitoszuro, Nagyitopal,
+							 lgr13 ? ppic->getysize() : 0 );
 				delete ppic;
 				ppic = NULL;
 				ezfoodvolt = 1;

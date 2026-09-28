@@ -3,20 +3,22 @@
 const int Animsize = 40;
 
 anim::anim( pic8* nagykep, char* uzenet_filenev, int meret, int szuro,
-			unsigned char* paltomb ) {
+			unsigned char* paltomb, int forraskocka ) {
 	int i;
 	if( meret <= 0 )
 		meret = Animsize;
+	if( forraskocka <= 0 )
+		forraskocka = Animsize;
 	frameszam = 0;
 	for( i = 0; i < MAXANIMFRAME; i++ )
 		ppictomb[i] = NULL;
 
-	if( nagykep->getxsize() % Animsize ) {
+	if( nagykep->getxsize() % forraskocka ) {
 		char tmp[80];
-		sprintf( tmp, "Picture xsize must be a multiply of %d!", Animsize );
+		sprintf( tmp, "Picture xsize must be a multiply of %d!", forraskocka );
 		uzenet( tmp, uzenet_filenev );
 	}
-	frameszam = nagykep->getxsize() / Animsize;
+	frameszam = nagykep->getxsize() / forraskocka;
 	if( frameszam < 0 )
 		hiba( "uiuiotb" );
 	if( frameszam > MAXANIMFRAME ) {
@@ -26,9 +28,9 @@ anim::anim( pic8* nagykep, char* uzenet_filenev, int meret, int szuro,
 	}
 
 	for( i = 0; i < frameszam; i++ ) {
-		ppictomb[i] = new pic8( Animsize, Animsize );
-		blt8( ppictomb[i], nagykep, -Animsize*i, 0 );
-		if( meret != Animsize ) {
+		ppictomb[i] = new pic8( forraskocka, forraskocka );
+		blt8( ppictomb[i], nagykep, -forraskocka*i, 0 );
+		if( meret != forraskocka ) {
 			pic8* pnagy = atmeretez_szurovel( ppictomb[i], meret, meret, szuro, paltomb,
 											  nagykep->gpixel( 0, 0 ), 0 );
 			delete ppictomb[i];
