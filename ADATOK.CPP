@@ -35,10 +35,14 @@ double Arany = 0.0, Aranyrec = 0.0;
 double Aranyalap = 48.0, Aranyalaprec = 1.0/48.0;
 double Motornagyitas = 1.0;
 
-// A jatek kepenek illesztese a kepernyohoz: most mindig 1 (a kep merete
-// ugyanannyi metert mutat, mint az eredetiben):
+// A jatek kepenek illesztese a kepernyohoz: a 640x480-nal (4:3-on tul a
+// szelessegben vagy magassagban) hanyszor tobb pixele van, annyiszor nagyobb
+// Arany, igy a kep ugyanannyi metert mutat, mint az eredetiben:
 static double kepillesztes( void ) {
-	return 1.0;
+	int xsize = 640, ysize = 480;
+	backbuffersize( &xsize, &ysize );
+	double illesztes = xsize/640.0 < ysize/480.0 ? xsize/640.0 : ysize/480.0;
+	return illesztes > 1.0 ? illesztes : 1.0;
 }
 
 // A platform beallitasa (elma.cfg zoom), a megengedett tartomanyban:

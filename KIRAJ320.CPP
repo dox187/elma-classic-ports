@@ -93,9 +93,13 @@ void beallitmereteket( int splitscreen ) {
     Mo_dx  = Cxsize/Arany - 2.0*Mo_bal;
     Mo_y   = Cysize/Arany/2.0;
 
-    Viewxsize = 140*sqrt(double(Cysize)/480.0); // 200
-    Viewysize = 70*sqrt(double(Cysize)/480.0);  // 80
-    Viewxorig = 40*(Kepmeret-0.6)/0.4;
+    // Tobb pixeles kepen (kepillesztes) a view ablak is nagyobb:
+    double illesztes = Kepxsize/640.0 < Kepysize/480.0 ? Kepxsize/640.0 : Kepysize/480.0;
+    if( illesztes < 1.0 )
+        illesztes = 1.0;
+    Viewxsize = 140*illesztes*sqrt(double(Cysize)/(480.0*illesztes)); // 200
+    Viewysize = 70*illesztes*sqrt(double(Cysize)/(480.0*illesztes));  // 80
+    Viewxorig = 40*illesztes*(Kepmeret-0.6)/0.4;
     Viewxtolas = Cxsize-2*Viewxorig-Viewxsize;
     // View ablak kerettel egyutt (1 pixel korben) is kiferjen a kepbe:
     if( Viewxtolas < 0 ) {

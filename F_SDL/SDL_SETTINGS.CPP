@@ -145,13 +145,65 @@ Aspect config_aspect() {
 const char* aspect_key(Aspect aspect) { return aspect_keys[aspect]; }
 const char* aspect_name(Aspect aspect) { return aspect_names[aspect]; }
 
-void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
+namespace {
+const int resolution_options[] = { RESOLUTION_AUTO, RESOLUTION_NATIVE, RESOLUTION_ORIGINAL };
+bool resolution_read = false;
+int current_resolution = RESOLUTION_AUTO;
+}
+
+int config_resolution() {
+    if (!resolution_read) {
+        resolution_read = true;
+#ifdef ELMA_HANDHELD
+        current_resolution = RESOLUTION_ORIGINAL; // the CPU draws every pixel
+#endif
+        const char* value = config_get("resolution", NULL);
+        if (value) {
+            if (stricmp(value, "auto") == 0) current_resolution = RESOLUTION_AUTO;
+            else if (stricmp(value, "native") == 0) current_resolution = RESOLUTION_NATIVE;
+            else if (stricmp(value, "original") == 0) current_resolution = RESOLUTION_ORIGINAL;
+            else if (atoi(value) > 0) current_resolution = atoi(value);
+        }
+    }
+    return current_resolution;
+}
+
+void set_config_resolution(int resolution) {
+    resolution_read = true;
+    current_resolution = resolution;
+    char text[32];
+    if (resolution == RESOLUTION_AUTO) strcpy(text, "auto");
+    else if (resolution == RESOLUTION_NATIVE) strcpy(text, "native");
+    else if (resolution == RESOLUTION_ORIGINAL) strcpy(text, "original");
+    else snprintf(text, sizeof(text), "%d", resolution);
+    config_set("resolution", text);
+    config_save();
+}
+
+const char* resolution_name(int resolution) {
+    static char text[32];
+    if (resolution == RESOLUTION_AUTO) return "Auto";
+    if (resolution == RESOLUTION_NATIVE) return "Native";
+    if (resolution == RESOLUTION_ORIGINAL) return "Original";
+    snprintf(text, sizeof(text), "%d", resolution);
+    return text;
+}
+
+int next_resolution_option(int resolution) {
+    const int count = sizeof(resolution_options) / sizeof(resolution_options[0]);
+    for (int i = 0; i < count; ++i)
+        if (resolution_options[i] == resolution) return resolution_options[(i + 1) % count];
+    return resolution_options[0];
+}
+
+void base_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
     *w = 640;
     *h = 480;
-    if (aspect != ASPECT_SCREEN || out_w <= 0 || out_h <= 0) return;
+    if (out_w <= 0 || out_h <= 0) return;
     // In 64 bits, as out_w * 480 of a huge window must not overflow.
     const long long ow = out_w, oh = out_h;
-    if (ow * 9 > oh * 21) {
+    if (aspect != ASPECT_SCREEN) {
+    } else if (ow * 9 > oh * 21) {
         *w = 1120; // 480 * 21 / 9
     } else if (ow * 3 >= oh * 4) {
         // 2 * round(240 * ow / oh)
@@ -162,8 +214,24 @@ void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
     } else {
         *h = 640;
     }
-    if (*w > MAXKEPXSIZE) *w = MAXKEPXSIZE;
-    if (*h > MAXKEPYSIZE) *h = MAXKEPYSIZE;
+}
+
+void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
+    base_view_size(aspect, out_w, out_h, w, h);
+    if (out_w <= 0 || out_h <= 0) return;
+    // More pixels for the same part of the level:
+    const int resolution = config_resolution();
+    if (resolution == RESOLUTION_ORIGINAL) return;
+    const int base_w = *w, base_h = *h;
+    double scale = double(out_w) / base_w < double(out_h) / base_h ? double(out_w) / base_w
+                                                                   : double(out_h) / base_h;
+    if (resolution == RESOLUTION_AUTO) scale = floor(scale);
+    else if (resolution > 0) scale = double(resolution) / base_h;
+    if (scale > double(MAXKEPXSIZE) / base_w) scale = double(MAXKEPXSIZE) / base_w;
+    if (scale > double(MAXKEPYSIZE) / base_h) scale = double(MAXKEPYSIZE) / base_h;
+    if (scale <= 1.0) return;
+    *w = 2 * int(base_w * scale / 2);
+    *h = int(base_h * scale);
 }
 
 bool config_flag(const char* key, bool fallback) {

@@ -152,6 +152,15 @@ void options( void ) {
 			rubrikaszam++;
 		}
 
+		// Jatek kepenek felbontasa, ha a platformon allithato:
+		int felbontassor = -1;
+		if( dd_resolution_name() ) {
+			felbontassor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Resolution:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_resolution_name() );
+			rubrikaszam++;
+		}
+
 		// Motor nagyitasa es a texturak nagyitasa, ha a platformon allithato:
 		int zoomsor = -1;
 		if( dd_zoom_name() ) {
@@ -243,6 +252,9 @@ void options( void ) {
 
 		if( aranysor >= 0 && kurrens == aranysor )
 			dd_next_aspect();
+
+		if( felbontassor >= 0 && kurrens == felbontassor )
+			dd_next_resolution();
 
 		// A kovetkezo palya betoltesekor ervenyes (floadlevel_p):
 		if( zoomsor >= 0 && kurrens == zoomsor )

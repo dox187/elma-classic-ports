@@ -30,7 +30,23 @@ const char* aspect_name(Aspect aspect); // as in the Options menu: Screen, 4:3
 // bars); from 4:3 up the view is 480 high and as wide as the ratio, rounded to
 // an even number (1920x1080: 854x480, 2560x1080 and wider: 1120x480), below
 // 4:3 it is 640 wide and as high as the ratio (720x720 and taller: 640x640).
+// With the resolution setting below, the view gets more pixels for the same
+// part of the level; base_view_size gives the size without it.
+void base_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h);
 void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h);
+
+// How many pixels the game view has (resolution in elma.cfg): original, the
+// sizes above, which the window then enlarges; auto (the default on desktops),
+// those sizes times the largest whole number that fits the output, so that
+// the pictures of the level are enlarged evenly (1920x1080: 1708x960);
+// native, as many pixels as the output; or a number of rows. The game shows
+// the same part of the level, in more detail. At most MAXKEPXSIZE x
+// MAXKEPYSIZE.
+enum { RESOLUTION_ORIGINAL = 0, RESOLUTION_AUTO = -1, RESOLUTION_NATIVE = -2 };
+int config_resolution(); // one of these, or the number of rows
+void set_config_resolution(int resolution);
+const char* resolution_name(int resolution); // as in the Options menu: Auto, 1080
+int next_resolution_option(int resolution);  // Auto, Native, Original, Auto...
 
 // A setting of elma.cfg that is 0 or 1 (anything else than 0 is 1).
 bool config_flag(const char* key, bool fallback);

@@ -46,6 +46,11 @@ void dd_next_scale( void ); // Kovetkezo modra valt es elmenti
 const char* dd_aspect_name( void );
 void dd_next_aspect( void ); // Masikra valt es elmenti
 
+// Jatek kepenek felbontasa (hany pixel ugyanarra a reszre), Options menuben
+// allithato, a kovetkezo palyatol ervenyes. NULL, ha nem allithato:
+const char* dd_resolution_name( void );
+void dd_next_resolution( void ); // Kovetkezore valt es elmenti
+
 
 // A motor merete a kepen (nagyitas, zoom): 1 az eredeti, NAGYITASMIN..
 // NAGYITASMAX (adatok.h). A kovetkezo palya betoltesekor, jatek kozben pedig

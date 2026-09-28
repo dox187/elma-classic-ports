@@ -735,15 +735,23 @@ void ddinit() {
     aspect = config_aspect();
     int width = 640, height = 480;
 #ifndef ELMA_HANDHELD
-    // The window starts at the largest whole multiple of 640x480 that fits
-    // on the screen with room for the title bar and the window frame.
+    // The window starts at the largest whole multiple of the game view that
+    // fits on the screen with room for the title bar and the window frame,
+    // with the aspect ratio of the screen (or 4:3).
     SDL_Rect usable;
+    SDL_DisplayMode mode;
     const int decorations = 64;
-    if (SDL_GetDisplayUsableBounds(0, &usable) == 0)
-        while (width + 640 + decorations <= usable.w && height + 480 + decorations <= usable.h) {
-            width += 640;
-            height += 480;
+    if (SDL_GetDisplayUsableBounds(0, &usable) == 0) {
+        int step_w = 640, step_h = 480;
+        if (SDL_GetDesktopDisplayMode(0, &mode) == 0)
+            base_view_size(aspect, mode.w, mode.h, &step_w, &step_h);
+        width = step_w;
+        height = step_h;
+        while (width + step_w + decorations <= usable.w && height + step_h + decorations <= usable.h) {
+            width += step_w;
+            height += step_h;
         }
+    }
 #endif
     Uint32 flags = SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
     if (fullscreen()) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -806,6 +814,11 @@ void dd_next_aspect() {
     config_save();
 }
 
+// The game view takes the new size with its next frame, the next level is
+// drawn in its detail.
+const char* dd_resolution_name() { return resolution_name(config_resolution()); }
+void dd_next_resolution() { set_config_resolution(next_resolution_option(config_resolution())); }
+
 // The next level is loaded with the new zoom.
 const char* dd_zoom_name() { return zoom_name(config_zoom()); }
 void dd_next_zoom() { set_config_zoom(next_zoom_option(config_zoom())); }
@@ -843,6 +856,8 @@ void unlockfrontbuffer() { unlockbackbuffer(); }
 
 const char* dd_aspect_name() { return NULL; }
 void dd_next_aspect() {}
+const char* dd_resolution_name() { return NULL; }
+void dd_next_resolution() {}
 #else
 namespace {
 bool game_locked = false;

@@ -118,10 +118,12 @@ scale, 480 pixels high on screens wider than 4:3 (854x480 on 16:9, 768x480 on
 16:10, up to 1120x480 on 21:9) and 640 wide on narrower ones (up to 640x640 on
 square and portrait screens). On a wide screen the game thus shows more of the
 level, more of it ahead of the bike, than the original 4:3 picture, while the
-bike keeps its size; `aspect = 4:3` gives the original view. The window opens
-at the largest whole multiple of 640x480 that fits on the screen, and at any
-window size each picture keeps its shape, with black bars around it where
-needed. **Alt+Enter** or **F11** switches between the window and full screen.
+bike keeps its size; `aspect = 4:3` gives the original view. On a desktop the
+view is also drawn with more pixels for the same part of the level (see
+`resolution` below: 1708x960 on a 1920x1080 screen), so the bike and the edges
+of the level are sharp. The window opens at the largest whole multiple of the
+view that fits on the screen, and at any window size each picture keeps its
+shape, with black bars around it where needed. **Alt+Enter** or **F11** switches between the window and full screen.
 The 6-bit palette of the game is widened as VGA hardware showed it, so white
 is 255 instead of the 252 of the earlier SDL port.
 
@@ -136,6 +138,7 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 | `scale`      | `sharp` (default), `smooth`, `nearest`, `integer` or `pixelart`; also under **Options → Scaling** |
 | `aspect`     | `screen` (default): the view of the game takes the aspect ratio of the window, or `4:3`: the original 640x480; also under **Options → Aspect Ratio** |
 | `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds. Alt+Enter and F11 save it |
+| `resolution` | how many pixels the view of the game has for the same part of the level: `auto` (default on desktops) multiplies the sizes above by the largest whole number that fits the screen, so the pictures of the level are enlarged evenly (1708x960 on 1920x1080), `native` uses every pixel of the screen, `original` (default on handhelds) the sizes above, or a number of rows such as `720`; also under **Options → Resolution**. It takes effect with the next level |
 | `zoom`       | size of the bike and the level on the screen, `0.5` to `4` (default `1`, the original size); also under **Options → Zoom** and with the zoom keys in a game |
 | `zoom_textures` | `1` (default): the textures, the sky and the ground as well, are enlarged with the zoom; `0`: they keep their original pixel size, crisper but denser; also under **Options → Zoom Textures** |
 | `zoom_grass` | `1` (default): the grass pictures are enlarged with the zoom; `0`: they keep their original size |

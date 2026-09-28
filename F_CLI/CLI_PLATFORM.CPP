@@ -240,6 +240,8 @@ const char* dd_scale_name() { return NULL; }
 void dd_next_scale() {}
 const char* dd_aspect_name() { return NULL; }
 void dd_next_aspect() {}
+const char* dd_resolution_name() { return NULL; }
+void dd_next_resolution() {}
 // The terminal keeps the original size of the bike.
 double dd_zoom() { return 1.0; }
 void dd_set_zoom(double) {}
