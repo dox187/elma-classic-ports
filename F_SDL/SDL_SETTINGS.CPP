@@ -128,3 +128,40 @@ void config_save() {
     if (fclose(h) == 0 && written && (!replace || rename(temporary.c_str(), config_name) == 0)) return;
     if (replace) remove(temporary.c_str());
 }
+
+namespace {
+const char* const aspect_keys[ASPECT_COUNT] = { "screen", "4:3" };
+const char* const aspect_names[ASPECT_COUNT] = { "Screen", "4:3" };
+}
+
+Aspect config_aspect() {
+    const char* value = config_get("aspect", NULL);
+    if (value)
+        for (int i = 0; i < ASPECT_COUNT; ++i)
+            if (stricmp(value, aspect_keys[i]) == 0) return Aspect(i);
+    return ASPECT_SCREEN;
+}
+
+const char* aspect_key(Aspect aspect) { return aspect_keys[aspect]; }
+const char* aspect_name(Aspect aspect) { return aspect_names[aspect]; }
+
+void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
+    *w = 640;
+    *h = 480;
+    if (aspect != ASPECT_SCREEN || out_w <= 0 || out_h <= 0) return;
+    // In 64 bits, as out_w * 480 of a huge window must not overflow.
+    const long long ow = out_w, oh = out_h;
+    if (ow * 9 > oh * 21) {
+        *w = 1120; // 480 * 21 / 9
+    } else if (ow * 3 >= oh * 4) {
+        // 2 * round(240 * ow / oh)
+        *w = int(2 * ((480 * ow + oh) / (2 * oh)));
+    } else if (ow > oh) {
+        // 2 * round(320 * oh / ow)
+        *h = int(2 * ((640 * oh + ow) / (2 * ow)));
+    } else {
+        *h = 640;
+    }
+    if (*w > MAXKEPXSIZE) *w = MAXKEPXSIZE;
+    if (*h > MAXKEPYSIZE) *h = MAXKEPYSIZE;
+}

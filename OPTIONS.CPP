@@ -143,6 +143,15 @@ void options( void ) {
 			rubrikaszam++;
 		}
 
+		// Jatek kepenek oldalaranya, ha a platformon allithato:
+		int aranysor = -1;
+		if( dd_aspect_name() ) {
+			aranysor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Aspect Ratio:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_aspect_name() );
+			rubrikaszam++;
+		}
+
 		val.bead( rubrikaszam+vantagis, 1 );
 
 		kurrens = val.valassz();
@@ -215,6 +224,9 @@ void options( void ) {
 
 		if( nagyitassor >= 0 && kurrens == nagyitassor )
 			dd_next_scale();
+
+		if( aranysor >= 0 && kurrens == aranysor )
+			dd_next_aspect();
 
 
 		if( vantagis ) // Visszaalitjuk eredeti helyzetebe

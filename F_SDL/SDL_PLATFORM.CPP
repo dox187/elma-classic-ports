@@ -118,11 +118,13 @@ struct Picture {
     }
 };
 // The menus, dialogs and the editor draw into this 640x480 picture, which
-// keeps what they drew; the game draws its view into the other one.
+// keeps what they drew; the game draws its view into the other one, whose
+// size follows the aspect ratio of the window (game_view_size).
 Picture ui_picture(640, 480);
 Picture game_picture(640, 480);
 // The one unlocked last is shown.
 Picture* shown = &ui_picture;
+Aspect aspect = ASPECT_SCREEN;
 SDL_RendererInfo renderer_info;
 bool targets = false; // the renderer can draw into textures
 // The largest texture that sharp scaling draws into, in pixels. It is
@@ -188,6 +190,16 @@ void layout(Picture& picture) {
         place.h = (out_w * h + w / 2) / w;
     }
     const int whole = std::min(out_w / w, out_h / h);
+    // The game view takes the aspect ratio of the window only to a whole
+    // pixel of its own (854x480 in 1920x1080 or 3840x2160 would leave black
+    // rows): a picture short of the window by up to one of its pixels
+    // fills it, unless it fits it by a whole number.
+    const int slack_w = (out_w + w - 1) / w, slack_h = (out_h + h - 1) / h;
+    if (place.w >= out_w - slack_w && place.h >= out_h - slack_h &&
+        !(whole >= 1 && place.w == w * whole && place.h == h * whole)) {
+        place.w = out_w;
+        place.h = out_h;
+    }
     Filter filter = FILTER_LINEAR;
     int factor = 0;
     switch (scale) {
@@ -692,6 +704,7 @@ void ddinit() {
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0)
         SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
     scale = configured_scale();
+    aspect = config_aspect();
     int width = 640, height = 480;
 #ifndef ELMA_HANDHELD
     // The window starts at the largest whole multiple of 640x480 that fits
@@ -755,6 +768,15 @@ void dd_next_scale() {
     reset_textures();
     layout(ui_picture);
 }
+
+const char* dd_aspect_name() { return aspect_name(aspect); }
+
+// The game view takes the new size with its next frame.
+void dd_next_aspect() {
+    aspect = Aspect((aspect + 1) % ASPECT_COUNT);
+    config_set("aspect", aspect_key(aspect));
+    config_save();
+}
 #endif
 
 #ifdef ELMA_SDL1
@@ -771,20 +793,39 @@ void unlockbackbuffer() { locked = false; present(); }
 void backbuffersize(int* w, int* h) { *w = 640; *h = 480; }
 unsigned char** lockfrontbuffer() { return lockbackbuffer(0); }
 void unlockfrontbuffer() { unlockbackbuffer(); }
+
+const char* dd_aspect_name() { return NULL; }
+void dd_next_aspect() {}
 #else
+namespace {
+bool game_locked = false;
+
+// Between frames, the game view takes the size that the window asks for.
+void resize_game_view() {
+    if (game_locked) return;
+    int out_w = 0, out_h = 0;
+    if (!renderer || SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0) out_w = out_h = 0;
+    int w, h;
+    game_view_size(aspect, out_w, out_h, &w, &h);
+    if (w != game_picture.w || h != game_picture.h) game_picture.resize(w, h);
+}
+}
+
 unsigned char** lockbackbuffer(int) {
     if (locked) hiba((char*)"framebuffer already locked");
-    locked = true;
+    resize_game_view();
+    locked = game_locked = true;
     return game_picture.lock(Locky0_alul != 0);
 }
 
 void unlockbackbuffer() {
-    locked = false;
+    locked = game_locked = false;
     shown = &game_picture;
     present();
 }
 
 void backbuffersize(int* w, int* h) {
+    resize_game_view();
     *w = game_picture.w;
     *h = game_picture.h;
 }

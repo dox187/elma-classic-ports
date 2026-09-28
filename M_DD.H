@@ -40,4 +40,10 @@ void unlockfrontbuffer( void );
 const char* dd_scale_name( void );
 void dd_next_scale( void ); // Kovetkezo modra valt es elmenti
 
+// Jatek kepenek oldalaranya (kepernyoe vagy 4:3), Options menuben allithato,
+// a kovetkezo kephez ervenyes. NULL-t ad vissza, ha a platformon nem
+// allithato (terminal, SDL 1.2):
+const char* dd_aspect_name( void );
+void dd_next_aspect( void ); // Masikra valt es elmenti
+
 

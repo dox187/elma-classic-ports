@@ -52,7 +52,8 @@ https://elastomania.com
   area drawn around the level or when the bike left the collision grid to the
   right or above. The bike now dies instead, like in any crash: where the
   full-size 640x480 view of the original would have reached that edge, and at
-  the edge of the collision grid, whatever the size of the view.
+  the edge of the collision grid, whatever the size of the view. A larger view
+  shows ground beyond the edge.
 
 ## Ports
 
@@ -111,12 +112,18 @@ mixer of the Windows version, played through SDL.
 
 ### Picture and settings
 
-The game draws a 640x480 picture. The window opens at the largest whole
-multiple of that which fits on the screen, and at any window size the
-picture keeps its 4:3 shape, with black bars around it. **Alt+Enter** or
-**F11** switches between the window and full screen. The 6-bit palette of the
-game is widened as VGA hardware showed it, so white is 255 instead of the
-252 of the earlier SDL port.
+The menus, dialogs and the editor are 640x480 pictures. The view of the game
+takes the aspect ratio of the window or screen instead: it keeps the original
+scale, 480 pixels high on screens wider than 4:3 (854x480 on 16:9, 768x480 on
+16:10, up to 1120x480 on 21:9) and 640 wide on narrower ones (up to 640x640 on
+square and portrait screens). On a wide screen the game thus shows more of the
+level, more of it ahead of the bike, than the original 4:3 picture, while the
+bike keeps its size; `aspect = 4:3` gives the original view. The window opens
+at the largest whole multiple of 640x480 that fits on the screen, and at any
+window size each picture keeps its shape, with black bars around it where
+needed. **Alt+Enter** or **F11** switches between the window and full screen.
+The 6-bit palette of the game is widened as VGA hardware showed it, so white
+is 255 instead of the 252 of the earlier SDL port.
 
 Settings that `state.dat` has no room for (it stays readable by the original
 game) are kept in `elma.cfg` in the game directory, one `key = value` per
@@ -127,6 +134,7 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 | Key          | Values |
 |--------------|--------|
 | `scale`      | `sharp` (default), `smooth`, `nearest`, `integer` or `pixelart`; also under **Options → Scaling** |
+| `aspect`     | `screen` (default): the view of the game takes the aspect ratio of the window, or `4:3`: the original 640x480; also under **Options → Aspect Ratio** |
 | `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds. Alt+Enter and F11 save it |
 
 - `sharp` enlarges the picture by a whole number with hard pixel edges and
@@ -209,7 +217,10 @@ deletes one. The level editor needs a mouse and a keyboard, so the handheld
 builds leave it out.
 
 The game runs full screen on handhelds, and at 640x480 fills the screen of
-most of them. On other screens the PortMaster build scales it sharply; choose
+most of them. The PortMaster build gives the view of the game the aspect
+ratio of the screen (640x640 on the square screen of the RGB30; **Options →
+Aspect Ratio** or `aspect = 4:3` for the original view). On other screens it
+scales the picture sharply; choose
 **Options → Scaling** in the game, `scale = smooth` in `elma.cfg` or
 `ELMA_SCALE=smooth` in the launcher for smooth scaling (see
 [Picture and settings](#picture-and-settings)). The older
