@@ -235,7 +235,11 @@ for free, and never add the game data to it.
   `elastomania`. The game shows up among the ports.
 - Onion OS, among the ports: copy the `ElastoMania` folder to
   `Roms/PORTS/Games` on the SD card and the game data into it, then copy
-  `Elasto Mania.port` to `Roms/PORTS/Shortcuts`. A 256x360 picture saved as
+  `Elasto Mania.port` to `Roms/PORTS/Shortcuts`, then run **~Import ports**
+  at the top of the Ports list. The import only lists the game once it finds
+  `Roms/PORTS/Games/ElastoMania/elma.res`; otherwise it renames the shortcut
+  to `Elasto Mania.notfound` and hides it, and `Roms/PORTS/import.log` shows
+  what it checked. A 256x360 picture saved as
   `Roms/PORTS/Imgs/Elasto Mania.png` is shown as its box art.
 - Onion OS, among the apps: copy the `ElastoMania` folder to `App` instead,
   with the game data in it. Put an `icon.png` there for an icon in the Apps
