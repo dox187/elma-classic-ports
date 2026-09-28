@@ -95,6 +95,11 @@ renaming. The on-disk `state.dat` structures use 32-bit fields, so existing
 `state.dat` files keep their players and best times. Sound uses the original
 mixer of the Windows version, played through SDL.
 
+The data of the Steam release works with the registered build as well. Copy
+`base/elma.res` from the Steam installation, and `base/lgr/orig.lgr` as
+`lgr/default.lgr`: the `default.lgr` of the Steam release uses a newer LGR
+format that this code cannot read.
+
 ## Handheld Linux devices
 
 The Miyoo Mini build has been tested on a Miyoo Mini with Onion OS 4.3. The
