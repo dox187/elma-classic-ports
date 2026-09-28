@@ -2,8 +2,10 @@
 
 const int Animsize = 40;
 
-anim::anim( pic8* nagykep, char* uzenet_filenev ) {
+anim::anim( pic8* nagykep, char* uzenet_filenev, int meret ) {
 	int i;
+	if( meret <= 0 )
+		meret = Animsize;
 	frameszam = 0;
 	for( i = 0; i < MAXANIMFRAME; i++ )
 		ppictomb[i] = NULL;
@@ -25,6 +27,11 @@ anim::anim( pic8* nagykep, char* uzenet_filenev ) {
 	for( i = 0; i < frameszam; i++ ) {
 		ppictomb[i] = new pic8( Animsize, Animsize );
 		blt8( ppictomb[i], nagykep, -Animsize*i, 0 );
+		if( meret != Animsize ) {
+			pic8* pnagy = atmeretez( ppictomb[i], meret, meret );
+			delete ppictomb[i];
+			ppictomb[i] = pnagy;
+		}
 		forditkepet( ppictomb[i] );
 		spriteosit( ppictomb[i], nagykep->gpixel( 0, 0 ) );
 	}

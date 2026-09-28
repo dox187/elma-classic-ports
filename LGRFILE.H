@@ -58,17 +58,34 @@ class lgrfile {
 	// Konstruktor hasznalja:
 	void chopbiker( pic8* pbiker, motkepek* pkepek );
 
+	// ppic az eredeti kep, beirkepet es beirmaszkot nagyitva tarolja:
 	void beirkepet( pic8* ppic, piclist* ppiclist, int index );
 	void beirtexturat( pic8* ppic, piclist* ppiclist, int index );
 	void beirmaszkot( pic8* ppic, piclist* ppiclist, int index );
 
-	lgrfile( char* nev ); // kiterj es ut nelkul
+	// nev kiterj es ut nelkul. A kepeket, maszkokat es objektumokat nagyitas-,
+	// a texturakat texturanagyitas-, a fu kepeit (qup_, qdown_, qgrass)
+	// funagyitas-szorosra nagyitja (legkozelebbi szomszeddal), a motor
+	// reszeit, qcolors-t es qframe-et nem:
+	lgrfile( char* nev, double nagyitas, double texturanagyitas,
+			 double funagyitas );
 	~lgrfile( void );
 
 	int csereljen( int i );
 public:
 	friend void loadlgrfile( char* nev ); // Leiras alul
 	friend void tesztloadlgr( void );
+
+	// Nagyitasok, amivel keszult (1: eredeti meret):
+	double nagyitas, texturanagyitas, funagyitas;
+	int megfelel( double nagyitas, double texturanagyitas, double funagyitas );
+	// A kepekhez tartozo pixel meretek nagyitva (1-es nagyitasnal az eredetiek):
+	int objektummeret;      // objektumok kepkockainak merete (40)
+	int objektumsugar;      // objektummeret fele (OBJEKTUMSUGAR_I)
+	double objektumlebeges; // kaja es cel fel-le lebegese (5)
+	int keltolas;           // fu kepe ennyivel log a vonal ala, fole (20)
+	int fuggtoldas;         // qgrass ennyivel log a fu kep fole (FUGGTOLDAS)
+	int kovetomaxx, kovetomaxy; // ennel nagyobb fu kep folott nincs qgrass
 
 	int kepszam;
 	kep kepek[MAXKEPSZAM];
@@ -129,8 +146,13 @@ public:
 };
 
 extern lgrfile* Plgr; // Az eppen bentlevo lgrfile-ra mutat
-// Ha nincs ilyen nevu file, akkor default-ot olvassa:
+// Ha nincs ilyen nevu file, akkor default-ot olvassa. A mostani Arany-hoz
+// nagyitva tolti be (kepnagyitas(), dd_zoom_textures, dd_zoom_grass), ujra
+// is, ha a bent levo mas nagyitassal keszult:
 void loadlgrfile( char* nev );
+// Igaz, ha van bent LGR, es az a mostani Arany-hoz es beallitasokhoz valo
+// nagyitassal keszult:
+int lgrnagyitasjo( void );
 
 extern int Allandokepszam;
 // [stringek szama][egy string hossza]:

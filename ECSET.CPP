@@ -108,22 +108,25 @@ void ecset::getorigoandsize( void ) {
 		psz = Pszak->getnextszak();
 	}
 
+	// A szelek meterben ugyanakkorak minden nagyitasnal (az eredeti
+	// Arany-nyal 10000, 4000 es 1000 pixel), igy ugyanazok a kepek esnek bele,
+	// es a texturak a vilagban ugyanott kezdodnek:
 	if( view ) {
 		// VIEW VIEW VIEW VIEW VIEW VIEW VIEW VIEW VIEW VIEW
 		// x-re jol ra lehet hagyni, nem noveli memoria foglalast:
-		origo = vekt2( minx-10000/Arany, miny-4000/Arany );
-		xsizedb = (maxx+10000/Arany)-origo.x;
-		ysizedb = (maxy+4000/Arany)-origo.y;
+		origo = vekt2( minx-10000/Aranyalap, miny-4000/Aranyalap );
+		xsizedb = (maxx+10000/Aranyalap)-origo.x;
+		ysizedb = (maxy+4000/Aranyalap)-origo.y;
 	}
 	else {
 		// x-re jol ra lehet hagyni, nem noveli memoria foglalast:
-		origo = vekt2( minx-10000/Arany, miny-1000/Arany );
+		origo = vekt2( minx-10000/Aranyalap, miny-1000/Aranyalap );
 		// Beallitjuk ugy, hogy mindig pixel felezo helyen legyen origo:
 		meghelyez( &origo.x, Arany );
 		meghelyez( &origo.y, Arany );
 
-		xsizedb = (maxx+10000/Arany)-origo.x;
-		ysizedb = (maxy+1000/Arany)-origo.y;
+		xsizedb = (maxx+10000/Aranyalap)-origo.x;
+		ysizedb = (maxy+1000/Aranyalap)-origo.y;
 
 		// Ugyanez az eredeti Arany-nyal, kilogna-hoz (ecset::ecset
 		// szamolja igy maxx-et es sorszam-ot):
@@ -136,12 +139,16 @@ void ecset::getorigoandsize( void ) {
 }
 
 void ecset::addszakasz( vonal* psz ) {
+	// A terkep (view) nem nagyitodik:
+	double arany = Arany;
+	if( view )
+		arany = Aranyalap;
 	vekt2 r, v;
 	r = psz->r-origo;
-	r.x *= Arany;
-	r.y *= Arany;
-	v.x = psz->v.x*Arany;
-	v.y = psz->v.y*Arany;
+	r.x *= arany;
+	r.y *= arany;
+	v.x = psz->v.x*arany;
+	v.y = psz->v.y*arany;
 	if( view ) {
 		double szorzo = 1.0/Viewzoom;
 		r.x *= szorzo;
@@ -451,12 +458,13 @@ void ecset::kitoltfoodkoordokat( void ) {
 		if( !pker )
 			continue;
 		if( view ) {
-			pker->rxint_v = (pker->r.x-origo.x)*Arany/Viewzoom;
-			pker->ryint_v = (-pker->r.y-origo.y)*Arany/Viewzoom;
+			pker->rxint_v = (pker->r.x-origo.x)*Aranyalap/Viewzoom;
+			pker->ryint_v = (-pker->r.y-origo.y)*Aranyalap/Viewzoom;
 		}
 		else {
-			pker->rxint = (pker->r.x-origo.x)*Arany-OBJEKTUMSUGAR_I;
-			pker->ryint = (-pker->r.y-origo.y)*Arany-OBJEKTUMSUGAR_I;
+			// Nagyitott objektum kep bal also sarka:
+			pker->rxint = (pker->r.x-origo.x)*Arany-Plgr->objektumsugar;
+			pker->ryint = (-pker->r.y-origo.y)*Arany-Plgr->objektumsugar;
 		}
 	}
 }
@@ -647,6 +655,13 @@ void ecset::addbytesor( unsigned char* ujpixelek, int ujtavolsag,
 	//if( y != 1039 )
 	//	return;
 
+	// Ecseten kivuli sorok es balra kilogo darabok kimaradnak (a fu
+	// poligonok nincsenek Pszak-ban, ezert kilohetnek belole):
+	if( y < 0 || y >= sorszam )
+		return;
+	if( ujx2 < kurxposok_A[y] )
+		return;
+
 	// Beallunk pmd, xpos-sal elso szoba jovo madarab-ra:
 	// Visszalepunk amig kell:
 	mdarab* pmd = msorok[y];
@@ -720,6 +735,11 @@ int teliszam( int x, int xsize, unsigned char* sor, unsigned char lyuk ) {
 	return szam;
 }
 
+// A kepek es maszkok bal szele legalabb ennyire, jobb szele legalabb ennyire
+// legyen az ecset szeletol (eredetileg 120 es 50 pixel, nagyitva ugyanannyi
+// meter), addspriteok allitja:
+static int Kepszelbal = 120, Kepszeljobb = 50;
+
 // addspriteok hivja:
 void ecset::addegymaszk( sprite* psp, int index_t, int index_m, int fazis ) {
 	// Egy kep berakasa:
@@ -734,7 +754,7 @@ void ecset::addegymaszk( sprite* psp, int index_t, int index_m, int fazis ) {
 	int xsize = pm->xsize;
 	int ysize = pm->ysize;
 
-	if( x1 < 120 || x1+xsize >= maxx-50 )
+	if( x1 < Kepszelbal || x1+xsize >= maxx-Kepszeljobb )
 		return;
 
 	int i = 0;
@@ -743,7 +763,8 @@ void ecset::addegymaszk( sprite* psp, int index_t, int index_m, int fazis ) {
 		int x = 0;
 		// Maszkos eljaras:
 		while( pm->adatok[i].tipus != ME_SOREMELES ) {
-			if( pm->adatok[i].tipus == ME_TELI ) {
+			// Negativ iranyban haladunk y-on (y1-y):
+			if( pm->adatok[i].tipus == ME_TELI && y1-y >= 0 && y1-y < sorszam ) {
 				addbytesor( (unsigned char*)(index_t+10), tavolsag,
 					x1+x, x1+x+pm->adatok[i].hossz-1,
 					y1-y, fazis );
@@ -756,10 +777,14 @@ void ecset::addegymaszk( sprite* psp, int index_t, int index_m, int fazis ) {
 }
 
 void ecset::addspriteok( int fazis ) {
+	Kepszelbal = nagyitpixel( 120, kepnagyitas() );
+	Kepszeljobb = nagyitpixel( 50, kepnagyitas() );
 	for( int j = 0; j < MAXSPRITE; j++ ) {
 		sprite* psp = Ptop->spritetomb[j];
 		if( !psp )
 			return;
+		if( j % 16 == 0 )
+			ujraepiteshang();
 
 		// Fazis fuggvenyeben csak bizonyos kepeket rakunk be:
 		if( fazis == FAZIS_FOLD && psp->hatarol != HATAROL_G )
@@ -804,7 +829,8 @@ void ecset::addspriteok( int fazis ) {
 		int xsize = pkep->xsize;
 		int ysize = pkep->ysize;
 
-		if( x1 < 120 || x1+xsize >= maxx-50 )
+		// Innen az osszes tobbi kep is kimarad (mint eredetileg):
+		if( x1 < Kepszelbal || x1+xsize >= maxx-Kepszeljobb )
 			return;
 
 		unsigned char* tomb = pkep->adatok;
@@ -870,15 +896,13 @@ static int getanyagszam( unsigned char* sor, int x, int xsize,
 }
 
 
+// Ilyen hosszu (ecset pixelben, nagyitva ugyanannyi meter) lehet egy fu vonala:
 #define KOVVONALHOSSZ (10000)
-static int Kovetoytomb[KOVVONALHOSSZ+10];
 
-static const int Keltolas = 20;
+// Fu kepenek sajat segedkepe (eredetileg a menuk Buffsima-ja volt):
+static pic8* Kovetosegedkep = NULL;
 
 void ecset::kovetotextura( koveto* pkov, int index, int xo, int yo, int fazis ) {
-	if( !Buffsima )
-		hiba( "6dejuhfe" );
-
 	// Most mindig felso:
 	int felso = 1;
 	int tavolsag = 600;
@@ -895,30 +919,43 @@ void ecset::kovetotextura( koveto* pkov, int index, int xo, int yo, int fazis ) 
 	int xsize = ppic->getxsize();
 	int ysize = ppic->getysize();
 	int y;
-	unsigned char atlatszo = ppic->gpixel( 0, 0 );
+	unsigned char atlatszo = pkov->atlatszotomb[index];
 
-	// Toroljuk seged kepet:
-	// Buffsima: 0 -> atlatszo, 1 -> van textura:
-	for( y = 0; y < ysize; y++ ) {
-		for( int x = 0; x < xsize; x++ ) {
-			Buffsima->ppixel( x, y, 0 );
+	if( !Kovetosegedkep || Kovetosegedkep->getxsize() < xsize ||
+		Kovetosegedkep->getysize() < ysize ) {
+		int segedx = 640, segedy = 480;
+		if( Kovetosegedkep ) {
+			segedx = Kovetosegedkep->getxsize();
+			segedy = Kovetosegedkep->getysize();
+			delete Kovetosegedkep;
 		}
+		if( segedx < xsize )
+			segedx = xsize;
+		if( segedy < ysize )
+			segedy = ysize;
+		Kovetosegedkep = new pic8( segedx, segedy );
 	}
+	pic8* pseged = Kovetosegedkep;
+
+	// Toroljuk seged kepet (sormutatokkal, a nagyitott kepek miatt):
+	// pseged: 0 -> atlatszo, 1 -> van textura:
+	for( y = 0; y < ysize; y++ )
+		memset( pseged->getptr( y ), 0, xsize );
 	// Feltoltjuk segedkepet:
 	for( int x = 0; x < xsize; x++ ) {
 		// Minden oszlopot kitoltunk:
 		if( felso ) {
 			for( int y = 0; y < ysize; y++ ) {
-				if( ppic->gpixel( x, y ) == atlatszo )
-					Buffsima->ppixel( x, y, 1 );
+				if( ppic->getptr( y )[x] == atlatszo )
+					pseged->getptr( y )[x] = 1;
 				else
 					break;
 			}
 		}
 		else {
 			for( int y = ysize-1; y >= 0; y-- ) {
-				if( ppic->gpixel( x, y ) == atlatszo )
-					Buffsima->ppixel( x, y, 1 );
+				if( ppic->getptr( y )[x] == atlatszo )
+					pseged->getptr( y )[x] = 1;
 				else
 					break;
 			}
@@ -928,7 +965,7 @@ void ecset::kovetotextura( koveto* pkov, int index, int xo, int yo, int fazis ) 
 	// Beadjuk textura darabokat ecset-be:
 	for( y = 0; y < ysize; y++ ) {
 		int x = 0;
-		unsigned char* sor = Buffsima->getptr( ysize-1-y );
+		unsigned char* sor = pseged->getptr( ysize-1-y );
 		while( x < xsize ) {
 			x += getatlaatszoszam( sor, x, xsize, 0 );
 			if( x >= xsize )
@@ -941,16 +978,17 @@ void ecset::kovetotextura( koveto* pkov, int index, int xo, int yo, int fazis ) 
 		}
 	}
 	// Most beadjuk alul vagy felul megtoldott reszt is:
+	int fuggtoldas = Plgr->fuggtoldas;
 	if( felso ) {
 		// Felso:
-		for( y = 0; y < FUGGTOLDAS; y++ ) {
+		for( y = 0; y < fuggtoldas; y++ ) {
 			addbytesor( (unsigned char*)(textindex+10), tavolsag,
 							xo, xo+xsize-1, yo+ysize+y, fazis );
 		}
 	}
 	else {
 		// Also:
-		for( y = 0; y < FUGGTOLDAS; y++ ) {
+		for( y = 0; y < fuggtoldas; y++ ) {
 			addbytesor( (unsigned char*)(textindex+10), tavolsag,
 							xo, xo+xsize-1, yo-1-y, fazis );
 		}
@@ -964,13 +1002,14 @@ void ecset::kiegykovetokep( koveto* pkov, int index, int xo, int yo, int fazis )
 	pic8* ppic = pkov->pkeptomb[index];
 	int xsize = ppic->getxsize();
 	int ysize = ppic->getysize();
-	unsigned char atlatszo = ppic->gpixel( 0, 0 );
+	unsigned char atlatszo = pkov->atlatszotomb[index];
+	int keltolas = Plgr->keltolas;
 
 	// Kiszamoljuk kep tetejenek helyet:
 	if( pkov->feltomb[index] )
-		yo -= Keltolas;
+		yo -= keltolas;
 	else
-		yo -= ysize - 1 - Keltolas;
+		yo -= ysize - 1 - keltolas;
 
 	for( int y = 0; y < ysize; y++ ) {
 		int x = 0;
@@ -987,7 +1026,9 @@ void ecset::kiegykovetokep( koveto* pkov, int index, int xo, int yo, int fazis )
 		}
 	}
 
-	if( xsize > 640 || ysize > 480 ) {
+	// Eredetileg a 640x480-as Buffsima-ba kellett fernie (nagyitva ugyanazok
+	// a kepek kapnak texturat):
+	if( xsize > Plgr->kovetomaxx || ysize > Plgr->kovetomaxy ) {
 		#ifdef TEST
 			hiba( "7yfg4" );
 		#endif
@@ -1014,18 +1055,19 @@ void ecset::kikovetokepek( koveto* pkov, int* ytomb, int hossz,
 			return; // Befejezte
 
 		// Megkeressuk legjobb kepet:
+		int keltolas = Plgr->keltolas;
 		int elteres = 10000;
 		int joindex = -1;
 		int jody = 0;
 		for( int i = 0; i < pkov->kepszam; i++ ) {
 			int dy = pkov->pkeptomb[i]->getysize();
-			if( dy < 2*Keltolas+1 ) {
+			if( dy < 2*keltolas+1 ) {
 				char tmp[60];
 				sprintf( tmp, "picture's y size is less than %d!",
-							2*Keltolas+1 );
+							2*keltolas+1 );
 				uzenet( "In grass picture ", tmp );
 			}
-			dy -= 2*Keltolas+1;
+			dy -= 2*keltolas+1;
 			if( !pkov->feltomb[i] )
 				dy = -dy;
 
@@ -1059,12 +1101,15 @@ void ecset::kikovetokepek( koveto* pkov, int* ytomb, int hossz,
 void ecset::addkovetok( int fazis ) {
 	if( !Plgr->vanfu )
 		return;
+	int kovvonalhossz = nagyitpixel( KOVVONALHOSSZ, kepnagyitas() );
+	int* Kovetoytomb = new int[kovvonalhossz+10];
 	for( int i = 0; i < MAXGYURU; i++ ) {
 		gyuru* pgy = Ptop->ptomb[i];
 		if( !pgy )
-			return;
+			break;
 		if( !pgy->koveto )
 			continue;
+		ujraepiteshang();
 
 		int hatarol = HATAROL_G;
 
@@ -1080,9 +1125,9 @@ void ecset::addkovetok( int fazis ) {
 
 		int vonalhossz = 0, x0 = 0;
 		if( !makevonal( pgy, Kovetoytomb, &vonalhossz, &x0,
-					KOVVONALHOSSZ, &origo ) )
+					kovvonalhossz, &origo ) )
 			continue;
-		if( vonalhossz > KOVVONALHOSSZ )
+		if( vonalhossz > kovvonalhossz )
 			hiba( "uh9fdw" );
 
 		// Kirajzolunk egy minta vonalat kepre:
@@ -1094,6 +1139,7 @@ void ecset::addkovetok( int fazis ) {
 
 		kikovetokepek( pkov, Kovetoytomb, vonalhossz, x0, fazis );
 	}
+	delete[] Kovetoytomb;
 }
 
 void ecset::addobjektumok( void ) {
@@ -1117,8 +1163,8 @@ void ecset::addobjektumok( void ) {
 				mut = Plgr->viewkiller;
 				ujtavolsag = 499;
 			}
-			int x1 = (pk->r.x-origo.x)*(Arany/Viewzoom);
-			int y1 = (-pk->r.y-origo.y)*(Arany/Viewzoom);
+			int x1 = (pk->r.x-origo.x)*(Aranyalap/Viewzoom);
+			int y1 = (-pk->r.y-origo.y)*(Aranyalap/Viewzoom);
 			// Kirakja kis 3x3-as gyurut:
 			addbytesor( mut, ujtavolsag, x1-1, x1+1, y1-1, FAZIS_NEMFOLDEG );
 			addbytesor( mut, ujtavolsag, x1-1, x1-1, y1,   FAZIS_NEMFOLDEG );
@@ -1190,12 +1236,21 @@ void ecset::levon10000t( void ) {
 	}
 };
 
-// Ptop es Pszak alapjan:
-ecset::ecset( int view_p ) {
-	view = view_p;
-
-	int i;
-	for( i = 0; i < MAXECSETSOR; i++ ) {
+// sorszam alapjan, nullazva:
+void ecset::lefoglalsortomboket( void ) {
+	if( sorszam < 0 || sorszam > MAXECSETSOR )
+		hibanincsmem();
+	sortombmeret = sorszam+10;
+	msorok = new mdarab*[sortombmeret];
+	sorok = new darab*[sortombmeret];
+	kurxposok_A = new int[sortombmeret];
+	curdarabok_A = new darab*[sortombmeret];
+	kurxposok_B = new int[sortombmeret];
+	curdarabok_B = new darab*[sortombmeret];
+	if( !msorok || !sorok || !kurxposok_A || !curdarabok_A || !kurxposok_B ||
+		!curdarabok_B )
+		hibanincsmem();
+	for( int i = 0; i < sortombmeret; i++ ) {
 		msorok[i] = NULL;
 		sorok[i] = NULL;
 		kurxposok_A[i] = 0;
@@ -1203,6 +1258,18 @@ ecset::ecset( int view_p ) {
 		curdarabok_A[i] = NULL;
 		curdarabok_B[i] = NULL;
 	}
+}
+
+// Ptop es Pszak alapjan:
+ecset::ecset( int view_p ) {
+	view = view_p;
+
+	int i;
+	sortombmeret = 0;
+	msorok = NULL;
+	sorok = NULL;
+	kurxposok_A = kurxposok_B = NULL;
+	curdarabok_A = curdarabok_B = NULL;
 
 	// Inicializaljuk elso node tombot:
 	elsotomb = kurtomb = NULL;
@@ -1227,16 +1294,17 @@ ecset::ecset( int view_p ) {
 
 	if( view ) {
 		// VIEW VIEW VIEW:
-		maxx = xsizedb*(Arany/Viewzoom);
-		sorszam = ysizedb*(Arany/Viewzoom);
+		maxx = xsizedb*(Aranyalap/Viewzoom);
+		sorszam = ysizedb*(Aranyalap/Viewzoom);
 	}
 	else {
 		maxx = xsizedb*Arany;
 		sorszam = ysizedb*Arany;
 	}
 
-	if( sorszam-10 > MAXECSETSOR )
-		hiba( "ecset::ecset sorszam-10 > MAXECSETSOR!" );
+	// A sortombok a palya magassagahoz igazodnak (eredetileg 12000 soros fix
+	// tombok voltak, hiba-val):
+	lefoglalsortomboket();
 
 	// Inicializaljuk minden sor elejet foldre:
 	for( i = 0; i < sorszam; i++ ) {
@@ -1252,13 +1320,18 @@ ecset::ecset( int view_p ) {
 	vonal* psz = Pszak->getnextszak();
 	if( !psz )
 		hiba( "Nincs egyetlen szakasz sem definialva!" );
+	int szakaszszam = 0;
 	while( psz ) {
 		addszakasz( psz );
 		psz = Pszak->getnextszak();
+		if( ++szakaszszam % 256 == 0 )
+			ujraepiteshang();
 	}
 
 	// Sorrendbe rendezzuk egy sor elemeit:
 	for( i = 0; i < sorszam; i++ ) {
+		if( i % 1024 == 0 )
+			ujraepiteshang();
 		rendez( msorok[i] );
 		kurxposok_A[i] = kurxposok_B[i] = sizeraallit( msorok[i] );
 	}
@@ -1290,14 +1363,11 @@ ecset::ecset( int view_p ) {
 // Ptop es Pszak alapjan:
 ecset::ecset( ecset* pold ) {
 	int i;
-	for( i = 0; i < MAXECSETSOR; i++ ) {
-		msorok[i] = NULL;
-		sorok[i] = NULL;
-		kurxposok_A[i] = 0;
-		kurxposok_B[i] = 0;
-		curdarabok_A[i] = NULL;
-		curdarabok_B[i] = NULL;
-	}
+	sortombmeret = 0;
+	msorok = NULL;
+	sorok = NULL;
+	kurxposok_A = kurxposok_B = NULL;
+	curdarabok_A = curdarabok_B = NULL;
 
 	// Inicializaljuk elso node tombot:
 	elsotomb = kurtomb = NULL;
@@ -1330,6 +1400,8 @@ ecset::ecset( ecset* pold ) {
 	eredetimaxx = pold->eredetimaxx;
 	eredetisorszam = pold->eredetisorszam;
 
+	lefoglalsortomboket();
+
 	// Inicializaljuk minden sor elejet uresre:
 	for( i = 0; i < sorszam; i++ ) {
 		kurxposok_A[i] = 1;
@@ -1350,6 +1422,17 @@ ecset::~ecset( void ) {
 		hiba( "ecset::~ecset !nagydarabtomb!" );
 	delete nagydarabtomb;
 	nagydarabtomb = NULL;
+	delete[] msorok;
+	delete[] sorok;
+	delete[] kurxposok_A;
+	delete[] curdarabok_A;
+	delete[] kurxposok_B;
+	delete[] curdarabok_B;
+	msorok = NULL;
+	sorok = NULL;
+	kurxposok_A = kurxposok_B = NULL;
+	curdarabok_A = curdarabok_B = NULL;
+	sortombmeret = 0;
 }
 
 void ecset::deletemdarabok( void ) {
@@ -1362,7 +1445,7 @@ void ecset::deletemdarabok( void ) {
 		cur = kov;
 	}
 	elsotomb = NULL;
-	for( int i = 0; i < MAXECSETSOR; i++ )
+	for( int i = 0; i < sortombmeret; i++ )
 		msorok[i] = NULL;
 }
 
@@ -1815,8 +1898,8 @@ void ecset::kiegysor_FF( unsigned char* pc, int ye ) {
 void ecset::getbalalso_int( vekt2 balalso, int* px, int* py ) {
 	vekt2 relat = balalso-origo;
 	if( view ) {
-		*px = relat.x*(Arany/Viewzoom); // Ecset egesz koordinatak
-		*py = relat.y*(Arany/Viewzoom); // Ecset egesz koordinatak
+		*px = relat.x*(Aranyalap/Viewzoom); // Ecset egesz koordinatak
+		*py = relat.y*(Aranyalap/Viewzoom); // Ecset egesz koordinatak
 	}
 	else {
 		*px = relat.x*Arany; // Ecset egesz koordinatak
@@ -2049,12 +2132,10 @@ int ecset::kilogna( vekt2 r ) {
 
 static mdarab* Glb_pfoltdarab = NULL;
 
-static int ezfolt( int x, int y, mdbiter* piter1 ) {
+// A felette levo sor egy mdarab-jarol (ezfolt csak ettol fugg):
+static int ezfoltdarab( mdarab* pmd ) {
 	if( !Glb_pfoltdarab )
 		hiba( "65rw5r7twe" );
-
-	// Felette levo sort vizsgaljuk:
-	mdarab* pmd = piter1->getpmd( x, y+1 );
 
 	intptr_t kepindex = (intptr_t)pmd->pixelek;
 	if( kepindex < 10 )
@@ -2072,24 +2153,32 @@ static int ezfolt( int x, int y, mdbiter* piter1 ) {
 	return 1;
 }
 
-static int getnemfoltszam( int x1, int xkov, int y, mdbiter* piter1 ) {
+// x1-tol xkov-ig hany egymas utani pixel folt (folt igaz) vagy nem folt: a
+// felette levo sor mdarab-jait egyben lepi at (eredetileg pixelenkent
+// vizsgalta, ugyanezzel az eredmennyel):
+static int getazonosszam( int x1, int xkov, int y, mdbiter* piter1, int folt ) {
 	int szam = 0;
-	for( int x = x1; x < xkov; x++ ) {
-		if( ezfolt( x, y, piter1 ) )
+	int x = x1;
+	while( x < xkov ) {
+		// Felette levo sort vizsgaljuk:
+		mdarab* pmd = piter1->getpmd( x, y+1 );
+		if( ezfoltdarab( pmd ) != folt )
 			return szam;
-		szam++;
+		int vege = piter1->getxpos() + pmd->xsize;
+		if( vege > xkov )
+			vege = xkov;
+		szam += vege-x;
+		x = vege;
 	}
 	return szam;
 }
 
+static int getnemfoltszam( int x1, int xkov, int y, mdbiter* piter1 ) {
+	return getazonosszam( x1, xkov, y, piter1, 0 );
+}
+
 static int getfoltszam( int x1, int xkov, int y, mdbiter* piter1 ) {
-	int szam = 0;
-	for( int x = x1; x < xkov; x++ ) {
-		if( !ezfolt( x, y, piter1 ) )
-			return szam;
-		szam++;
-	}
-	return szam;
+	return getazonosszam( x1, xkov, y, piter1, 1 );
 }
 
 // Meg akkor kell hivni, amig nincsenek kettevalasztva also-ra es felsore es
@@ -2191,6 +2280,8 @@ void betoltecseteket( void ) {
 	// Most betesszuk felsobe is 500-nal kozelebbi madarabokat:
 	// Es egyben uresse tesszuk alsoban helyuket:
 	for( int i = 0; i < Pecsetalso->sorszam; i++ ) {
+		if( i % 1024 == 0 )
+			ujraepiteshang();
 		mdarab* pmd = Pecsetalso->msorok[i];
 		int xpos = Pecsetalso->kurxposok_A[i];
 		if( xpos > 100 )
@@ -2258,9 +2349,11 @@ mdarab* mdbiter::getpmd( int x, int y ) {
 		}
 	}
 	else {
-		// Ujra kell olvasni:
+		// Ujra kell olvasni (a sort meg is jegyezzuk, eredetileg ybent
+		// sosem valtozott, igy minden hivas a sor elejerol indult):
 		if( y < 0 || y >= pecset->sorszam )
 			hiba( "789eygrq" );
+		ybent = y;
 		pmd = pecset->msorok[y];
 		xposbent = pecset->kurxposok_A[y];
 		if( xposbent > 10 )

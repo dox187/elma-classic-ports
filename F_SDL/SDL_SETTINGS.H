@@ -32,4 +32,31 @@ const char* aspect_name(Aspect aspect); // as in the Options menu: Screen, 4:3
 // 4:3 it is 640 wide and as high as the ratio (720x720 and taller: 640x640).
 void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h);
 
+// A setting of elma.cfg that is 0 or 1 (anything else than 0 is 1).
+bool config_flag(const char* key, bool fallback);
+
+// The size of the bike on the screen (zoom in elma.cfg): 1 is the original
+// size, from NAGYITASMIN (0.5) to NAGYITASMAX (4); a value out of range is
+// taken to the nearest limit, one that is no number is 1. It is read once;
+// set_config_zoom changes it and saves it into elma.cfg.
+double config_zoom();
+void set_config_zoom(double zoom);
+// Whether the textures (the sky and the ground as well) are zoomed with the
+// bike (zoom_textures, default 1), and whether the grass pictures are
+// (zoom_grass, default 1). Also read once; set_config_zoom_textures saves.
+bool config_zoom_textures();
+void set_config_zoom_textures(bool on);
+bool config_zoom_grass();
+// The DirectInput code of the key that zooms in or out during a game or a
+// replay (zoom_in_key, zoom_out_key: a name such as PRIOR, DIK_NEXT, PGUP or
+// ADD, or a hex code such as 0xC9; none for no key). Default PageUp and
+// PageDown.
+int config_zoom_key(bool zoom_in);
+// The zoom as the Options menu shows it: 1x, 1.25x. The text stays valid
+// until the next call.
+const char* zoom_name(double zoom);
+// The value after zoom in the Options menu: 0.5, 0.75, 1, 1.25, 1.5, 1.75,
+// 2, 2.5, 3, 3.5, 4, then 0.5 again.
+double next_zoom_option(double zoom);
+
 #endif

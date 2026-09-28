@@ -240,6 +240,16 @@ const char* dd_scale_name() { return NULL; }
 void dd_next_scale() {}
 const char* dd_aspect_name() { return NULL; }
 void dd_next_aspect() {}
+// The terminal keeps the original size of the bike.
+double dd_zoom() { return 1.0; }
+void dd_set_zoom(double) {}
+int dd_zoom_textures() { return 1; }
+int dd_zoom_grass() { return 1; }
+int dd_zoom_key(int) { return 0; }
+const char* dd_zoom_name() { return NULL; }
+void dd_next_zoom() {}
+const char* dd_zoom_textures_name() { return NULL; }
+void dd_next_zoom_textures() {}
 
 void mk_init() {
     keys.fill(0);
@@ -327,6 +337,15 @@ void mv_check(int) {
     events();
 }
 void mv_startstopper() { stopper_start = clock_type::now(); }
+// The time between the two calls moves the start of the stopper on.
+void mv_pausestopper(int pause) {
+    static bool paused = false;
+    static clock_type::time_point pause_start;
+    const clock_type::time_point now = clock_type::now();
+    if (pause && !paused) pause_start = now;
+    if (!pause && paused) stopper_start += now - pause_start;
+    paused = pause != 0;
+}
 double mv_stopperido() {
     return std::chrono::duration<double>(clock_type::now() - stopper_start).count() * 182.0;
 }

@@ -136,6 +136,10 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 | `scale`      | `sharp` (default), `smooth`, `nearest`, `integer` or `pixelart`; also under **Options → Scaling** |
 | `aspect`     | `screen` (default): the view of the game takes the aspect ratio of the window, or `4:3`: the original 640x480; also under **Options → Aspect Ratio** |
 | `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds. Alt+Enter and F11 save it |
+| `zoom`       | size of the bike and the level on the screen, `0.5` to `4` (default `1`, the original size); also under **Options → Zoom** and with the zoom keys in a game |
+| `zoom_textures` | `1` (default): the textures, the sky and the ground as well, are enlarged with the zoom; `0`: they keep their original pixel size, crisper but denser; also under **Options → Zoom Textures** |
+| `zoom_grass` | `1` (default): the grass pictures are enlarged with the zoom; `0`: they keep their original size |
+| `zoom_in_key`, `zoom_out_key` | the keys that zoom in and out during a game and a replay: a DirectInput name (`PRIOR`, `NEXT`, `HOME`, `END`, `ADD`, `SUBTRACT`, `Z`, `F5`, ...) or a hex code (`0xC9`), `none` for no key; default `PRIOR` (Page Up) and `NEXT` (Page Down) |
 
 - `sharp` enlarges the picture by a whole number with hard pixel edges and
   smooths only the rest of the way: crisp pixels of even width.
@@ -151,6 +155,24 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 
 The game waits for the vertical sync of the display; where showing a frame
 does not wait for it, the game keeps to the refresh rate of the display.
+
+The zoom enlarges or shrinks everything in the level together: the bike, the
+polygons, the pictures, the objects and the grass. The physics does not
+change, so times and replays are the same at any zoom. Zooming in shows less
+of the level around the bike, zooming out (below 1) shows more of it. The
+navigator keeps its scale. **Options → Zoom** steps through 0.5x to 4x and
+takes effect with the next level; **Page Up** and **Page Down** change the
+zoom by 0.25 during a game or a replay right away, and save it. A zoom key
+that is also set for a player, for the screen size or for the screenshot in
+**Options → Customize Controls** is ignored. Changing the zoom rebuilds the
+picture of the level, which can take a moment on big levels; that time is not
+counted in the game. The level editor always shows the original size.
+
+The pictures of the LGR file are enlarged with the nearest pixel when the
+level is loaded. At whole-number zooms every pixel becomes an even square; at
+other zooms (1.5x, 0.75x, ...) some rows and columns of pixels are wider than
+others, which looks uneven on the textures; `zoom_textures = 0` keeps them
+crisp.
 
 ## Handheld Linux devices
 
@@ -228,6 +250,12 @@ scales the picture sharply; choose
 scaling. The Miyoo Mini build shows the picture unscaled. `ELMA_FULLSCREEN=0`
 or `1` overrides the full screen default on any build.
 
+The zoom works on the handheld builds as well (`zoom` in `elma.cfg`; the
+Miyoo Mini has no Options row for it). A zoomed level needs more memory: the
+biggest levels of the game data take about 30 MB at zoom 1, 50 MB at zoom 2
+and 100 MB at zoom 4 on a 64-bit desktop, so the Miyoo Mini, with 128 MB,
+zooms in to 2 at most.
+
 ## Terminal version (elma-cli)
 
 `elma-cli` plays the game inside a terminal. It is built from the same game
@@ -241,6 +269,7 @@ different.
   choice is saved in `elma-cli.cfg` next to the game data.
 - The picture keeps its 4:3 shape and follows the size of the terminal
   window when it is resized.
+- The bike keeps its original size (no zoom).
 - The level editor is not included in the terminal version.
 
 ### Terminal requirements

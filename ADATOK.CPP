@@ -31,7 +31,58 @@ double Fekegyutthato;
 double Kord2x, Kord2y, Kord4x, Kord4y,
 		Kord5y; // Ez az utolso vezeto helye
 
-double Arany, Aranyrec;
+double Arany = 0.0, Aranyrec = 0.0;
+double Aranyalap = 48.0, Aranyalaprec = 1.0/48.0;
+double Motornagyitas = 1.0;
+
+// A jatek kepenek illesztese a kepernyohoz: most mindig 1 (a kep merete
+// ugyanannyi metert mutat, mint az eredetiben):
+static double kepillesztes( void ) {
+	return 1.0;
+}
+
+// A platform beallitasa (elma.cfg zoom), a megengedett tartomanyban:
+static double kivantnagyitas( void ) {
+	double nagyitas = dd_zoom();
+	if( !(nagyitas >= NAGYITASMIN) ) // NaN is
+		nagyitas = NAGYITASMIN;
+	if( nagyitas > NAGYITASMAX )
+		nagyitas = NAGYITASMAX;
+	return nagyitas;
+}
+
+// Csak ez szamolja ki Arany-t (1-es illesztessel es nagyitassal pontosan
+// Aranyalap):
+static double aranyszamitas( int jatekhoz, double* pnagyitas ) {
+	double illesztes = 1.0;
+	*pnagyitas = 1.0;
+	if( jatekhoz ) {
+		illesztes = kepillesztes();
+		*pnagyitas = kivantnagyitas();
+	}
+	return Aranyalap*illesztes*(*pnagyitas);
+}
+
+void beallitarany( int jatekhoz ) {
+	Arany = aranyszamitas( jatekhoz, &Motornagyitas );
+	Aranyrec = 1.0/Arany;
+}
+
+int maskellarany( void ) {
+	double nagyitas = 1.0;
+	return aranyszamitas( 1, &nagyitas ) != Arany;
+}
+
+double kepnagyitas( void ) {
+	return Arany/Aranyalap;
+}
+
+int nagyitpixel( int pixel, double nagyitas ) {
+	int meret = int( pixel*nagyitas + 0.5 );
+	if( meret < 1 )
+		meret = 1;
+	return meret;
+}
 
 	/* Eredeti szamitas play.cpp-bol:
 	Arany = 100.0;
@@ -95,11 +146,15 @@ void initadatok( void ) {
 	if( State->minibike )
 		fakt = 0.30;
 
-	Arany = 100.0*fakt;
-	Aranyrec = 1.0/Arany;
+	Aranyalap = 100.0*fakt;
+	Aranyalaprec = 1.0/Aranyalap;
+	// Arany-t a bent levo palya es LGR epitese allitja (load.cpp), azok
+	// ezzel keszultek; itt csak eloszor (inditaskor) kap erteket:
+	if( Arany <= 0.0 )
+		beallitarany( 0 );
 
 	//Viewzoom = 0.28*Arany*0.5;
-	Viewzoom = 0.42*Arany*0.5;
+	Viewzoom = 0.42*Aranyalap*0.5;
 
 	Fekegyutthato = 100.0;
 	Kord2x = -0.1, Kord2y = -0.5, Kord4x = 0.5, Kord4y = -0.5;

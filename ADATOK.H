@@ -29,7 +29,29 @@ extern double Kerekrajzsugar;
 
 // MCGA kirajzolasos:
 
+// Pixel/meter: amivel a bent levo LGR kepei es az ecsetek keszultek. Csak
+// beallitarany valtoztatja, az LGR ujratoltesevel es az ecsetek ujraepitesevel
+// egyutt (load.cpp):
 extern double Arany, Aranyrec;
+// Az eredeti jatek Arany-a nagyitas nelkul (initadatok: 100*0.48 = 48):
+extern double Aranyalap, Aranyalaprec;
+// A motor nagyitasa (zoom), amivel Arany keszult (1: eredeti meret):
+extern double Motornagyitas;
+
+// Nagyitas (zoom) hatarai:
+#define NAGYITASMIN (0.5)
+#define NAGYITASMAX (4.0)
+
+// Arany = Aranyalap * kep illesztese a kepernyohoz * nagyitas. Jatekhoz
+// (jatekhoz igaz) a kivant nagyitassal allitja be, editorhoz az eredetire:
+void beallitarany( int jatekhoz );
+// Igaz, ha jatekhoz beallitarany( 1 ) mas Arany-t adna, mint a mostani:
+int maskellarany( void );
+// Ennyiszeresere nagyitjuk az LGR kepeit a mostani Arany-hoz (Arany/Aranyalap):
+double kepnagyitas( void );
+// Egy pixelben megadott (a kepekhez tartozo) meret nagyitva, kerekitve,
+// legalabb 1; 1-es nagyitasnal pontosan pixel:
+int nagyitpixel( int pixel, double nagyitas );
 
 
 extern double Kord2x, Kord2y, Kord4x, Kord4y,
@@ -37,8 +59,12 @@ extern double Kord2x, Kord2y, Kord4x, Kord4y,
 
 extern double Fekegyutthato;
 
+// Objektumok (40x40 kepek) fel merete nagyitas nelkul, nagyitva
+// Plgr->objektumsugar:
 #define OBJEKTUMSUGAR_I (20)
 
+// View ablak (terkep) ennyiszer kisebb aranyu, mint Aranyalap; a terkep a
+// nagyitastol fuggetlenul mindig Aranyalap/Viewzoom pixel/meter:
 extern int Viewzoom;
 
 struct motorst {

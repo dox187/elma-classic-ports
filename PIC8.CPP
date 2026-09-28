@@ -28,6 +28,11 @@ int pic8::lefoglal( long xsizep, long ysizep ) {
         hiba( "Bhiba pic8::lefoglalban!" );
         return 0;
     }
+    // A meretek short-ban vannak (getxsize, getysize):
+    if( xsizep > 32767 || ysizep > 32767 ) {
+        hiba( "pic8::lefoglal: a kep tul nagy!" );
+        return 0;
+    }
     xsize = short(xsizep);
     ysize = short(ysizep);
 	// xsizep-ot 4-el oszthatova valtoztatjuk:
@@ -42,6 +47,8 @@ int pic8::lefoglal( long xsizep, long ysizep ) {
     }
     long egyszegben = 0x0ff00l/long(xsizep); // Nehogy szegmens merete
                 // megkozelitse 65536-ot
+    if( egyszegben < 1 ) // 65280-nal szelesebb kep: soronkent egy szegmens
+        egyszegben = 1;
     // szegnum meg inkrementalva lesz a vegen, ha plussz is van!:
     szegnum = unsigned(ysizep)/egyszegben;
     long pluszszegbensorok = ysizep - szegnum*egyszegben;
@@ -1023,4 +1030,26 @@ void pic8::keszitbelsot( int x1, int y1, int x2, int y2, pic8* ppic ) {
 	#endif
 	for( int y = 0; y < ysize; y++ )
 		sormuttomb[y] = ppic->getptr( y+y1 ) + x1;
+}
+
+// Legkozelebbi szomszeddal atmeretezett uj kep, a regit nem torli. Minden cel
+// pixel a kozepe alatt levo forras pixel szinindexet kapja (az atlatszo
+// indexet is), egesz szorzonal ez a forras pixelek pontos ismetlese:
+pic8* atmeretez( pic8* ps, int ujxsize, int ujysize ) {
+	if( ujxsize < 1 || ujysize < 1 )
+		hiba( "atmeretez ujxsize < 1 || ujysize < 1!" );
+	long long xs = ps->getxsize();
+	long long ys = ps->getysize();
+	pic8* pd = new pic8( ujxsize, ujysize );
+	int* oszlopok = new int[ujxsize];
+	for( int x = 0; x < ujxsize; x++ )
+		oszlopok[x] = int( ((2*x+1)*xs)/(2ll*ujxsize) );
+	for( int y = 0; y < ujysize; y++ ) {
+		unsigned char* forras = ps->getptr( int( ((2*y+1)*ys)/(2ll*ujysize) ) );
+		unsigned char* cel = pd->getptr( y );
+		for( int x = 0; x < ujxsize; x++ )
+			cel[x] = forras[oszlopok[x]];
+	}
+	delete[] oszlopok;
+	return pd;
 }

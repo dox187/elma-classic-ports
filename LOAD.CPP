@@ -4,6 +4,23 @@ int Volttopsave = 0;
 
 static char Bentlevelnev[20] = "";
 
+// Jatek kozbeni nagyitas valtasakor igaz (ujraepiteshang):
+static int Ujraepites = 0;
+
+void ujraepiteshang( void ) {
+	if( Ujraepites )
+		hang();
+}
+
+// Mas nagyitashoz ujratolti az LGR-t es ujraepiti az ecseteket (Ptop es
+// Pszak marad). Ptop kerekjei nem lehetnek fejjel lefele:
+static void ujranagyit( void ) {
+	beallitarany( 1 );
+	loadlgrfile( Ptop->lgrnev );
+	Ptop->pic_selejtez( Plgr );
+	betoltecseteket();
+}
+
 // Beolvas egy level-t ha kell (nev max 12 karakter).
 // Torli es kitolti Ptop, Plgr, Pszak, ecset mutatokat.
 // Ha belso file-ban is megvan palya onnan veszi:
@@ -39,6 +56,8 @@ int floadlevel_p( char* nev ) {
 			Ptop = NULL;
 			return 0;
 		}
+		// A jatek a kivant nagyitassal, az ahhoz nagyitott LGR-rel megy:
+		beallitarany( 1 );
 		loadlgrfile( Ptop->lgrnev );
 		Ptop->pic_selejtez( Plgr );
 
@@ -52,7 +71,45 @@ int floadlevel_p( char* nev ) {
 
 		betoltecseteket();
 	}
+	else {
+		// Ugyanaz a palya, de a nagyitas azota valtozott (Options), vagy az
+		// editor eredeti meretu LGR-t toltott be:
+		if( maskellarany() || !lgrnagyitasjo() )
+			ujranagyit();
+	}
 	return 1;
+}
+
+void nagyitasvaltas( void ) {
+	if( !Ptop || !Pszak )
+		hiba( "nagyitasvaltas !Ptop || !Pszak!" );
+	if( !maskellarany() && lgrnagyitasjo() )
+		return;
+	// Az ujraepites ideje nem jatekido:
+	mv_pausestopper( 1 );
+	Ujraepites = 1;
+	hang();
+	// Kajak egesz koordjait (kitoltfoodkoordokat) allo kerekekkel szamoljuk:
+	int fejjellefele = Ptop->kerekekfejjellefele;
+	Ptop->kerekjolalljon();
+	ujranagyit();
+	if( fejjellefele )
+		Ptop->kereklefejjel();
+	// Keretet ujra kirakja kirajzol320:
+	Kitoltestmegrak = Kitoltestmegrakkezd;
+	hang();
+	Ujraepites = 0;
+	mv_pausestopper( 0 );
+}
+
+void editornagyitas( void ) {
+	if( !Ptop )
+		return;
+	if( Arany == Aranyalap && Plgr && Plgr->megfelel( 1.0, 1.0, 1.0 ) )
+		return;
+	beallitarany( 0 );
+	loadlgrfile( Ptop->lgrnev );
+	Ptop->pic_selejtez( Plgr );
 }
 
 
@@ -62,6 +119,9 @@ int floadlevel_p( char* nev ) {
 // Igaz ha file nem volt lezarva, kulonben new palya hamissal:
 int floadlevel_e( char* nev, int forceload ) {
 	int levoltzarva = 0;
+
+	// Az editor mindig az eredeti meretben, nagyitatlan LGR-rel dolgozik:
+	beallitarany( 0 );
 
 	if( !nev )
 		hiba( "floadlevel_e-ben !nev!" );
@@ -97,6 +157,9 @@ int floadlevel_e( char* nev, int forceload ) {
 		if( Ptop->pic_selejtez( Plgr ) )
 			dialogselejtez();
 	}
+	else
+		// Jatek utan a palya maradt, de az LGR nagyitva lehet:
+		editornagyitas();
 	Ptop->checklevelforsarvari();
 
 	if( Pszak ) // ervenytelenites

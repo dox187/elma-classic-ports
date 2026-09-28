@@ -17,6 +17,9 @@ int		getbutjmou( void );
 // d_stoppe.cpp-ben vannak megvalositva:
 double mv_stopperido( void );
 void mv_startstopper( void );
+// Igazzal megallitja, hamissal tovabbinditja a stoppert: kozben eltelt ido nem
+// szamit bele mv_stopperido-ba (jatek kozbeni nagyitas ujraepitese):
+void mv_pausestopper( int pause );
 // Ezt valojaban csak crc fuggvenyek hasznaljak veletlen generalasara:
 void getbiostort( unsigned short* pbios, unsigned short* ptort );
 

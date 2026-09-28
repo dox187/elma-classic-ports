@@ -11,6 +11,8 @@ class mdbiter {
 public:
 	mdbiter( ecset* pecset );
 	mdarab* getpmd( int x, int y );
+	// Az utoljara visszaadott mdarab elso pixelenek x-e:
+	int getxpos( void ) { return xposbent; }
 };
 
 
@@ -34,7 +36,9 @@ struct mdarabtomb {
 	mdarabtomb* kovtomb;
 };
 
-#define MAXECSETSOR (12000)
+// Ennel tobb sora nem lehet egy ecsetnek (a sortombok a palya magassagahoz
+// igazodnak; eredetileg 12000 volt a fix meretuk):
+#define MAXECSETSOR (1000000)
 
 struct darab {
 	int xsize;
@@ -62,13 +66,16 @@ class ecset {
 	// origo, maxx es sorszam az eredeti 48-as Arany-nyal (kilogna-hoz):
 	vekt2 eredetiorigo;
 	int eredetimaxx, eredetisorszam;
-	mdarab* msorok[MAXECSETSOR];
-	darab*  sorok[MAXECSETSOR];
+	// A sortombok sorszam+10 elemuek (lefoglalsortomboket):
+	int     sortombmeret;
+	mdarab** msorok;
+	darab**  sorok;
 	// Kulon van ket jatekosnak:
-	int		kurxposok_A[MAXECSETSOR]; // Eppen hol all mutatohoz tartozo x
-	darab*  curdarabok_A[MAXECSETSOR]; // Melyik darab kurrens
-	int		kurxposok_B[MAXECSETSOR]; // Eppen hol all mutatohoz tartozo x
-	darab*  curdarabok_B[MAXECSETSOR]; // Melyik darab kurrens
+	int*	kurxposok_A; // Eppen hol all mutatohoz tartozo x
+	darab** curdarabok_A; // Melyik darab kurrens
+	int*	kurxposok_B; // Eppen hol all mutatohoz tartozo x
+	darab** curdarabok_B; // Melyik darab kurrens
+	void lefoglalsortomboket( void );
 
 	void getorigoandsize( void );
 	void addszakasz( vonal* psz );

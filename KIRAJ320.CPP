@@ -84,8 +84,12 @@ void beallitmereteket( int splitscreen ) {
     Hatarx2 = Cxsize-3.0;
     Hatary2 = Cysize-3.0;
 
-    // Motoros kepernyo mely reszen helyezkedik el:
-    Mo_bal = (Kepxsize/Arany)*0.15;
+    // Motoros kepernyo mely reszen helyezkedik el: a kep szeletol meterben
+    // ugyanannyira, mint nagyitas nelkul (nagyitott motor is elferjen
+    // mogotte), de legfeljebb a kep kozepeig:
+    Mo_bal = (Kepxsize/Arany)*0.15*Motornagyitas;
+    if( Mo_bal > Cxsize/Arany/2.0 )
+        Mo_bal = Cxsize/Arany/2.0;
     Mo_dx  = Cxsize/Arany - 2.0*Mo_bal;
     Mo_y   = Cysize/Arany/2.0;
 
@@ -206,11 +210,12 @@ static void felhokfel( int x, int y, pic8* ppicbuffer, pic8* pfelho,
     }
 } */
 
+// A terkep a nagyitastol fuggetlenul Aranyalap/Viewzoom pixel/meter:
 static void kiview( int ajatekos, pic8* ppic, double baljobb,
 				vekt2 motorkozep, motorst* pmot2 ) {
 
-    double Viewxsize_d = Viewxsize*Viewzoom*Aranyrec;
-    double Viewysize_d = Viewysize*Viewzoom*Aranyrec;
+    double Viewxsize_d = Viewxsize*Viewzoom*Aranyalaprec;
+    double Viewysize_d = Viewysize*Viewzoom*Aranyalaprec;
 
     double szeltoltav = 0.2; // 20%
     double atfuthossz = 1.0-2.0*szeltoltav;
@@ -270,15 +275,15 @@ static void kiview( int ajatekos, pic8* ppic, double baljobb,
 	// Most kirajzoljuk masik (hatso) motorost:
 	if( pmot2 ) {
 		vekt2 sarokrel = pmot2->kor1.r - sarok;
-		int mx = sarokrel.x * Arany/Viewzoom + vx1;
-		int my = sarokrel.y * Arany/Viewzoom + vy1;
+		int mx = sarokrel.x * Aranyalap/Viewzoom + vx1;
+		int my = sarokrel.y * Aranyalap/Viewzoom + vy1;
 		if( mx >= vx1 && mx <= vx2 && my >= vy1 && my <= vy2 )
 			kigyuru( ppic, mx, my, viewindex2 );
 	}
 
 	// Most kirajzoljuk elso motorost:
-	int mx = sarokbolkozepre.x*Arany/Viewzoom;
-	int my = sarokbolkozepre.y*Arany/Viewzoom;
+	int mx = sarokbolkozepre.x*Aranyalap/Viewzoom;
+	int my = sarokbolkozepre.y*Aranyalap/Viewzoom;
 	kigyuru( ppic, vx1+mx, vy1+my, viewindex1 );
 
 	// Kirajzoljuk keretet:
@@ -628,8 +633,8 @@ static void kirakegyjatekost(
 	// Objektumok kirajzolasa, de view-ba csak kesobb kerulnek:
 	int balalsox, balalsoy;
 	Pecsetalso->getbalalso_int( sarok, &balalsox, &balalsoy );
-	int objminx = balalsox - 2*OBJEKTUMSUGAR_I - 2;
-	int objminy = balalsoy - 2*OBJEKTUMSUGAR_I - 2;
+	int objminx = balalsox - 2*Plgr->objektumsugar - 2;
+	int objminy = balalsoy - 2*Plgr->objektumsugar - 2;
 	// Eredetileg + 640 es + 480 volt (a kep merete, kicsinyitett kep es
 	// split screen eseten is):
 	int objmaxx = balalsox + Kepxsize;
@@ -656,11 +661,11 @@ static void kirakegyjatekost(
 				case T_KAJA:
 					pobjpic = Plgr->foodtomb[
 							pker->foodsorszam%Plgr->foodszam ]->getframe( t );
-					dy = 5*sin( t*15.5+pker->sinfazis );
+					dy = Plgr->objektumlebeges*sin( t*15.5+pker->sinfazis );
 					break;
 				case T_CEL:
 					pobjpic = Plgr->pexit->getframe( t );
-					dy = 5*sin( t*15.5+pker->sinfazis );
+					dy = Plgr->objektumlebeges*sin( t*15.5+pker->sinfazis );
 					break;
 				case T_HALALOS:
 					pobjpic = Plgr->pkiller->getframe( t );
@@ -703,12 +708,12 @@ static void kirakegyjatekost(
 
 	if( !Single ) {
 		// Hatso motoros kirajzolasa, ha a kep kozepetol legfeljebb a kep
-		// atlojanak fele + 140 pixelre van (640x480-ban 540 pixel):
+		// atlojanak fele + 140 pixelre (nagyitva) van (640x480-ban 540 pixel):
 		double felx = Kepxsize/2.0;
 		double fely = Kepysize/2.0;
 		vekt2 kozep( sarok.x + felx*Aranyrec, sarok.y + fely*Aranyrec );
 		double tav = abs( pmot2->kor1.r - kozep );
-		if( tav < (sqrt( felx*felx + fely*fely ) + 140.0)*Aranyrec )
+		if( tav < (sqrt( felx*felx + fely*fely ) + 140.0*kepnagyitas())*Aranyrec )
 			kibike( !ajatekos, ppic, t, sarok, pmot2, pvalt2, pmkepek2 );
 	}
 

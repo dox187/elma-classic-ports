@@ -40,12 +40,6 @@ bool locked = false;
 bool running = true;
 std::chrono::steady_clock::time_point stopper_start;
 
-// A setting of elma.cfg (or ELMA_<KEY>) that is 0 or 1.
-bool config_flag(const char* key, bool fallback) {
-    const char* value = config_get(key, NULL);
-    return value ? strcmp(value, "0") != 0 : fallback;
-}
-
 bool fullscreen() {
 #ifdef ELMA_HANDHELD
     return config_flag("fullscreen", true);
@@ -404,6 +398,11 @@ int dik(int key) {
     case SDLK_LEFT: return DIK_LEFT; case SDLK_RIGHT: return DIK_RIGHT;
     case SDLK_PAGEUP: return DIK_PRIOR; case SDLK_PAGEDOWN: return DIK_NEXT;
     case SDLK_DELETE: return DIK_DELETE;
+    case SDLK_HOME: return DIK_HOME; case SDLK_END: return DIK_END;
+    case SDLK_INSERT: return DIK_INSERT;
+    case SDLK_KP_PLUS: return DIK_ADD; case SDLK_KP_MINUS: return DIK_SUBTRACT;
+    case SDLK_KP_MULTIPLY: return DIK_MULTIPLY; case SDLK_KP_DIVIDE: return DIK_DIVIDE;
+    case SDLK_KP_PERIOD: return DIK_DECIMAL;
     case SDLK_LCTRL: return DIK_LCONTROL; case SDLK_RCTRL: return DIK_RCONTROL;
     case SDLK_LSHIFT: return DIK_LSHIFT; case SDLK_RSHIFT: return DIK_RSHIFT;
     case SDLK_LALT: return DIK_LMENU; case SDLK_RALT: return DIK_RMENU;
@@ -445,6 +444,11 @@ int dik(SDL_Scancode code) {
     case SDL_SCANCODE_LEFT: return DIK_LEFT; case SDL_SCANCODE_RIGHT: return DIK_RIGHT;
     case SDL_SCANCODE_PAGEUP: return DIK_PRIOR; case SDL_SCANCODE_PAGEDOWN: return DIK_NEXT;
     case SDL_SCANCODE_DELETE: return DIK_DELETE;
+    case SDL_SCANCODE_HOME: return DIK_HOME; case SDL_SCANCODE_END: return DIK_END;
+    case SDL_SCANCODE_INSERT: return DIK_INSERT;
+    case SDL_SCANCODE_KP_PLUS: return DIK_ADD; case SDL_SCANCODE_KP_MINUS: return DIK_SUBTRACT;
+    case SDL_SCANCODE_KP_MULTIPLY: return DIK_MULTIPLY; case SDL_SCANCODE_KP_DIVIDE: return DIK_DIVIDE;
+    case SDL_SCANCODE_KP_PERIOD: return DIK_DECIMAL;
     case SDL_SCANCODE_LCTRL: return DIK_LCONTROL; case SDL_SCANCODE_RCTRL: return DIK_RCONTROL;
     case SDL_SCANCODE_LSHIFT: return DIK_LSHIFT; case SDL_SCANCODE_RSHIFT: return DIK_RSHIFT;
     case SDL_SCANCODE_LALT: return DIK_LMENU; case SDL_SCANCODE_RALT: return DIK_RMENU;
@@ -694,6 +698,12 @@ void ddfinish() {
 // SDL 1.2 shows the picture unscaled.
 const char* dd_scale_name() { return NULL; }
 void dd_next_scale() {}
+
+// The zoom is only set in elma.cfg (and with the keys during a game).
+const char* dd_zoom_name() { return NULL; }
+void dd_next_zoom() {}
+const char* dd_zoom_textures_name() { return NULL; }
+void dd_next_zoom_textures() {}
 #else
 void ddinit() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
@@ -777,7 +787,26 @@ void dd_next_aspect() {
     config_set("aspect", aspect_key(aspect));
     config_save();
 }
+
+// The next level is loaded with the new zoom.
+const char* dd_zoom_name() { return zoom_name(config_zoom()); }
+void dd_next_zoom() { set_config_zoom(next_zoom_option(config_zoom())); }
+const char* dd_zoom_textures_name() { return config_zoom_textures() ? "Yes" : "No"; }
+void dd_next_zoom_textures() { set_config_zoom_textures(!config_zoom_textures()); }
 #endif
+
+#ifdef ELMA_MIYOO
+// The biggest levels take about 50 MB at zoom 2 and 100 MB at zoom 4 (on a
+// 64-bit desktop); the Miyoo Mini has 128 MB.
+const double max_zoom = 2.0;
+#else
+const double max_zoom = NAGYITASMAX;
+#endif
+double dd_zoom() { return std::min(config_zoom(), max_zoom); }
+void dd_set_zoom(double zoom) { set_config_zoom(std::min(zoom, max_zoom)); }
+int dd_zoom_textures() { return config_zoom_textures(); }
+int dd_zoom_grass() { return config_zoom_grass(); }
+int dd_zoom_key(int zoom_in) { return config_zoom_key(zoom_in != 0); }
 
 #ifdef ELMA_SDL1
 // SDL 1.2 shows the 640x480 picture unscaled.
@@ -896,6 +925,15 @@ char* kodtobillnev(int code) {
 
 void mv_check(int) { hang(); events(); }
 void mv_startstopper() { stopper_start = std::chrono::steady_clock::now(); }
+// The time between the two calls moves the start of the stopper on.
+void mv_pausestopper(int pause) {
+    static bool paused = false;
+    static std::chrono::steady_clock::time_point pause_start;
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    if (pause && !paused) pause_start = now;
+    if (!pause && paused) stopper_start += now - pause_start;
+    paused = pause != 0;
+}
 double mv_stopperido() {
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - stopper_start;
     return elapsed.count() * 182.0;

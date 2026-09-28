@@ -152,6 +152,22 @@ void options( void ) {
 			rubrikaszam++;
 		}
 
+		// Motor nagyitasa es a texturak nagyitasa, ha a platformon allithato:
+		int zoomsor = -1;
+		if( dd_zoom_name() ) {
+			zoomsor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Zoom:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_zoom_name() );
+			rubrikaszam++;
+		}
+		int zoomtexturasor = -1;
+		if( dd_zoom_textures_name() ) {
+			zoomtexturasor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Zoom Textures:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_zoom_textures_name() );
+			rubrikaszam++;
+		}
+
 		val.bead( rubrikaszam+vantagis, 1 );
 
 		kurrens = val.valassz();
@@ -227,6 +243,13 @@ void options( void ) {
 
 		if( aranysor >= 0 && kurrens == aranysor )
 			dd_next_aspect();
+
+		// A kovetkezo palya betoltesekor ervenyes (floadlevel_p):
+		if( zoomsor >= 0 && kurrens == zoomsor )
+			dd_next_zoom();
+
+		if( zoomtexturasor >= 0 && kurrens == zoomtexturasor )
+			dd_next_zoom_textures();
 
 
 		if( vantagis ) // Visszaalitjuk eredeti helyzetebe

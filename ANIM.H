@@ -7,8 +7,9 @@ public:
 	int frameszam;
 	pic8* ppictomb[MAXANIMFRAME];
 
-	// Meg is forditja kepet:
-	anim( pic8* nagykep, char* uzenet_filenev );
+	// Meg is forditja kepet. A nagykep Animsize szeles kepkockait meret
+	// mereture nagyitja (0: marad Animsize):
+	anim( pic8* nagykep, char* uzenet_filenev, int meret = 0 );
 	~anim( void );
 	pic8* getframe( double ido );
 	pic8* getframebyindex( int index );

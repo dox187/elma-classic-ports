@@ -165,3 +165,124 @@ void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
     if (*w > MAXKEPXSIZE) *w = MAXKEPXSIZE;
     if (*h > MAXKEPYSIZE) *h = MAXKEPYSIZE;
 }
+
+bool config_flag(const char* key, bool fallback) {
+    const char* value = config_get(key, NULL);
+    return value ? strcmp(value, "0") != 0 : fallback;
+}
+
+namespace {
+bool zoom_read = false, zoom_textures_read = false;
+double current_zoom = 1.0;
+bool zoom_textures = true;
+
+double limited_zoom(double value) {
+    if (!(value >= NAGYITASMIN)) return value != value ? 1.0 : NAGYITASMIN; // NaN: 1
+    return value > NAGYITASMAX ? NAGYITASMAX : value;
+}
+}
+
+double config_zoom() {
+    if (!zoom_read) {
+        zoom_read = true;
+        const char* value = config_get("zoom", NULL);
+        char* end = NULL;
+        const double number = value ? strtod(value, &end) : 1.0;
+        current_zoom = value && end != value ? limited_zoom(number) : 1.0;
+    }
+    return current_zoom;
+}
+
+void set_config_zoom(double value) {
+    zoom_read = true;
+    current_zoom = limited_zoom(value);
+    char text[32];
+    snprintf(text, sizeof(text), "%g", current_zoom);
+    config_set("zoom", text);
+    config_save();
+}
+
+bool config_zoom_textures() {
+    if (!zoom_textures_read) {
+        zoom_textures_read = true;
+        zoom_textures = config_flag("zoom_textures", true);
+    }
+    return zoom_textures;
+}
+
+void set_config_zoom_textures(bool on) {
+    zoom_textures_read = true;
+    zoom_textures = on;
+    config_set("zoom_textures", on ? "1" : "0");
+    config_save();
+}
+
+bool config_zoom_grass() { return config_flag("zoom_grass", true); }
+
+namespace {
+struct KeyName { const char* name; int code; };
+const KeyName key_names[] = {
+    {"ESCAPE", DIK_ESCAPE}, {"1", DIK_1}, {"2", DIK_2}, {"3", DIK_3}, {"4", DIK_4},
+    {"5", DIK_5}, {"6", DIK_6}, {"7", DIK_7}, {"8", DIK_8}, {"9", DIK_9}, {"0", DIK_0},
+    {"MINUS", DIK_MINUS}, {"EQUALS", DIK_EQUALS}, {"BACK", DIK_BACK}, {"TAB", DIK_TAB},
+    {"Q", DIK_Q}, {"W", DIK_W}, {"E", DIK_E}, {"R", DIK_R}, {"T", DIK_T}, {"Y", DIK_Y},
+    {"U", DIK_U}, {"I", DIK_I}, {"O", DIK_O}, {"P", DIK_P}, {"LBRACKET", DIK_LBRACKET},
+    {"RBRACKET", DIK_RBRACKET}, {"RETURN", DIK_RETURN}, {"LCONTROL", DIK_LCONTROL},
+    {"A", DIK_A}, {"S", DIK_S}, {"D", DIK_D}, {"F", DIK_F}, {"G", DIK_G}, {"H", DIK_H},
+    {"J", DIK_J}, {"K", DIK_K}, {"L", DIK_L}, {"SEMICOLON", DIK_SEMICOLON},
+    {"APOSTROPHE", DIK_APOSTROPHE}, {"GRAVE", DIK_GRAVE}, {"LSHIFT", DIK_LSHIFT},
+    {"BACKSLASH", DIK_BACKSLASH}, {"Z", DIK_Z}, {"X", DIK_X}, {"C", DIK_C}, {"V", DIK_V},
+    {"B", DIK_B}, {"N", DIK_N}, {"M", DIK_M}, {"COMMA", DIK_COMMA}, {"PERIOD", DIK_PERIOD},
+    {"SLASH", DIK_SLASH}, {"RSHIFT", DIK_RSHIFT}, {"MULTIPLY", DIK_MULTIPLY},
+    {"LMENU", DIK_LMENU}, {"SPACE", DIK_SPACE}, {"F1", DIK_F1}, {"F2", DIK_F2},
+    {"F3", DIK_F3}, {"F4", DIK_F4}, {"F5", DIK_F5}, {"F6", DIK_F6}, {"F7", DIK_F7},
+    {"F8", DIK_F8}, {"F9", DIK_F9}, {"F10", DIK_F10}, {"F12", DIK_F12},
+    {"NUMPAD7", DIK_NUMPAD7}, {"NUMPAD8", DIK_NUMPAD8}, {"NUMPAD9", DIK_NUMPAD9},
+    {"SUBTRACT", DIK_SUBTRACT}, {"NUMPAD4", DIK_NUMPAD4}, {"NUMPAD5", DIK_NUMPAD5},
+    {"NUMPAD6", DIK_NUMPAD6}, {"ADD", DIK_ADD}, {"NUMPAD1", DIK_NUMPAD1},
+    {"NUMPAD2", DIK_NUMPAD2}, {"NUMPAD3", DIK_NUMPAD3}, {"NUMPAD0", DIK_NUMPAD0},
+    {"DECIMAL", DIK_DECIMAL}, {"NUMPADENTER", DIK_NUMPADENTER}, {"RCONTROL", DIK_RCONTROL},
+    {"DIVIDE", DIK_DIVIDE}, {"RMENU", DIK_RMENU}, {"HOME", DIK_HOME}, {"UP", DIK_UP},
+    {"PRIOR", DIK_PRIOR}, {"PGUP", DIK_PRIOR}, {"PAGEUP", DIK_PRIOR}, {"LEFT", DIK_LEFT},
+    {"RIGHT", DIK_RIGHT}, {"END", DIK_END}, {"DOWN", DIK_DOWN}, {"NEXT", DIK_NEXT},
+    {"PGDN", DIK_NEXT}, {"PGDOWN", DIK_NEXT}, {"PAGEDOWN", DIK_NEXT}, {"INSERT", DIK_INSERT},
+    {"DELETE", DIK_DELETE},
+};
+
+// A DirectInput name (with or without DIK_) or a hex code (0xC9); 0 for
+// "none" or an unknown name.
+int key_code(const char* text) {
+    std::string name;
+    for (const char* p = text; *p; ++p) name += char(toupper((unsigned char)*p));
+    if (name.compare(0, 4, "DIK_") == 0) name = name.substr(4);
+    if (name.empty() || name == "NONE") return 0;
+    if (name.compare(0, 2, "0X") == 0 && name.size() > 2) {
+        char* end = NULL;
+        const long code = strtol(name.c_str() + 2, &end, 16);
+        return *end == 0 && code > 0 && code < 256 ? int(code) : 0;
+    }
+    for (size_t i = 0; i < sizeof(key_names) / sizeof(key_names[0]); ++i)
+        if (name == key_names[i].name) return key_names[i].code;
+    return 0;
+}
+}
+
+int config_zoom_key(bool zoom_in) {
+    const char* value = config_get(zoom_in ? "zoom_in_key" : "zoom_out_key", NULL);
+    if (!value) return zoom_in ? DIK_PRIOR : DIK_NEXT;
+    return key_code(value);
+}
+
+const char* zoom_name(double value) {
+    static char text[32];
+    snprintf(text, sizeof(text), "%gx", value);
+    return text;
+}
+
+double next_zoom_option(double value) {
+    static const double options[] = { 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4 };
+    const int count = int(sizeof(options) / sizeof(options[0]));
+    for (int i = 0; i < count; ++i)
+        if (options[i] > value + 1e-6) return options[i];
+    return options[0];
+}
