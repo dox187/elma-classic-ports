@@ -207,6 +207,16 @@ void draw(const Picture& picture) {
     }
 }
 
+// The mouse is given in window coordinates, which on high-DPI screens are not
+// the drawable pixels that the pictures are placed in.
+void drawable_ratio(double* x, double* y) {
+    int window_w = 0, window_h = 0, out_w = 0, out_h = 0;
+    SDL_GetWindowSize(window, &window_w, &window_h);
+    SDL_GetRendererOutputSize(renderer, &out_w, &out_h);
+    *x = window_w > 0 && out_w > 0 ? double(out_w) / window_w : 1.0;
+    *y = window_h > 0 && out_h > 0 ? double(out_h) / window_h : 1.0;
+}
+
 #endif
 
 // Game pad buttons, named as in SDL's game controller API. The Miyoo Mini
@@ -724,11 +734,32 @@ void getbiostort(unsigned short* bios, unsigned short* fraction) {
 }
 int s_random(int max) { return max > 0 ? rand() % max : 0; }
 
-void getmou(int* x, int* y) { SDL_GetMouseState(x, y); }
 #ifdef ELMA_SDL1
+void getmou(int* x, int* y) { SDL_GetMouseState(x, y); }
 void setmou(int x, int y) { SDL_WarpMouse(x, y); }
 #else
-void setmou(int x, int y) { SDL_WarpMouseInWindow(window, x, y); }
+// The game gets the mouse in its 640x480 screen, wherever that is shown.
+void getmou(int* x, int* y) {
+    int window_x = 0, window_y = 0;
+    SDL_GetMouseState(&window_x, &window_y);
+    const Picture& picture = screen_picture;
+    const SDL_Rect& place = picture.place;
+    double ratio_x, ratio_y;
+    drawable_ratio(&ratio_x, &ratio_y);
+    *x = place.w > 0 ? int(((window_x + 0.5) * ratio_x - place.x) * picture.w / place.w) : 0;
+    *y = place.h > 0 ? int(((window_y + 0.5) * ratio_y - place.y) * picture.h / place.h) : 0;
+    *x = std::max(0, std::min(picture.w - 1, *x));
+    *y = std::max(0, std::min(picture.h - 1, *y));
+}
+
+void setmou(int x, int y) {
+    const Picture& picture = screen_picture;
+    const SDL_Rect& place = picture.place;
+    double ratio_x, ratio_y;
+    drawable_ratio(&ratio_x, &ratio_y);
+    SDL_WarpMouseInWindow(window, int((place.x + (x + 0.5) * place.w / picture.w) / ratio_x),
+                          int((place.y + (y + 0.5) * place.h / picture.h) / ratio_y));
+}
 #endif
 int getbutbmou() { return SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_LEFT); }
 int getbutjmou() { return SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_RIGHT); }

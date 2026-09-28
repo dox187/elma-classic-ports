@@ -42,6 +42,10 @@ https://elastomania.com
 - **Physics on ARM:** `char` is unsigned on ARM, and fused multiply-add
   changes floating point results. The builds use signed `char` and no fused
   multiply-add, so the game and its replays behave as on x86.
+- **Editor mouse in a resized window:** the mouse was read in window pixels,
+  so in the editor it pointed at the wrong place whenever the window was not
+  640x480. It now follows the picture at any window size and on high-DPI
+  screens.
 
 ## Ports
 
