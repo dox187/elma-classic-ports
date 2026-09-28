@@ -1979,8 +1979,11 @@ static int lefeleoszt( int a, int b ) {
 // ugy folytatodnak. A legalabb 480 magas kepet (pl. sky.pcx) az eredeti sosem
 // ismetelte: magasabb kepen a teteje felett tukrozve folytatodik, hogy ne
 // legyen vagas:
+// A 480-nal alacsonyabb eget (eredeti meretben) az eredeti ismetli, a
+// magasabbat folotte tukrozzuk; nagyitott eg eseten a nagyitott 480-hoz
+// hasonlitunk, kulonben kicsinyitve a 640x480-as eg is ismetlodne:
 static int egkepsor( int sor, int egymodulus ) {
-	if( egymodulus < 480 )
+	if( egymodulus < nagyitpixel( 480, Plgr->texturanagyitas ) )
 		return sor % egymodulus;
 	sor %= 2*egymodulus;
 	if( sor >= egymodulus )

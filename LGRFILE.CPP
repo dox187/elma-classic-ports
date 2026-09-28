@@ -137,19 +137,25 @@ void loadlgrfile( char* nev ) {
 }
 
 // A kep nagyitas-szoros masolata, vagy maga ppic, ha a meret nem valtozik:
-static pic8* nagyitottkep( pic8* ppic, double nagyitas ) {
+// felfele: a meretet felfele kerekiti (kepek, maszkok), hogy az egymas mellett
+// levo kepek kozott nem egesz nagyitasnal se maradjon res:
+static pic8* nagyitottkep( pic8* ppic, double nagyitas, int felfele = 0 ) {
 	if( nagyitas == 1.0 )
 		return ppic;
 	int xsize = nagyitpixel( ppic->getxsize(), nagyitas );
 	int ysize = nagyitpixel( ppic->getysize(), nagyitas );
+	if( felfele ) {
+		xsize = int( ceil( ppic->getxsize()*nagyitas - 1e-6 ) );
+		ysize = int( ceil( ppic->getysize()*nagyitas - 1e-6 ) );
+	}
 	if( xsize == ppic->getxsize() && ysize == ppic->getysize() )
 		return ppic;
 	return atmeretez( ppic, xsize, ysize );
 }
 
 // Ugyanez, de ppic-et torli, ha masolatot adott vissza:
-static pic8* nagyitlgrkep( pic8* ppic, double nagyitas ) {
-	pic8* pnagy = nagyitottkep( ppic, nagyitas );
+static pic8* nagyitlgrkep( pic8* ppic, double nagyitas, int felfele = 0 ) {
+	pic8* pnagy = nagyitottkep( ppic, nagyitas, felfele );
 	if( pnagy != ppic )
 		delete ppic;
 	return pnagy;
@@ -264,7 +270,7 @@ void lgrfile::beirkepet( pic8* ppic, piclist* ppiclist, int index ) {
 	int atlatszo = getatlatszosag( ppiclist->atlatszosagok[index], ppic );
 
 	pic8* peredeti = ppic;
-	ppic = nagyitottkep( ppic, nagyitas );
+	ppic = nagyitottkep( ppic, nagyitas, 1 );
 
 	// Beetetjuk kepadatokat:
 	pkep->xsize = ppic->getxsize();
@@ -392,7 +398,7 @@ void lgrfile::beirmaszkot( pic8* ppic, piclist* ppiclist, int index ) {
 
 	// Az atlatszo szin az eredeti kep sarkabol:
 	int atlatszo = getatlatszosag( ppiclist->atlatszosagok[index], ppic );
-	ppic = nagyitlgrkep( ppic, nagyitas );
+	ppic = nagyitlgrkep( ppic, nagyitas, 1 );
 
 	strcpy( pm->nev, &ppiclist->nevek[index*10] );
 	pm->xsize = ppic->getxsize();
