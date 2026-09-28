@@ -16,10 +16,14 @@ struct fileleiro {
 static fileleiro* Leirotomb = NULL;
 
 #define FILESZAM (150)
+// A kesobbi (pl. Steam-es) kiadasok elma.res-eben 3000 leironak van hely:
+#define UJFILESZAM (3000)
 
 #define AZONNUMBER (1347839l)
 
 static int32_t Fileszam = 0;
+// Ennyi leiro fer el elma.res leirotombjeben:
+static int Leiroszam = FILESZAM;
 
 static void titkosit( void ) {
 	#ifdef SARVARI
@@ -31,7 +35,7 @@ static void titkosit( void ) {
 	if( !Leirotomb )
 		hiba( "titkosit-ban !Leirotomb!" );
 	int leiromeret = sizeof( fileleiro );
-	for( int i = 0; i < FILESZAM; i++ ) {
+	for( int i = 0; i < Leiroszam; i++ ) {
 		unsigned char* pc = (unsigned char*)(&Leirotomb[i]);
 		for( int j = 0; j < leiromeret; j++ ) {
 			pc[j] ^= a;
@@ -43,6 +47,16 @@ static void titkosit( void ) {
 }
 
 static int Qopeninited = 0;
+
+// Igaz, ha leiroszam darab leiro utan all a magic number:
+static int vanmagicnumber( FILE* h, int leiroszam ) {
+	int32_t magicnumber = 0;
+	if( fseek( h, 4+leiroszam*long(sizeof( fileleiro )), SEEK_SET ) != 0 )
+		return 0;
+	if( fread( &magicnumber, 1, 4, h ) != 4 )
+		return 0;
+	return magicnumber == AZONNUMBER;
+}
 
 void initqopen( void ) {
 	if( Qopeninited )
@@ -56,21 +70,26 @@ void initqopen( void ) {
 	if( !Egybol )
 		return;
 
-	{ Leirotomb = NEW(fileleiro*) fileleiro[FILESZAM]; }
-	if( !Leirotomb )
-		uzenet( "initqopen-ben memory!" );
 	FILE* h = fopen( Nagyfilenev, "rb" );
 	if( !h )
 		uzenet( "Missing file!: ", Nagyfilenev );
 
 	if( fread( &Fileszam, 1, 4, h ) != 4 )
 		hiba( "initqopen-ben nem sikerult olvasni!" );
-	if( Fileszam <= 0 || Fileszam > FILESZAM )
+
+	// Leirotomb meretet a mogotte allo magic number helye mutatja meg:
+	Leiroszam = FILESZAM;
+	if( !vanmagicnumber( h, FILESZAM ) && vanmagicnumber( h, UJFILESZAM ) )
+		Leiroszam = UJFILESZAM;
+	if( Fileszam <= 0 || Fileszam > Leiroszam )
 		hiba( "Fileszam <= 0 || Fileszam > FILESZAM!" );
 
-	long hossz = sizeof( fileleiro[FILESZAM] );
-	if( hossz > 64000l )
-		hiba( "Tul hosszu Leirotomb initqopen-ben!" );
+	{ Leirotomb = NEW(fileleiro*) fileleiro[Leiroszam]; }
+	if( !Leirotomb )
+		uzenet( "initqopen-ben memory!" );
+	long hossz = Leiroszam*long(sizeof( fileleiro ));
+	if( fseek( h, 4, SEEK_SET ) != 0 )
+		hiba( "initqopen-ben nem sikerult olvasni!" );
 	if( fread( Leirotomb, 1, unsigned(hossz), h ) != hossz )
 		hiba( "initqopen-ben nem sikerult olvasni!" );
 	titkosit();
@@ -211,6 +230,18 @@ FILE* qopen( char* nev, char* paramok ) {
 		strcat( tmp, nev );
 		return fopen( tmp, paramok );
 	}
+}
+
+int qvan( char* nev ) {
+	if( !Qopeninited )
+		hiba( "qvan initqopen nelkul!" );
+	if( !Egybol )
+		return 0;
+	for( int i = 0; i < Fileszam; i++ ) {
+		if( strcmpi( nev, Leirotomb[i].nev ) == 0 )
+			return 1;
+	}
+	return 0;
 }
 
 void qclose( FILE* h ) {

@@ -28,8 +28,9 @@ static void ujranagyit( void ) {
 int floadlevel_p( char* nev ) {
 	if( !nev )
 		hiba( "floadlevel_p-ben !nev!" );
-	if( strlen( nev ) > 12 || !nev[0] )
-		hiba( "floadlevel_p-ben strlen( nev ) > 12 || !nev[0]!: ", nev );
+	// Gyujtemeny palyainak neve hosszabb is lehet 8.3-nal (tutorial01.lev):
+	if( strlen( nev ) > 15 || !nev[0] )
+		hiba( "floadlevel_p-ben strlen( nev ) > 15 || !nev[0]!: ", nev );
 	if( Volttopsave || !Ptop || !Pszak || strcmpi( nev, Bentlevelnev ) != 0 ) {
 		Volttopsave = 0;
 		// Ujra be kell olvasni palyat:

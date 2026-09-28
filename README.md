@@ -114,6 +114,20 @@ renaming. The on-disk `state.dat` structures use 32-bit fields, so existing
 `state.dat` files keep their players and best times. Sound uses the original
 mixer of the Windows version, played through SDL.
 
+The data of the Steam release works with the registered build as well. Copy
+`base/elma.res` from the Steam installation, and `base/lgr/orig.lgr` as
+`lgr/default.lgr`: the `default.lgr` of the Steam release uses a newer LGR
+format that this code cannot read.
+
+With the Steam data, Play first offers the level collections of the Steam
+release (Tutorial, Stolen Internals, Quick & Easy and Quick & Hard) next to
+the original and the external levels. As with the original levels, a
+collection shows its finished levels and the next one, and Play next moves
+on. The levels stay inside `elma.res`, so they cannot be edited. Their best
+times and the progress of the players are kept in `state-elma-ports.dat`,
+because `state.dat` has no room for them and is shared with the original and
+the Steam game.
+
 ### Picture and settings
 
 The menus and dialogs fill the window: their background is repeated over it

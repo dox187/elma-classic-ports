@@ -439,7 +439,8 @@ static egyszovsor Idoszovegek[14];
 
 // 0-ESC, 1-this level, 2-next level, 3-skip level
 // Ha filenev nem NULL, akkor external file:
-int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev ) {
+int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
+			   int kovetkezovan ) {
 	int extlev = 0;
 	if( filenev )
 		extlev = 1;
@@ -467,6 +468,10 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev ) {
 		if( skipisvan && nextisvan )
 			hiba( "skipisvan && nextisvan!" );
 	}
+	if( extlev && kovetkezovan ) {
+		nextisvan = 1;
+		kurrens = nextdefault;
+	}
 
 	while( 1 ) {
 		char fejlec[100] = "";
@@ -476,6 +481,8 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev ) {
 			sprintf( fejlec, "External: %s", Ptop->levelname );
 			if( Pmenuabc->len( fejlec ) > 630 )
 				sprintf( fejlec, "Ext: %s", Ptop->levelname );
+			if( gyujtemenypalya( filenev ) )
+				strcpy( fejlec, Ptop->levelname );
 		}
 		else {
 			strcpy( fejlec, "Level " );
@@ -739,7 +746,9 @@ static void playlevel( int level ) {
 	}
 }
 
-void play( void ) {
+// Belso palyak listaja, kulsovel eseten elso sora az External File:
+void belsopalyak( int kulsovel ) {
+	int elso = kulsovel ? 1 : 0;
 	while( 1 ) {
 		int jatekosindex = getjatekosindex( State->jatekosa );
 		jatekos* pjatekos = &State->jatekosok[jatekosindex];
@@ -757,7 +766,9 @@ void play( void ) {
 
 		// Valasztas:
 		valaszt2 val;
-		val.kur = int(pjatekos->jelenlegipalya)+1;
+		val.kur = int(pjatekos->jelenlegipalya)+elso;
+		if( val.kur < 0 )
+			val.kur = 0;
 		val.egykepen = LISTegykepen;
 		val.x0 = LISTx0;
 		val.y0 = LISTy0;
@@ -765,7 +776,8 @@ void play( void ) {
 		val.escelheto = 1;
 		strcpy( val.cim, "Select Level!" );
 
-		strcpy( Rubrikak[0], "External File" );
+		if( kulsovel )
+			strcpy( Rubrikak[0], "External File" );
 		for( int i = 0; i < kirpalyszam; i++ ) {
 			char tmp[MAXRUBRIKAHOSSZ];
 			itoa( i+1, tmp, 10 );
@@ -779,16 +791,16 @@ void play( void ) {
 			}
 			if( strlen( tmp ) > MAXRUBRIKAHOSSZ-5 )
 				hiba( "play-ben! strlen( tmp ) > MAXRUBRIKAHOSSZ-5!" );
-			strcpy( Rubrikak[i+1], tmp );
+			strcpy( Rubrikak[i+elso], tmp );
 		}
 
-		val.bead( kirpalyszam+1 );
+		val.bead( kirpalyszam+elso );
 		int eredmeny = val.valassz();
 
 		if( eredmeny < 0 )
 			return;
 
-		if( eredmeny == 0 ) {
+		if( kulsovel && eredmeny == 0 ) {
 			// External file lejatszast valasztotta, ilyenkor ha visszajon
 			// folytatodik tovabb:
 			pjatekos->jelenlegipalya = -1;
@@ -797,10 +809,19 @@ void play( void ) {
 		}
 		else {
 			// Egy normal level-t valasztott ki:
-			playlevel( eredmeny-1 );
+			playlevel( eredmeny-elso );
 			//return;
 		}
 	}
+}
+
+void play( void ) {
+	// Ha elma.res-ben palyagyujtemenyek is vannak (pl. Steam-es kiadas),
+	// eloszor azok kozul lehet valasztani:
+	if( vannakgyujtemenyek() )
+		gyujtemenymenu();
+	else
+		belsopalyak( 1 );
 }
 
 
