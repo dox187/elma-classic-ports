@@ -158,6 +158,12 @@ void ggutkozes( golyo  * g1, golyo  * g2, double t ) {
 static int Balszel = 0, Jobbszel = 640;
 static int Alsoszel = 0, Felsoszel = 480;
 
+// A menuk kepenek merete (menukep.cpp):
+void golyofalak( int xsize, int ysize ) {
+	Jobbszel = xsize;
+	Felsoszel = ysize;
+}
+
 double	goutkozesideje( golyo * m, int old ) {
 	if( Nincsfal )
 		return Hosszuido;

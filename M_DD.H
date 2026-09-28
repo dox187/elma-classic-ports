@@ -34,6 +34,12 @@ void backbuffersize( int* xsize, int* ysize );
 
 unsigned char** lockfrontbuffer( void );
 void unlockfrontbuffer( void );
+// A menuk kepenek (front buffer) merete: dd_menumeret a platform javaslata az
+// ablakhoz (legalabb 640x480, a szovegek 1:1 pixelen maradnak),
+// frontbuffermeret beallitja, a kovetkezo lockfrontbuffer mar ekkora kepet
+// ad (menukep.cpp menumeretbeallit hivja):
+void dd_menumeret( int* xsize, int* ysize );
+void frontbuffermeret( int xsize, int ysize );
 
 // Kep nagyitasanak modja az ablakban, Options menuben allithato. NULL-t ad
 // vissza, ha a platformon nem allithato (terminal, SDL 1.2):

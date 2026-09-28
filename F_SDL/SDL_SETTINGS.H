@@ -48,6 +48,13 @@ void set_config_resolution(int resolution);
 const char* resolution_name(int resolution); // as in the Options menu: Auto, 1080
 int next_resolution_option(int resolution);  // Auto, Native, Original, Auto...
 
+// The size of the menus for an output of out_w x out_h pixels: the menus fill
+// it with their background and keep their text at 1:1 pixels, so more fits
+// (menu_scale in elma.cfg: auto, the default, enlarges them by a whole number
+// only on screens over 2000 rows; a number enlarges them that many times). At
+// least 640x480.
+void menu_view_size(int out_w, int out_h, int* w, int* h);
+
 // A setting of elma.cfg that is 0 or 1 (anything else than 0 is 1).
 bool config_flag(const char* key, bool fallback);
 

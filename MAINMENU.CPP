@@ -409,7 +409,11 @@ void mainmenu( void ) {
 
 		if( eredmeny == 6 ) {
 			Editorban_dialnak = 1;
+			// Az editor 640x480-as menukepbe rajzol:
+			Menueredeti = 1;
+			menumeretbeallit();
 			editor();
+			Menueredeti = 0;
 			Editorban_dialnak = 0;
 			Pmenupal->set();
 		}

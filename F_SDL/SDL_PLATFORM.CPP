@@ -111,7 +111,8 @@ struct Picture {
         return rows.data();
     }
 };
-// The menus, dialogs and the editor draw into this 640x480 picture, which
+// The menus, dialogs and the editor draw into this picture (640x480, larger
+// menus fill the window: frontbuffermeret), which
 // keeps what they drew; the game draws its view into the other one, whose
 // size follows the aspect ratio of the window (game_view_size).
 Picture ui_picture(640, 480);
@@ -856,6 +857,8 @@ void unlockfrontbuffer() { unlockbackbuffer(); }
 
 const char* dd_aspect_name() { return NULL; }
 void dd_next_aspect() {}
+void dd_menumeret(int* w, int* h) { *w = 640; *h = 480; }
+void frontbuffermeret(int, int) {}
 const char* dd_resolution_name() { return NULL; }
 void dd_next_resolution() {}
 #else
@@ -896,6 +899,18 @@ unsigned char** lockfrontbuffer() {
     if (locked) hiba((char*)"framebuffer already locked");
     locked = true;
     return ui_picture.lock(Locky0_alul != 0);
+}
+
+void dd_menumeret(int* w, int* h) {
+    int out_w = 0, out_h = 0;
+    if (!renderer || SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0) out_w = out_h = 0;
+    menu_view_size(out_w, out_h, w, h);
+}
+
+void frontbuffermeret(int w, int h) {
+    if (w == ui_picture.w && h == ui_picture.h) return;
+    ui_picture.resize(w, h);
+    layout(ui_picture);
 }
 
 void unlockfrontbuffer() {

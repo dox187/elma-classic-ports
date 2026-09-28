@@ -132,6 +132,15 @@ int valaszt2::valassz( egyszovsor* preszovegek, int preszovegszam,
 	if( kur > szam-1 )
 		kur = szam-1;
 
+	// Magasabb menukepen tobb sor fer ki, a lista kozepen marad (fel-lel
+	// feljebb kerul):
+	menumeretbeallit();
+	int eredetiegykepen = egykepen;
+	egykepen = eredetiegykepen + 2*(Menueltolasy/dy);
+	int lathato0 = eredetiegykepen < szam ? eredetiegykepen : szam;
+	int lathato = egykepen < szam ? egykepen : szam;
+	int fel = (lathato-lathato0)*dy/2;
+
 	int felso = kur-egykepen/2;
 	int maxfelso = szam-egykepen;
 	if( felso > maxfelso )
@@ -148,13 +157,16 @@ int valaszt2::valassz( egyszovsor* preszovegek, int preszovegszam,
 	while( 1 ) {
 		while( !csakkirajzol && mk_kbhit() ) {
 			int c = mk_getextchar();
-			if( c == MK_ESC && escelheto )
+			if( c == MK_ESC && escelheto ) {
+				egykepen = eredetiegykepen;
 				return -1;
+			}
 			if( c == MK_ENTER ) {
 				// RECidomenteshez kell (mainmenu.cpp-ben is):
 				int controlaltnyomva( void );
 				if( RECidokellhet && controlaltnyomva() )
 					RECidokellis = 1;
+				egykepen = eredetiegykepen;
 				return kur;
 			}
 			if( c == MK_UP ) {
@@ -223,29 +235,31 @@ int valaszt2::valassz( egyszovsor* preszovegek, int preszovegszam,
 				if( strncmp( preszovegek[i].text, "*$$^&|@", 7 ) == 0 ) {
 					// Kozepre kell tenni:
 					pszovlist->addszoveg_kozep( &preszovegek[i].text[7],
-								preszovegek[i].x, preszovegek[i].y );
+								preszovegek[i].x, preszovegek[i].y-fel );
 				}
 				else {
 					// Nem kell kozepre tenni:
 					pszovlist->addszoveg( preszovegek[i].text,
-								preszovegek[i].x, preszovegek[i].y );
+								preszovegek[i].x, preszovegek[i].y-fel );
 				}
 			}
 
-			pszovlist->addszoveg_kozep( cim, 320, cimy );
+			pszovlist->addszoveg_kozep( cim, 320, cimy-fel );
 			for( int i = 0; i < egykepen && i < szam-felso; i++ ) {
-				pszovlist->addszoveg( rubrikak[felso+i], x0, y0+i*dy );
+				pszovlist->addszoveg( rubrikak[felso+i], x0, y0-fel+i*dy );
 			}
 			if( tabos ) {
 				for( int i = 0; i < egykepen && i < szam-felso; i++ ) {
-					pszovlist->addszoveg( rubrikak_tab[felso+i], x0_tab, y0+i*dy );
+					pszovlist->addszoveg( rubrikak_tab[felso+i], x0_tab, y0-fel+i*dy );
 				}
 			}
 		}
-		pszovlist->setsisak( x0-30, y0+(kur-felso)*dy );
+		pszovlist->setsisak( x0-30, y0-fel+(kur-felso)*dy );
 		pszovlist->kirajzol();
-		if( csakkirajzol )
+		if( csakkirajzol ) {
+			egykepen = eredetiegykepen;
 			return 0;
+		}
 	}
 }
 

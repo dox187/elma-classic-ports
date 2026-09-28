@@ -1,6 +1,7 @@
 #include    "all.h"
 
-// Menuk kepe (front buffer), mindig 640x480:
+// Menuk kepe (front buffer), Menuxsize*Menuysize (menukep.cpp, legalabb
+// 640x480):
 static pic8 *Lockbuff = NULL;
 // Jatek kepe (back buffer), merete lockbackbuffer-enkent a platformtol jon:
 static pic8 *Backbuff = NULL;
@@ -60,11 +61,11 @@ void  lockfrontbuffer_pic( void ) {
 
 	if( !Lockbuff ) {
 		Lockbuff = new pic8( 10, 10 );
-		Lockbuff->xsize = 640;
-		Lockbuff->ysize = 480;
 		Lockbuff->sormuttomb = NULL;
 	}
 
+	Lockbuff->xsize = Menuxsize;
+	Lockbuff->ysize = Menuysize;
 	Lockbuff->sormuttomb = lockfrontbuffer();
 }
 
@@ -84,9 +85,18 @@ void  ppixelfront( int x, int y, unsigned char szin ) {
 }
 
 // WINDOWSOS:
+// A menuk kepenel kisebb kep (a 640x480-as intro, vege kepek) kozepre kerul,
+// korulotte a bal felso sarka szinevel:
 void  bltfront( pic8* ppic ) {
 	lockfrontbuffer_pic();
-	blt8( Lockbuff, ppic );
+	int xsize = ppic->getxsize(), ysize = ppic->getysize();
+	if( xsize < Lockbuff->getxsize() || ysize < Lockbuff->getysize() ) {
+		Lockbuff->fillbox( ppic->gpixel( 0, 0 ) );
+		blt8( Lockbuff, ppic, (Lockbuff->getxsize()-xsize)/2,
+							  (Lockbuff->getysize()-ysize)/2 );
+	}
+	else
+		blt8( Lockbuff, ppic );
 	unlockfrontbuffer_pic();
 }
 // WINDOWSOS:
