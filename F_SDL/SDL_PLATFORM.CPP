@@ -1,6 +1,7 @@
 #include "all.h"
 #include "SDL_SETTINGS.H"
 #include <SDL.h>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <deque>
@@ -29,7 +30,6 @@ Uint32 last_flip = 0;
 #else
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
-SDL_Texture* texture = NULL;
 std::array<uint32_t, 640 * 480> rgba;
 #endif
 std::array<unsigned char, 640 * 480> pixels;
@@ -54,6 +54,160 @@ bool fullscreen() {
     return config_flag("fullscreen", false);
 #endif
 }
+
+#ifndef ELMA_SDL1
+// How the picture is scaled to the window (scale in elma.cfg). Sharp
+// enlarges it by a whole number with hard pixel edges and smooths it only the
+// rest of the way; integer keeps to whole numbers with a black border.
+enum Scale { SCALE_SHARP, SCALE_SMOOTH, SCALE_NEAREST, SCALE_INTEGER, SCALE_PIXELART, SCALE_COUNT };
+const char* const scale_keys[SCALE_COUNT] = { "sharp", "smooth", "nearest", "integer", "pixelart" };
+const char* const scale_names[SCALE_COUNT] = { "Sharp", "Smooth", "Nearest", "Integer", "Pixel Art" };
+Scale scale = SCALE_SHARP;
+
+Scale configured_scale() {
+    const char* name = config_get("scale", NULL);
+    if (name) {
+        for (int i = 0; i < SCALE_COUNT; ++i)
+            if (stricmp(name, scale_keys[i]) == 0) return Scale(i);
+        return SCALE_SHARP;
+    }
+    // Before elma.cfg, the scaling was chosen with SDL's own variable.
+    const char* quality = getenv("SDL_RENDER_SCALE_QUALITY");
+    if (!quality) return SCALE_SHARP;
+    if (!strcmp(quality, "0") || !stricmp(quality, "nearest")) return SCALE_NEAREST;
+    if (!strcmp(quality, "1") || !stricmp(quality, "linear")) return SCALE_SMOOTH;
+    if (!strcmp(quality, "2") || !stricmp(quality, "best")) return SCALE_PIXELART;
+    return SCALE_SHARP;
+}
+
+enum Filter { FILTER_NEAREST, FILTER_LINEAR, FILTER_PIXELART };
+
+// A picture of w x h pixels drawn by the game, and the place it takes in the
+// window, in drawable pixels. For sharp scaling it is first enlarged with hard
+// edges by factor into upscaled, which is then smoothed to place.
+struct Picture {
+    int w, h;
+    SDL_Texture* texture;
+    Filter filter;
+    SDL_Texture* upscaled;
+    int factor;
+    SDL_Rect place;
+};
+// The 640x480 screen of the menus, the game and the editor.
+Picture screen_picture = { 640, 480, NULL, FILTER_NEAREST, NULL, 0, { 0, 0, 640, 480 } };
+SDL_RendererInfo renderer_info;
+bool targets = false; // the renderer can draw into textures
+// The largest texture that sharp scaling draws into, in pixels. It is
+// lowered when the renderer cannot make one that large.
+const int target_pixels = 16 * 1024 * 1024;
+int max_target_pixels = target_pixels;
+
+// The filter of a texture is taken from the hint when the texture is made;
+// the override is stronger than SDL_RENDER_SCALE_QUALITY in the environment.
+// Every SDL 2 reads it (SDL_SetTextureScaleMode needs 2.0.12), and pixel art
+// is only reached through it: sdl2-compat on SDL 3.4 and later turns "2" into
+// the pixel art filter of SDL 3, while SDL 2 itself filters linearly then.
+SDL_Texture* create_texture(int w, int h, int access, Filter filter) {
+    static const char* const hints[] = { "0", "1", "2" };
+    SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, hints[filter], SDL_HINT_OVERRIDE);
+    return SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, access, w, h);
+}
+
+void destroy(SDL_Texture*& texture) {
+    if (texture) SDL_DestroyTexture(texture);
+    texture = NULL;
+}
+
+// The textures are made again by the next layout().
+void reset_textures(Picture& picture) {
+    destroy(picture.texture);
+    destroy(picture.upscaled);
+    picture.factor = 0;
+}
+
+// Fits the picture into the window with its own aspect ratio and chooses how
+// it is scaled there. The textures are only made again when that changes.
+void layout(Picture& picture) {
+    const int w = picture.w, h = picture.h;
+    int out_w = 0, out_h = 0;
+    if (SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0 || out_w <= 0 || out_h <= 0) {
+        out_w = w;
+        out_h = h;
+    }
+    SDL_Rect& place = picture.place;
+    if (out_w * h > out_h * w) {
+        place.h = out_h;
+        place.w = (out_h * w + h / 2) / h;
+    } else {
+        place.w = out_w;
+        place.h = (out_w * h + w / 2) / w;
+    }
+    const int whole = std::min(out_w / w, out_h / h);
+    Filter filter = FILTER_LINEAR;
+    int factor = 0;
+    switch (scale) {
+    case SCALE_NEAREST: filter = FILTER_NEAREST; break;
+    case SCALE_PIXELART: filter = FILTER_PIXELART; break;
+    case SCALE_INTEGER:
+        // In a window smaller than the picture, it is smoothed down instead.
+        if (whole >= 1) {
+            place.w = w * whole;
+            place.h = h * whole;
+            filter = FILTER_NEAREST;
+        }
+        break;
+    case SCALE_SHARP:
+        if (whole >= 1 && place.w == w * whole && place.h == h * whole) {
+            filter = FILTER_NEAREST;
+        } else if (targets) {
+            // The smallest whole number that covers the place, within the
+            // texture size of the renderer and max_target_pixels.
+            factor = std::max((place.w + w - 1) / w, (place.h + h - 1) / h);
+            const int max_w = renderer_info.max_texture_width, max_h = renderer_info.max_texture_height;
+            while (factor > 1 && ((max_w && w * factor > max_w) || (max_h && h * factor > max_h) ||
+                                  w * factor * h * factor > max_target_pixels))
+                --factor;
+            if (factor > 1) filter = FILTER_NEAREST;
+            else factor = 0;
+        }
+        break;
+    default: break;
+    }
+    place.x = (out_w - place.w) / 2;
+    place.y = (out_h - place.h) / 2;
+
+    if (!picture.texture || picture.filter != filter) {
+        destroy(picture.texture);
+        picture.texture = create_texture(w, h, SDL_TEXTUREACCESS_STREAMING, filter);
+        picture.filter = filter;
+    }
+    if (picture.factor != factor || (factor && !picture.upscaled)) {
+        destroy(picture.upscaled);
+        picture.factor = factor;
+        if (factor) {
+            picture.upscaled = create_texture(w * factor, h * factor, SDL_TEXTUREACCESS_TARGET, FILTER_LINEAR);
+            // A smaller one is tried then; without any, sharp scaling is
+            // smooth.
+            if (!picture.upscaled) {
+                max_target_pixels = w * factor * h * factor - 1;
+                layout(picture);
+            }
+        }
+    }
+}
+
+void draw(const Picture& picture) {
+    if (picture.upscaled) {
+        SDL_SetRenderTarget(renderer, picture.upscaled);
+        SDL_RenderCopy(renderer, picture.texture, NULL, NULL);
+        SDL_SetRenderTarget(renderer, NULL);
+        SDL_RenderCopy(renderer, picture.upscaled, NULL, &picture.place);
+    } else {
+        SDL_RenderCopy(renderer, picture.texture, NULL, &picture.place);
+    }
+}
+
+#endif
 
 // Game pad buttons, named as in SDL's game controller API. The Miyoo Mini
 // reports its buttons as keys, which are translated to these as well.
@@ -301,6 +455,8 @@ void key_event(const SDL_KeyboardEvent& event, bool down, bool repeat) {
     }
 }
 
+void present();
+
 void events() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -327,6 +483,18 @@ void events() {
             break;
         case SDL_CONTROLLERAXISMOTION:
             controller_axis(event.caxis.axis, event.caxis.value);
+            break;
+        case SDL_WINDOWEVENT:
+            if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) layout(screen_picture);
+            // The editor only draws when something changes, so the last
+            // picture is shown again.
+            if ((event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                 event.window.event == SDL_WINDOWEVENT_EXPOSED) && !locked)
+                present();
+            break;
+        case SDL_RENDER_TARGETS_RESET: case SDL_RENDER_DEVICE_RESET:
+            max_target_pixels = target_pixels;
+            reset_textures(screen_picture);
             break;
 #endif
         }
@@ -373,11 +541,19 @@ void present() {
     last_flip = SDL_GetTicks();
 }
 #else
-void present() {
+// Draws the frame without showing it.
+void draw_frame() {
     for (size_t i = 0; i < pixels.size(); ++i) rgba[i] = palette[pixels[i]];
-    SDL_UpdateTexture(texture, NULL, rgba.data(), 640 * sizeof(uint32_t));
+    Picture& picture = screen_picture;
+    layout(picture);
+    SDL_UpdateTexture(picture.texture, NULL, rgba.data(), picture.w * sizeof(uint32_t));
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
-    SDL_RenderCopy(renderer, texture, NULL, NULL);
+    draw(picture);
+}
+
+void present() {
+    draw_frame();
     SDL_RenderPresent(renderer);
 }
 #endif
@@ -415,6 +591,10 @@ void ddfinish() {
     frame = NULL; screen = NULL;
     SDL_Quit();
 }
+
+// SDL 1.2 shows the picture unscaled.
+const char* dd_scale_name() { return NULL; }
+void dd_next_scale() {}
 #else
 void ddinit() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
@@ -424,6 +604,7 @@ void ddinit() {
     // Game pads are optional; the connected ones arrive as device events.
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0)
         SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
+    scale = configured_scale();
     Uint32 flags = SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
     if (fullscreen()) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     window = SDL_CreateWindow("Elasto Mania", SDL_WINDOWPOS_CENTERED,
@@ -435,9 +616,17 @@ void ddinit() {
     }
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-                                SDL_TEXTUREACCESS_STREAMING, 640, 480);
-    SDL_RenderSetLogicalSize(renderer, 640, 480);
+    if (renderer) {
+        SDL_GetRendererInfo(renderer, &renderer_info);
+        targets = SDL_RenderTargetSupported(renderer) == SDL_TRUE;
+        max_target_pixels = target_pixels;
+        layout(screen_picture);
+    }
+    if (!screen_picture.texture) {
+        fprintf(stderr, "SDL renderer: %s\n", SDL_GetError());
+        SDL_Quit();
+        exit(1);
+    }
 #ifdef ELMA_HANDHELD
     SDL_ShowCursor(SDL_DISABLE);
 #endif
@@ -445,11 +634,21 @@ void ddinit() {
 }
 
 void ddfinish() {
-    if (texture) SDL_DestroyTexture(texture);
+    reset_textures(screen_picture);
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
-    texture = NULL; renderer = NULL; window = NULL;
+    renderer = NULL; window = NULL;
     SDL_Quit();
+}
+
+const char* dd_scale_name() { return scale_names[scale]; }
+
+void dd_next_scale() {
+    scale = Scale((scale + 1) % SCALE_COUNT);
+    config_set("scale", scale_keys[scale]);
+    config_save();
+    reset_textures(screen_picture);
+    layout(screen_picture);
 }
 #endif
 

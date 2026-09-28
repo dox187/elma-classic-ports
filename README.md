@@ -98,16 +98,33 @@ renaming. The on-disk `state.dat` structures use 32-bit fields, so existing
 `state.dat` files keep their players and best times. Sound uses the original
 mixer of the Windows version, played through SDL.
 
-### Settings
+### Picture and settings
+
+The game draws a 640x480 picture. At any window size the picture keeps its
+4:3 shape, with black bars around it.
 
 Settings that `state.dat` has no room for (it stays readable by the original
 game) are kept in `elma.cfg` in the game directory, one `key = value` per
-line, `#` starting a comment. An environment variable `ELMA_<KEY>` overrides
-the file, for example `ELMA_FULLSCREEN=1`.
+line, `#` starting a comment. The game writes the file when such a setting is
+changed in the game and keeps its other lines as they were. An environment
+variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 
 | Key          | Values |
 |--------------|--------|
+| `scale`      | `sharp` (default), `smooth`, `nearest`, `integer` or `pixelart`; also under **Options → Scaling** |
 | `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds |
+
+- `sharp` enlarges the picture by a whole number with hard pixel edges and
+  smooths only the rest of the way: crisp pixels of even width.
+- `smooth` scales bilinearly, with soft edges.
+- `nearest` keeps hard edges, but at sizes that are not whole multiples some
+  pixels are wider than others, which shimmers when the picture scrolls.
+- `integer` only uses whole multiples and leaves a black border; in a window
+  smaller than 640x480 the picture is smoothed down.
+- `pixelart` uses the pixel art filter of SDL 3, which is only reached
+  through sdl2-compat on SDL 3.4 or later (as on Fedora 44). With SDL 2
+  itself it looks like `smooth`; the software renderer of SDL 3 (through
+  sdl2-compat) shows it like `nearest`.
 
 ## Handheld Linux devices
 
@@ -174,10 +191,13 @@ deletes one. The level editor needs a mouse and a keyboard, so the handheld
 builds leave it out.
 
 The game runs full screen on handhelds, and at 640x480 fills the screen of
-most of them. On other screens it is scaled; set
-`SDL_RENDER_SCALE_QUALITY=linear` in the launcher for smooth instead of sharp
-scaling. `ELMA_FULLSCREEN=0` or `1` overrides the full screen default on any
-build.
+most of them. On other screens the PortMaster build scales it sharply; choose
+**Options → Scaling** in the game, `scale = smooth` in `elma.cfg` or
+`ELMA_SCALE=smooth` in the launcher for smooth scaling (see
+[Picture and settings](#picture-and-settings)). The older
+`SDL_RENDER_SCALE_QUALITY=linear` still works when neither of those sets the
+scaling. The Miyoo Mini build shows the picture unscaled. `ELMA_FULLSCREEN=0`
+or `1` overrides the full screen default on any build.
 
 ## Terminal version (elma-cli)
 

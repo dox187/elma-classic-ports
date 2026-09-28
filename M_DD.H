@@ -27,4 +27,9 @@ void unlockbackbuffer( void ); // Ki is teszi
 unsigned char** lockfrontbuffer( void );
 void unlockfrontbuffer( void );
 
+// Kep nagyitasanak modja az ablakban, Options menuben allithato. NULL-t ad
+// vissza, ha a platformon nem allithato (terminal, SDL 1.2):
+const char* dd_scale_name( void );
+void dd_next_scale( void ); // Kovetkezo modra valt es elmenti
+
 

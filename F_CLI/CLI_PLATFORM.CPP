@@ -229,6 +229,10 @@ ddpal::ddpal(unsigned char* colors) {
 ddpal::~ddpal() { delete static_cast<std::array<uint32_t, 256>*>(pddpal); }
 void ddpal::set() { palette = *static_cast<std::array<uint32_t, 256>*>(pddpal); }
 
+// The picture is not scaled in the terminal; it has its own graphics setting.
+const char* dd_scale_name() { return NULL; }
+void dd_next_scale() {}
+
 void mk_init() {
     keys.fill(0);
     chars.clear();

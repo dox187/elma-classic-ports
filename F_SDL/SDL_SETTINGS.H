@@ -4,7 +4,7 @@
 // Settings of the SDL port that state.dat has no room for, since it has to
 // stay readable by the original game. They are kept in elma.cfg next to it,
 // one "key = value" per line; # starts a comment. An environment variable
-// ELMA_<KEY>, for example ELMA_FULLSCREEN, overrides the value in the file.
+// ELMA_<KEY>, for example ELMA_SCALE, overrides the value in the file.
 
 // Reads elma.cfg; without the file every setting keeps its default.
 void config_load();

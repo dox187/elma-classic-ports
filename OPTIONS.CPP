@@ -127,13 +127,23 @@ void options( void ) {
 		sprintf( Rubrikak[9+vantagis], "Customize Controls ..." );
 		sprintf( Rubrikak_tab[9+vantagis], "" );
 
+		int rubrikaszam = 10;
 		#ifdef ELMA_CLI
 			strcpy( Rubrikak[10+vantagis], "Terminal Graphics:" );
 			strcpy( Rubrikak_tab[10+vantagis], cli_graphics_name() );
-			val.bead( 11+vantagis, 1 );
-		#else
-			val.bead( 10+vantagis, 1 );
+			rubrikaszam = 11;
 		#endif
+
+		// Kep nagyitasa, ha a platformon allithato:
+		int nagyitassor = -1;
+		if( dd_scale_name() ) {
+			nagyitassor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Scaling:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_scale_name() );
+			rubrikaszam++;
+		}
+
+		val.bead( rubrikaszam+vantagis, 1 );
 
 		kurrens = val.valassz();
 
@@ -202,6 +212,9 @@ void options( void ) {
 			if( kurrens == 10 )
 				cli_next_graphics();
 		#endif
+
+		if( nagyitassor >= 0 && kurrens == nagyitassor )
+			dd_next_scale();
 
 
 		if( vantagis ) // Visszaalitjuk eredeti helyzetebe
