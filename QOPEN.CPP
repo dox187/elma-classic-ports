@@ -232,6 +232,18 @@ FILE* qopen( char* nev, char* paramok ) {
 	}
 }
 
+int qvan( char* nev ) {
+	if( !Qopeninited )
+		hiba( "qvan initqopen nelkul!" );
+	if( !Egybol )
+		return 0;
+	for( int i = 0; i < Fileszam; i++ ) {
+		if( strcmpi( nev, Leirotomb[i].nev ) == 0 )
+			return 1;
+	}
+	return 0;
+}
+
 void qclose( FILE* h ) {
 	if( !Qopeninited )
 		hiba( "qclose initqopen nelkul!" );

@@ -83,7 +83,7 @@ recorder::~recorder( void ) {
 }
 
 void recorder::erase( char* palyanev_p ) {
-	if( strlen( palyanev_p ) > 12 )
+	if( strlen( palyanev_p ) > 15 )
 		hiba( "875h8uyf" );
 	strcpy( palyanev, palyanev_p );
 	betoltve = 0;

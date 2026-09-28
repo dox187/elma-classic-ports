@@ -100,6 +100,15 @@ The data of the Steam release works with the registered build as well. Copy
 `lgr/default.lgr`: the `default.lgr` of the Steam release uses a newer LGR
 format that this code cannot read.
 
+With the Steam data, Play first offers the level collections of the Steam
+release (Tutorial, Stolen Internals, Quick & Easy and Quick & Hard) next to
+the original and the external levels. As with the original levels, a
+collection shows its finished levels and the next one, and Play next moves
+on. The levels stay inside `elma.res`, so they cannot be edited. Their best
+times and the progress of the players are kept in `state-elma-ports.dat`,
+because `state.dat` has no room for them and is shared with the original and
+the Steam game.
+
 ## Handheld Linux devices
 
 The Miyoo Mini build has been tested on a Miyoo Mini with Onion OS 4.3. The

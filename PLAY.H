@@ -1,5 +1,7 @@
 
 void play( void );
+// Belso palyak listaja, kulsovel eseten elso sora az External File:
+void belsopalyak( int kulsovel );
 
 // A jelenleg beolvasott palyan jatszik vissza:
 // Csak afterplay menu replay-ebol szabad hasznalni:
@@ -18,7 +20,9 @@ void saveplay( long belyeg );
 
 void idoelintezes( long ido, char* valasz, int level, char* filenev );
 // 0-ESC, 1-this level, 2-next level, 3-skip level
-// Ha filenev nem NULL, akkor external file:
-int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev );
+// Ha filenev nem NULL, akkor external file, ilyenkor kovetkezovan eseten
+// (gyujtemenyek palyainal) is van Play next:
+int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
+			   int kovetkezovan = 0 );
 
 void kiirloading( void );

@@ -122,6 +122,7 @@ int elma_access(const char* path, int mode);
 #include	"koveto.h"
 #include	"piclist.h"
 #include	"lgrfile.h"
+#include	"gyujtem.h"
 
 #include	"load.h"
 #include	"ecset.h"
