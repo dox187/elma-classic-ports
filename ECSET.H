@@ -59,6 +59,9 @@ class ecset {
 	vekt2 origo;
 	double xsizedb, ysizedb;
 	int maxx, sorszam;
+	// origo, maxx es sorszam az eredeti 48-as Arany-nyal (kilogna-hoz):
+	vekt2 eredetiorigo;
+	int eredetimaxx, eredetisorszam;
 	mdarab* msorok[MAXECSETSOR];
 	darab*  sorok[MAXECSETSOR];
 	// Kulon van ket jatekosnak:
@@ -106,8 +109,14 @@ class ecset {
 public:
 	void getbalalso_int( vekt2 balalso, int* px, int* py );
 	// Beallitja Kisordarabszam-ot is ha define-olt (escet.cpp eleje):
+	// Az ecseten kivul eso reszre also es view ecset foldet rajzol, felso
+	// semmit:
 	void kitesz(     int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int x2, int y2 );
 	void kiteszview( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int x2, int y2 );
+	// Igaz, ha az eredeti jatek 640x480-as kepe (Arany 48) a motor kozepenek
+	// ebben a helyzeteben mar kilogott volna az (also) ecsetbol; ott az
+	// eredeti hiba-val kilepett, most a motor meghal (vizsgalat):
+	int kilogna( vekt2 motorkozep );
 
 	//void egetkeszit( void );
 };

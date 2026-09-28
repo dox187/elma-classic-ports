@@ -68,10 +68,13 @@ mdarab* ecset::newmdarab( void ) {
 	return ret;
 }
 
-static void meghelyez( double* pd ) {
-	int pixel = *pd * Arany;
-	*pd = (pixel+0.5)/Arany;
+static void meghelyez( double* pd, double arany ) {
+	int pixel = *pd * arany;
+	*pd = (pixel+0.5)/arany;
 }
+
+// Az eredeti jatek Arany-a (initadatok, 100.0*0.48):
+#define EREDETIARANY (48.0)
 
 void ecset::getorigoandsize( void ) {
 	// Megkeresi burkolokat:
@@ -116,11 +119,19 @@ void ecset::getorigoandsize( void ) {
 		// x-re jol ra lehet hagyni, nem noveli memoria foglalast:
 		origo = vekt2( minx-10000/Arany, miny-1000/Arany );
 		// Beallitjuk ugy, hogy mindig pixel felezo helyen legyen origo:
-		meghelyez( &origo.x );
-		meghelyez( &origo.y );
+		meghelyez( &origo.x, Arany );
+		meghelyez( &origo.y, Arany );
 
 		xsizedb = (maxx+10000/Arany)-origo.x;
 		ysizedb = (maxy+1000/Arany)-origo.y;
+
+		// Ugyanez az eredeti Arany-nyal, kilogna-hoz (ecset::ecset
+		// szamolja igy maxx-et es sorszam-ot):
+		eredetiorigo = vekt2( minx-10000/EREDETIARANY, miny-1000/EREDETIARANY );
+		meghelyez( &eredetiorigo.x, EREDETIARANY );
+		meghelyez( &eredetiorigo.y, EREDETIARANY );
+		eredetimaxx = ((maxx+10000/EREDETIARANY)-eredetiorigo.x)*EREDETIARANY;
+		eredetisorszam = ((maxy+1000/EREDETIARANY)-eredetiorigo.y)*EREDETIARANY;
 	}
 }
 
@@ -1201,6 +1212,7 @@ ecset::ecset( int view_p ) {
 
 	xsizedb = ysizedb = 0.0;
 	maxx = sorszam = 0;
+	eredetimaxx = eredetisorszam = 0;
 
 	if( !Ptop || !Pszak )
 		hiba( "ecset::ecset !Ptop || !Pszak!" );
@@ -1313,6 +1325,10 @@ ecset::ecset( ecset* pold ) {
 
 	maxx = pold->maxx;
 	sorszam = pold->sorszam;
+
+	eredetiorigo = pold->eredetiorigo;
+	eredetimaxx = pold->eredetimaxx;
+	eredetisorszam = pold->eredetisorszam;
 
 	// Inicializaljuk minden sor elejet uresre:
 	for( i = 0; i < sorszam; i++ ) {
@@ -1856,6 +1872,27 @@ static void egetkeszit( pic8* peg, int xhely, int xkezd, int xmodulus ) {
 	blt8( peg, Felho, x, 0 );
 } */
 
+// Az ecset szeletol ennyi pixelnyi savot nem rajzolunk ki (eredetileg a kep
+// nem is kozelithette meg jobban, kulonben hiba-val kilepett):
+#define ECSETSZEL (20)
+
+// Nemnegativ maradek, negativ ecset koordinatakra is:
+static int pozmaradek( int a, int m ) {
+	int maradek = a % m;
+	if( maradek < 0 )
+		maradek += m;
+	return maradek;
+}
+
+// Lefele kerekitett osztas (negativ ecset koordinatakra is):
+static int lefeleoszt( int a, int b ) {
+	if( a >= 0 )
+		return a/b;
+	return -((b-1-a)/b);
+}
+
+// Ha a kep az ecseten kivulre esik, kivul foldet rajzol (also es view
+// ecset), vagy semmit (felso ecset), belul ugyanazt, mint regen:
 void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int x2, int y2 ) {
 	if( x1 >= x2 || y1 >= y2 )
 		hiba( "ecset::kitesz x1 >= x2 || y1 >= y2!" );
@@ -1863,93 +1900,137 @@ void ecset::kitesz( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int
 	Kisordarabszam = 0;
 
 	int ye1 = 0;
-	getbalalso_int( balalso, &Xe1, &ye1 );
-	Xe2 = Xe1 + x2-x1;
-	Xe2plussz1 = Xe2+1;
-	int ye2 = ye1 + y2-y1;
+	int kepxe1 = 0; // Kep bal szele ecsetben
+	getbalalso_int( balalso, &kepxe1, &ye1 );
+	int kepxe2 = kepxe1 + x2-x1;
 
-	if( Xe1 < 20 || Xe2 > maxx-20 || ye1 < 20 || ye2 > sorszam-20 )
-		hiba( "ecset::kitesz Xe1 < 20 || Xe2 > maxx-20 || ye1 < 20 || ye2 > sorszam-20!" );
+	// Ecsetbol ennyi oszlop latszik (kilogo resz nelkul):
+	Xe1 = kepxe1;
+	Xe2 = kepxe2;
+	if( Xe1 < ECSETSZEL )
+		Xe1 = ECSETSZEL;
+	if( Xe2 > maxx-ECSETSZEL )
+		Xe2 = maxx-ECSETSZEL;
+	Xe2plussz1 = Xe2+1;
+	int balra = Xe1-kepxe1; // Balra kilogo oszlopok
+	int jobbra = kepxe2-Xe2; // Jobbra kilogo oszlopok
+	int sorhossz = kepxe2-kepxe1+1;
+	int kilogofold = this != Pecsetfelso;
 
 	int foldymodulus = Plgr->pfold->getysize();
 	int egymodulus = Plgr->peg->getysize();
 
-	int folddx = Xe1 % Plgr->foldxmodulus;
+	int folddx = pozmaradek( kepxe1, Plgr->foldxmodulus );
 	//int eglassitas = 100;
 	int eglassitas = 2;
-	int egdx = (Xe1/eglassitas) % Plgr->egxmodulus;
-	int egdy = ye1/eglassitas;
+	int egdx = pozmaradek( lefeleoszt( kepxe1, eglassitas ), Plgr->egxmodulus );
+	//int egdy = ye1/eglassitas;
 
 	//egetkeszit( Plgr->peg, Xe1, egdx, Plgr->egxmodulus );
 
 	int yadd = ye1-y1;
-	if( ajatekos ) {
-		for( int y = y1; y <= y2; y++ ) {
-			int ye = y + yadd;
-			Foldsor = Plgr->pfold->getptr( ye % foldymodulus ) +
-							folddx;
-			// Eg fol-le is scrollozodik:
-			//Egsor = Plgr->peg->getptr( (y-y1+egdy) % egymodulus ) + egdx;
+	for( int y = y1; y <= y2; y++ ) {
+		int ye = y + yadd;
+		unsigned char* pc = ppic->getptr(y)+x1;
+		Foldsor = Plgr->pfold->getptr( pozmaradek( ye, foldymodulus ) ) +
+						folddx;
+		// Eg fol-le is scrollozodik:
+		//Egsor = Plgr->peg->getptr( (y-y1+egdy) % egymodulus ) + egdx;
 
-			// Eg fol-le nem scrollozodik:
-			Egsor = Plgr->peg->getptr( (y-y1) % egymodulus ) + egdx;
+		// Eg fol-le nem scrollozodik:
+		Egsor = Plgr->peg->getptr( (y-y1) % egymodulus ) + egdx;
 
-			#ifdef FFECSET
-				kiegysor_FF( ppic->getptr(y)+x1, ye );
-			#else
-				kiegysor_A( ppic->getptr(y)+x1, ye );
-			#endif
+		if( ye < ECSETSZEL || ye > sorszam-ECSETSZEL || Xe1 > Xe2 ) {
+			// Egesz sor kilog:
+			if( kilogofold )
+				BYTECOPY( pc, Foldsor, sorhossz );
+			continue;
 		}
-	}
-	else {
-		for( int y = y1; y <= y2; y++ ) {
-			int ye = y + yadd;
-			Foldsor = Plgr->pfold->getptr( ye % foldymodulus ) +
-							folddx;
-			//Egsor = Plgr->peg->getptr( (ye+egdy) % egymodulus ) +
-			//				egdx;
-			Egsor = Plgr->peg->getptr( (y-y1) % egymodulus ) +
-							egdx;
-
-			#ifdef FFECSET
-				kiegysor_FF( ppic->getptr(y)+x1, ye );
-			#else
-				kiegysor_B( ppic->getptr(y)+x1, ye );
-			#endif
+		if( kilogofold ) {
+			if( balra > 0 )
+				BYTECOPY( pc, Foldsor, balra );
+			if( jobbra > 0 )
+				BYTECOPY( pc+sorhossz-jobbra, Foldsor+sorhossz-jobbra, jobbra );
 		}
+		// kiegysor Foldsor es Egsor elejet Xe1-hez veszi:
+		Foldsor += balra;
+		Egsor += balra;
+		pc += balra;
+
+		#ifdef FFECSET
+			kiegysor_FF( pc, ye );
+		#else
+			if( ajatekos )
+				kiegysor_A( pc, ye );
+			else
+				kiegysor_B( pc, ye );
+		#endif
 	}
 }
 
 // Szinte ugyanaz, mint kiteszalso:
 void ecset::kiteszview( int ajatekos, pic8* ppic, vekt2 balalso, int x1, int y1, int x2, int y2 ) {
-	Foldsor = Plgr->viewfoldsor;
-	Egsor = Plgr->viewegsor;
-
 	if( x1 >= x2 || y1 >= y2 )
 		hiba( "ecset::kitesz x1 >= x2 || y1 >= y2!" );
 
 	int ye1 = 0;
-	getbalalso_int( balalso, &Xe1, &ye1 );
-	Xe2 = Xe1 + x2-x1+1;
-	Xe2plussz1 = Xe2+1;
-	int ye2 = ye1 + y2-y1+1;
+	int kepxe1 = 0;
+	getbalalso_int( balalso, &kepxe1, &ye1 );
+	// Egy oszloppal tobbet rak ki (azt kesobb keret fedi el):
+	int kepxe2 = kepxe1 + x2-x1+1;
 
-	if( Xe1 < 20 || Xe2 > maxx-20 || ye1 < 20 || ye2 > sorszam-20 )
-		hiba( "ecset::kitesz Xe1 < 20 || Xe2 > maxx-20 || ye1 < 20 || ye2 > sorszam-20!" );
+	Xe1 = kepxe1;
+	Xe2 = kepxe2;
+	if( Xe1 < ECSETSZEL )
+		Xe1 = ECSETSZEL;
+	if( Xe2 > maxx-ECSETSZEL )
+		Xe2 = maxx-ECSETSZEL;
+	Xe2plussz1 = Xe2+1;
+	int balra = Xe1-kepxe1;
+	int jobbra = kepxe2-Xe2;
+	int sorhossz = kepxe2-kepxe1+1;
 
 	int yadd = ye1-y1;
-	if( ajatekos ) {
-		for( int y = y1; y <= y2; y++ ) {
-			int ye = y + yadd;
-			kiegysor_A( ppic->getptr(y)+x1, ye );
+	for( int y = y1; y <= y2; y++ ) {
+		int ye = y + yadd;
+		unsigned char* pc = ppic->getptr(y)+x1;
+		Foldsor = Plgr->viewfoldsor;
+		Egsor = Plgr->viewegsor;
+		if( ye < ECSETSZEL || ye > sorszam-ECSETSZEL || Xe1 > Xe2 ) {
+			BYTECOPY( pc, Foldsor, sorhossz );
+			continue;
 		}
+		if( balra > 0 )
+			BYTECOPY( pc, Foldsor, balra );
+		if( jobbra > 0 )
+			BYTECOPY( pc+sorhossz-jobbra, Foldsor+sorhossz-jobbra, jobbra );
+		Foldsor += balra;
+		Egsor += balra;
+		pc += balra;
+		if( ajatekos )
+			kiegysor_A( pc, ye );
+		else
+			kiegysor_B( pc, ye );
 	}
-	else {
-		for( int y = y1; y <= y2; y++ ) {
-			int ye = y + yadd;
-			kiegysor_B( ppic->getptr(y)+x1, ye );
-		}
-	}
+}
+
+// Az eredeti jatek (1.11a) kepe 640x480-as volt, Arany 48, es a motor kozepe
+// korul (vizszintesen a ket szelso helyzet kozott felezve) latszott a palya;
+// ha ez a kep az ecset szelehez ECSETSZEL-nel kozelebb kerult, kitesz
+// hiba-val kilepett. Ez itt ugyanazt vizsgalja meg, a kep valodi meretetol
+// es Arany-tol fuggetlenul:
+int ecset::kilogna( vekt2 r ) {
+	// Kep bal also sarka ecset pixelben (getbalalso_int egeszre csonkitja):
+	double x = (r.x - 320.0/EREDETIARANY - eredetiorigo.x)*EREDETIARANY;
+	double y = (r.y - 240.0/EREDETIARANY - eredetiorigo.y)*EREDETIARANY;
+	if( x < ECSETSZEL || y < ECSETSZEL )
+		return 1;
+	// kitesz: Xe2 = Xe1 + 639 > maxx-20 || ye2 = ye1 + 479 > sorszam-20:
+	if( floor( x ) + 639 > eredetimaxx-ECSETSZEL )
+		return 1;
+	if( floor( y ) + 479 > eredetisorszam-ECSETSZEL )
+		return 1;
+	return 0;
 }
 
 static mdarab* Glb_pfoltdarab = NULL;

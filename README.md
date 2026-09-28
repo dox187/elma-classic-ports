@@ -46,6 +46,13 @@ https://elastomania.com
   so in the editor it pointed at the wrong place whenever the window was not
   640x480. It now follows the picture at any window size and on high-DPI
   screens.
+- **Internal error outside the level:** a bike that got far out of the level
+  (falling below it, or pulled away by a gravity apple) ended the game with an
+  internal error, when the picture or the view box reached the edge of the
+  area drawn around the level or when the bike left the collision grid to the
+  right or above. The bike now dies instead, like in any crash: where the
+  full-size 640x480 view of the original would have reached that edge, and at
+  the edge of the collision grid, whatever the size of the view.
 
 ## Ports
 
