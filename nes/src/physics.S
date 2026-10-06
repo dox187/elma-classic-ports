@@ -4,6 +4,7 @@
 ; as bike_t of physics.h.
 
 #include "physconst.h"
+#include "mul.inc"
 
 #ifdef __NES__
 ; On the NES the code runs in a bank of its own at $8000, entered through
@@ -52,7 +53,11 @@
 #define S_EX 8
 #define S_EY 10
 #define S_LEN 12
-#define SEG 14
+#define S_X0 14
+#define S_X1 15
+#define S_Y0 16
+#define S_Y1 17
+#define SEG 18
 
 ; Fields of a contact: the normal, the distance and the contact point
 ; (from the origin of the lines):
@@ -114,6 +119,8 @@ wdvy: .zero 2
 wtq: .zero 2
 qx: .zero 2          ; its center from the origin of the lines
 qy: .zero 2
+qxb: .zero 1         ; SEG_BOX of qx and qy
+qyb: .zero 1
 cx: .zero 4          ; a center in u
 cy: .zero 4
 L0: .zero 4
@@ -136,6 +143,7 @@ cq: .zero 2          ; another one
 moved: .zero 1
 tz: .zero 2          ; for the macros
 pbank: .zero 1       ; the bank at $8000 before the physics
+kvec: .zero 2        ; where kmul goes on for the exponent of a constant
 
 .section .bss.physics,"aw",@nobits
 .globl Bike
@@ -308,9 +316,21 @@ Ct1: .zero CONTACT
 	sta \d+3
 .endm
 
+; A:X = sat16( a + b ) of two words (b may be indexed, ",y"):
+.macro ADDSAT a, b, b1
+	clc
+	lda \a
+	adc \b
+	sta tz
+	lda \a+1
+	adc \b1
+	sta tz+1
+	jsr satv
+.endm
+
 ; A:X = the constant k times A:X (kmul):
 .macro KM k
-	ldy #\k
+	ldy #(2*(\k))
 	jsr kmul
 .endm
 
@@ -411,23 +431,148 @@ Ct1: .zero CONTACT
 
 ; --- Helpers ------------------------------------------------------------------
 
-; A:X = A:X times constant Y of the table (KMUL of physics.c).
+; A:X = A:X times the constant Y/2 of the tables, kc_m/2^e, rounded and
+; saturated (KMUL of physics.c): x*m into m_p, then on to the shifts for e
+; at kc_ent (kent_e below).
 kmul:
 	sta m_a
 	stx m_a+1
-	lda kc_lo,y
-	sta m_b
-	lda kc_hi,y
-	sta m_b+1
-	lda kc_sh,y
-	beq 1f
-	lsr a
-	bcs 2f
-	jmp zmulq12
-2:
-	jmp zmulq14
+	lda kc_ent,y
+	sta kvec
+	lda kc_ent+1,y
+	sta kvec+1
+	lda kc_m,y
+	SETA
+	sec
+	ldy m_a
+	MUL8C m_p, m_p+1
+	ldy m_a+1
+	MUL8C m_t, m_p+2
+	clc
+	lda m_p+1
+	adc m_t
+	sta m_p+1
+	bcc 1f
+	inc m_p+2
 1:
-	jmp zmulhi
+	; Signed: less m << 16 if x < 0, the product then negative.
+	ldx #0
+	lda m_a+1
+	bpl 2f
+	sec
+	lda m_p+2
+	sbc mp_lo1
+	sta m_p+2
+	dex
+2:
+	stx m_p+3
+	lda m_p+2
+	jmp (kvec)
+
+; e < 8: << 8-e, the result in bytes 1 and 2, saturated.
+kent_5:
+	asl m_p
+	rol m_p+1
+	rol m_p+2
+	rol m_p+3
+kent_6:
+	asl m_p
+	rol m_p+1
+	rol m_p+2
+	rol m_p+3
+kent_7:
+	asl m_p
+	rol m_p+1
+	rol m_p+2
+	rol m_p+3
+	lda m_p
+	asl a
+	lda m_p+1
+	adc #0
+	sta m_p+1
+	lda m_p+2
+	adc #0
+	tax
+	lda m_p+3
+	adc #0
+	sta m_p+3
+	; Bytes 2 and 3 of the same sign:
+	txa
+	and #$80
+	beq 1f
+	lda #$ff
+1:
+	cmp m_p+3
+	bne 2f
+	lda m_p+1
+	rts
+2:
+	lda m_p+3
+	bmi 3f
+	lda #$ff
+	ldx #$7f
+	rts
+3:
+	lda #0
+	ldx #$80
+	rts
+
+; 8 <= e <= 12: >> e-8, byte 2 in A, the result in bytes 1 and 2.
+kent_12:
+	cmp #$80
+	ror a
+	ror m_p+1
+	ror m_p
+kent_11:
+	cmp #$80
+	ror a
+	ror m_p+1
+	ror m_p
+kent_10:
+	cmp #$80
+	ror a
+	ror m_p+1
+	ror m_p
+kent_9:
+	cmp #$80
+	ror a
+	ror m_p+1
+	ror m_p
+kent_8:
+	; Rounded by the bit below:
+	tax
+	lda m_p
+	asl a
+	lda m_p+1
+	adc #0
+	bcc 1f
+	inx
+1:
+	rts
+
+; e > 12: << 16-e, the result in bytes 2 and 3.
+kent_13:
+	asl m_p+1
+	rol m_p+2
+	rol m_p+3
+kent_14:
+	asl m_p+1
+	rol m_p+2
+	rol m_p+3
+kent_15:
+	asl m_p+1
+	rol m_p+2
+	rol m_p+3
+	lda m_p+1
+	asl a
+	lda m_p+2
+	adc #0
+	tay
+	lda m_p+3
+	adc #0
+	tax
+	tya
+	rts
 
 ; m_a and m_b from the zero page words at X and Y.
 ld2:
@@ -514,8 +659,66 @@ sat8_L0:
 	jmp sat_L0
 
 sat4_L0:
-	jsr sar4_L0
-	jmp sat_L0
+	; L0 >> 4 fits if bits 19..31 are all the sign:
+	lda L0+3
+	bmi 1f
+	bne satmax
+	lda L0+2
+	cmp #$08
+	bcs satmax
+	bcc 2f
+1:
+	cmp #$ff
+	bne satmin
+	lda L0+2
+	cmp #$f8
+	bcc satmin
+2:
+	.rept 4
+	lsr L0+2
+	ror L0+1
+	ror L0
+	.endr
+	lda L0
+	ldx L0+1
+	rts
+satmax:
+	lda #$ff
+	ldx #$7f
+	rts
+satmin:
+	lda #0
+	ldx #$80
+	rts
+
+; A:X = tz, saturated if V is set after it was added (its sign is then
+; the wrong one).
+satv:
+	bvs 1f
+	lda tz
+	ldx tz+1
+	rts
+1:
+	lda tz+1
+	bmi satmax
+	bpl satmin
+
+; A:X = the 24 bits of L0[0..2] saturated to 16.
+sat24:
+	lda L0+1
+	and #$80
+	beq 1f
+	lda #$ff
+1:
+	cmp L0+2
+	bne 2f
+	lda L0
+	ldx L0+1
+	rts
+2:
+	lda L0+2
+	bmi satmin
+	bpl satmax
 
 ; L0 >>= 4, arithmetic.
 sar4_L0:
@@ -614,35 +817,45 @@ copy_p1:
 	sta L1+3
 	rts
 
-; A:X = sat16( A:X << Y ), sat16( -A:X << Y ), with the 16 bits extended
-; to 32 first.
+; A:X = sat16( A:X << Y ), sat16( -A:X << Y ) for Y from 1 to 4, in 24
+; bits.
 shlsat:
-	jsr sext_L0
-shl_L0:
+	sta L0
+	stx L0+1
+	txa
+	and #$80
+	beq 1f
+	lda #$ff
+1:
+	sta L0+2
+shl24:
 	asl L0
 	rol L0+1
 	rol L0+2
-	rol L0+3
 	dey
-	bne shl_L0
-	jmp sat_L0
+	bne shl24
+	jmp sat24
 
 negshlsat:
-	jsr sext_L0
+	sta tz
+	stx tz+1
+	txa
+	and #$80
+	beq 1f
+	lda #$ff
+1:
+	sta L0+2
 	sec
 	lda #0
-	sbc L0
+	sbc tz
 	sta L0
 	lda #0
-	sbc L0+1
+	sbc tz+1
 	sta L0+1
 	lda #0
 	sbc L0+2
 	sta L0+2
-	lda #0
-	sbc L0+3
-	sta L0+3
-	jmp shl_L0
+	jmp shl24
 
 ; Sine and cosine of the body's angle into Sn, Cs and NSn (fsin of
 ; fixmath.c).
@@ -710,31 +923,70 @@ sine:
 ; Moves the circle W by its velocity and turns it (move of physics.c):
 ; alfa += omega << 7, rx += vx << 2, ry += vy << 2.
 move_w:
-	lda #0
-	sta L1
-	lda W+OMEGA
-	sta L1+1
+	; omega << 7: omega >> 1 at byte 1, its low bit as bit 7 of byte 0
 	lda W+OMEGA+1
-	sta L1+2
-	ldx #0
+	cmp #$80
+	ror a
+	sta L1+1
+	lda W+OMEGA
+	ror a
+	sta L1
+	lda #0
+	ror a
+	clc
+	adc W+ALFA
+	sta W+ALFA
+	lda W+ALFA+1
+	adc L1
+	sta W+ALFA+1
+	lda W+ALFA+2
+	adc L1+1
+	sta W+ALFA+2
+	lda L1+1
 	and #$80
 	beq 1f
-	dex
+	lda #$ff
 1:
-	stx L1+3
-	lda L1+3
-	cmp #$80
-	ror L1+3
-	ror L1+2
-	ror L1+1
-	ror L1
-	ADDL1 W+ALFA
-	LDAX W+VX
-	jsr shl2_L1
-	ADDL1 W+RX
-	LDAX W+VY
-	jsr shl2_L1
-	ADDL1 W+RY
+	adc W+ALFA+3
+	sta W+ALFA+3
+	ldx #0
+	ldy #0
+	jsr 2f
+	ldx #(VY-VX)
+	ldy #(RY-RX)
+	; fall through
+2:
+	; The coordinate (X 0 and Y 0 for x, 2 and 4 for y): += v << 2.
+	lda W+VX+1,x
+	sta L1+1
+	and #$80
+	beq 3f
+	lda #$ff
+3:
+	sta L1+2
+	lda W+VX,x
+	asl a
+	rol L1+1
+	rol L1+2
+	asl a
+	rol L1+1
+	rol L1+2
+	clc
+	adc W+RX,y
+	sta W+RX,y
+	lda W+RX+1,y
+	adc L1+1
+	sta W+RX+1,y
+	lda W+RX+2,y
+	adc L1+2
+	sta W+RX+2,y
+	lda L1+2
+	and #$80
+	beq 4f
+	lda #$ff
+4:
+	adc W+RX+3,y
+	sta W+RX+3,y
 	rts
 
 ; L1 = A:X << 2, sign extended.
@@ -752,129 +1004,113 @@ shl2_L1:
 
 ; Copies a circle of the bike (offset Y) into W and back.
 circle_in:
-	ldx #0
-1:
-	lda Bike,y
-	sta W,x
-	iny
-	inx
-	cpx #CIRCLE
-	bne 1b
+	.set i, 0
+	.rept CIRCLE
+	lda Bike+i,y
+	sta W+i
+	.set i, i+1
+	.endr
 	rts
 
 circle_out:
-	ldx #0
-1:
-	lda W,x
-	sta Bike,y
-	iny
-	inx
-	cpx #CIRCLE
-	bne 1b
+	.set i, 0
+	.rept CIRCLE
+	lda W+i
+	sta Bike+i,y
+	.set i, i+1
+	.endr
 	rts
 
 ; --- Contacts -----------------------------------------------------------------
 
-; Calls seg_query( cx, cy ), with the center then from the origin of the
-; lines in qx, qy.
+; Calls seg_query for the cell of (cx, cy), with the center then from the
+; corner of the cell in qx, qy and their SEG_BOX in qxb, qyb.
 query:
-	lda cy
-	sta __rc4
-	lda cy+1
-	sta __rc5
-	lda cy+2
-	sta __rc6
-	lda cy+3
-	sta __rc7
-	lda cx+2
-	sta __rc2
-	lda cx+3
-	sta __rc3
-	lda cx
-	ldx cx+1
+	ldx #(cy-cx)
+	jsr cell
+	sta sl
+	ldx #0
+	jsr cell
+	ldx sl
 	jsr seg_query
 	MOVW segp, Seg_cur
 	lda Seg_left
 	sta sl
-	SUBW qx, cx, Seg_ox
-	SUBW qy, cy, Seg_oy
+	lda cx
+	sta qx
+	lda cx+1
+	and #$0f
+	sta qx+1
+	lda cy
+	sta qy
+	lda cy+1
+	and #$0f
+	sta qy+1
+	; Their SEG_BOX, as 0 <= q < 4096: bits 6..13 plus 128.
+	lda qx
+	asl a
+	sta tz
+	lda qx+1
+	rol a
+	asl tz
+	rol a
+	ora #$80
+	sta qxb
+	lda qy
+	asl a
+	sta tz
+	lda qy+1
+	rol a
+	asl tz
+	rol a
+	ora #$80
+	sta qyb
 	rts
 
-; Carry set if the coordinate at X (in the zero page) is within the extent
-; of the line in field Y (dx or dy) of the line, larger by the radius t7.
-in_box:
-	lda (segp),y
+; A = seg_cell of the 32 bits at cx+X: c >> 12, 255 outside [0, 255 << 12).
+cell:
+	lda cx+3,x
+	bne 1f
+	lda cx+2,x
+	cmp #$10
+	bcs 1f
+	asl a
+	asl a
+	asl a
+	asl a
 	sta tz
+	lda cx+1,x
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	ora tz
+	rts
+1:
+	lda #$ff
+	rts
+
+nfar:
+	clc
+	rts
+near:
+	; Within its box first:
+	ldy #S_X0
+	lda qxb
+	cmp (segp),y
+	bcc nfar
 	iny
 	lda (segp),y
-	sta tz+1
-	bmi 2f
-	; extent >= 0: -r <= v <= extent + r
-	clc
-	lda 0,x
-	adc t7
-	lda 1,x
-	adc t7+1
-	bvc 1f
-	eor #$80
-1:
-	bmi 8f                   ; v + r < 0
-	clc
-	lda tz
-	adc t7
-	sta tz
-	lda tz+1
-	adc t7+1
-	sta tz+1
-	sec
-	lda tz
-	sbc 0,x
-	lda tz+1
-	sbc 1,x
-	bvc 1f
-	eor #$80
-1:
-	bmi 8f                   ; extent + r < v
-	sec
-	rts
-2:
-	; extent < 0: extent - r <= v <= r
-	sec
-	lda tz
-	sbc t7
-	sta tz
-	lda tz+1
-	sbc t7+1
-	sta tz+1
-	sec
-	lda 0,x
-	sbc tz
-	lda 1,x
-	sbc tz+1
-	bvc 1f
-	eor #$80
-1:
-	bmi 8f                   ; v < extent - r
-	sec
-	lda t7
-	sbc 0,x
-	lda t7+1
-	sbc 1,x
-	bvc 1f
-	eor #$80
-1:
-	bmi 8f                   ; v > r
-	sec
-	rts
-8:
-	clc
-	rts
-
-; The line at segp seen from (qx, qy) with a radius in t7: carry clear if
-; it is farther; else carry set with (t0, t1) the center from the start of
-; the line, t2 its distance from the line, t3 the position along it, nrm
-; the direction (ex, ey) of the line and n90 its normal (-ey, ex).
-near:
+	cmp qxb
+	bcc nfar
+	iny
+	lda qyb
+	cmp (segp),y
+	bcc nfar
+	iny
+	lda (segp),y
+	cmp qyb
+	bcc nfar
 	ldy #S_PX
 	sec
 	lda qx
@@ -893,14 +1129,6 @@ near:
 	lda qy+1
 	sbc (segp),y
 	sta t1+1
-	ldx #mos8(t0)
-	ldy #S_DX
-	jsr in_box
-	bcc 9f
-	ldx #mos8(t1)
-	ldy #S_DY
-	jsr in_box
-	bcc 9f
 	; d = (x, y).(-ey, ex), |d| < r:
 	LDS nrm, S_EX
 	LDS nrm+2, S_EY
@@ -1669,11 +1897,8 @@ wroll:
 	ZZ dot_zz, wdvx, n90
 	KM K_ROLL_T              ; dvn*ROLL_T
 	; t = sat16( tq + it ):
-	jsr sext_L0
-	LDAX wtq
-	jsr sext_L1
-	jsr add_L0
-	jsr sat_L0
+	STAX t2
+	ADDSAT t2, wtq, wtq+1
 	STAX t2
 	LDAX t0
 	KM K_ROLL_W
@@ -1970,25 +2195,10 @@ minus_sat:
 	jmp sat_L0
 
 ; A:X = sat16( ((body - W) >> 4) + (A:X << 4) ) for the coordinate at Y
-; (RX or RY):
+; (RX or RY), taken as sat16( (body - W + (A:X << 8)) >> 4 ):
 spring_len:
-	jsr sext_L1
-	asl L1
-	rol L1+1
-	rol L1+2
-	rol L1+3
-	asl L1
-	rol L1+1
-	rol L1+2
-	rol L1+3
-	asl L1
-	rol L1+1
-	rol L1+2
-	rol L1+3
-	asl L1
-	rol L1+1
-	rol L1+2
-	rol L1+3
+	sta tz
+	stx tz+1
 	sec
 	lda Bike+BODY,y
 	sbc W,y
@@ -2002,26 +2212,79 @@ spring_len:
 	lda Bike+BODY+3,y
 	sbc W+3,y
 	sta L0+3
-	jsr sar4_L0
-	jsr add_L0
-	jmp sat_L0
+	clc
+	lda L0+1
+	adc tz
+	sta L0+1
+	lda L0+2
+	adc tz+1
+	sta L0+2
+	lda tz+1
+	and #$80
+	beq 1f
+	lda #$ff
+1:
+	adc L0+3
+	sta L0+3
+	jmp sat4_L0
 
 ; A:X = sat16( (W - body) >> 8 ) for the coordinate at Y:
 lever:
 	sec
 	lda W,y
 	sbc Bike+BODY,y
-	sta L0
 	lda W+1,y
 	sbc Bike+BODY+1,y
-	sta L0+1
+	sta L0
 	lda W+2,y
 	sbc Bike+BODY+2,y
-	sta L0+2
+	sta L0+1
 	lda W+3,y
 	sbc Bike+BODY+3,y
-	sta L0+3
-	jmp sat8_L0
+	sta L0+2
+	jmp sat24
+
+; A:X = sat16( A:X + body.v - W.v ), Y 0 for x and 2 for y, in 24 bits:
+vsum:
+	clc
+	adc Bike+BODY+VX,y
+	sta L0
+	txa
+	adc Bike+BODY+VX+1,y
+	sta L0+1
+	; The sign of the 17 bits: that of the result, or the other if it
+	; overflowed.
+	bvs 1f
+	and #$80
+	beq 3f
+	lda #$ff
+	bne 3f
+1:
+	and #$80
+	beq 2f
+	lda #0
+	beq 3f
+2:
+	lda #$ff
+3:
+	sta L0+2
+	lda W+VX+1,y
+	and #$80
+	beq 4f
+	lda #$ff
+4:
+	sta tz
+	sec
+	lda L0
+	sbc W+VX,y
+	sta L0
+	lda L0+1
+	sbc W+VX+1,y
+	sta L0+1
+	lda L0+2
+	sbc tz
+	sta L0+2
+	jmp sat24
 
 ; A = |clamp( A:X >> 4, -127, 127 )|, for the squares of the high bits of k.
 high_bits:
@@ -2091,24 +2354,16 @@ forces:
 	jsr negshlsat
 	STAX t4
 	ZZ mulq14_zz, t4, Oms
-	jsr sext_L0
-	LDAX Bike+BODY+VX
-	jsr sext_L1
-	jsr add_L0
-	LDAX W+VX
-	jsr minus_sat
+	ldy #0
+	jsr vsum
 	STAX t4                  ; relx
 	LDAX t2
 	ldy #4
 	jsr shlsat
 	STAX t5
 	ZZ mulq14_zz, t5, Oms
-	jsr sext_L0
-	LDAX Bike+BODY+VY
-	jsr sext_L1
-	jsr add_L0
-	LDAX W+VY
-	jsr minus_sat
+	ldy #2
+	jsr vsum
 	STAX t5                  ; rely
 	LDAX t4
 	KM K_FRIC_W
@@ -2250,12 +2505,14 @@ brake:
 ; The velocity change of the body from those of the wheels, the axis at Y
 ; (0 x, 2 y): -1/20 of their sum.
 body_dv:
+	clc
 	lda dvx,y
-	ldx dvx+1,y
-	jsr sext_L0
-	lda dvx+2,y
-	ldx dvx+3,y
-	jsr plus_sat
+	adc dvx+2,y
+	sta tz
+	lda dvx+1,y
+	adc dvx+3,y
+	sta tz+1
+	jsr satv
 	KM K_TWENTIETH
 	NEGAX t0
 	rts
@@ -2356,10 +2613,7 @@ step:
 	jsr rider
 3:
 	; The body:
-	LDAX Bike+BODY+OMEGA
-	jsr sext_L0
-	LDAX dwb
-	jsr plus_sat
+	ADDSAT Bike+BODY+OMEGA, dwb, dwb+1
 	STAX Bike+BODY+OMEGA
 	ADDW t0, dvbx, gx
 	ADDW Bike+BODY+VX, Bike+BODY+VX, t0
@@ -2918,14 +3172,14 @@ ph_turn:
 	rts
 
 .section .rodata.physics,"a",@progbits
-#define X(n) (C_##n & 0xff),
-kc_lo: .byte KLIST 0
+; Indexed by twice the number of the constant:
+#define X(n) C_##n##_M, 0,
+kc_m: .byte KLIST 0
 #undef X
-#define X(n) ((C_##n >> 8) & 0xff),
-kc_hi: .byte KLIST 0
-#undef X
-#define X(n) ((16-C_##n##_SH)/2),
-kc_sh: .byte KLIST 0
+#define KENT2(e) kent_##e
+#define KENT(e) KENT2(e)
+#define X(n) KENT(C_##n##_E),
+kc_ent: .short KLIST 0
 #undef X
 ; sin( 2*pi*i/256 )*16384, with the first value repeated at the end:
 sintab:

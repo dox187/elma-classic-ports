@@ -17,6 +17,10 @@
 #include "refphys.h"
 
 static rseg Rsegs[4000];
+// The fixed point physics sees the level moved by OFS m in x and y, into
+// the positive coordinates of the grid like on the NES:
+#define OFS 300.0
+
 static seg_t Fsegs[8000];
 static int32_t Fx[8000], Fy[8000];
 static int Nr, Nf;
@@ -25,11 +29,13 @@ static int Nr, Nf;
 static seg_t Cell[8000];
 const seg_t* Seg_cur;
 uint8_t Seg_left;
-int32_t Seg_ox, Seg_oy;
-
-void seg_query( int32_t x, int32_t y ) {
-	int32_t ox = (x >> 12) << 12, oy = (y >> 12) << 12;
+void seg_query( uint8_t cx, uint8_t cy ) {
+	int32_t ox = (int32_t)cx << 12, oy = (int32_t)cy << 12;
 	int n = 0;
+	if( cx == 255 || cy == 255 ) {
+		Seg_left = 0;
+		return;
+	}
 	for( int i = 0; i < Nf; i++ ) {
 		const seg_t* s = &Fsegs[i];
 		int32_t x0 = Fx[i], x1 = Fx[i]+s->dx, y0 = Fy[i], y1 = Fy[i]+s->dy;
@@ -40,14 +46,13 @@ void seg_query( int32_t x, int32_t y ) {
 		Cell[n] = *s;
 		Cell[n].px = (int16_t)(Fx[i]-ox);
 		Cell[n].py = (int16_t)(Fy[i]-oy);
+		seg_box( &Cell[n] );
 		n++;
 	}
 	if( n > 255 )
 		n = 255;
 	Seg_cur = Cell;
 	Seg_left = (uint8_t)n;
-	Seg_ox = ox;
-	Seg_oy = oy;
 }
 
 const seg_t* seg_next( void ) {
@@ -85,15 +90,15 @@ static void tofix( const rbike* r ) {
 	const rcircle* rc[3] = { &r->body, &r->wheel[0], &r->wheel[1] };
 	circle_t* fc[3] = { &Bike.body, &Bike.wheel[0], &Bike.wheel[1] };
 	for( int i = 0; i < 3; i++ ) {
-		fc[i]->rx = lround( rc[i]->r.x*PH_S );
-		fc[i]->ry = lround( rc[i]->r.y*PH_S );
+		fc[i]->rx = lround( (rc[i]->r.x+OFS)*PH_S );
+		fc[i]->ry = lround( (rc[i]->r.y+OFS)*PH_S );
 		fc[i]->vx = (int16_t)lround( rc[i]->v.x*PH_VS );
 		fc[i]->vy = (int16_t)lround( rc[i]->v.y*PH_VS );
 		fc[i]->alfa = (uint32_t)(int64_t)llround( rc[i]->alfa*PH_AN );
 		fc[i]->omega = (int16_t)lround( rc[i]->omega*PH_WS );
 	}
-	Bike.rider_x = lround( r->rider_r.x*PH_S );
-	Bike.rider_y = lround( r->rider_r.y*PH_S );
+	Bike.rider_x = lround( (r->rider_r.x+OFS)*PH_S );
+	Bike.rider_y = lround( (r->rider_r.y+OFS)*PH_S );
 	Bike.rider_vx = (int16_t)lround( r->rider_v.x*PH_VS );
 	Bike.rider_vy = (int16_t)lround( r->rider_v.y*PH_VS );
 	Bike.turned = (uint8_t)r->turned;
@@ -130,13 +135,13 @@ int main( int argc, char** argv ) {
 		rseg* s = &Rsegs[i];
 		if( fscanf( f, "%lf %lf %lf %lf", &s->r.x, &s->r.y, &s->v.x, &s->v.y ) != 4 )
 			return 1;
-		addfseg( s->r.x, s->r.y, s->v.x, s->v.y );
+		addfseg( s->r.x+OFS, s->r.y+OFS, s->v.x, s->v.y );
 	}
 	fclose( f );
 
 	rbike rb;
 	ref_init( &rb, sx, sy );
-	ph_init( (int32_t)lround( sx*PH_S ), (int32_t)lround( sy*PH_S ) );
+	ph_init( (int32_t)lround( (sx+OFS)*PH_S ), (int32_t)lround( (sy+OFS)*PH_S ) );
 	double dt = PH_H, now = 0;
 	int step = 0, rdead = 0, fdead = 0;
 	int lastvolt = -1000;
@@ -192,13 +197,13 @@ int main( int argc, char** argv ) {
 			}
 			now += dt;
 			if( verbose || step % 30 == 0 ) {
-				double fx = Bike.body.rx/PH_S, fy = Bike.body.ry/PH_S;
+				double fx = Bike.body.rx/PH_S-OFS, fy = Bike.body.ry/PH_S-OFS;
 				double fa = (Bike.body.alfa & 0xffffff)/16777216.0*360.0;
 				double ra = fmod( rb.body.alfa*180/M_PI + 3600, 360 );
 				printf( "%5d ref body %8.3f %8.3f a %6.1f w %7.3f %7.3f | fix %8.3f %8.3f a %6.1f w %7.3f %7.3f | d %.3f\n",
 						step, rb.body.r.x, rb.body.r.y, ra,
 						rb.wheel[0].r.y, rb.wheel[1].r.y,
-						fx, fy, fa, Bike.wheel[0].ry/PH_S, Bike.wheel[1].ry/PH_S,
+						fx, fy, fa, Bike.wheel[0].ry/PH_S-OFS, Bike.wheel[1].ry/PH_S-OFS,
 						hypot( fx-rb.body.r.x, fy-rb.body.r.y ) );
 			}
 		}

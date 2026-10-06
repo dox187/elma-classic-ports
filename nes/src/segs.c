@@ -25,7 +25,6 @@ static uint8_t Clock;
 // The lines of the last query, read by physics.S too:
 const seg_t* Seg_cur;
 uint8_t Seg_left;
-int32_t Seg_ox, Seg_oy;
 
 void segs_start( const level_t* lev ) {
 	Segments = lev->segments;
@@ -80,6 +79,7 @@ static void load( cache_t* c, uint8_t cx, uint8_t cy ) {
 			s->ex = s16( q+10 );
 			s->ey = s16( q+12 );
 			s->len = s16( q+14 );
+			seg_box( s );
 			s++;
 			c->n++;
 		}
@@ -96,11 +96,8 @@ static void fill( cache_t* c, uint8_t cx, uint8_t cy ) {
 	set_prg_8000( bank );
 }
 
-void seg_query( int32_t x, int32_t y ) {
+void seg_query( uint8_t cx, uint8_t cy ) {
 	Seg_left = 0;
-	if( x < 0 || y < 0 )
-		return;
-	uint16_t cx = (uint16_t)(x >> 12), cy = (uint16_t)(y >> 12);
 	if( cx >= Gw || cy >= Gh )
 		return;
 	Clock++;
@@ -114,11 +111,9 @@ void seg_query( int32_t x, int32_t y ) {
 		if( (uint8_t)(Clock-c->age) > (uint8_t)(Clock-best->age) )
 			best = c;
 	}
-	fill( best, (uint8_t)cx, (uint8_t)cy );
+	fill( best, cx, cy );
 found:
 	best->age = Clock;
-	Seg_ox = (int32_t)cx << 12;
-	Seg_oy = (int32_t)cy << 12;
 	Seg_cur = best->s;
 	Seg_left = best->n;
 }

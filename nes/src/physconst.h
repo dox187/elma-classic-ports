@@ -38,79 +38,79 @@
 #define RIDER_LEFT -512
 #define RIDER_RIGHT 266
 
-// Factors c as c*2^SH:
+// Factors c as M/2^E:
 // the right wheel relative to the body, (0.85, -0.6) m, times cos and sin into u:
-#define C_K_X 3482
-#define C_K_X_SH 16
-#define C_K_Y 2458
-#define C_K_Y_SH 16
+#define C_K_X_M 218
+#define C_K_X_E 12
+#define C_K_Y_M 154
+#define C_K_Y_E 12
 // wheel spring: K = 10000 N/m, wheel 10 kg; its length in r16:
-#define C_SPRING_W 13848
-#define C_SPRING_W_SH 16
+#define C_SPRING_W_M 216
+#define C_SPRING_W_E 10
 // the same on the body of 200 kg:
-#define C_SPRING_B 692
-#define C_SPRING_B_SH 16
+#define C_SPRING_B_M 173
+#define C_SPRING_B_E 14
 // its torque on the body (moment of inertia 200*0.55^2), from the sum of lever arm (u) x length (r16) >> 10:
-#define C_SPRING_T 729
-#define C_SPRING_T_SH 16
+#define C_SPRING_T_M 182
+#define C_SPRING_T_E 14
 // damping between the wheels and the body: Sr = 1000 Ns/m:
-#define C_FRIC_W 11908
-#define C_FRIC_W_SH 14
-#define C_FRIC_B 2382
-#define C_FRIC_B_SH 16
+#define C_FRIC_W_M 186
+#define C_FRIC_W_E 8
+#define C_FRIC_B_M 149
+#define C_FRIC_B_E 12
 // its torque, from the sum of lever arm (u) x velocity >> 10:
-#define C_FRIC_T 2506
-#define C_FRIC_T_SH 16
+#define C_FRIC_T_M 157
+#define C_FRIC_T_E 12
 // the body angular velocity, for mulq14 with a lever arm << 4 (u):
-#define C_OMS 12868
-#define C_OMS_SH 12
+#define C_OMS_M 201
+#define C_OMS_E 6
 // force of a wheel torque on the axle:
-#define C_REACT 22688
-#define C_REACT_SH 16
-#define C_TWENTIETH 3277
-#define C_TWENTIETH_SH 16
+#define C_REACT_M 177
+#define C_REACT_E 9
+#define C_TWENTIETH_M 205
+#define C_TWENTIETH_E 12
 // brake: 1000 Nm/rad:
-#define C_BRAKE_A 25133
-#define C_BRAKE_A_SH 16
+#define C_BRAKE_A_M 196
+#define C_BRAKE_A_E 9
 // and 100 Nms/rad, taken 0.7 times, so that a free wheel does not swing ever wider with a step this long (the game steps 0.003 s):
-#define C_BRAKE_W 30257
-#define C_BRAKE_W_SH 14
+#define C_BRAKE_W_M 236
+#define C_BRAKE_W_E 7
 // a free wheel turning (moment of inertia 0.32):
-#define C_FREE 14105
-#define C_FREE_SH 14
+#define C_FREE_M 220
+#define C_FREE_E 8
 // a wheel rolling around a contact point (moment of inertia 0.32 + 10*0.3975^2 there):
-#define C_ROLL_W 13038
-#define C_ROLL_W_SH 14
-#define C_ROLL_T 18931
-#define C_ROLL_T_SH 12
-#define C_ROLL_DW 9502
-#define C_ROLL_DW_SH 16
-#define C_ROLL_V 20589
-#define C_ROLL_V_SH 14
-#define C_NEW 20861
-#define C_NEW_SH 16
-#define C_OLD 11832
-#define C_OLD_SH 14
+#define C_ROLL_W_M 204
+#define C_ROLL_W_E 8
+#define C_ROLL_T_M 148
+#define C_ROLL_T_E 5
+#define C_ROLL_DW_M 148
+#define C_ROLL_DW_E 10
+#define C_ROLL_V_M 161
+#define C_ROLL_V_E 7
+#define C_NEW_M 163
+#define C_NEW_E 9
+#define C_OLD_M 185
+#define C_OLD_E 8
 // the rider: rest 0.44 m above the body, moves every other step:
-#define C_RREST 28836
-#define C_RREST_SH 16
+#define C_RREST_M 225
+#define C_RREST_E 9
 // its spring, 5 times as strong:
-#define C_RIDER_S 6924
-#define C_RIDER_S_SH 16
+#define C_RIDER_S_M 216
+#define C_RIDER_S_E 11
 // its damping, 3 times as strong:
-#define C_RIDER_F 14290
-#define C_RIDER_F_SH 16
+#define C_RIDER_F_M 223
+#define C_RIDER_F_E 10
 // the normal of the seat (-0.42, 0.91):
-#define C_SEAT_NX 27847
-#define C_SEAT_NX_SH 16
-#define C_SEAT_NY 14831
-#define C_SEAT_NY_SH 14
-#define C_ELLIPSE 30247
-#define C_ELLIPSE_SH 14
+#define C_SEAT_NX_M 218
+#define C_SEAT_NX_E 9
+#define C_SEAT_NY_M 232
+#define C_SEAT_NY_E 8
+#define C_ELLIPSE_M 236
+#define C_ELLIPSE_E 7
 // the head relative to the rider, (0.09, 0.63) m:
-#define C_H_X 369
-#define C_H_X_SH 16
-#define C_H_Y 2580
-#define C_H_Y_SH 16
+#define C_H_X_M 184
+#define C_H_X_E 15
+#define C_H_Y_M 161
+#define C_H_Y_E 12
 
 #endif

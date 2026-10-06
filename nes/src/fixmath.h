@@ -39,10 +39,11 @@ static inline int16_t dotq14( int16_t ax, int16_t ay, int16_t bx, int16_t by ) {
 }
 #endif
 
-// x times a constant c given as c*2^sh (16, 14 or 12), see physconst.h:
-#define KMUL( x, c ) kmul( (x), c, c##_SH )
-static inline int16_t kmul( int16_t x, int16_t c, uint8_t sh ) {
-	return sh == 16 ? mulhi( x, c ) : sh == 14 ? mulq14( x, c ) : mulq12( x, c );
+// x times a constant c given as m/2^e (m of 8 bits, e from 1 to 16, see
+// physconst.h), rounded and saturated:
+#define KMUL( x, c ) kmul( (x), c##_M, c##_E )
+static inline int16_t kmul( int16_t x, uint8_t m, uint8_t e ) {
+	return sat16( ((int32_t)x*m + (1L << (e-1))) >> e );
 }
 
 // Square root of a 32-bit number, rounded down:

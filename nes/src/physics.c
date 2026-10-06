@@ -63,22 +63,13 @@ static void contact_point( contact_t* c, int16_t qx, int16_t qy ) {
 static uint8_t contacts( int32_t cx, int32_t cy ) {
 	uint8_t found = 0;
 	const seg_t* s;
-	seg_query( cx, cy );
-	int16_t qx = (int16_t)(cx-Seg_ox), qy = (int16_t)(cy-Seg_oy);
+	seg_query( seg_cell( cx ), seg_cell( cy ) );
+	int16_t qx = (int16_t)(cx & 4095), qy = (int16_t)(cy & 4095);
+	uint8_t bx = SEG_BOX( qx ), by = SEG_BOX( qy );
 	while( (s = seg_next()) ) {
+		if( bx < s->x0 || bx > s->x1 || by < s->y0 || by > s->y1 )
+			continue;
 		int16_t x = qx-s->px, y = qy-s->py;
-		if( s->dx >= 0 ) {
-			if( x < -R_WHEEL || x > s->dx+R_WHEEL )
-				continue;
-		}
-		else if( x < s->dx-R_WHEEL || x > R_WHEEL )
-			continue;
-		if( s->dy >= 0 ) {
-			if( y < -R_WHEEL || y > s->dy+R_WHEEL )
-				continue;
-		}
-		else if( y < s->dy-R_WHEEL || y > R_WHEEL )
-			continue;
 		int16_t d = dotq14( x, y, -s->ey, s->ex );
 		if( d >= R_WHEEL || d <= -R_WHEEL )
 			continue;
@@ -132,22 +123,14 @@ static uint8_t contacts( int32_t cx, int32_t cy ) {
 // Whether a circle at cx, cy (u) touches the ground:
 static uint8_t touches( int32_t cx, int32_t cy, int16_t rad ) {
 	const seg_t* s;
-	seg_query( cx, cy );
-	int16_t qx = (int16_t)(cx-Seg_ox), qy = (int16_t)(cy-Seg_oy);
+	seg_query( seg_cell( cx ), seg_cell( cy ) );
+	int16_t qx = (int16_t)(cx & 4095), qy = (int16_t)(cy & 4095);
+	uint8_t bx = SEG_BOX( qx ), by = SEG_BOX( qy );
 	while( (s = seg_next()) ) {
+		// The box is larger by the radius of a wheel, more than rad:
+		if( bx < s->x0 || bx > s->x1 || by < s->y0 || by > s->y1 )
+			continue;
 		int16_t x = qx-s->px, y = qy-s->py;
-		if( s->dx >= 0 ) {
-			if( x < -rad || x > s->dx+rad )
-				continue;
-		}
-		else if( x < s->dx-rad || x > rad )
-			continue;
-		if( s->dy >= 0 ) {
-			if( y < -rad || y > s->dy+rad )
-				continue;
-		}
-		else if( y < s->dy-rad || y > rad )
-			continue;
 		int16_t d = dotq14( x, y, -s->ey, s->ex );
 		if( d >= rad || d <= -rad )
 			continue;

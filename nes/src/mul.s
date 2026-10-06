@@ -15,71 +15,172 @@ mp_lo2: .short nsq_lo
 mp_hi2: .short nsq_hi
 
 .section .zp.bss,"aw",@nobits
-.globl m_a, m_b, m_c, m_d, m_p, sqr_lo, sqr_hi
+.globl m_a, m_b, m_c, m_d, m_p, m_t, mp_lo1, mp_hi1, mp_lo2, mp_hi2, sqr_lo, sqr_hi
 m_a: .zero 2
 m_b: .zero 2
 m_c: .zero 2
 m_d: .zero 2
 m_p: .zero 4
 m_q: .zero 4
-m_t: .zero 3
+m_t: .zero 4
 
-; Sets the multiplicand of the following MUL8s to A:
-.macro SETA
-	sta mp_lo1
-	sta mp_hi1
-	eor #$ff
-	sta mp_lo2
-	sta mp_hi2
-.endm
-
-; Unsigned product of the multiplicand and Y into lo, hi:
-.macro MUL8 lo, hi
-	sec
-	lda (mp_lo1),y
-	sbc (mp_lo2),y
-	sta \lo
-	lda (mp_hi1),y
-	sbc (mp_hi2),y
-	sta \hi
-.endm
+.include "mul.inc"
 
 .section .text.smul,"ax",@progbits
-; Signed product of m_a and m_b into m_p[0..3]; A, X and Y are lost.
+; Signed product of m_a and m_b into m_p[0..3]; A, X and Y are lost. With
+; one of them from -256 to 255, or b +-16384 (a direction along an axis),
+; it takes a shorter way to the same product.
 .globl smul
 smul:
-	lda m_a
+	lda m_b+1
+	beq smul_b8
+	cmp #$ff
+	beq smul_bn8
+	lda m_a+1
+	beq 1f
+	cmp #$ff
+	bne 2f
+1:
+	; a is the short one: swap them.
+	ldx m_a
+	ldy m_a+1
+	lda m_b
+	sta m_a
+	lda m_b+1
+	sta m_a+1
+	stx m_b
+	sty m_b+1
+	tya
+	beq smul_b8
+	bne smul_bn8
+2:
+	lda m_b
+	bne 3f
+	lda m_b+1
+	cmp #$40
+	bne 4f
+	jmp smul_axis
+4:
+	cmp #$c0
+	bne 3f
+	jmp smul_naxis
+3:
+	jmp smul16
+
+; m_p = a*b for 0 <= b < 256: of a taken unsigned, less b << 16 if a < 0.
+smul_b8:
+	lda m_b
 	SETA
-	ldy m_b
-	MUL8 m_p, m_p+1
-	ldy m_b+1
-	MUL8 m_t, m_p+2
+	sec
+	ldy m_a
+	MUL8C m_p, m_p+1
+	ldy m_a+1
+	MUL8C m_t, m_p+2
+	ldx #0
 	clc
 	lda m_p+1
 	adc m_t
 	sta m_p+1
 	bcc 1f
 	inc m_p+2
+	bne 1f
+	inx
 1:
+	bit m_a+1
+	bpl 2f
+	sec
+	lda m_p+2
+	sbc m_b
+	sta m_p+2
+	txa
+	sbc #0
+	tax
+2:
+	stx m_p+3
+	rts
+
+; m_p = a*b for -256 <= b < 0: a*(b+256) - (a << 8).
+smul_bn8:
+	jsr smul_b8
+	ldx #0
+	lda m_a+1
+	bpl 1f
+	dex
+1:
+	stx m_t+3
+	sec
+	lda m_p+1
+	sbc m_a
+	sta m_p+1
+	lda m_p+2
+	sbc m_a+1
+	sta m_p+2
+	lda m_p+3
+	sbc m_t+3
+	sta m_p+3
+	rts
+
+; m_p = a << 14, for b = 16384, and its negative for b = -16384.
+smul_axis:
+	lda #0
+	sta m_p
+	sta m_p+1
+	lda m_a
+	sta m_p+2
+	lda m_a+1
+	cmp #$80
+	ror a
+	ror m_p+2
+	ror m_p+1
+	cmp #$80
+	ror a
+	ror m_p+2
+	ror m_p+1
+	sta m_p+3
+	rts
+
+smul_naxis:
+	jsr smul_axis
+	sec
+	ldx #0
+	.irp i, 0, 1, 2, 3
+	txa
+	sbc m_p+\i
+	sta m_p+\i
+	.endr
+	rts
+
+smul16:
+	lda m_a
+	SETA
+	sec
+	ldy m_b
+	MUL8C m_p, m_p+1
+	ldy m_b+1
+	MUL8C m_t, m_t+1
 	lda m_a+1
 	SETA
 	ldy m_b
-	MUL8 m_t, m_t+1
+	MUL8C m_t+2, m_t+3
 	ldy m_b+1
-	MUL8 m_t+2, m_p+3
+	MUL8C m_p+2, m_p+3
+	; The middle products, at byte 1:
 	clc
 	lda m_p+1
 	adc m_t
 	sta m_p+1
 	lda m_p+2
 	adc m_t+1
-	tax
-	lda m_p+3
-	adc #0
-	sta m_p+3
+	bcc 1f
+	inc m_p+3
 	clc
-	txa
+1:
+	tax
+	lda m_p+1
 	adc m_t+2
+	sta m_p+1
+	txa
+	adc m_t+3
 	sta m_p+2
 	bcc 2f
 	inc m_p+3

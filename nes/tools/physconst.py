@@ -1,8 +1,8 @@
 """Writes src/physconst.h, the constants of the physics as integers, for
 physics.c and physics.S alike.
 
-A constant c multiplies as KMUL: c*2^SH as an int16, with SH 16 (mulhi),
-14 (mulq14) or 12 (mulq12), the largest that keeps the factor in range.
+A constant c multiplies as KMUL: c = M/2^E with M of 8 bits (128..255),
+which takes a multiplication of 16 by 8 bits.
 """
 
 import math
@@ -91,11 +91,16 @@ INTEGERS = [
 
 
 def factor(c):
-    for sh in (16, 14, 12):
-        v = int(round(c * (1 << sh)))
-        if -32768 <= v <= 32767:
-            return v, sh
-    raise ValueError(c)
+    """M and E of c = M/2^E, M of 8 bits; E from 1 to 16."""
+    e = 0
+    while c * (1 << e) < 127.5:
+        e += 1
+    while c * (1 << e) >= 255.5:
+        e -= 1
+    m = int(round(c * (1 << e)))
+    if not 1 <= e <= 16:
+        raise ValueError(c)
+    return m, e
 
 
 def main():
@@ -107,13 +112,13 @@ def main():
             lines.append('// ' + comment + ':')
         lines.append('#define %s %d' % (name, v))
     lines.append('')
-    lines.append('// Factors c as c*2^SH:')
+    lines.append('// Factors c as M/2^E:')
     for name, c, comment in FACTORS:
-        v, sh = factor(c)
+        m, e = factor(c)
         if comment:
             lines.append('// ' + comment + ':')
-        lines.append('#define C_%s %d' % (name, v))
-        lines.append('#define C_%s_SH %d' % (name, sh))
+        lines.append('#define C_%s_M %d' % (name, m))
+        lines.append('#define C_%s_E %d' % (name, e))
     lines += ['', '#endif', '']
     with open(out, 'w') as f:
         f.write('\n'.join(lines))
