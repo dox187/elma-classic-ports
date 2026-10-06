@@ -102,16 +102,30 @@ static void load_column( int16_t x ) {
 	}
 	c.off = (uint8_t)(first-row);
 	Top[s] = c;
-	for( uint8_t i = 0; i < 30; i++ ) {
-		if( first+i >= (int16_t)Rows ) {
-			Line[i] = 1;
-			continue;
+	// The rows of the window on the map, then below it:
+	int16_t left = (int16_t)Rows-first;
+	uint8_t n = left <= 0 ? 0 : left >= 30 ? 30 : (uint8_t)left;
+	uint8_t i = 0;
+	// A run at a time, the cursor at row first+i:
+	while( i < n ) {
+		uint8_t len = entry_len( *c.p )-c.off;
+		uint8_t t = entry_tile( *c.p );
+		if( len >= n-i ) {
+			// The last row in the window is in this run:
+			c.off += n-1-i;
+			Bot[s] = c;
+			while( i < n )
+				Line[i++] = t;
+			break;
 		}
-		Line[i] = entry_tile( *c.p );
-		Bot[s] = c;
-		if( i < 29 )
-			advance( &c );
+		len += i;
+		while( i < len )
+			Line[i++] = t;
+		c.p++;
+		c.off = 0;
 	}
+	while( i < 30 )
+		Line[i++] = 1;
 }
 
 // Writes Line as column x of the window into the update buffer.
