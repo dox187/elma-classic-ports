@@ -20,6 +20,9 @@ CC := $(or $(shell command -v mos-nes-mmc3-clang 2>/dev/null),$(HOME)/.local/sha
 endif
 CFLAGS = -Os -Wall -Isrc -Ibuild -mlto-zp=32 -DPHYSICS_ASM
 BUILD = build
+# The simulator of the SDK, for make check, and a compiler for the host:
+MOS_BIN = $(dir $(CC))
+HOSTCC ?= cc
 
 PHYSICS ?= src/physics.S
 SOURCES = $(addprefix src/,main.c game.c map.c menu.c fixmath.c \
@@ -44,7 +47,24 @@ $(BUILD)/phys_hz_$(PHYS_HZ):
 $(GENERATED) $(BUILD)/chrmap.h &: $(wildcard tools/*.py) $(wildcard $(ELMA_RES)) $(LEVELS)
 	$(PYTHON) tools/build.py --res $(ELMA_RES) $(if $(LEVELS),--lev $(LEVELS)) --out $(BUILD)
 
+# The physics on the first level: the fixed point physics against the
+# game's on the host, then physics.S against physics.c to the bit and its
+# cycles in the simulator.
+check: $(BUILD)/physconst.h
+	$(PYTHON) test/levtext.py $(ELMA_RES) 1 > $(BUILD)/level1.txt
+	$(PYTHON) test/simlines.py $(BUILD)/level1.txt > $(BUILD)/simlines.h
+	$(HOSTCC) -O2 -Isrc -I$(BUILD) -o $(BUILD)/physcmp test/physcmp.c test/refphys.c src/physics.c src/fixmath.c -lm
+	$(BUILD)/physcmp $(BUILD)/level1.txt "G300 N60 B60 G200" | tail -3
+	$(MOS_BIN)mos-sim-clang -O2 -Isrc -I$(BUILD) -DBike=RBike -Dph_init=rph_init \
+		-Dph_step=rph_step -Dph_turn=rph_turn -c -o $(BUILD)/physics_c.o src/physics.c
+	$(MOS_BIN)mos-sim-clang -O2 -mlto-zp=24 -Isrc -I$(BUILD) -o $(BUILD)/asmcmp test/asmcmp.c \
+		$(BUILD)/physics_c.o src/physics.S src/mul.s src/fixmath.c
+	$(MOS_BIN)mos-sim $(BUILD)/asmcmp
+	$(MOS_BIN)mos-sim-clang -O2 -Isrc -I$(BUILD) -o $(BUILD)/bench test/bench.c src/physics.S \
+		src/mul.s src/fixmath.c
+	$(MOS_BIN)mos-sim $(BUILD)/bench
+
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean
+.PHONY: all check clean
