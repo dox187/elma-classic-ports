@@ -55,7 +55,8 @@ The ROM is written to `build/elma.nes`. Options:
 | A                 | Gas                                |
 | B                 | Brake                              |
 | Left, Right       | Volt                               |
-| Select            | Turn around                        |
+| Up                | Turn around                        |
+| Select            | Pause, with the sound              |
 | Start             | Play the level again               |
 | Start twice       | Back to the list of the levels     |
 

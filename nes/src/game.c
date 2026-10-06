@@ -475,6 +475,22 @@ static uint8_t ask( const char* msg ) {
 	}
 }
 
+// Paused, silent, until Select is pressed again; Start as in the game.
+static uint8_t pause( void ) {
+	snd_stop();
+	for( ;; ) {
+		read_pad();
+		uint8_t b = start_button();
+		if( b != START_NONE || pressed( PAD_SELECT ) ) {
+			// The steps due do not count the pause:
+			Clock = FRAME_CNT1;
+			Due = 0;
+			return b;
+		}
+		draw_wait( "PAUSE" );
+	}
+}
+
 static uint8_t outside( void ) {
 	int32_t x = Bike.body.rx, y = Bike.body.ry;
 	return x < 0 || y < 0 || (x >> 14) >= (int32_t)Map_w || (y >> 14) >= (int32_t)Map_h;
@@ -485,7 +501,10 @@ enum { STEP_ON, STEP_DEAD, STEP_WON, STEP_QUIT, STEP_RESTART };
 // A step of the game: the pad, the physics, the objects and the time.
 static uint8_t step( void ) {
 	read_pad();
-	switch( start_button() ) {
+	uint8_t b = start_button();
+	if( b == START_NONE && pressed( PAD_SELECT ) )
+		b = pause();
+	switch( b ) {
 		case START_AGAIN:
 			return STEP_RESTART;
 		case START_LIST:
@@ -503,7 +522,7 @@ static uint8_t step( void ) {
 		Volt_wait = VOLT_WAIT;
 		snd_volt();
 	}
-	if( pressed( PAD_SELECT ) ) {
+	if( pressed( PAD_UP ) ) {
 		ph_turn();
 		snd_turn();
 	}
