@@ -1,4 +1,9 @@
 // Playing a level.
+//
+// The physics takes a step for each frame of the NMI's count, and a frame
+// is drawn after a step when the last one went out: when the steps take
+// longer, fewer frames are drawn, and more than a few frames behind the
+// game slows down.
 #include "game.h"
 #include <mapper.h>
 #include <neslib.h>
@@ -18,25 +23,36 @@ enum { T_FLOWER = 1, T_APPLE, T_KILLER, T_START };
 // Object radius plus wheel and head radius, squared, in u:
 #define TOUCH_WHEEL ((int32_t)M_TO_U( 0.8 )*M_TO_U( 0.8 ))
 #define TOUCH_HEAD ((int32_t)M_TO_U( 0.638 )*M_TO_U( 0.638 ))
-// Objects farther than this from the body in x or y are not checked:
-#define NEAR_U M_TO_U( 3.0 )
+// Objects farther than this from the body in x or y are not checked (map
+// pixels, 16 a meter):
+#define NEAR_PX 48
 // A volt only 0.4 s of game time after the last one (Ugroturelem):
 #define VOLT_WAIT ((uint8_t)(0.4/PH_H + 0.5))
 // Hundredths of a second in a step: 1 and this many 65536ths:
 #define TIME_FRAC ((uint16_t)((100.0/60.0988-1.0)*65536.0 + 0.5))
+// Steps at most behind the frames before the game slows down:
+#define MAX_BEHIND 3
+// The sprites of a frame at most, so that Oam_n does not wrap:
+#define OAM_FULL 252
 
 typedef struct {
 	uint8_t type, grav, active;
-	int32_t x, y;
+	int32_t x, y;        // u
+	int16_t px, py;      // map pixels, y up
 } obj_t;
 
 static obj_t Obj[MAX_OBJ] __attribute__((section( ".prg_ram.objects" )));
 static uint8_t Nobj, Apples_left, Apples;
 static uint32_t Time;
 static uint16_t Tfrac;
+// The time as shown: minutes, seconds and hundredths in decimal digits:
+static uint8_t Digits[6];
 static uint8_t Volt_wait;
 static uint8_t Pad, Pad_old;
 static uint8_t Frame;
+// The frame count of the NMI up to which the physics went, and the steps
+// since the last frame drawn:
+static uint8_t Clock, Skipped;
 level_t Level;
 
 uint32_t Game_time;
@@ -58,12 +74,14 @@ static void load_objects( void ) {
 	if( Nobj > MAX_OBJ )
 		Nobj = MAX_OBJ;
 	Apples = 0;
-	for( uint8_t i = 0; i < Nobj; i++, p += 8 ) {
-		obj_t* o = &Obj[i];
+	obj_t* o = Obj;
+	for( uint8_t i = 0; i < Nobj; i++, p += 8, o++ ) {
 		o->type = p[0];
 		o->grav = p[1];
 		o->x = u24( p+2 );
 		o->y = u24( p+5 );
+		o->px = (int16_t)(o->x >> 6);
+		o->py = (int16_t)(o->y >> 6);
 		o->active = o->type != T_START;
 		if( o->type == T_APPLE )
 			Apples++;
@@ -71,7 +89,7 @@ static void load_objects( void ) {
 	Apples_left = Apples;
 }
 
-// Map pixels of a position in F:
+// Map pixels of a position in F (y down):
 static int16_t map_x( int32_t f ) {
 	return (int16_t)(f >> 14);
 }
@@ -102,6 +120,7 @@ static void camera( uint8_t jump ) {
 static void start_level( void ) {
 	ppu_off();
 	video_game( 0 );
+	sprites_off();
 	set_chr_mode_0( CHR_BG_COMMON );
 	set_chr_mode_1( Level.chr );
 	set_chr_mode_3( CHR_SPR_MISC );
@@ -112,6 +131,8 @@ static void start_level( void ) {
 	ph_init( Level.start_x << 8, Level.start_y << 8 );
 	Time = 0;
 	Tfrac = 0;
+	for( uint8_t i = 0; i < 6; i++ )
+		Digits[i] = 0;
 	Volt_wait = 0;
 	Frame = 0;
 	camera( 1 );
@@ -122,25 +143,52 @@ static void start_level( void ) {
 	frame_begin();
 	ppu_on_all();
 	video_game( 1 );
+	Clock = FRAME_CNT1;
+}
+
+// Adds n hundredths to the time shown, up to 99:59:99.
+static void add_time( uint8_t n ) {
+	uint8_t* d = Digits;
+	d[5] += n;
+	if( d[5] < 10 )
+		return;
+	d[5] -= 10;
+	if( ++d[4] < 10 )
+		return;
+	d[4] = 0;
+	if( ++d[3] < 10 )
+		return;
+	d[3] = 0;
+	if( ++d[2] < 6 )
+		return;
+	d[2] = 0;
+	if( ++d[1] < 10 )
+		return;
+	d[1] = 0;
+	if( ++d[0] < 10 )
+		return;
+	for( uint8_t i = 0; i < 6; i++ )
+		d[i] = i == 2 ? 5 : 9;
 }
 
 // 0 if the bike died, 1 if it reached the flower, 2 if nothing happened.
 static uint8_t touch_objects( void ) {
 	int32_t bx = Bike.body.rx >> 8, by = Bike.body.ry >> 8;
-	int32_t px[3], py[3];
-	px[0] = Bike.wheel[0].rx >> 8;
-	py[0] = Bike.wheel[0].ry >> 8;
-	px[1] = Bike.wheel[1].rx >> 8;
-	py[1] = Bike.wheel[1].ry >> 8;
-	px[2] = Bike.head_x >> 8;
-	py[2] = Bike.head_y >> 8;
-	for( uint8_t i = 0; i < Nobj; i++ ) {
-		obj_t* o = &Obj[i];
+	int16_t bpx = (int16_t)(bx >> 6), bpy = (int16_t)(by >> 6);
+	obj_t* o = Obj;
+	for( uint8_t i = Nobj; i; i--, o++ ) {
 		if( !o->active )
 			continue;
-		int32_t dx = o->x-bx, dy = o->y-by;
-		if( dx > NEAR_U || dx < -NEAR_U || dy > NEAR_U || dy < -NEAR_U )
+		int16_t dx = o->px-bpx, dy = o->py-bpy;
+		if( dx > NEAR_PX || dx < -NEAR_PX || dy > NEAR_PX || dy < -NEAR_PX )
 			continue;
+		int32_t px[3], py[3];
+		px[0] = Bike.wheel[0].rx >> 8;
+		py[0] = Bike.wheel[0].ry >> 8;
+		px[1] = Bike.wheel[1].rx >> 8;
+		py[1] = Bike.wheel[1].ry >> 8;
+		px[2] = Bike.head_x >> 8;
+		py[2] = Bike.head_y >> 8;
 		for( uint8_t k = 0; k < 3; k++ ) {
 			int16_t ex = (int16_t)(o->x-px[k]), ey = (int16_t)(o->y-py[k]);
 			int32_t d2 = mul16( ex, ex )+mul16( ey, ey );
@@ -167,21 +215,61 @@ static uint8_t touch_objects( void ) {
 	return 2;
 }
 
+// --- Drawing ----------------------------------------------------------------
+
+// A sprite at a position on the screen that may be off it:
 static void sprite( int16_t x, int16_t y, uint8_t tile, uint8_t attr ) {
 	if( x < 0 || x > 255 || y < BAR_LINES-8 || y > 231 )
 		return;
-	oam_spr( (uint8_t)x, (uint8_t)(y-1), tile, attr );
+	spr( (uint8_t)x, (uint8_t)(y-1), tile, attr );
 }
 
+// Four tiles around x, y:
 static void sprite16( int16_t x, int16_t y, const uint8_t* t, uint8_t attr ) {
+	if( x >= 8 && x <= 247 && y >= BAR_LINES && y <= 231 ) {
+		uint8_t sx = (uint8_t)x-8, sy = (uint8_t)y-9;
+		spr( sx, sy, t[0], attr );
+		spr( sx+8, sy, t[1], attr );
+		spr( sx, sy+8, t[2], attr );
+		spr( sx+8, sy+8, t[3], attr );
+		return;
+	}
 	sprite( x-8, y-8, t[0], attr );
 	sprite( x, y-8, t[1], attr );
 	sprite( x-8, y, t[2], attr );
 	sprite( x, y, t[3], attr );
 }
 
+// The sprites of m (their number, then x, y and tile of each) around x, y,
+// mirrored if flip; within 32 pixels of the edges each one is checked.
 static void metasprite( int16_t x, int16_t y, const int8_t* m, uint8_t attr, uint8_t flip ) {
 	uint8_t n = (uint8_t)*m++;
+	if( x >= 32 && x < 224 && y >= BAR_LINES+32 && y < 200 ) {
+		uint8_t sy = (uint8_t)y-1;
+		uint8_t i = Oam_n;
+		if( flip ) {
+			uint8_t sx = (uint8_t)x-8;
+			for( ; n; n--, m += 3 ) {
+				OAM_BUF[i] = sy+(uint8_t)m[1];
+				OAM_BUF[i+1] = (uint8_t)m[2];
+				OAM_BUF[i+2] = attr;
+				OAM_BUF[i+3] = sx-(uint8_t)m[0];
+				i += 4;
+			}
+		}
+		else {
+			uint8_t sx = (uint8_t)x;
+			for( ; n; n--, m += 3 ) {
+				OAM_BUF[i] = sy+(uint8_t)m[1];
+				OAM_BUF[i+1] = (uint8_t)m[2];
+				OAM_BUF[i+2] = attr;
+				OAM_BUF[i+3] = sx+(uint8_t)m[0];
+				i += 4;
+			}
+		}
+		Oam_n = i;
+		return;
+	}
 	for( ; n; n--, m += 3 ) {
 		int16_t sx = flip ? x-m[0]-8 : x+m[0];
 		sprite( sx, y+m[1], (uint8_t)m[2], attr );
@@ -212,13 +300,15 @@ static void draw_wheels( void ) {
 }
 
 static void draw_objects( void ) {
-	for( uint8_t i = 0; i < Nobj; i++ ) {
-		obj_t* o = &Obj[i];
-		if( !o->active )
+	obj_t* o = Obj;
+	for( uint8_t i = Nobj; i; i--, o++ ) {
+		if( !o->active || Oam_n > OAM_FULL-16 )
 			continue;
-		int16_t x = (int16_t)(o->x >> 6)-Cam_x;
-		int16_t y = (int16_t)Map_h-(int16_t)(o->y >> 6)-Cam_y;
-		if( x < -8 || x > 264 || y < 0 || y > 248 )
+		int16_t x = o->px-Cam_x;
+		if( x < -8 || x > 264 )
+			continue;
+		int16_t y = (int16_t)Map_h-o->py-Cam_y;
+		if( y < 0 || y > 248 )
 			continue;
 		switch( o->type ) {
 			case T_APPLE:
@@ -234,24 +324,34 @@ static void draw_objects( void ) {
 	}
 }
 
+#define DIGIT( d ) (Hud_font['0'-32]+(d))
+
 static void draw_hud( const char* msg ) {
-	char s[9];
 	if( msg )
 		spr_text( 128-4*(uint8_t)__builtin_strlen( msg ), 4, msg );
 	else {
-		format_time( Time, s );
-		spr_text( 96, 4, s );
+		static const uint8_t X[6] = { 96, 104, 120, 128, 144, 152 };
+		for( uint8_t i = 0; i < 6; i++ )
+			spr( X[i], 4, DIGIT( Digits[i] ), 3 );
+		spr( 112, 4, Hud_font[':'-32], 3 );
+		spr( 136, 4, Hud_font[':'-32], 3 );
 	}
 	if( Apples_left ) {
-		oam_spr( 216, 219, Hud_font['@'-32], 2 );
-		s[0] = Apples_left >= 10 ? '0'+Apples_left/10 : ' ';
-		s[1] = '0'+Apples_left % 10;
-		s[2] = 0;
-		spr_text( 228, 220, s );
+		uint8_t tens = 0, n = Apples_left;
+		while( n >= 10 ) {
+			n -= 10;
+			tens++;
+		}
+		spr( 216, 219, Hud_font['@'-32], 2 );
+		if( tens )
+			spr( 228, 220, DIGIT( tens ), 3 );
+		spr( 236, 220, DIGIT( n ), 3 );
 	}
 }
 
+// Draws a frame of the game and hands it to the NMI.
 static void draw( const char* msg ) {
+	camera( 0 );
 	frame_begin();
 	draw_hud( msg );
 	if( Frame & 1 ) {
@@ -266,8 +366,15 @@ static void draw( const char* msg ) {
 	}
 	map_scroll();
 	scroll( (uint16_t)Cam_x & 511, (uint16_t)Cam_y % 240 );
-	frame_end();
+	frame_show();
 	Frame++;
+}
+
+// The same, waiting until it is shown.
+static void draw_wait( const char* msg ) {
+	draw( msg );
+	while( !frame_ready() )
+		;
 }
 
 static uint8_t pressed( uint8_t b ) {
@@ -289,7 +396,7 @@ static uint8_t ask( const char* msg ) {
 			return 0;
 		static const char* const lines[3] = { 0, "A:AGAIN", "B:MENU" };
 		uint8_t k = (Frame >> 6) % 3;
-		draw( k ? lines[k] : msg );
+		draw_wait( k ? lines[k] : msg );
 	}
 }
 
@@ -298,72 +405,101 @@ static uint8_t outside( void ) {
 	return x < 0 || y < 0 || (x >> 14) >= (int32_t)Map_w || (y >> 14) >= (int32_t)Map_h;
 }
 
+enum { STEP_ON, STEP_DEAD, STEP_WON, STEP_QUIT, STEP_RESTART };
+
+// A step of the game: the pad, the physics, the objects and the time.
+static uint8_t step( void ) {
+	read_pad();
+	if( pressed( PAD_START ) ) {
+		snd_engine( 0, 0 );
+		for( ;; ) {
+			read_pad();
+			if( pressed( PAD_START ) )
+				break;
+			if( pressed( PAD_SELECT ) )
+				return STEP_QUIT;
+			draw_wait( "PAUSE" );
+		}
+		Clock = FRAME_CNT1;
+	}
+	if( pressed( PAD_SELECT ) )
+		return STEP_RESTART;
+	uint8_t in = 0;
+	if( Pad & (PAD_UP | PAD_B) )
+		in |= IN_GAS;
+	if( Pad & PAD_DOWN )
+		in |= IN_BRAKE;
+	if( Volt_wait )
+		Volt_wait--;
+	else if( Pad & (PAD_LEFT | PAD_RIGHT) ) {
+		in |= (Pad & PAD_LEFT) ? IN_VOLT_LEFT : IN_VOLT_RIGHT;
+		Volt_wait = VOLT_WAIT;
+		snd_volt();
+	}
+	if( pressed( PAD_A ) ) {
+		ph_turn();
+		snd_turn();
+	}
+	uint8_t alive = ph_step( in );
+	uint8_t result = 2;
+	if( !alive || outside() )
+		result = 0;
+	else
+		result = touch_objects();
+	uint8_t n = 1;
+	uint16_t f = Tfrac;
+	Tfrac += TIME_FRAC;
+	if( Tfrac < f )
+		n = 2;
+	Time += n;
+	add_time( n );
+	snd_engine( in & IN_GAS, Bike.wheel[Bike.turned ? 0 : 1].omega );
+	if( result == 0 )
+		return STEP_DEAD;
+	if( result == 1 )
+		return STEP_WON;
+	return STEP_ON;
+}
+
 uint8_t game_play( void ) {
 	start_level();
 	Pad = Pad_old = 0xff;
 	for( ;; ) {
-		read_pad();
-		if( pressed( PAD_START ) ) {
-			snd_engine( 0, 0 );
-			for( ;; ) {
-				read_pad();
-				if( pressed( PAD_START ) )
-					break;
-				if( pressed( PAD_SELECT ) )
-					return GAME_QUIT;
-				draw( "PAUSE" );
-			}
-		}
-		if( pressed( PAD_SELECT ) ) {
-			start_level();
+		uint8_t behind = (uint8_t)(FRAME_CNT1-Clock);
+		if( !behind )
 			continue;
+		if( behind > MAX_BEHIND ) {
+			Clock = FRAME_CNT1-MAX_BEHIND;
+			behind = MAX_BEHIND;
 		}
-		uint8_t in = 0;
-		if( Pad & (PAD_UP | PAD_B) )
-			in |= IN_GAS;
-		if( Pad & PAD_DOWN )
-			in |= IN_BRAKE;
-		if( Volt_wait )
-			Volt_wait--;
-		else if( Pad & (PAD_LEFT | PAD_RIGHT) ) {
-			in |= (Pad & PAD_LEFT) ? IN_VOLT_LEFT : IN_VOLT_RIGHT;
-			Volt_wait = VOLT_WAIT;
-			snd_volt();
-		}
-		if( pressed( PAD_A ) ) {
-			ph_turn();
-			snd_turn();
-		}
-		uint8_t alive = ph_step( in );
-		uint8_t result = 2;
-		if( !alive || outside() )
-			result = 0;
-		else
-			result = touch_objects();
-		Time++;
-		uint16_t f = Tfrac;
-		Tfrac += TIME_FRAC;
-		if( Tfrac < f )
-			Time++;
-		snd_engine( in & IN_GAS, Bike.wheel[Bike.turned ? 0 : 1].omega );
-		camera( 0 );
-		if( result == 0 ) {
-			snd_engine( 0, 0 );
-			snd_death();
-			if( ask( "DEAD" ) ) {
+		Clock++;
+		switch( step() ) {
+			case STEP_QUIT:
+				return GAME_QUIT;
+			case STEP_RESTART:
 				start_level();
 				continue;
-			}
-			return GAME_QUIT;
+			case STEP_DEAD:
+				snd_engine( 0, 0 );
+				snd_death();
+				if( ask( "DEAD" ) ) {
+					start_level();
+					continue;
+				}
+				return GAME_QUIT;
+			case STEP_WON:
+				snd_engine( 0, 0 );
+				snd_win();
+				Game_time = Time;
+				for( uint8_t i = 0; i < 60; i++ )
+					draw_wait( "FINISHED" );
+				return GAME_WON;
 		}
-		if( result == 1 ) {
-			snd_engine( 0, 0 );
-			snd_win();
-			Game_time = Time;
-			for( uint8_t i = 0; i < 60; i++ )
-				draw( "FINISHED" );
-			return GAME_WON;
+		// A frame when the last one went out; while catching up with more
+		// than a step, after every other step:
+		if( frame_ready() && (behind <= 1 || ++Skipped > 1) ) {
+			draw( 0 );
+			Skipped = 0;
 		}
-		draw( 0 );
 	}
 }

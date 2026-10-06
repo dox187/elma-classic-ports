@@ -38,6 +38,7 @@ static uint8_t pressed( uint8_t b ) {
 static void screen( void ) {
 	ppu_off();
 	video_game( 0 );
+	sprites_off();
 	set_chr_mode_0( CHR_BG_MENU );
 	set_chr_mode_1( CHR_BG_MENU+2 );
 	set_chr_mode_4( CHR_SPR_HUD );
@@ -207,7 +208,7 @@ void menu_levels( void ) {
 		(void)moved;
 		frame_begin();
 		if( f & 16 || moved != level )
-			oam_spr( 4, (uint8_t)(8*(4+level % PAGE)-1), Hud_font['>'-32], 3 );
+			spr( 4, (uint8_t)(8*(4+level % PAGE)-1), Hud_font['>'-32], 3 );
 		frame_end();
 	}
 }
