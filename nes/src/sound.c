@@ -1,7 +1,15 @@
 #include "sound.h"
 #include <nes.h>
+#include "fixmath.h"
+#include "physconst.h"
 
 #define APU_REG ((volatile uint8_t*)0x4000)
+
+// The engine's periods at rest and at WHEEL_MAXW, and the fall of the
+// period for 65536ths of WHEEL_MAXW:
+#define ENGINE_LOW 930
+#define ENGINE_HIGH 250
+#define ENGINE_SLOPE ((int16_t)((ENGINE_LOW-ENGINE_HIGH)*65536L/WHEEL_MAXW))
 
 // An effect: notes of (period, frames), period 0 ends it.
 typedef struct {
@@ -68,10 +76,14 @@ void snd_engine( uint8_t gas, int16_t omega ) {
 	if( !gas && omega < 64 && Engine_hi == 0xfe ) {
 		return;
 	}
-	// The pitch rises with the wheel, as the game's engine sound:
-	int16_t period = 700-(omega >> 5);
-	if( period < 160 )
-		period = 160;
+	// The pitch rises with the wheel, as the game's engine sound: from
+	// about 120 Hz to about 450 Hz at the highest speed of the driven
+	// wheel (periods of the pulse channel, 1789773/16/(period+1) Hz).
+	int16_t period = ENGINE_LOW;
+	if( omega >= WHEEL_MAXW )
+		period = ENGINE_HIGH;
+	else
+		period -= (int16_t)(mul16( omega, ENGINE_SLOPE ) >> 16);
 	APU_REG[0x00] = gas ? 0x76 : 0x73;
 	APU_REG[0x02] = (uint8_t)period;
 	uint8_t hi = (uint8_t)(period >> 8);
