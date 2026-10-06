@@ -55,6 +55,7 @@ terminal instead of an SDL window, using SDL only for the sound.
 2. [Handheld Linux devices](#handheld-linux-devices)
 3. [Terminal version (elma-cli)](#terminal-version-elma-cli)
 4. [Native macOS port](#native-macos-port)
+5. [NES demake](#nes-demake)
 
 ## Native Linux port
 
@@ -259,3 +260,11 @@ Run the executable from the repository root so it can find the data:
 
 The current macOS backend provides native video, keyboard, mouse, timing and
 sound.
+
+## NES demake
+
+The [`nes`](nes/README.md) directory holds a demake for the Nintendo
+Entertainment System: a separate program with the internal levels of the
+game converted into NES graphics and the physics rewritten in 6502 assembly.
+It builds a cartridge ROM with the llvm-mos SDK from the `elma.res` of the
+game; see [its readme](nes/README.md).
