@@ -18,9 +18,9 @@ static inline int16_t sat16( int32_t a ) {
 int32_t mul16( int16_t a, int16_t b );
 // a*b/65536, rounded:
 int16_t mulhi( int16_t a, int16_t b );
-// a*b/16384 and a*b/4096, rounded and saturated:
+// a*b/16384 and a*b/1024, rounded and saturated:
 int16_t mulq14( int16_t a, int16_t b );
-int16_t mulq12( int16_t a, int16_t b );
+int16_t mulq10( int16_t a, int16_t b );
 // (ax*bx + ay*by)/16384, rounded and saturated:
 int16_t dotq14( int16_t ax, int16_t ay, int16_t bx, int16_t by );
 #else
@@ -31,8 +31,8 @@ static inline int16_t mulhi( int16_t a, int16_t b ) {
 static inline int16_t mulq14( int16_t a, int16_t b ) {
 	return sat16( ((int32_t)a*b + 0x2000) >> 14 );
 }
-static inline int16_t mulq12( int16_t a, int16_t b ) {
-	return sat16( ((int32_t)a*b + 0x800) >> 12 );
+static inline int16_t mulq10( int16_t a, int16_t b ) {
+	return sat16( ((int32_t)a*b + 0x200) >> 10 );
 }
 static inline int16_t dotq14( int16_t ax, int16_t ay, int16_t bx, int16_t by ) {
 	return sat16( ((int32_t)ax*bx + (int32_t)ay*by + 0x2000) >> 14 );

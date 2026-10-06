@@ -15,7 +15,7 @@ mp_lo2: .short nsq_lo
 mp_hi2: .short nsq_hi
 
 .section .zp.bss,"aw",@nobits
-.globl m_a, m_b, m_c, m_d, m_p, m_t, mp_lo1, mp_hi1, mp_lo2, mp_hi2, sqr_lo, sqr_hi
+.globl m_a, m_b, m_c, m_d, m_p, m_q, m_t, mp_lo1, mp_hi1, mp_lo2, mp_hi2, sqr_lo, sqr_hi
 m_a: .zero 2
 m_b: .zero 2
 m_c: .zero 2
@@ -290,7 +290,7 @@ phi:
 
 ; m_p >> 14 rounded and saturated, into A:X.
 .section .text.zq14,"ax",@progbits
-.globl zmulq14, zdotq14, pq14
+.globl zmulq14, zdotq14, pq14, smul
 zdotq14:
 	jsr sdot
 	jmp pq14
@@ -337,39 +337,37 @@ saturate:
 	ldx #$80
 	rts
 
-; m_p >> 12 rounded and saturated, into A:X.
-.section .text.zq12,"ax",@progbits
-.globl zmulq12, pq12
-zmulq12:
+; m_p >> 10 rounded and saturated, into A:X.
+.section .text.zq10,"ax",@progbits
+.globl zmulq10, pq10
+zmulq10:
 	jsr smul
-pq12:
+pq10:
 	clc
 	lda m_p+1
-	adc #$08
+	adc #$02
 	sta m_p+1
 	bcc 1f
 	inc m_p+2
 	bne 1f
 	inc m_p+3
 1:
-	; Bits 27..31 must all be the sign:
+	; Bits 25..31 must all be the sign:
 	lda m_p+3
-	and #$f8
+	and #$fe
 	beq 2f
-	cmp #$f8
+	cmp #$fe
 	beq 2f
 	jmp saturate
 2:
+	lsr m_p+3
+	ror m_p+2
+	ror m_p+1
+	lsr m_p+3
+	ror m_p+2
+	ror m_p+1
 	lda m_p+1
-	ldx #4
-3:
-	asl a
-	rol m_p+2
-	rol m_p+3
-	dex
-	bne 3b
-	lda m_p+2
-	ldx m_p+3
+	ldx m_p+2
 	rts
 
 ; --- The functions of fixmath.h for C ---------------------------------
@@ -412,12 +410,12 @@ mulq14:
 	ARGS2
 	jmp zmulq14
 
-; int16_t mulq12( int16_t a, int16_t b ): (a*b + 0x800) >> 12, saturated.
-.section .text.mulq12,"ax",@progbits
-.globl mulq12
-mulq12:
+; int16_t mulq10( int16_t a, int16_t b ): (a*b + 0x200) >> 10, saturated.
+.section .text.mulq10,"ax",@progbits
+.globl mulq10
+mulq10:
 	ARGS2
-	jmp zmulq12
+	jmp zmulq10
 
 ; int16_t dotq14( int16_t ax, int16_t ay, int16_t bx, int16_t by ):
 ; ax in A:X, ay in __rc2:__rc3, bx in __rc4:__rc5, by in __rc6:__rc7.

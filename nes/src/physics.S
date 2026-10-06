@@ -334,6 +334,26 @@ Ct1: .zero CONTACT
 	jsr kmul
 .endm
 
+; Multiplications of the words a and b (in the zero page or not): m_p =
+; a*b, A:X = mulq14( a, b ) and mulq10( a, b ).
+.macro MUL16 a, b
+	MOVW m_a, \a
+	MOVW m_b, \b
+	jsr smul
+.endm
+
+.macro MULQ14 a, b
+	MOVW m_a, \a
+	MOVW m_b, \b
+	jsr zmulq14
+.endm
+
+.macro MULQ10 a, b
+	MOVW m_a, \a
+	MOVW m_b, \b
+	jsr zmulq10
+.endm
+
 ; Calls fn with the zero page operands a and b in X and Y:
 .macro ZZ fn, a, b
 	ldx #mos8(\a)
@@ -427,9 +447,10 @@ Ct1: .zero CONTACT
 	sta cq+1
 .endm
 
-.section PHYS_TEXT,"ax",@progbits
-
 ; --- Helpers ------------------------------------------------------------------
+
+; Arithmetic on the zero page only, in the fixed bank where there is room.
+.section .text.physics_helpers,"ax",@progbits
 
 ; A:X = A:X times the constant Y/2 of the tables, kc_m/2^e, rounded and
 ; saturated (KMUL of physics.c): x*m into m_p, then on to the shifts for e
@@ -574,49 +595,42 @@ kent_15:
 	tya
 	rts
 
-; m_a and m_b from the zero page words at X and Y.
-ld2:
-	lda 0,x
-	sta m_a
-	lda 1,x
-	sta m_a+1
-	lda 0,y
-	sta m_b
-	lda 1,y
-	sta m_b+1
-	rts
-
-mulq14_zz:
-	jsr ld2
-	jmp zmulq14
-
-mulhi_zz:
-	jsr ld2
-	jmp zmulhi
-
-mul16_zz:
-	jsr ld2
-	jmp smul
-
-; A:X = dotq14 of the zero page vectors at X and Y.
+; A:X = dotq14 of the zero page vectors at X and Y: the first product put
+; aside in m_q, the second added to it.
 dot_zz:
+	stx tz
+	sty tz+1
 	lda 0,x
 	sta m_a
 	lda 1,x
 	sta m_a+1
-	lda 2,x
-	sta m_c
-	lda 3,x
-	sta m_c+1
 	lda 0,y
 	sta m_b
 	lda 1,y
 	sta m_b+1
+	jsr smul
+	.irp i, 0, 1, 2, 3
+	lda m_p+\i
+	sta m_q+\i
+	.endr
+	ldx tz
+	ldy tz+1
+	lda 2,x
+	sta m_a
+	lda 3,x
+	sta m_a+1
 	lda 2,y
-	sta m_d
+	sta m_b
 	lda 3,y
-	sta m_d+1
-	jmp zdotq14
+	sta m_b+1
+	jsr smul
+	clc
+	.irp i, 0, 1, 2, 3
+	lda m_p+\i
+	adc m_q+\i
+	sta m_p+\i
+	.endr
+	jmp pq14
 
 ; A:X = L0 saturated to 16 bits.
 sat_L0:
@@ -817,45 +831,7 @@ copy_p1:
 	sta L1+3
 	rts
 
-; A:X = sat16( A:X << Y ), sat16( -A:X << Y ) for Y from 1 to 4, in 24
-; bits.
-shlsat:
-	sta L0
-	stx L0+1
-	txa
-	and #$80
-	beq 1f
-	lda #$ff
-1:
-	sta L0+2
-shl24:
-	asl L0
-	rol L0+1
-	rol L0+2
-	dey
-	bne shl24
-	jmp sat24
-
-negshlsat:
-	sta tz
-	stx tz+1
-	txa
-	and #$80
-	beq 1f
-	lda #$ff
-1:
-	sta L0+2
-	sec
-	lda #0
-	sbc tz
-	sta L0
-	lda #0
-	sbc tz+1
-	sta L0+1
-	lda #0
-	sbc L0+2
-	sta L0+2
-	jmp shl24
+.section PHYS_TEXT,"ax",@progbits
 
 ; Sine and cosine of the body's angle into Sn, Cs and NSn (fsin of
 ; fixmath.c).
@@ -1209,9 +1185,9 @@ end_point:
 	sbc (segp),y
 	sta t1+1
 1:
-	ZZ mul16_zz, t0, t0
+	MUL16 t0, t0
 	jsr copy_p
-	ZZ mul16_zz, t1, t1
+	MUL16 t1, t1
 	jsr copy_p1
 	jmp add_L0
 
@@ -1300,11 +1276,11 @@ ntable:
 	lda (t2),y
 	sta t4+1                 ; r
 	; n = sat16( d*r >> 4 ), l = n.d:
-	ZZ mul16_zz, t0, t4
+	MUL16 t0, t4
 	jsr copy_p
 	jsr sat4_L0
 	STAX t2
-	ZZ mul16_zz, t1, t4
+	MUL16 t1, t4
 	jsr copy_p
 	jsr sat4_L0
 	STAX t3
@@ -1320,12 +1296,12 @@ ntable:
 contact_point:
 	LDC t0, C_NX
 	LDC t1, C_L
-	ZZ mulq14_zz, t0, t1
+	MULQ14 t0, t1
 	NEGAX t2
 	ADDW t2, t2, qx
 	STC C_TX, t2
 	LDC t0, C_NY
-	ZZ mulq14_zz, t0, t1
+	MULQ14 t0, t1
 	NEGAX t2
 	ADDW t2, t2, qy
 	STC C_TY, t2
@@ -1407,9 +1383,9 @@ cfound:
 	BLTI t0, -MERGE+1, ctwo
 	BGEI t1, MERGE, ctwo
 	BLTI t1, -MERGE+1, ctwo
-	ZZ mul16_zz, t0, t0
+	MUL16 t0, t0
 	jsr copy_p
-	ZZ mul16_zz, t1, t1
+	MUL16 t1, t1
 	jsr copy_p1
 	jsr add_L0
 	lda L0+2
@@ -1435,9 +1411,9 @@ cfound:
 	SUBW t0, t2, t0
 	SUBW t2, qy, Ct0+C_TY
 	SUBW t1, t2, t1
-	ZZ mul16_zz, t0, t0
+	MUL16 t0, t0
 	jsr copy_p
-	ZZ mul16_zz, t1, t1
+	MUL16 t1, t1
 	jsr copy_p1
 	jsr add_L0
 	SETCP Ct0
@@ -1520,10 +1496,10 @@ pushout:
 	ora t0
 	JEQ pdone
 	LDC t2, C_NX
-	ZZ mulq14_zz, t0, t2
+	MULQ14 t0, t2
 	STAX t1                  ; px
 	LDC t3, C_NY
-	ZZ mulq14_zz, t0, t3
+	MULQ14 t0, t3
 	STAX t2                  ; py
 	LDAX t1
 	ldy #mos8(W+RX)
@@ -1588,9 +1564,9 @@ supports:
 1:
 	lda moved
 	beq 2f
-	ZZ mulq14_zz, t0, nrm
+	MULQ14 t0, nrm
 	SUBAX W+VX
-	ZZ mulq14_zz, t0, nrm+2
+	MULQ14 t0, nrm+2
 	SUBAX W+VY
 2:
 	sec
@@ -1669,7 +1645,7 @@ lmul:
 	iny
 	lda (cq),y
 	sta t1+1
-	ZZ mul16_zz, t1, t0
+	MUL16 t1, t0
 	jsr copy_p
 	ldy moved
 1:
@@ -1726,9 +1702,9 @@ faster:
 	BLTI W+VX, -VEL_1MS+1, 1f
 	BGEI W+VY, VEL_1MS, 1f
 	BLTI W+VY, -VEL_1MS+1, 1f
-	ZZ mul16_zz, W+VX, W+VX
+	MUL16 W+VX, W+VX
 	jsr copy_p
-	ZZ mul16_zz, W+VY, W+VY
+	MUL16 W+VY, W+VY
 	jsr copy_p1
 	jsr add_L0
 	; > VEL_1MS^2:
@@ -1909,9 +1885,9 @@ wroll:
 	LDAX W+OMEGA
 	KM K_ROLL_V
 	STAX t0                  ; speed
-	ZZ mulq14_zz, t0, n90
+	MULQ14 t0, n90
 	STAX W+VX
-	ZZ mulq14_zz, t0, n90+2
+	MULQ14 t0, n90+2
 	STAX W+VY
 	jmp move_w
 
@@ -2000,9 +1976,9 @@ rider_limit:
 	LDAX t0
 	KM K_ELLIPSE
 	STAX t2
-	ZZ mul16_zz, t2, t2
+	MUL16 t2, t2
 	jsr copy_p
-	ZZ mul16_zz, t1, t1
+	MUL16 t1, t1
 	jsr copy_p1
 	jsr add_L0
 	; > RIDER_TOP^2:
@@ -2107,10 +2083,10 @@ rider:
 	STAX t3
 	; rel = rider_v - (body_v + (-dy, dx)*Oms):
 	NEGW t4, t3
-	ZZ mulq14_zz, t4, Oms
+	MULQ14 t4, Oms
 	ADDAX t4, Bike+BODY+VX
 	SUBW t4, Bike+RIDER_VX, t4
-	ZZ mulq14_zz, t2, Oms
+	MULQ14 t2, Oms
 	ADDAX t5, Bike+BODY+VY
 	SUBW t5, Bike+RIDER_VY, t5
 	; rider_v += dir*S - rel*F + g:
@@ -2183,17 +2159,6 @@ shl3_L1:
 	sta \d+3
 .endm
 
-; A:X = sat16( L0 + sext( A:X ) ), and the same less:
-plus_sat:
-	jsr sext_L1
-	jsr add_L0
-	jmp sat_L0
-
-minus_sat:
-	jsr sext_L1
-	jsr sub_L0
-	jmp sat_L0
-
 ; A:X = sat16( ((body - W) >> 4) + (A:X << 4) ) for the coordinate at Y
 ; (RX or RY), taken as sat16( (body - W + (A:X << 8)) >> 4 ):
 spring_len:
@@ -2244,47 +2209,70 @@ lever:
 	sta L0+2
 	jmp sat24
 
-; A:X = sat16( A:X + body.v - W.v ), Y 0 for x and 2 for y, in 24 bits:
+; A:X = sat16( body.v - W.v + A:X ) and sat16( body.v - W.v - A:X ), Y 0
+; for x and 2 for y, in 24 bits:
 vsum:
+	jsr vdiff
 	clc
-	adc Bike+BODY+VX,y
+	lda L0
+	adc tz
 	sta L0
+	lda L0+1
+	adc tz+1
+	sta L0+1
+	lda L0+2
+	adc L1
+	sta L0+2
+	jmp sat24
+
+vsub:
+	jsr vdiff
+	sec
+	lda L0
+	sbc tz
+	sta L0
+	lda L0+1
+	sbc tz+1
+	sta L0+1
+	lda L0+2
+	sbc L1
+	sta L0+2
+	jmp sat24
+
+; tz = A:X, L1 its sign as a byte, L0[0..2] = body.v - W.v.
+vdiff:
+	sta tz
+	stx tz+1
 	txa
-	adc Bike+BODY+VX+1,y
+	and #$80
+	beq 1f
+	lda #$ff
+1:
+	sta L1
+	sec
+	lda Bike+BODY+VX,y
+	sbc W+VX,y
+	sta L0
+	lda Bike+BODY+VX+1,y
+	sbc W+VX+1,y
 	sta L0+1
 	; The sign of the 17 bits: that of the result, or the other if it
 	; overflowed.
-	bvs 1f
-	and #$80
-	beq 3f
-	lda #$ff
-	bne 3f
-1:
-	and #$80
-	beq 2f
-	lda #0
-	beq 3f
-2:
-	lda #$ff
-3:
-	sta L0+2
-	lda W+VX+1,y
+	bvs 2f
 	and #$80
 	beq 4f
 	lda #$ff
+	bne 4f
+2:
+	and #$80
+	beq 3f
+	lda #0
+	beq 4f
+3:
+	lda #$ff
 4:
-	sta tz
-	sec
-	lda L0
-	sbc W+VX,y
-	sta L0
-	lda L0+1
-	sbc W+VX+1,y
-	sta L0+1
-	lda L0+2
-	sbc tz
 	sta L0+2
-	jmp sat24
+	rts
 
 ; A = |clamp( A:X >> 4, -127, 127 )|, for the squares of the high bits of k.
 high_bits:
@@ -2338,9 +2326,9 @@ forces:
 	LDAX t1
 	KM K_SPRING_W
 	STAX wdvy
-	ZZ mul16_zz, t6, t1
+	MUL16 t6, t1
 	ADDP ts
-	ZZ mul16_zz, t7, t0
+	MUL16 t7, t0
 	SUBP ts
 	; The damping:
 	ldy #RX
@@ -2349,19 +2337,11 @@ forces:
 	ldy #RY
 	jsr lever
 	STAX t3                  ; ky
-	LDAX t3
-	ldy #4
-	jsr negshlsat
-	STAX t4
-	ZZ mulq14_zz, t4, Oms
+	MULQ10 t3, Oms
 	ldy #0
-	jsr vsum
+	jsr vsub
 	STAX t4                  ; relx
-	LDAX t2
-	ldy #4
-	jsr shlsat
-	STAX t5
-	ZZ mulq14_zz, t5, Oms
+	MULQ10 t2, Oms
 	ldy #2
 	jsr vsum
 	STAX t5                  ; rely
@@ -2371,9 +2351,9 @@ forces:
 	LDAX t5
 	KM K_FRIC_W
 	ADDAX wdvy, wdvy
-	ZZ mul16_zz, t2, t5
+	MUL16 t2, t5
 	ADDP tf
-	ZZ mul16_zz, t3, t4
+	MUL16 t3, t4
 	SUBP tf
 	; The force of the wheel's torque on the axle:
 	lda wtq
@@ -2428,23 +2408,15 @@ forces:
 	sta t6+1
 5:
 	; tr = KMUL( sat16( tq*rec >> 8 ), REACT ):
-	ZZ mul16_zz, wtq, t6
+	MUL16 wtq, t6
 	jsr copy_p
 	jsr sat8_L0
 	KM K_REACT
 	STAX t6
-	LDAX t3
-	ldy #2
-	jsr shlsat
-	STAX t7
-	ZZ mulhi_zz, t7, t6
+	MULQ14 t3, t6
 	ADDAX wdvx, wdvx
-	LDAX t2
-	ldy #2
-	jsr negshlsat
-	STAX t7
-	ZZ mulhi_zz, t7, t6
-	ADDAX wdvy, wdvy
+	MULQ14 t2, t6
+	SUBAX wdvy
 	rts
 
 ; The brake torque of the wheel W, Y the offset of its dbrake, into wtq.
@@ -2995,9 +2967,9 @@ volts:
 	DIFF4 Bike+RIDER_Y, Bike+BODY+RY
 	STAX t3
 	NEGW t3, t3
-	ZZ mulq14_zz, t3, t1
+	MULQ14 t3, t1
 	ADDAX Bike+RIDER_VX, Bike+RIDER_VX
-	ZZ mulq14_zz, t2, t1
+	MULQ14 t2, t1
 	ADDAX Bike+RIDER_VY, Bike+RIDER_VY
 	rts
 

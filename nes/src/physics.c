@@ -416,8 +416,9 @@ uint8_t ph_step( uint8_t input ) {
 
 		int16_t kx = sat16( (w->rx-Bike.body.rx) >> 8 );
 		int16_t ky = sat16( (w->ry-Bike.body.ry) >> 8 );
-		int16_t relx = sat16( (int32_t)mulq14( sat16( (int32_t)-ky << 4 ), Oms )+Bike.body.vx-w->vx );
-		int16_t rely = sat16( (int32_t)mulq14( sat16( (int32_t)kx << 4 ), Oms )+Bike.body.vy-w->vy );
+		// The velocity of the body at the wheel against the wheel's:
+		int16_t relx = sat16( (int32_t)Bike.body.vx-w->vx-mulq10( ky, Oms ) );
+		int16_t rely = sat16( (int32_t)Bike.body.vy-w->vy+mulq10( kx, Oms ) );
 		dvx[k] += KMUL( relx, C_FRIC_W );
 		dvy[k] += KMUL( rely, C_FRIC_W );
 		tf += mul16( kx, rely )-mul16( ky, relx );
@@ -432,8 +433,8 @@ uint8_t ph_step( uint8_t input ) {
 			uint16_t d2 = (uint16_t)((kx8*kx8 + ky8*ky8) >> 5);
 			int16_t rec = Recip_d2[d2 > 255 ? 255 : d2];
 			int16_t tr = KMUL( sat16( mul16( tq[k], rec ) >> 8 ), C_REACT );
-			dvx[k] += mulhi( sat16( (int32_t)ky << 2 ), tr );
-			dvy[k] += mulhi( sat16( (int32_t)-kx << 2 ), tr );
+			dvx[k] += mulq14( ky, tr );
+			dvy[k] -= mulq14( kx, tr );
 		}
 	}
 	// The body gets all the forces between them, of the opposite sign, with

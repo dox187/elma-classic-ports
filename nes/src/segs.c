@@ -86,7 +86,9 @@ static void load( cache_t* c, uint8_t cx, uint8_t cy ) {
 	}
 }
 
-static void fill( cache_t* c, uint8_t cx, uint8_t cy ) {
+// Not inlined, so that seg_query does not save the registers it needs when
+// the lines are found in a cache, as they mostly are:
+__attribute__((noinline)) static void fill( cache_t* c, uint8_t cx, uint8_t cy ) {
 	c->cx = cx;
 	c->cy = cy;
 	c->n = 0;
@@ -96,24 +98,31 @@ static void fill( cache_t* c, uint8_t cx, uint8_t cy ) {
 	set_prg_8000( bank );
 }
 
+// The caches, without multiplying by their size:
+static cache_t* const Caches[CACHES] = { &Cache[0], &Cache[1], &Cache[2] };
+
 void seg_query( uint8_t cx, uint8_t cy ) {
 	Seg_left = 0;
 	if( cx >= Gw || cy >= Gh )
 		return;
-	Clock++;
-	cache_t* best = &Cache[0];
+	uint8_t clock = ++Clock;
+	cache_t* best = Caches[0];
+	uint8_t oldest = 0;
 	for( uint8_t i = 0; i < CACHES; i++ ) {
-		cache_t* c = &Cache[i];
+		cache_t* c = Caches[i];
 		if( c->cx == cx && c->cy == cy ) {
 			best = c;
 			goto found;
 		}
-		if( (uint8_t)(Clock-c->age) > (uint8_t)(Clock-best->age) )
+		uint8_t age = clock-c->age;
+		if( age > oldest ) {
+			oldest = age;
 			best = c;
+		}
 	}
 	fill( best, cx, cy );
 found:
-	best->age = Clock;
+	best->age = clock;
 	Seg_cur = best->s;
 	Seg_left = best->n;
 }
