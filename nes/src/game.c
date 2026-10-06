@@ -142,8 +142,12 @@ static void start_level( void ) {
 	// The size of the map first, which bounds the camera:
 	map_level( &Level );
 	camera( 1 );
-	vram_adr( NAMETABLE_A );
-	vram_fill( 0, 0x800 );
+	// The window of the map covers what shows; of the rest only the
+	// attributes (palette 0) matter:
+	vram_adr( NAMETABLE_A+0x3c0 );
+	vram_fill( 0, 64 );
+	vram_adr( NAMETABLE_B+0x3c0 );
+	vram_fill( 0, 64 );
 	map_start();
 	scroll( (uint16_t)Cam_x & 511, (uint16_t)Cam_y % 240 );
 	frame_begin();

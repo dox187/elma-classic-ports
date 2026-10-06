@@ -207,14 +207,20 @@ void map_level( const level_t* lev ) {
 void map_start( void ) {
 	Col0 = Cam_x >> 3;
 	Row0 = Cam_y >> 3;
+	// Column by column, down (the rows of the window wrap at 30):
+	uint8_t first = (uint8_t)((Row0+1) % 30), n1 = 30-first;
+	vram_inc( 1 );
 	for( int16_t x = Col0; x < Col0+33; x++ ) {
 		load_column( x );
-		uint16_t y = Row0+1;
-		for( uint8_t i = 0; i < 30; i++, y++ ) {
-			vram_adr( nt_addr( x, y ) );
-			vram_put( Line[i] );
+		uint16_t top = ((x & 32) ? NAMETABLE_B : NAMETABLE_A) + (x & 31);
+		vram_adr( top+first*32 );
+		vram_write( Line, n1 );
+		if( first ) {
+			vram_adr( top );
+			vram_write( Line+n1, first );
 		}
 	}
+	vram_inc( 0 );
 }
 
 void map_scroll( void ) {
