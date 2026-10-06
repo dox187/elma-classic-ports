@@ -381,9 +381,17 @@ static uint8_t pressed( uint8_t b ) {
 	return (Pad & b) && !(Pad_old & b);
 }
 
+// The first pad, read once: without samples of the DPCM channel, which may
+// spoil a read, neslib's pad_poll reading it again is not needed.
 static void read_pad( void ) {
 	Pad_old = Pad;
-	Pad = pad_poll( 0 );
+	volatile uint8_t* port = (volatile uint8_t*)0x4016;
+	*port = 1;
+	*port = 0;
+	uint8_t b = 0;
+	for( uint8_t i = 0; i < 8; i++ )
+		b = (uint8_t)(b << 1) | (*port & 1);
+	Pad = b;
 }
 
 // Waits for A (1) or B (0), showing a message.
