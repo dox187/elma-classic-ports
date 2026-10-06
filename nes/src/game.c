@@ -24,8 +24,9 @@ enum { T_FLOWER = 1, T_APPLE, T_KILLER, T_START };
 #define TOUCH_WHEEL ((int32_t)M_TO_U( 0.8 )*M_TO_U( 0.8 ))
 #define TOUCH_HEAD ((int32_t)M_TO_U( 0.638 )*M_TO_U( 0.638 ))
 // Objects farther than this from the body in x or y are not checked (map
-// pixels, 16 a meter):
+// pixels, 16 a meter), and from a wheel or the head:
 #define NEAR_PX 48
+#define TOUCH_PX 14
 // A volt only 0.4 s of game time after the last one (Ugroturelem):
 #define VOLT_WAIT ((uint8_t)(0.4/PH_H + 0.5))
 // Hundredths of a second in a step: 1 and this many 65536ths:
@@ -173,10 +174,15 @@ static void add_time( uint8_t n ) {
 		d[i] = i == 2 ? 5 : 9;
 }
 
+// The wheels and the head, in u and in map pixels, for touch_objects (not
+// on the stack, which is slow):
+static int32_t Px[3], Py[3];
+static int16_t Qx[3], Qy[3];
+
 // 0 if the bike died, 1 if it reached the flower, 2 if nothing happened.
 static uint8_t touch_objects( void ) {
-	int32_t bx = Bike.body.rx >> 8, by = Bike.body.ry >> 8;
-	int16_t bpx = (int16_t)(bx >> 6), bpy = (int16_t)(by >> 6);
+	int16_t bpx = (int16_t)(Bike.body.rx >> 14), bpy = (int16_t)(Bike.body.ry >> 14);
+	uint8_t points = 0;
 	obj_t* o = Obj;
 	for( uint8_t i = Nobj; i; i--, o++ ) {
 		if( !o->active )
@@ -184,15 +190,26 @@ static uint8_t touch_objects( void ) {
 		int16_t dx = o->px-bpx, dy = o->py-bpy;
 		if( dx > NEAR_PX || dx < -NEAR_PX || dy > NEAR_PX || dy < -NEAR_PX )
 			continue;
-		int32_t px[3], py[3];
-		px[0] = Bike.wheel[0].rx >> 8;
-		py[0] = Bike.wheel[0].ry >> 8;
-		px[1] = Bike.wheel[1].rx >> 8;
-		py[1] = Bike.wheel[1].ry >> 8;
-		px[2] = Bike.head_x >> 8;
-		py[2] = Bike.head_y >> 8;
+		if( !points ) {
+			Px[0] = Bike.wheel[0].rx >> 8;
+			Py[0] = Bike.wheel[0].ry >> 8;
+			Px[1] = Bike.wheel[1].rx >> 8;
+			Py[1] = Bike.wheel[1].ry >> 8;
+			Px[2] = Bike.head_x >> 8;
+			Py[2] = Bike.head_y >> 8;
+			for( uint8_t k = 0; k < 3; k++ ) {
+				Qx[k] = (int16_t)(Px[k] >> 6);
+				Qy[k] = (int16_t)(Py[k] >> 6);
+			}
+			points = 1;
+		}
 		for( uint8_t k = 0; k < 3; k++ ) {
-			int16_t ex = (int16_t)(o->x-px[k]), ey = (int16_t)(o->y-py[k]);
+			// Within TOUCH_PX in x and y first (0.8 m is 12.8 pixels):
+			int16_t ex = o->px-Qx[k], ey = o->py-Qy[k];
+			if( ex > TOUCH_PX || ex < -TOUCH_PX || ey > TOUCH_PX || ey < -TOUCH_PX )
+				continue;
+			ex = (int16_t)(o->x-Px[k]);
+			ey = (int16_t)(o->y-Py[k]);
 			int32_t d2 = mul16( ex, ex )+mul16( ey, ey );
 			if( d2 >= (k == 2 ? TOUCH_HEAD : TOUCH_WHEEL) )
 				continue;
