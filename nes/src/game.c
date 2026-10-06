@@ -120,8 +120,10 @@ static void camera( uint8_t jump ) {
 }
 
 static void start_level( void ) {
-	ppu_off();
+	// The split off first: its table, run at each NMI, would turn the
+	// sprites back on while the screen is written.
 	video_game( 0 );
+	ppu_off();
 	sprites_off();
 	set_chr_mode_0( CHR_BG_COMMON );
 	set_chr_mode_1( Level.chr );

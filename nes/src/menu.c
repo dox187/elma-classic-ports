@@ -37,8 +37,10 @@ static uint8_t pressed( uint8_t b ) {
 
 // Starts drawing a screen of the menus (rendering off).
 static void screen( void ) {
-	ppu_off();
+	// The split off first: its table, run at each NMI, would turn the
+	// sprites back on while the screen is written.
 	video_game( 0 );
+	ppu_off();
 	sprites_off();
 	set_chr_mode_0( CHR_BG_MENU );
 	set_chr_mode_1( CHR_BG_MENU+2 );
