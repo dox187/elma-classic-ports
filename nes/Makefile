@@ -7,9 +7,10 @@
 
 ELMA_RES ?= ../elma.res
 LEVELS ?=
-# Steps of the physics in 60 frames: 60 is a step a frame, 50 is longer
-# steps that take less time a second.
-PHYS_HZ ?= 60
+# Steps of the physics in 60 frames: 60 is a step a frame, which the NES
+# keeps up with at about 80 %, 50 is longer steps that it mostly keeps up
+# with.
+PHYS_HZ ?= 50
 PYTHON ?= python3
 # The compiler of the SDK, from LLVM_MOS, the PATH or ~/.local/share/llvm-mos:
 ifdef LLVM_MOS
