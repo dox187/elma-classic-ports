@@ -14,8 +14,8 @@ point and 6502 assembly.
   graphics of the game.
 
 The ROM is an MMC3 cartridge (mapper 4) with 512 KB PRG-ROM, 256 KB
-CHR-ROM and 8 KB of battery-backed PRG-RAM. It has been tested in
-emulators only.
+CHR-ROM and 8 KB of battery-backed PRG-RAM; the shareware version (see
+below) has 128 KB of each ROM. It has been tested in emulators only.
 
 ## Speed
 
@@ -54,7 +54,8 @@ The ROM is written to `build/elma.nes`, or to `build/elma_sw.nes` from the
 
 The `elma.res` of the shareware game, which was free to share, builds the
 shareware version of the ROM, `build/elma_sw.nes`: the first 10 levels,
-with "SHAREWARE VERSION" on the title screen. The build tells the data apart by the table of the
+with "SHAREWARE VERSION" on the title screen, on a smaller cartridge of
+128 KB PRG-ROM and 128 KB CHR-ROM. The build tells the data apart by the table of the
 files in `elma.res`, which the shareware game encrypts with another key.
 
 Only the `elma.res` of the shareware version 1.1 is supported: 995,516

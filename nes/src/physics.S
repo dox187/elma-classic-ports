@@ -10,10 +10,6 @@
 ; On the NES the code runs in a bank of its own at $8000, entered through
 ; ph_step and ph_init in the fixed bank; its tables stay in the fixed bank.
 #include "banks.h"
-#if PHYS_BANK != 59
-#error "the section of the code below names another bank than PHYS_BANK"
-#endif
-#define PHYS_TEXT .prg_rom_59.text.physics
 #else
 #define PHYS_TEXT .text.physics
 #endif

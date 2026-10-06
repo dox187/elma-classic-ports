@@ -1,5 +1,6 @@
 // Elasto Mania for the NES: an MMC3 cartridge of 512 KB PRG-ROM, 256 KB
-// CHR-ROM and 8 KB of battery backed PRG-RAM.
+// CHR-ROM and 8 KB of battery backed PRG-RAM, of 128 and 128 KB for the
+// shareware version (banks.h).
 #include <mapper.h>
 #include <neslib.h>
 #include "banks.h"
@@ -9,8 +10,9 @@
 #include "save.h"
 #include "sound.h"
 
-MAPPER_PRG_ROM_KB( 512 );
-MAPPER_CHR_ROM_KB( 256 );
+// The sizes of banks.h, expanded before the macros of the SDK quote them:
+#define CART( prg, chr ) MAPPER_PRG_ROM_KB( prg ); MAPPER_CHR_ROM_KB( chr )
+CART( PRG_ROM_KB, CHR_ROM_KB );
 MAPPER_PRG_NVRAM_KB( 8 );
 MAPPER_USE_BATTERY;
 MAPPER_USE_VERTICAL_MIRRORING;

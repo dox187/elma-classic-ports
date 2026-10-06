@@ -10,8 +10,9 @@
 #include "save.h"
 #include "sprites.h"
 #include "video.h"
+#include "banks.h"
 
-#pragma clang section text=".prg_rom_60.text" rodata=".prg_rom_60.rodata"
+MENU_SECTIONS
 
 #define PAGE 20
 
