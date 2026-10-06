@@ -20,7 +20,9 @@ S = 262144.0                  # F per m
 AN = 16777216.0 / (2 * math.pi)  # angle units per radian
 VS = S * H / 4                # velocity units per m/s (4 F per step)
 WS = AN * H / 128             # angular velocity units per rad/s
-BRAKE_DAMPING = 0.7
+# The damping of the brake, taken 0.7 times at 60 steps (see BRAKE_W), and
+# less with longer steps, the same in a step:
+BRAKE_DAMPING = 0.7 * HZ / 60
 
 # name: (value, comment)
 FACTORS = [
