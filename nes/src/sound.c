@@ -73,13 +73,25 @@ static void fx_step( void ) {
 	Fx++;
 }
 
-void snd_engine( uint8_t gas, int16_t omega ) {
+void snd_frame( void ) {
 	fx_step();
 	if( Noise_left ) {
 		Noise_left--;
 		if( !Noise_left )
 			APU_REG[0x0c] = 0x30;
 	}
+}
+
+void snd_stop( void ) {
+	APU_REG[0x00] = 0x30;
+	APU_REG[0x04] = 0x30;
+	APU_REG[0x0c] = 0x30;
+	Engine_hi = 0xff;
+	Fx = 0;
+	Noise_left = 0;
+}
+
+void snd_engine( uint8_t gas, int16_t omega ) {
 	if( !gas ) {
 		APU_REG[0x00] = 0x30;
 		Engine_hi = 0xff;

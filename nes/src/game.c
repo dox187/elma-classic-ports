@@ -120,6 +120,7 @@ static void camera( uint8_t jump ) {
 }
 
 static void start_level( void ) {
+	snd_stop();
 	// The split off first: its table, run at each NMI, would turn the
 	// sprites back on while the screen is written.
 	video_game( 0 );
@@ -409,6 +410,7 @@ static void draw_wait( const char* msg ) {
 	draw( msg );
 	while( !frame_ready() )
 		;
+	snd_frame();
 }
 
 static uint8_t pressed( uint8_t b ) {
@@ -531,10 +533,10 @@ uint8_t game_play( void ) {
 	Pad = Pad_old = 0xff;
 	Start_down = Start_armed = 0;
 	for( ;; ) {
+		// Mostly once: a frame went out.
 		for( uint8_t now = FRAME_CNT1; Clock != now; Clock++ ) {
 			Due += PH_HZ;
-			// A loop, mostly once: not a multiplication by the library.
-			asm volatile( "" );
+			snd_frame();
 		}
 		if( Due < 60 )
 			continue;
@@ -543,6 +545,7 @@ uint8_t game_play( void ) {
 		Due -= 60;
 		switch( step() ) {
 			case STEP_QUIT:
+				snd_stop();
 				return GAME_QUIT;
 			case STEP_RESTART:
 				start_level();
@@ -554,6 +557,7 @@ uint8_t game_play( void ) {
 					start_level();
 					continue;
 				}
+				snd_stop();
 				return GAME_QUIT;
 			case STEP_WON:
 				snd_engine( 0, 0 );

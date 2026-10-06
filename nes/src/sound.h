@@ -6,6 +6,10 @@
 #include <stdint.h>
 
 void snd_init( void );
+// Called every frame: the effects go on.
+void snd_frame( void );
+// Silences every sound, as the game is paused or left.
+void snd_stop( void );
 // Called every step, with the gas and the angular velocity of the driven
 // (rear) wheel: the engine sounds only with the gas, its pitch set by the
 // wheel alone.
