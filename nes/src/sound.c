@@ -5,11 +5,20 @@
 
 #define APU_REG ((volatile uint8_t*)0x4000)
 
-// The engine's periods at rest and at WHEEL_MAXW, and the fall of the
-// period for 65536ths of WHEEL_MAXW:
-#define ENGINE_LOW 930
-#define ENGINE_HIGH 250
-#define ENGINE_SLOPE ((int16_t)((ENGINE_LOW-ENGINE_HIGH)*65536L/WHEEL_MAXW))
+// The pitch of the engine rises with the driven wheel from 60 Hz at rest
+// to 360 Hz at WHEEL_MAXW, in ENGINE_STEPS steps with the period
+// interpolated between them: periods of the pulse channel,
+// 1789773/16/(period+1) Hz.
+#define ENGINE_STEPS 128
+#define ENGINE_PERIOD( i ) ((uint16_t)(1789773.0/16/(60.0+300.0*(i)/ENGINE_STEPS)-0.5))
+#define P4( i ) ENGINE_PERIOD( i ), ENGINE_PERIOD( i+1 ), ENGINE_PERIOD( i+2 ), ENGINE_PERIOD( i+3 )
+#define P16( i ) P4( i ), P4( i+4 ), P4( i+8 ), P4( i+12 )
+#define P64( i ) P16( i ), P16( i+16 ), P16( i+32 ), P16( i+48 )
+static const uint16_t Engine_period[ENGINE_STEPS+1] = {
+	P64( 0 ), P64( 64 ), ENGINE_PERIOD( ENGINE_STEPS )
+};
+// 256ths of a step for 256 units of the angular velocity:
+#define ENGINE_SCALE ((int16_t)(ENGINE_STEPS*65536L/WHEEL_MAXW))
 
 // An effect: notes of (period, frames), period 0 ends it.
 typedef struct {
@@ -71,20 +80,19 @@ void snd_engine( uint8_t gas, int16_t omega ) {
 		if( !Noise_left )
 			APU_REG[0x0c] = 0x30;
 	}
-	if( omega < 0 )
-		omega = -omega;
-	if( !gas && omega < 64 && Engine_hi == 0xfe ) {
+	if( !gas ) {
+		APU_REG[0x00] = 0x30;
+		Engine_hi = 0xff;
 		return;
 	}
-	// The pitch rises with the wheel, as the game's engine sound: from
-	// about 120 Hz to about 450 Hz at the highest speed of the driven
-	// wheel (periods of the pulse channel, 1789773/16/(period+1) Hz).
-	int16_t period = ENGINE_LOW;
-	if( omega >= WHEEL_MAXW )
-		period = ENGINE_HIGH;
-	else
-		period -= (int16_t)(mul16( omega, ENGINE_SLOPE ) >> 16);
-	APU_REG[0x00] = gas ? 0x76 : 0x73;
+	uint16_t w = omega < 0 ? -(uint16_t)omega : (uint16_t)omega;
+	uint16_t period = Engine_period[ENGINE_STEPS];
+	if( w < WHEEL_MAXW ) {
+		uint16_t x = (uint16_t)(mul16( (int16_t)w, ENGINE_SCALE ) >> 8);
+		const uint16_t* p = &Engine_period[x >> 8];
+		period = p[0]-(uint16_t)(mul16( (int16_t)(p[0]-p[1]), x & 0xff ) >> 8);
+	}
+	APU_REG[0x00] = 0x76;
 	APU_REG[0x02] = (uint8_t)period;
 	uint8_t hi = (uint8_t)(period >> 8);
 	if( hi != Engine_hi ) {
