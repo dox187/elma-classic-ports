@@ -459,13 +459,16 @@ static uint8_t start_button( void ) {
 	return START_AGAIN;
 }
 
-// Waits for Start after the bike died, showing a message.
+// Waits after the bike died, showing a message: Start as in the game, or
+// A or B to play the level again.
 static uint8_t ask( const char* msg ) {
 	for( ;; ) {
 		read_pad();
 		uint8_t b = start_button();
 		if( b != START_NONE )
 			return b;
+		if( pressed( PAD_A ) || pressed( PAD_B ) )
+			return START_AGAIN;
 		draw_wait( msg );
 	}
 }
