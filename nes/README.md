@@ -52,12 +52,15 @@ The ROM is written to `build/elma.nes`. Options:
 
 | Button            | In the game                        |
 |-------------------|------------------------------------|
-| Up or B           | Gas                                |
-| Down              | Brake                              |
+| A                 | Gas                                |
+| B                 | Brake                              |
 | Left, Right       | Volt                               |
-| A                 | Turn around                        |
-| Start             | Pause; in the pause, Select quits  |
-| Select            | Restart the level                  |
+| Select            | Turn around                        |
+| Start             | Play the level again               |
+| Start twice       | Back to the list of the levels     |
+
+Start pressed again within half a second of letting it go, with no other
+button in between, goes back to the list.
 
 In the list of the levels Up and Down choose a level, Left and Right turn a
 page, A plays it and B goes back to the title.

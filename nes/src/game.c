@@ -424,17 +424,45 @@ static void read_pad( void ) {
 	Pad = b;
 }
 
-// Waits for A (1) or B (0), showing a message.
+// Start plays the level again; pressed again within this many frames of
+// letting it go, with no other button in between, back to the list:
+#define DOUBLE_START 30
+
+enum { START_NONE, START_AGAIN, START_LIST };
+
+// Whether Start was pressed in the game (not held from the menus), when
+// it was let go (FRAME_CNT1) and whether a second press counts:
+static uint8_t Start_down, Start_up, Start_armed;
+
+// What Start does in this step.
+static uint8_t start_button( void ) {
+	if( Pad & ~Pad_old & (uint8_t)~PAD_START )
+		Start_armed = 0;
+	if( Start_armed && (uint8_t)(FRAME_CNT1-Start_up) > DOUBLE_START )
+		Start_armed = 0;
+	if( Start_down && !(Pad & PAD_START) ) {
+		Start_down = 0;
+		Start_up = FRAME_CNT1;
+		Start_armed = 1;
+	}
+	if( !pressed( PAD_START ) )
+		return START_NONE;
+	Start_down = 1;
+	if( Start_armed ) {
+		Start_armed = 0;
+		return START_LIST;
+	}
+	return START_AGAIN;
+}
+
+// Waits for Start after the bike died, showing a message.
 static uint8_t ask( const char* msg ) {
 	for( ;; ) {
 		read_pad();
-		if( pressed( PAD_A ) || pressed( PAD_START ) )
-			return 1;
-		if( pressed( PAD_B ) || pressed( PAD_SELECT ) )
-			return 0;
-		static const char* const lines[3] = { 0, "A:AGAIN", "B:MENU" };
-		uint8_t k = (Frame >> 6) % 3;
-		draw_wait( k ? lines[k] : msg );
+		uint8_t b = start_button();
+		if( b != START_NONE )
+			return b;
+		draw_wait( msg );
 	}
 }
 
@@ -448,25 +476,16 @@ enum { STEP_ON, STEP_DEAD, STEP_WON, STEP_QUIT, STEP_RESTART };
 // A step of the game: the pad, the physics, the objects and the time.
 static uint8_t step( void ) {
 	read_pad();
-	if( pressed( PAD_START ) ) {
-		snd_engine( 0, 0 );
-		for( ;; ) {
-			read_pad();
-			if( pressed( PAD_START ) )
-				break;
-			if( pressed( PAD_SELECT ) )
-				return STEP_QUIT;
-			draw_wait( "PAUSE" );
-		}
-		Clock = FRAME_CNT1;
-		Due = 0;
+	switch( start_button() ) {
+		case START_AGAIN:
+			return STEP_RESTART;
+		case START_LIST:
+			return STEP_QUIT;
 	}
-	if( pressed( PAD_SELECT ) )
-		return STEP_RESTART;
 	uint8_t in = 0;
-	if( Pad & (PAD_UP | PAD_B) )
+	if( Pad & PAD_A )
 		in |= IN_GAS;
-	if( Pad & PAD_DOWN )
+	if( Pad & PAD_B )
 		in |= IN_BRAKE;
 	if( Volt_wait )
 		Volt_wait--;
@@ -475,7 +494,7 @@ static uint8_t step( void ) {
 		Volt_wait = VOLT_WAIT;
 		snd_volt();
 	}
-	if( pressed( PAD_A ) ) {
+	if( pressed( PAD_SELECT ) ) {
 		ph_turn();
 		snd_turn();
 	}
@@ -503,6 +522,7 @@ static uint8_t step( void ) {
 uint8_t game_play( void ) {
 	start_level();
 	Pad = Pad_old = 0xff;
+	Start_down = Start_armed = 0;
 	for( ;; ) {
 		for( uint8_t now = FRAME_CNT1; Clock != now; Clock++ ) {
 			Due += PH_HZ;
@@ -523,7 +543,7 @@ uint8_t game_play( void ) {
 			case STEP_DEAD:
 				snd_engine( 0, 0 );
 				snd_death();
-				if( ask( "DEAD" ) ) {
+				if( ask( "DEAD" ) == START_AGAIN ) {
 					start_level();
 					continue;
 				}
