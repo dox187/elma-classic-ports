@@ -241,10 +241,11 @@ static void sprite16( int16_t x, int16_t y, const uint8_t* t, uint8_t attr ) {
 }
 
 // The sprites of m (their number, then x, y and tile of each) around x, y,
-// mirrored if flip; within 32 pixels of the edges each one is checked.
+// mirrored if flip. Their offsets are from -24 to 16 (gfx.py): nearer the
+// edges each one is checked.
 static void metasprite( int16_t x, int16_t y, const int8_t* m, uint8_t attr, uint8_t flip ) {
 	uint8_t n = (uint8_t)*m++;
-	if( x >= 32 && x < 224 && y >= BAR_LINES+32 && y < 200 ) {
+	if( x >= 24 && x <= 239 && y >= BAR_LINES-8+24 && y <= 231-16 ) {
 		uint8_t sy = (uint8_t)y-1;
 		uint8_t i = Oam_n;
 		if( flip ) {

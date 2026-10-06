@@ -303,6 +303,10 @@ def bike_angles():
         cv = Canvas(40, th)
         draw_rider(cv)
         rider = metasprite(bank, cut(cv.pixels(), 20, 20))
+        # metasprite of game.c draws them without checking the edges of the
+        # screen when far enough from them for offsets of this range:
+        if any(not -24 <= v <= 16 for dx, dy, _ in frame + rider for v in (dx, dy)):
+            raise ValueError("a sprite of the bike is off the range of game.c")
         out.append((frame, rider, bank))
     return out
 
