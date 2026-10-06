@@ -139,10 +139,12 @@ static void start_level( void ) {
 		Digits[i] = 0;
 	Volt_wait = 0;
 	Frame = 0;
+	// The size of the map first, which bounds the camera:
+	map_level( &Level );
 	camera( 1 );
 	vram_adr( NAMETABLE_A );
 	vram_fill( 0, 0x800 );
-	map_start( &Level );
+	map_start();
 	scroll( (uint16_t)Cam_x & 511, (uint16_t)Cam_y % 240 );
 	frame_begin();
 	ppu_on_all();

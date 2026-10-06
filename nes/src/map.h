@@ -11,8 +11,10 @@ extern int16_t Cam_x, Cam_y;
 // Size of the map in pixels:
 extern uint16_t Map_w, Map_h;
 
-// Selects a level and draws the window around the camera (rendering off).
-void map_start( const level_t* lev );
+// Selects a level: Map_w and Map_h are set.
+void map_level( const level_t* lev );
+// Draws the window around the camera (rendering off).
+void map_start( void );
 // Loads what the camera's move needs into the update buffer of the next
 // frame (at most 8 pixels in each direction).
 void map_scroll( void );

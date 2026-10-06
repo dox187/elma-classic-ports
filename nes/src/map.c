@@ -195,13 +195,16 @@ static void rows_up( void ) {
 	}
 }
 
-void map_start( const level_t* lev ) {
+void map_level( const level_t* lev ) {
 	Cols = lev->w;
 	Rows = lev->h;
 	Map = lev->map;
 	Columns = lev->columns;
 	Map_w = Cols*8;
 	Map_h = Rows*8;
+}
+
+void map_start( void ) {
 	Col0 = Cam_x >> 3;
 	Row0 = Cam_y >> 3;
 	for( int16_t x = Col0; x < Col0+33; x++ ) {
