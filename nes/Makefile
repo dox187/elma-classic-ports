@@ -1,4 +1,5 @@
-# The NES version: elma.nes from the levels of an elma.res of the game.
+# The NES version: elma.nes from the levels of an elma.res of the game, or
+# elma_sw.nes, the shareware version, from that of the shareware game.
 #
 #   make ELMA_RES=/path/to/elma.res
 #
@@ -29,10 +30,13 @@ SOURCES = $(addprefix src/,main.c game.c map.c menu.c fixmath.c \
 	far.c segs.c save.c sound.c video.c mul.s) $(PHYSICS)
 GENERATED = $(addprefix $(BUILD)/,levels.c sprites.c levdata.s chr.s)
 HEADERS = $(BUILD)/physconst.h $(BUILD)/chrmap.h
+# The ROM, named by the version that the elma.res is of:
+EDITION := $(if $(wildcard $(ELMA_RES)),$(shell $(PYTHON) tools/elmadata.py $(ELMA_RES)))
+ROM = $(if $(filter shareware,$(EDITION)),elma_sw.nes,elma.nes)
 
-all: $(BUILD)/elma.nes
+all: $(BUILD)/$(ROM)
 
-$(BUILD)/elma.nes: $(SOURCES) $(wildcard src/*.h src/*.inc) $(GENERATED) $(HEADERS)
+$(BUILD)/$(ROM): $(SOURCES) $(wildcard src/*.h src/*.inc) $(GENERATED) $(HEADERS)
 	$(CC) $(CFLAGS) -o $@ $(SOURCES) $(GENERATED) -lneslib
 
 # Remade when PHYS_HZ changes:
@@ -44,12 +48,22 @@ $(BUILD)/phys_hz_$(PHYS_HZ):
 	rm -f $(BUILD)/phys_hz_*
 	touch $@
 
-$(GENERATED) $(BUILD)/chrmap.h &: $(wildcard tools/*.py) $(wildcard $(ELMA_RES)) $(LEVELS)
+$(GENERATED) $(BUILD)/chrmap.h &: $(wildcard tools/*.py) $(wildcard $(ELMA_RES)) $(LEVELS) \
+		$(BUILD)/data_names
 	$(PYTHON) tools/build.py --res $(ELMA_RES) $(if $(LEVELS),--lev $(LEVELS)) --out $(BUILD)
 
 # The physics on the first level: the fixed point physics against the
 # game's on the host, then physics.S against physics.c to the bit and its
 # cycles in the simulator.
+# The names of the data, rewritten only when they change: another elma.res
+# is converted again even if it is older.
+$(BUILD)/data_names: FORCE
+	@mkdir -p $(BUILD)
+	@echo '$(abspath $(ELMA_RES)) $(LEVELS)' | cmp -s - $@ || \
+		echo '$(abspath $(ELMA_RES)) $(LEVELS)' > $@
+
+FORCE:
+
 check: $(BUILD)/physconst.h
 	$(PYTHON) test/levtext.py $(ELMA_RES) 1 > $(BUILD)/level1.txt
 	$(PYTHON) test/simlines.py $(BUILD)/level1.txt > $(BUILD)/simlines.h
@@ -67,4 +81,4 @@ check: $(BUILD)/physconst.h
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all check clean
+.PHONY: all check clean FORCE

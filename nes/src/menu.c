@@ -126,6 +126,8 @@ void menu_title( void ) {
 	big( 10, 6, "ELASTO" );
 	big( 11, 9, "MANIA" );
 	center( 13, "NES DEMAKE" );
+	if( Shareware )
+		center( 15, "SHAREWARE VERSION" );
 	center( 22, "ORIGINAL GAME (C) 2000" );
 	center( 23, "BALAZS ROZSA" );
 	center( 25, "UNOFFICIAL FAN MADE PORT:" );

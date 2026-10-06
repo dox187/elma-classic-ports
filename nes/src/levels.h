@@ -22,6 +22,8 @@ typedef struct {
 // In the bank of the menus:
 extern const level_t Levels[];
 extern const uint8_t Level_count;
+// Whether the levels are of the elma.res of the shareware game:
+extern const uint8_t Shareware;
 
 // The level played, copied from Levels by the menus:
 extern level_t Level;

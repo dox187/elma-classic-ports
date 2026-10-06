@@ -47,6 +47,10 @@ class Resource:
     """The files packed into elma.res (QOPEN.CPP)."""
 
     MAGIC = 1347839
+    # The keys of the table of the files and whether an entry gives the
+    # start of the file before its size: of the registered game, then of the
+    # shareware (SARVARI in QOPEN.CPP).
+    LAYOUTS = ((9982, False), (9882, True))
 
     def __init__(self, path):
         with open(path, "rb") as f:
@@ -59,13 +63,30 @@ class Resource:
                 break
         else:
             raise ValueError("%s is not an elma.res file" % path)
-        table = _decrypt(self.data[4:4 + slots * 24], 23, 9982, 3391)
-        self.files = {}
+        for key, shareware in self.LAYOUTS:
+            table = _decrypt(self.data[4:4 + slots * 24], 23, key, 3391)
+            files = self._files(table, count, shareware)
+            if files:
+                break
+        else:
+            raise ValueError("%s is not an elma.res file" % path)
+        self.files = files
+        self.shareware = shareware
+
+    def _files(self, table, count, start_first):
+        """The files of the table, or None if its names or places are not
+        those of files: decrypted with the wrong key."""
+        files = {}
         for i in range(count):
             entry = table[i * 24:(i + 1) * 24]
-            name = entry[:16].split(b"\0")[0].decode("latin-1")
-            size, start = struct.unpack_from("<ii", entry, 16)
-            self.files[name.lower()] = (start, size)
+            name = entry[:16].split(b"\0")[0]
+            a, b = struct.unpack_from("<ii", entry, 16)
+            start, size = (a, b) if start_first else (b, a)
+            if not name or any(c < 32 or c > 126 for c in name) or \
+                    start < 0 or size < 0 or start + size > len(self.data):
+                return None
+            files[name.decode("latin-1").lower()] = (start, size)
+        return files
 
     def read(self, name):
         start, size = self.files[name.lower()]
@@ -184,3 +205,9 @@ def internal_levels(res):
 def load_lev(path):
     with open(path, "rb") as f:
         return parse_level(f.read())
+
+
+if __name__ == "__main__":
+    # The version of the game an elma.res is of, for the Makefile:
+    import sys
+    print("shareware" if Resource(sys.argv[1]).shareware else "registered")

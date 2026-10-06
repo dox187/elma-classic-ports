@@ -35,18 +35,33 @@ Requirements:
   `mos-nes-mmc3-clang` in the `PATH`, in `~/.local/share/llvm-mos` or given
   as `LLVM_MOS=/path/to/llvm-mos`;
 - Python 3 with numpy and Pillow;
-- `elma.res` from a legally obtained copy of the game.
+- `elma.res` from a legally obtained copy of the game, registered or
+  shareware (see below).
 
 ```sh
 cd nes
 make ELMA_RES=/path/to/elma.res
 ```
 
-The ROM is written to `build/elma.nes`. Options:
+The ROM is written to `build/elma.nes`, or to `build/elma_sw.nes` from the
+`elma.res` of the shareware game (see below). Options:
 
 - `PHYS_HZ=50` or `60`: steps of the physics a second (see above).
 - `LEVELS="a.lev b.lev"`: level files added after the internal levels. The
   cartridge has room for little more than the internal levels.
+
+### Shareware version
+
+The `elma.res` of the shareware game, which was free to share, builds the
+shareware version of the ROM, `build/elma_sw.nes`: the first 10 levels,
+with "SHAREWARE VERSION" on the title screen. The build tells the data apart by the table of the
+files in `elma.res`, which the shareware game encrypts with another key.
+
+Only the `elma.res` of the shareware version 1.1 is supported: 995,516
+bytes, SHA-256
+`f25c0f8ff5f51e8b7b3ad0284eed275a9213d35cedee1787f1c60906dfb22e2b`. The
+same file comes with the Windows installer of the shareware version 1.11a
+and with the shareware version 1.1 for BeOS.
 
 ## Controls
 

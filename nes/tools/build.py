@@ -37,6 +37,10 @@ CHR_BG_LEVEL = 8       # tiles 128..255 of each level, 2 KB each
 CHR_SPR_BIKE = 128     # the bike and the rider at 64 angles
 CHR_KB = 256
 
+# Levels of the shareware version, built from the elma.res of the
+# shareware game: the first ones.
+SHAREWARE_LEVELS = 10
+
 
 def tile_bytes(t):
     """A tile of 8x8 colors (0..3) in the 2 bit planes of the NES."""
@@ -60,15 +64,19 @@ def c_string(s):
 
 
 def load_levels(args):
+    """The levels, and whether they are of the shareware game."""
     levs = []
+    shareware = False
     if args.res:
-        levs += elmadata.internal_levels(elmadata.Resource(args.res))
+        res = elmadata.Resource(args.res)
+        shareware = res.shareware
+        levs += elmadata.internal_levels(res)[:SHAREWARE_LEVELS if shareware else None]
     for path in args.lev or []:
         lev = elmadata.load_lev(path)
         if not lev.name:
             lev.name = os.path.splitext(os.path.basename(path))[0]
         levs.append(lev)
-    return levs
+    return levs, shareware
 
 
 def main():
@@ -78,9 +86,11 @@ def main():
     ap.add_argument('--lev', nargs='*', help='level files to add')
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
-    levs = load_levels(args)
+    levs, shareware = load_levels(args)
     if not levs:
         sys.exit("No levels: give the elma.res of the game or level files.")
+    if shareware:
+        print("The elma.res of the shareware game: the shareware version.")
     max_levels = (CHR_SPR_BIKE - CHR_BG_LEVEL) // 2
     if len(levs) > max_levels:
         print("Only the first %d levels fit." % max_levels)
@@ -142,6 +152,7 @@ def main():
                 p.segments, conv.gw, conv.gh, p.grid_rows, p.grid, p.objects,
                 conv.start[0], conv.start[1], bank))
         f.write('};\n\nconst uint8_t Level_count = %d;\n' % len(rows))
+        f.write('const uint8_t Shareware = %d;\n' % shareware)
 
 LEVEL_NAME = 22
 
