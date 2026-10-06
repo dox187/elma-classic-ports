@@ -19,5 +19,9 @@ extern const uint8_t Killer_tiles[4*4];
 
 // Sprite tiles of the characters from 32 (space) to 127:
 extern const uint8_t Hud_font[96];
+// Lines of hints set closer than the font: their number of tiles, then
+// the tiles from the left.
+extern const uint8_t Hint_again[];  // A/B: AGAIN
+extern const uint8_t Hint_menu[];   // START: MENU
 
 #endif

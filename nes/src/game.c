@@ -361,9 +361,24 @@ static void draw_objects( void ) {
 #define HUD_TOP (16-1)
 #define HUD_BOTTOM (240-16-8-8-1)
 
+// Whether the hints of the buttons show under the message:
+static uint8_t Hints;
+
+// A line of tiles of gfx.py (their number, then the tiles) in the middle:
+static void hud_line( uint8_t y, const uint8_t* t ) {
+	uint8_t n = *t++;
+	for( uint8_t x = 128-4*n; n; n--, x += 8 )
+		spr( x, y, *t++, 3 );
+}
+
 static void draw_hud( const char* msg ) {
-	if( msg )
+	if( msg ) {
 		spr_text( 128-4*(uint8_t)__builtin_strlen( msg ), HUD_TOP, msg );
+		if( Hints ) {
+			hud_line( HUD_TOP+12, Hint_again );
+			hud_line( HUD_TOP+22, Hint_menu );
+		}
+	}
 	else {
 		static const uint8_t X[6] = { 96, 104, 120, 128, 144, 152 };
 		for( uint8_t i = 0; i < 6; i++ )
@@ -461,18 +476,22 @@ static uint8_t start_button( void ) {
 	return START_AGAIN;
 }
 
-// Waits after the bike died, showing a message: Start as in the game, or
-// A or B to play the level again.
+// Waits after the bike died, showing a message and the hints: A or B
+// plays the level again, Start goes back to the list.
 static uint8_t ask( const char* msg ) {
-	for( ;; ) {
+	uint8_t b = START_NONE;
+	Hints = 1;
+	while( b == START_NONE ) {
 		read_pad();
-		uint8_t b = start_button();
-		if( b != START_NONE )
-			return b;
 		if( pressed( PAD_A ) || pressed( PAD_B ) )
-			return START_AGAIN;
-		draw_wait( msg );
+			b = START_AGAIN;
+		else if( pressed( PAD_START ) )
+			b = START_LIST;
+		else
+			draw_wait( msg );
 	}
+	Hints = 0;
+	return b;
 }
 
 // Paused, silent, until Select is pressed again; Start as in the game.

@@ -63,6 +63,9 @@ The ROM is written to `build/elma.nes`. Options:
 Start pressed again within half a second of letting it go, with no other
 button in between, goes back to the list.
 
+After the bike died, A or B plays the level again and Start goes back to
+the list, as the lines under the message say.
+
 In the list of the levels Up and Down choose a level, Left and Right turn a
 page, A plays it and B goes back to the title.
 
