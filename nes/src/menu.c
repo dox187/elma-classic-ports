@@ -170,7 +170,7 @@ static void level_row( uint8_t level, uint8_t y ) {
 
 static void level_page( uint8_t page ) {
 	screen();
-	center( 1, "SELECT A LEVEL" );
+	center( 2, "SELECT A LEVEL" );
 	for( uint8_t i = 0; i < PAGE; i++ ) {
 		uint8_t level = page*PAGE+i;
 		if( level >= Level_count )
@@ -217,7 +217,7 @@ void menu_levels( void ) {
 		(void)moved;
 		frame_begin();
 		if( f & 16 || moved != level )
-			spr( 4, (uint8_t)(8*(4+level % PAGE)-1), Hud_font['>'-32], 3 );
+			spr( 8, (uint8_t)(8*(4+level % PAGE)-1), Hud_font['>'-32], 3 );
 		frame_end();
 	}
 }

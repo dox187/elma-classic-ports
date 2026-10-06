@@ -350,15 +350,21 @@ static void draw_objects( void ) {
 
 #define DIGIT( d ) (Hud_font['0'-32]+(d))
 
+// The lines of the time and the messages, and of the apples left, within
+// the part of the picture a television surely shows (16 lines from the top
+// and the bottom); as OAM coordinates, a line less:
+#define HUD_TOP (16-1)
+#define HUD_BOTTOM (240-16-8-8-1)
+
 static void draw_hud( const char* msg ) {
 	if( msg )
-		spr_text( 128-4*(uint8_t)__builtin_strlen( msg ), 4, msg );
+		spr_text( 128-4*(uint8_t)__builtin_strlen( msg ), HUD_TOP, msg );
 	else {
 		static const uint8_t X[6] = { 96, 104, 120, 128, 144, 152 };
 		for( uint8_t i = 0; i < 6; i++ )
-			spr( X[i], 4, DIGIT( Digits[i] ), 3 );
-		spr( 112, 4, Hud_font[':'-32], 3 );
-		spr( 136, 4, Hud_font[':'-32], 3 );
+			spr( X[i], HUD_TOP, DIGIT( Digits[i] ), 3 );
+		spr( 112, HUD_TOP, Hud_font[':'-32], 3 );
+		spr( 136, HUD_TOP, Hud_font[':'-32], 3 );
 	}
 	if( Apples_left ) {
 		uint8_t tens = 0, n = Apples_left;
@@ -366,10 +372,10 @@ static void draw_hud( const char* msg ) {
 			n -= 10;
 			tens++;
 		}
-		spr( 216, 219, Hud_font['@'-32], 2 );
+		spr( 208, HUD_BOTTOM-1, Hud_font['@'-32], 2 );
 		if( tens )
-			spr( 228, 220, DIGIT( tens ), 3 );
-		spr( 236, 220, DIGIT( n ), 3 );
+			spr( 220, HUD_BOTTOM, DIGIT( tens ), 3 );
+		spr( 228, HUD_BOTTOM, DIGIT( n ), 3 );
 	}
 }
 
