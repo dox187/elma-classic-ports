@@ -22,10 +22,15 @@ below) has 128 KB of each ROM. It has been tested in emulators only.
 The physics of the game takes steps of 0.003 s of its own time. The NES
 takes 50 steps a second by default (`PHYS_HZ=50`), each about three times as
 long, and keeps up with the clock on most levels; where it does not, the
-game slows down a little. With `PHYS_HZ=60` it takes a step each frame, 2.4
-times as long as the game's, but the NES keeps up with only about 75 to 85 %
-of the speed. The timer counts the time of the game, so the times are fair
-either way.
+game slows down a little. With `PHYS_HZ=60` it takes a step each frame of
+NTSC, 2.4 times as long as the game's, but the NES keeps up with only about
+75 to 85 % of the speed. The timer counts the time of the game, so the
+times are fair either way.
+
+The PAL version takes the same 50 steps a second, one each frame, but the
+CPU of a PAL NES is about 7 % slower and has less time for a step: in an
+emulator it kept about 86 to 94 % of the speed on the levels measured,
+against 91 to 98 % with NTSC, so it slows down more often.
 
 ## Build
 
@@ -43,9 +48,13 @@ cd nes
 make ELMA_RES=/path/to/elma.res
 ```
 
-The ROM is written to `build/elma.nes`, or to `build/elma_sw.nes` from the
-`elma.res` of the shareware game (see below). Options:
+A ROM is written for each TV system, `build/elma_ntsc.nes` and
+`build/elma_pal.nes`, or `build/elma_sw_ntsc.nes` and
+`build/elma_sw_pal.nes` from the `elma.res` of the shareware game (see
+below). The PAL ROM counts 50 frames a second, tunes its sounds to the
+clock of a PAL NES and says PAL in its header. Options:
 
+- `TV=ntsc` or `TV=pal`: only the ROM for one TV system.
 - `PHYS_HZ=50` or `60`: steps of the physics a second (see above).
 - `LEVELS="a.lev b.lev"`: level files added after the internal levels. The
   cartridge has room for little more than the internal levels.
@@ -53,10 +62,11 @@ The ROM is written to `build/elma.nes`, or to `build/elma_sw.nes` from the
 ### Shareware version
 
 The `elma.res` of the shareware game, which was free to share, builds the
-shareware version of the ROM, `build/elma_sw.nes`: the first 10 levels,
-with "SHAREWARE VERSION" on the title screen, on a smaller cartridge of
-128 KB PRG-ROM and 128 KB CHR-ROM. The build tells the data apart by the table of the
-files in `elma.res`, which the shareware game encrypts with another key.
+shareware version of the ROMs, `build/elma_sw_ntsc.nes` and
+`build/elma_sw_pal.nes`: the first 10 levels, with "SHAREWARE VERSION" on
+the title screen, on a smaller cartridge of 128 KB PRG-ROM and 128 KB
+CHR-ROM. The build tells the data apart by the table of the files in
+`elma.res`, which the shareware game encrypts with another key.
 
 Only the `elma.res` of the shareware version 1.1 is supported: 995,516
 bytes, SHA-256

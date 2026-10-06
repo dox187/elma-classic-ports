@@ -13,6 +13,11 @@
 // The sizes of banks.h, expanded before the macros of the SDK quote them:
 #define CART( prg, chr ) MAPPER_PRG_ROM_KB( prg ); MAPPER_CHR_ROM_KB( chr )
 CART( PRG_ROM_KB, CHR_ROM_KB );
+#ifdef PAL_BUILD
+INES_TIMING_RP2C07;
+#else
+INES_TIMING_RP2C02;
+#endif
 MAPPER_PRG_NVRAM_KB( 8 );
 MAPPER_USE_BATTERY;
 MAPPER_USE_VERTICAL_MIRRORING;

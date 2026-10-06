@@ -52,7 +52,8 @@ static uint8_t Volt_wait;
 static uint8_t Pad, Pad_old;
 static uint8_t Frame;
 // The frame count of the NMI up to which the steps were counted, the steps
-// due in 60ths (PH_HZ a frame), and the steps since the last frame drawn:
+// due in PH_FPSths (PH_HZ a frame), and the steps since the last frame
+// drawn:
 static uint8_t Clock, Skipped;
 static uint16_t Due;
 level_t Level;
@@ -447,7 +448,7 @@ static void read_pad( void ) {
 
 // Start plays the level again; pressed again within this many frames of
 // letting it go, with no other button in between, back to the list:
-#define DOUBLE_START 30
+#define DOUBLE_START (PH_FPS/2)
 
 enum { START_NONE, START_AGAIN, START_LIST };
 
@@ -576,11 +577,11 @@ uint8_t game_play( void ) {
 			Due += PH_HZ;
 			snd_frame();
 		}
-		if( Due < 60 )
+		if( Due < PH_FPS )
 			continue;
-		if( Due > MAX_BEHIND*60 )
-			Due = MAX_BEHIND*60;
-		Due -= 60;
+		if( Due > MAX_BEHIND*PH_FPS )
+			Due = MAX_BEHIND*PH_FPS;
+		Due -= PH_FPS;
 		switch( step() ) {
 			case STEP_QUIT:
 				snd_stop();
@@ -601,13 +602,13 @@ uint8_t game_play( void ) {
 				snd_engine( 0, 0 );
 				snd_win();
 				Game_time = Time;
-				for( uint8_t i = 0; i < 60; i++ )
+				for( uint8_t i = 0; i < PH_FPS; i++ )
 					draw_wait( "FINISHED" );
 				return GAME_WON;
 		}
 		// A frame when the last one went out; while catching up with more
 		// than a step, after every other step:
-		if( frame_ready() && (Due < 60 || ++Skipped > 1) ) {
+		if( frame_ready() && (Due < PH_FPS || ++Skipped > 1) ) {
 			draw( 0 );
 			Skipped = 0;
 		}

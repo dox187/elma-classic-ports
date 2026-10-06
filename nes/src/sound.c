@@ -5,12 +5,21 @@
 
 #define APU_REG ((volatile uint8_t*)0x4000)
 
+// The clock of the CPU, which the periods of the APU count:
+#ifdef PAL_BUILD
+#define CPU_HZ 1662607.0
+#else
+#define CPU_HZ 1789773.0
+#endif
+// Frames of NTSC in frames of the TV system:
+#define FRAMES( n ) ((uint8_t)(((n)*PH_FPS+30)/60))
+
 // The pitch of the engine rises with the driven wheel from 60 Hz at rest
 // to 360 Hz at WHEEL_MAXW, in ENGINE_STEPS steps with the period
 // interpolated between them: periods of the pulse channel,
-// 1789773/16/(period+1) Hz.
+// CPU_HZ/16/(period+1) Hz.
 #define ENGINE_STEPS 128
-#define ENGINE_PERIOD( i ) ((uint16_t)(1789773.0/16/(60.0+300.0*(i)/ENGINE_STEPS)-0.5))
+#define ENGINE_PERIOD( i ) ((uint16_t)(CPU_HZ/16/(60.0+300.0*(i)/ENGINE_STEPS)-0.5))
 #define P4( i ) ENGINE_PERIOD( i ), ENGINE_PERIOD( i+1 ), ENGINE_PERIOD( i+2 ), ENGINE_PERIOD( i+3 )
 #define P16( i ) P4( i ), P4( i+4 ), P4( i+8 ), P4( i+12 )
 #define P64( i ) P16( i ), P16( i+16 ), P16( i+32 ), P16( i+48 )
@@ -26,12 +35,17 @@ typedef struct {
 	uint8_t frames;
 } note_t;
 
-static const note_t Fx_apple[] = { { 0x0d5, 3 }, { 0x0a9, 3 }, { 0x08e, 5 }, { 0, 0 } };
-static const note_t Fx_volt[] = { { 0x1c0, 2 }, { 0x160, 2 }, { 0, 0 } };
-static const note_t Fx_turn[] = { { 0x0fe, 3 }, { 0, 0 } };
+// A note of a period and frames of NTSC, in those of the TV system:
+#define NOTE( p, n ) { (uint16_t)(((p)+1)*CPU_HZ/1789773.0-0.5), FRAMES( n ) }
+
+static const note_t Fx_apple[] = {
+	NOTE( 0x0d5, 3 ), NOTE( 0x0a9, 3 ), NOTE( 0x08e, 5 ), { 0, 0 }
+};
+static const note_t Fx_volt[] = { NOTE( 0x1c0, 2 ), NOTE( 0x160, 2 ), { 0, 0 } };
+static const note_t Fx_turn[] = { NOTE( 0x0fe, 3 ), { 0, 0 } };
 static const note_t Fx_win[] = {
-	{ 0x1ab, 6 }, { 0x153, 6 }, { 0x11d, 6 }, { 0x0d5, 12 },
-	{ 0x11d, 6 }, { 0x0d5, 18 }, { 0, 0 }
+	NOTE( 0x1ab, 6 ), NOTE( 0x153, 6 ), NOTE( 0x11d, 6 ), NOTE( 0x0d5, 12 ),
+	NOTE( 0x11d, 6 ), NOTE( 0x0d5, 18 ), { 0, 0 }
 };
 
 static const note_t* Fx;
@@ -132,7 +146,7 @@ void snd_death( void ) {
 	APU_REG[0x0c] = 0x0f;   // a decaying noise
 	APU_REG[0x0e] = 0x0c;
 	APU_REG[0x0f] = 0x18;
-	Noise_left = 40;
+	Noise_left = FRAMES( 40 );
 }
 
 void snd_win( void ) {
