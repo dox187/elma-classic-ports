@@ -7,6 +7,9 @@
 
 ELMA_RES ?= ../elma.res
 LEVELS ?=
+# Steps of the physics in 60 frames: 60 is a step a frame, 50 is longer
+# steps that take less time a second.
+PHYS_HZ ?= 60
 PYTHON ?= python3
 # The compiler of the SDK, from LLVM_MOS, the PATH or ~/.local/share/llvm-mos:
 ifdef LLVM_MOS
@@ -21,11 +24,21 @@ PHYSICS ?= src/physics.S
 SOURCES = $(addprefix src/,main.c game.c map.c menu.c fixmath.c \
 	far.c segs.c save.c sound.c video.c mul.s) $(PHYSICS)
 GENERATED = $(addprefix $(BUILD)/,levels.c sprites.c levdata.s chr.s)
+HEADERS = $(BUILD)/physconst.h $(BUILD)/chrmap.h
 
 all: $(BUILD)/elma.nes
 
-$(BUILD)/elma.nes: $(SOURCES) $(wildcard src/*.h src/*.inc) $(GENERATED)
+$(BUILD)/elma.nes: $(SOURCES) $(wildcard src/*.h src/*.inc) $(GENERATED) $(HEADERS)
 	$(CC) $(CFLAGS) -o $@ $(SOURCES) $(GENERATED) -lneslib
+
+# Remade when PHYS_HZ changes:
+$(BUILD)/physconst.h: tools/physconst.py $(BUILD)/phys_hz_$(PHYS_HZ)
+	$(PYTHON) tools/physconst.py $@ $(PHYS_HZ)
+
+$(BUILD)/phys_hz_$(PHYS_HZ):
+	mkdir -p $(BUILD)
+	rm -f $(BUILD)/phys_hz_*
+	touch $@
 
 $(GENERATED) $(BUILD)/chrmap.h &: $(wildcard tools/*.py) $(wildcard $(ELMA_RES)) $(LEVELS)
 	$(PYTHON) tools/build.py --res $(ELMA_RES) $(if $(LEVELS),--lev $(LEVELS)) --out $(BUILD)

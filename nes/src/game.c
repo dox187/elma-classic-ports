@@ -29,7 +29,7 @@ enum { T_FLOWER = 1, T_APPLE, T_KILLER, T_START };
 // A volt only 0.4 s of game time after the last one (Ugroturelem):
 #define VOLT_WAIT ((uint8_t)(0.4/PH_H + 0.5))
 // Hundredths of a second in a step: 1 and this many 65536ths:
-#define TIME_FRAC ((uint16_t)((100.0/60.0988-1.0)*65536.0 + 0.5))
+#define TIME_FRAC ((uint16_t)((100.0/PH_RATE-1.0)*65536.0 + 0.5))
 // Steps at most behind the frames before the game slows down:
 #define MAX_BEHIND 3
 // The sprites of a frame at most, so that Oam_n does not wrap:
@@ -50,9 +50,10 @@ static uint8_t Digits[6];
 static uint8_t Volt_wait;
 static uint8_t Pad, Pad_old;
 static uint8_t Frame;
-// The frame count of the NMI up to which the physics went, and the steps
-// since the last frame drawn:
+// The frame count of the NMI up to which the steps were counted, the steps
+// due in 60ths (PH_HZ a frame), and the steps since the last frame drawn:
 static uint8_t Clock, Skipped;
+static uint16_t Due;
 level_t Level;
 
 uint32_t Game_time;
@@ -144,6 +145,7 @@ static void start_level( void ) {
 	ppu_on_all();
 	video_game( 1 );
 	Clock = FRAME_CNT1;
+	Due = 0;
 }
 
 // Adds n hundredths to the time shown, up to 99:59:99.
@@ -430,6 +432,7 @@ static uint8_t step( void ) {
 			draw_wait( "PAUSE" );
 		}
 		Clock = FRAME_CNT1;
+		Due = 0;
 	}
 	if( pressed( PAD_SELECT ) )
 		return STEP_RESTART;
@@ -474,14 +477,16 @@ uint8_t game_play( void ) {
 	start_level();
 	Pad = Pad_old = 0xff;
 	for( ;; ) {
-		uint8_t behind = (uint8_t)(FRAME_CNT1-Clock);
-		if( !behind )
-			continue;
-		if( behind > MAX_BEHIND ) {
-			Clock = FRAME_CNT1-MAX_BEHIND;
-			behind = MAX_BEHIND;
+		for( uint8_t now = FRAME_CNT1; Clock != now; Clock++ ) {
+			Due += PH_HZ;
+			// A loop, mostly once: not a multiplication by the library.
+			asm volatile( "" );
 		}
-		Clock++;
+		if( Due < 60 )
+			continue;
+		if( Due > MAX_BEHIND*60 )
+			Due = MAX_BEHIND*60;
+		Due -= 60;
 		switch( step() ) {
 			case STEP_QUIT:
 				return GAME_QUIT;
@@ -506,7 +511,7 @@ uint8_t game_play( void ) {
 		}
 		// A frame when the last one went out; while catching up with more
 		// than a step, after every other step:
-		if( frame_ready() && (behind <= 1 || ++Skipped > 1) ) {
+		if( frame_ready() && (Due < 60 || ++Skipped > 1) ) {
 			draw( 0 );
 			Skipped = 0;
 		}

@@ -14,9 +14,9 @@
 #include "physconst.h"
 
 // One step of the physics is this many seconds of the game's time, which
-// runs 0.4368 times as fast as the clock (182 ticks a second times 0.0024):
-// one frame of NTSC.
-#define PH_H (0.4368/60.0988)
+// runs 0.4368 times as fast as the clock (182 ticks a second times 0.0024),
+// with PH_RATE steps a second (physconst.h):
+#define PH_H (0.4368/PH_RATE)
 #define PH_S 262144.0
 #define PH_PI 3.14159265358979
 #define PH_AN (16777216.0/(2.0*PH_PI))
