@@ -6,6 +6,7 @@
 #include "chrmap.h"
 #include "game.h"
 #include "levels.h"
+#include "map.h"
 #include "save.h"
 #include "sprites.h"
 #include "video.h"
@@ -132,8 +133,14 @@ void menu_title( void ) {
 		if( pressed( PAD_START ) || pressed( PAD_A ) )
 			return;
 		frame_begin();
-		if( f & 32 )
-			spr_text( 84, 136, "PRESS START" );
+		// Blinking, in the background: as sprites, more than eight in a
+		// line would not all show.
+		if( !(f & 31) ) {
+			static const char press[] = "PRESS START";
+			uint8_t* p = vram_run( NTADR_A( 11, 17 ), NT_UPD_HORZ, sizeof( press )-1 );
+			for( uint8_t i = 0; i < sizeof( press )-1; i++ )
+				p[i] = f & 32 ? (uint8_t)press[i] : ' ';
+		}
 		frame_end();
 	}
 }

@@ -22,5 +22,8 @@ extern uint8_t Vram_buf[];
 // Starts a new list of updates; map_scroll adds to it.
 void vram_begin( void );
 void vram_end( void );
+// Adds a run of len tiles from adr (with NT_UPD_HORZ or NT_UPD_VERT) and
+// returns where the tiles go.
+uint8_t* vram_run( uint16_t adr, uint8_t flags, uint8_t len );
 
 #endif

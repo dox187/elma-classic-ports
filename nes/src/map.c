@@ -66,7 +66,7 @@ static uint16_t nt_addr( uint16_t x, uint16_t y ) {
 	return ((x & 32) ? NAMETABLE_B : NAMETABLE_A) + (y % 30)*32 + (x & 31);
 }
 
-static uint8_t* vram_run( uint16_t adr, uint8_t flags, uint8_t len ) {
+uint8_t* vram_run( uint16_t adr, uint8_t flags, uint8_t len ) {
 	uint8_t* p = &Vram_buf[Vram_n];
 	p[0] = (uint8_t)(adr >> 8) | flags;
 	p[1] = (uint8_t)adr;
