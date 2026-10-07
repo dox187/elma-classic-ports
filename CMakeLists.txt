@@ -49,16 +49,17 @@ set(ELMA_CORE
     STATE.CPP SZAKASZ.CPP TELJES.CPP TOPOL.CPP UPGRADE.CPP UTKOZES.CPP
     UTKOZES2.CPP VALASZT2.CPP VEKT2.CPP
 )
+list(TRANSFORM ELMA_CORE PREPEND src/)
 
 # The sources include headers by lowercase names (all.h) while the files are
 # upper case (ALL.H). Generate lowercase forwarding headers so the build also
 # works on case-sensitive file systems such as Linux. They are only rewritten
 # when their content changes, so reconfiguring does not rebuild everything.
 set(ELMA_HEADER_DIR ${CMAKE_CURRENT_BINARY_DIR}/lowercase_headers)
-file(GLOB ELMA_HEADERS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/*.H)
+file(GLOB ELMA_HEADERS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/*.H)
 foreach(header ${ELMA_HEADERS})
     string(TOLOWER ${header} lower)
-    set(forward "#include \"${CMAKE_CURRENT_SOURCE_DIR}/${header}\"\n")
+    set(forward "#include \"${CMAKE_CURRENT_SOURCE_DIR}/src/${header}\"\n")
     set(current "")
     if(EXISTS ${ELMA_HEADER_DIR}/${lower})
         file(READ ${ELMA_HEADER_DIR}/${lower} current)
@@ -69,7 +70,8 @@ foreach(header ${ELMA_HEADERS})
 endforeach()
 
 function(elma_target target)
-    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${ELMA_HEADER_DIR})
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${ELMA_HEADER_DIR})
     # The code was written for x86, where char is signed, and for compilers
     # that let signed integers wrap around instead of optimizing on their
     # overflow. Floating point contraction (fused multiply-add on ARM) would
@@ -108,7 +110,7 @@ if(ELMA_BUILD_CLI)
         add_executable(elma-cli ${ELMA_CORE} ${ELMA_CLI_SOURCES} ${ELMA_SDL_SOUND})
         target_link_libraries(elma-cli PRIVATE PkgConfig::SDL)
     else()
-        add_executable(elma-cli ${ELMA_CORE} ${ELMA_CLI_SOURCES} H_DUMMY.CPP)
+        add_executable(elma-cli ${ELMA_CORE} ${ELMA_CLI_SOURCES} src/H_DUMMY.CPP)
     endif()
     elma_target(elma-cli)
     target_compile_definitions(elma-cli PRIVATE ELMA_CLI)

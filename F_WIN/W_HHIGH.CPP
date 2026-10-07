@@ -1,4 +1,4 @@
-#include    "..\all.h"
+#include    "..\src\all.h"
 
 int Hangenabled = 0;
 
