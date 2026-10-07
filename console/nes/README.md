@@ -50,11 +50,11 @@ Requirements:
   shareware (see below).
 
 ```sh
-cd nes
+cd console/nes
 make ELMA_RES=/path/to/elma.res
 ```
 
-Without `ELMA_RES` the build uses `../elma.res`, the `elma.res` in the root
+Without `ELMA_RES` the build uses `../../elma.res`, the `elma.res` in the root
 of the repository, so there a plain `make` is enough. `make clean` removes
 `build/` with the ROMs and everything generated.
 

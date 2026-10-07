@@ -263,8 +263,8 @@ sound.
 
 ## NES demake
 
-The [`nes`](nes/README.md) directory holds a demake for the Nintendo
-Entertainment System: a separate program with the internal levels of the
-game converted into NES graphics and the physics rewritten in 6502 assembly.
-It builds a cartridge ROM with the llvm-mos SDK from the `elma.res` of the
-game; see [its readme](nes/README.md).
+The [`console/nes`](console/nes/README.md) directory holds a demake for the
+Nintendo Entertainment System: a separate program with the internal levels of
+the game converted into NES graphics and the physics rewritten in 6502
+assembly. It builds a cartridge ROM with the llvm-mos SDK from the `elma.res`
+of the game; see [its readme](console/nes/README.md).

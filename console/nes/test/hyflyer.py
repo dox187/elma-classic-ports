@@ -1,8 +1,9 @@
 """Reproduce Hi Flyer's brake bounce with identical incoming states/inputs.
 
-Run from any directory: python3 nes/test/hyflyer.py [--asm] [--scan]
+Run from any directory: python3 console/nes/test/hyflyer.py [--asm] [--scan]
 Requires a registered elma.res, a host C compiler, numpy and matplotlib.
-Outputs CSV traces, JSON measurements and a figure in nes/build/hyflyer-check.
+Outputs CSV traces, JSON measurements and a figure in
+console/nes/build/hyflyer-check.
 A generated host-only legacy variant reproduces the pre-beta2 angle wrap.
 Never modifies or builds the game ROM.
 
@@ -208,7 +209,7 @@ def plot(out, lev, flower, traces, case):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--res', type=Path, default=NES.parent/'elma.res')
+    parser.add_argument('--res', type=Path, default=NES.parents[1]/'elma.res')
     parser.add_argument('--out', type=Path, default=NES/'build/hyflyer-check')
     parser.add_argument('--asm', action='store_true')
     parser.add_argument('--scan', action='store_true')

@@ -7,7 +7,7 @@
 # Needs the llvm-mos SDK (https://github.com/llvm-mos/llvm-mos-sdk) and
 # Python 3 with numpy and Pillow.
 
-ELMA_RES ?= ../elma.res
+ELMA_RES ?= ../../elma.res
 LEVELS ?=
 # Steps of the physics in a second of frames (60 of NTSC, 50 of PAL): 60 is
 # a step a frame of NTSC, which the NES keeps up with at about 80 %, 50 is
