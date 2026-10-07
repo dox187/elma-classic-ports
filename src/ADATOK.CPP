@@ -31,7 +31,63 @@ double Fekegyutthato;
 double Kord2x, Kord2y, Kord4x, Kord4y,
 		Kord5y; // Ez az utolso vezeto helye
 
-double Arany, Aranyrec;
+double Arany = 0.0, Aranyrec = 0.0;
+double Aranyalap = 48.0, Aranyalaprec = 1.0/48.0;
+double Motornagyitas = 1.0;
+
+// Fits the game picture to the screen: however many times more pixels it
+// has than 640x480 (beyond 4:3, in width or height), Arany is that many
+// times bigger, so the picture shows the same number of meters as the
+// original:
+static double kepillesztes( void ) {
+	int xsize = 640, ysize = 480;
+	backbuffersize( &xsize, &ysize );
+	double illesztes = xsize/640.0 < ysize/480.0 ? xsize/640.0 : ysize/480.0;
+	return illesztes > 1.0 ? illesztes : 1.0;
+}
+
+// The platform's setting (elma.cfg zoom), clamped to the allowed range:
+static double kivantnagyitas( void ) {
+	double nagyitas = dd_zoom();
+	if( !(nagyitas >= NAGYITASMIN) ) // NaN is
+		nagyitas = NAGYITASMIN;
+	if( nagyitas > NAGYITASMAX )
+		nagyitas = NAGYITASMAX;
+	return nagyitas;
+}
+
+// Only this computes Arany (with 1x fit and zoom it is exactly
+// Aranyalap):
+static double aranyszamitas( int jatekhoz, double* pnagyitas ) {
+	double illesztes = 1.0;
+	*pnagyitas = 1.0;
+	if( jatekhoz ) {
+		illesztes = kepillesztes();
+		*pnagyitas = kivantnagyitas();
+	}
+	return Aranyalap*illesztes*(*pnagyitas);
+}
+
+void beallitarany( int jatekhoz ) {
+	Arany = aranyszamitas( jatekhoz, &Motornagyitas );
+	Aranyrec = 1.0/Arany;
+}
+
+int maskellarany( void ) {
+	double nagyitas = 1.0;
+	return aranyszamitas( 1, &nagyitas ) != Arany;
+}
+
+double kepnagyitas( void ) {
+	return Arany/Aranyalap;
+}
+
+int nagyitpixel( int pixel, double nagyitas ) {
+	int meret = int( pixel*nagyitas + 0.5 );
+	if( meret < 1 )
+		meret = 1;
+	return meret;
+}
 
 	/* Eredeti szamitas play.cpp-bol:
 	Arany = 100.0;
@@ -95,11 +151,15 @@ void initadatok( void ) {
 	if( State->minibike )
 		fakt = 0.30;
 
-	Arany = 100.0*fakt;
-	Aranyrec = 1.0/Arany;
+	Aranyalap = 100.0*fakt;
+	Aranyalaprec = 1.0/Aranyalap;
+	// Arany is set by loading the level and LGR (load.cpp), which are built
+	// with it; here it only gets a value the first time (at startup):
+	if( Arany <= 0.0 )
+		beallitarany( 0 );
 
 	//Viewzoom = 0.28*Arany*0.5;
-	Viewzoom = 0.42*Arany*0.5;
+	Viewzoom = 0.42*Aranyalap*0.5;
 
 	Fekegyutthato = 100.0;
 	Kord2x = -0.1, Kord2y = -0.5, Kord4x = 0.5, Kord4y = -0.5;

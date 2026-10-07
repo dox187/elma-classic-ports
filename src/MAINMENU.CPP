@@ -409,7 +409,11 @@ void mainmenu( void ) {
 
 		if( eredmeny == 6 ) {
 			Editorban_dialnak = 1;
+			// The editor draws into the 640x480 menu image:
+			Menueredeti = 1;
+			menumeretbeallit();
 			editor();
+			Menueredeti = 0;
 			Editorban_dialnak = 0;
 			Pmenupal->set();
 		}

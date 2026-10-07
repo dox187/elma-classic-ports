@@ -4,6 +4,23 @@ int Volttopsave = 0;
 
 static char Bentlevelnev[20] = "";
 
+// True while the in-game zoom is changing (ujraepiteshang):
+static int Ujraepites = 0;
+
+void ujraepiteshang( void ) {
+	if( Ujraepites )
+		hang();
+}
+
+// Reloads the LGR and rebuilds the brushes for a different zoom (Ptop and
+// Pszak stay). Ptop's wheels must not be upside down:
+static void ujranagyit( void ) {
+	beallitarany( 1 );
+	loadlgrfile( Ptop->lgrnev );
+	Ptop->pic_selejtez( Plgr );
+	betoltecseteket();
+}
+
 // Beolvas egy level-t ha kell (nev max 12 karakter).
 // Torli es kitolti Ptop, Plgr, Pszak, ecset mutatokat.
 // Ha belso file-ban is megvan palya onnan veszi:
@@ -11,8 +28,9 @@ static char Bentlevelnev[20] = "";
 int floadlevel_p( char* nev ) {
 	if( !nev )
 		hiba( "floadlevel_p-ben !nev!" );
-	if( strlen( nev ) > 12 || !nev[0] )
-		hiba( "floadlevel_p-ben strlen( nev ) > 12 || !nev[0]!: ", nev );
+	// A collection's level names can be longer than 8.3 (tutorial01.lev):
+	if( strlen( nev ) > 15 || !nev[0] )
+		hiba( "floadlevel_p-ben strlen( nev ) > 15 || !nev[0]!: ", nev );
 	if( Volttopsave || !Ptop || !Pszak || strcmpi( nev, Bentlevelnev ) != 0 ) {
 		Volttopsave = 0;
 		// Ujra be kell olvasni palyat:
@@ -39,6 +57,8 @@ int floadlevel_p( char* nev ) {
 			Ptop = NULL;
 			return 0;
 		}
+		// The game runs at the desired zoom, with the LGR scaled to it:
+		beallitarany( 1 );
 		loadlgrfile( Ptop->lgrnev );
 		Ptop->pic_selejtez( Plgr );
 
@@ -52,7 +72,46 @@ int floadlevel_p( char* nev ) {
 
 		betoltecseteket();
 	}
+	else {
+		// Same level, but the zoom has changed since (Options), or the
+		// editor loaded the LGR at its original size:
+		if( maskellarany() || !lgrnagyitasjo() )
+			ujranagyit();
+	}
 	return 1;
+}
+
+void nagyitasvaltas( void ) {
+	if( !Ptop || !Pszak )
+		hiba( "nagyitasvaltas !Ptop || !Pszak!" );
+	if( !maskellarany() && lgrnagyitasjo() )
+		return;
+	// The time spent rebuilding does not count as game time:
+	mv_pausestopper( 1 );
+	Ujraepites = 1;
+	hang();
+	// We compute the food's whole coordinates (kitoltfoodkoordokat) with
+	// upright wheels:
+	int fejjellefele = Ptop->kerekekfejjellefele;
+	Ptop->kerekjolalljon();
+	ujranagyit();
+	if( fejjellefele )
+		Ptop->kereklefejjel();
+	// kirajzol320 puts the frame back in place again:
+	Kitoltestmegrak = Kitoltestmegrakkezd;
+	hang();
+	Ujraepites = 0;
+	mv_pausestopper( 0 );
+}
+
+void editornagyitas( void ) {
+	if( !Ptop )
+		return;
+	if( Arany == Aranyalap && Plgr && Plgr->megfelel( 1.0, 1.0, 1.0 ) )
+		return;
+	beallitarany( 0 );
+	loadlgrfile( Ptop->lgrnev );
+	Ptop->pic_selejtez( Plgr );
 }
 
 
@@ -62,6 +121,9 @@ int floadlevel_p( char* nev ) {
 // Igaz ha file nem volt lezarva, kulonben new palya hamissal:
 int floadlevel_e( char* nev, int forceload ) {
 	int levoltzarva = 0;
+
+	// The editor always works at the original size, with an unscaled LGR:
+	beallitarany( 0 );
 
 	if( !nev )
 		hiba( "floadlevel_e-ben !nev!" );
@@ -97,6 +159,9 @@ int floadlevel_e( char* nev, int forceload ) {
 		if( Ptop->pic_selejtez( Plgr ) )
 			dialogselejtez();
 	}
+	else
+		// The level stayed after the game, but the LGR may be scaled:
+		editornagyitas();
 	Ptop->checklevelforsarvari();
 
 	if( Pszak ) // ervenytelenites

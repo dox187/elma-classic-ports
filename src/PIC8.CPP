@@ -28,6 +28,11 @@ int pic8::lefoglal( long xsizep, long ysizep ) {
         hiba( "Bhiba pic8::lefoglalban!" );
         return 0;
     }
+    // The sizes are stored in a short (getxsize, getysize):
+    if( xsizep > 32767 || ysizep > 32767 ) {
+        hiba( "pic8::lefoglal: a kep tul nagy!" );
+        return 0;
+    }
     xsize = short(xsizep);
     ysize = short(ysizep);
 	// xsizep-ot 4-el oszthatova valtoztatjuk:
@@ -42,6 +47,8 @@ int pic8::lefoglal( long xsizep, long ysizep ) {
     }
     long egyszegben = 0x0ff00l/long(xsizep); // Nehogy szegmens merete
                 // megkozelitse 65536-ot
+    if( egyszegben < 1 ) // a picture wider than 65280: one segment per row
+        egyszegben = 1;
     // szegnum meg inkrementalva lesz a vegen, ha plussz is van!:
     szegnum = unsigned(ysizep)/egyszegben;
     long pluszszegbensorok = ysizep - szegnum*egyszegben;
@@ -1018,9 +1025,32 @@ void pic8::keszitbelsot( int x1, int y1, int x2, int y2, pic8* ppic ) {
 	xsize = x2-x1+1;
 	ysize = y2-y1+1;
 	#ifdef TEST
-	if( x1 < 0 || x2 >= 640 || y1 < 0 || y2 >= 480 )
+	if( x1 < 0 || x2 >= ppic->getxsize() || y1 < 0 || y2 >= ppic->getysize() )
 		hiba( "pic8::keszitbelsot!" );
 	#endif
 	for( int y = 0; y < ysize; y++ )
 		sormuttomb[y] = ppic->getptr( y+y1 ) + x1;
+}
+
+// New picture resized with the nearest neighbor, does not delete the old one.
+// Each target pixel gets the color index of the source pixel below its
+// center (the transparent index too); at a whole-number factor this repeats
+// the source pixels exactly:
+pic8* atmeretez( pic8* ps, int ujxsize, int ujysize ) {
+	if( ujxsize < 1 || ujysize < 1 )
+		hiba( "atmeretez ujxsize < 1 || ujysize < 1!" );
+	long long xs = ps->getxsize();
+	long long ys = ps->getysize();
+	pic8* pd = new pic8( ujxsize, ujysize );
+	int* oszlopok = new int[ujxsize];
+	for( int x = 0; x < ujxsize; x++ )
+		oszlopok[x] = int( ((2*x+1)*xs)/(2ll*ujxsize) );
+	for( int y = 0; y < ujysize; y++ ) {
+		unsigned char* forras = ps->getptr( int( ((2*y+1)*ys)/(2ll*ujysize) ) );
+		unsigned char* cel = pd->getptr( y );
+		for( int x = 0; x < ujxsize; x++ )
+			cel[x] = forras[oszlopok[x]];
+	}
+	delete[] oszlopok;
+	return pd;
 }

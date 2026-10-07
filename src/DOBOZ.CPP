@@ -115,13 +115,14 @@ void egysor( unsigned char lyuk,  short szam,
 
 #else
 
-void egysor( unsigned char lyuk, unsigned char szam, unsigned char* sor,
+// szam is a picture row's piece (can be longer than 255 pixel on a zoomed motorbike):
+void egysor( unsigned char lyuk, int szam, unsigned char* sor,
 		unsigned char* tomb, long futox, long futoy, long dx, long dy ) {
 	short* pf_futox = (short*)(&futox);
 	pf_futox++;
 	short* pf_futoy = (short*)(&futoy);
 	pf_futoy++;
-	for( short x = 0; x < szam; x++ ) {
+	for( int x = 0; x < szam; x++ ) {
 		unsigned short fx = *pf_futox;
 		unsigned short fy = *pf_futoy;
 		fy = (unsigned short)((fy << 8) + fx);
@@ -138,14 +139,14 @@ void egysor( unsigned char lyuk, unsigned char szam, unsigned char* sor,
 #endif
 
 // Ez a fuggveny kilogas eseten hivodik meg, plussz parametere xhossz:
-void egysor( unsigned char lyuk, short szam, unsigned char* sor,
+void egysor( unsigned char lyuk, int szam, unsigned char* sor,
 		unsigned char* tomb, long futox, long futoy, long dx, long dy,
 		int xhossz ) {
 	short* pf_futox = (short*)(&futox);
 	pf_futox++;
 	short* pf_futoy = (short*)(&futoy);
 	pf_futoy++;
-	for( short x = 0; x < szam; x++ ) {
+	for( int x = 0; x < szam; x++ ) {
 		if( x >= xhossz )
 			return;
 		unsigned short fx = *pf_futox;
@@ -460,7 +461,7 @@ void dobozki( pic8* ppic8, kiskep* pkiskep, vekt2 u, vekt2 v, vekt2 r ) {
 				unsigned char* cim = ppic8->getptr( ybal );
 				cim += xbal;
 				int xhossz = Cxsize-xbal;
-				egysor( lyuk, short(x2-xbal+1), cim, pkiskep->tomb,
+				egysor( lyuk, x2-xbal+1, cim, pkiskep->tomb,
 								xkiskep, ykiskep, invix, inviy, xhossz );
 			}
 			else {
@@ -507,7 +508,7 @@ void dobozki( pic8* ppic8, kiskep* pkiskep, vekt2 u, vekt2 v, vekt2 r ) {
 				}
 				unsigned char* cim = ppic8->getptr( ybal );
 				cim += xbal;
-				egysor( lyuk, short(x2-x1+1), cim, pkiskep->tomb,
+				egysor( lyuk, x2-x1+1, cim, pkiskep->tomb,
 								xkiskep, ykiskep, invix, inviy );
 			}
 			else {

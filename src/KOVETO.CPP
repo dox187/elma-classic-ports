@@ -6,15 +6,19 @@ koveto::koveto( void ) {
 	for( int i = 0; i < MAXKOVETOKEPSZAM; i++ ) {
 		pkeptomb[i] = NULL;
 		feltomb[i] = 0;
+		atlatszotomb[i] = 0;
+		lejtestomb[i] = 0;
 	}
 }
 
 // nev kiterjesztes nelkuli:
-void koveto::addkep( pic8* ppic, int up ) {
+void koveto::addkep( pic8* ppic, int up, unsigned char atlatszo, int lejtes ) {
 	if( kepszam >= MAXKOVETOKEPSZAM )
 		uzenet( "Too many grass pictures in lgr file!" );
 	pkeptomb[kepszam] = ppic;
 	feltomb[kepszam] = up;
+	atlatszotomb[kepszam] = atlatszo;
+	lejtestomb[kepszam] = lejtes;
 
 	kepszam++;
 }
@@ -31,7 +35,7 @@ koveto::~koveto( void ) {
 // cur-t adja vissza (ami mindig utolso jol kitoltott hely):
 // Elso alkalommal kitolti *px0-at:
 static int feldolgvonalszakasz( gyuru* pgy, int p1, int p2, int* px0,
-				int cur, int* ytomb, int maxhely, vekt2* porigo ) {
+				int cur, int* ytomb, int maxhely, vekt2* porigo, int* pkilog ) {
 	if( p1 < 0 || p1 >= pgy->pontszam ||
 		p2 < 0 || p2 >= pgy->pontszam )
 		hiba( "8u9tg4" );
@@ -46,8 +50,13 @@ static int feldolgvonalszakasz( gyuru* pgy, int p1, int p2, int* px0,
 	int    x2 = (r2.x - porigo->x) * Arany;
 	double y2 = (-r2.y - porigo->y) * Arany;
 
-	if( x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 )
-		hiba( "7yces" );
+	// Grass polygons are not in Pszak, so they can stick out of the brush
+	// (originally exited here with hiba): makevonal discards a line sticking
+	// out to the left, and ecset::addbytesor skips rows sticking out up/down:
+	if( x1 < 0 || x2 < 0 ) {
+		*pkilog = 1;
+		return cur;
+	}
 
 	if( cur < 0 ) {
 		// Elso jo hivas:
@@ -114,6 +123,7 @@ int makevonal( gyuru* pgy, int* ytomb, int* phossz, int* px0,
 	// Vegigmegyunk szakaszokon:
 	*px0 = -1;
 	int cur = -1;
+	int kilog = 0;
 	for( i = 0; i < pgy->pontszam-1; i++ ) {
 		// Eloszor lepunk mert osszekoto szakaszrol indultunk:
 		if( elore ) {
@@ -142,7 +152,9 @@ int makevonal( gyuru* pgy, int* ytomb, int* phossz, int* px0,
 
 		// Elso alkalommal kitolti *px0-at:
 		cur = feldolgvonalszakasz( pgy, pkisebb, pnagyobb, px0, cur, ytomb,
-					maxhely, porigo );
+					maxhely, porigo, &kilog );
+		if( kilog )
+			return 0;
 	}
 
 	if( *px0 < 0 )

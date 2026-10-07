@@ -22,7 +22,12 @@ void csokkentkepmeret( void ) {
     Kitoltestmegrak = Kitoltestmegrakkezd;
 }
 
-// Kirajzolando terulet nagysaga:
+// The size of the game's picture (lockbackbuffer), kirajzol320 sets it at
+// the start of every frame (always 640x480 in the original game):
+static int Kepxsize = 640, Kepysize = 480;
+
+// Size of the area to draw (beallitmereteket computes it from the picture's
+// size, before we draw anything):
 static int Cx1 = 0, Cy1 = 0, Cx2 = 639, Cy2 = 479,
            Cy1Bplayer = 0, Cy2Bplayer = 0;
 int Cxsize = 640, Cysize = 480;
@@ -39,27 +44,38 @@ double  Hatarx1,
 static int Viewxsize, Viewysize;
 static int Viewxorig, Viewxtolas;
 
+// Height of the strip between the two players' pictures in split screen:
+#define SPLITKOZ (12)
+
+// Into a picture of size Kepxsize*Kepysize:
 void beallitmereteket( int splitscreen ) {
     Cy1Bplayer = 100, Cy2Bplayer = 200;
 
-    Cxsize = 640*(Kepmeret*1.001);
-    Cysize = 480*(Kepmeret*1.001);
-    Cx1 = (640-Cxsize)/2;
-    Cy1 = (480-Cysize)/2;
+    // Because of the 1.001, in 640x480 every Kepmeret gives the same result
+    // as before, but on a bigger picture it would stick out of it:
+    Cxsize = Kepxsize*(Kepmeret*1.001);
+    Cysize = Kepysize*(Kepmeret*1.001);
+    if( Cxsize > Kepxsize )
+        Cxsize = Kepxsize;
+    if( Cysize > Kepysize )
+        Cysize = Kepysize;
+    Cx1 = (Kepxsize-Cxsize)/2;
+    Cy1 = (Kepysize-Cysize)/2;
     Cx2 = Cx1 + Cxsize - 1;
     Cy2 = Cy1 + Cysize - 1;
     if( splitscreen ) {
-        Cysize = 234;
-		Cy1 = 246; // Mivel kep fejjel lefele van, forditva vannak koordok
-        Cy2 = 479; // Vagyis A player van felul, B pedig lent
+        // In a 480-high picture: 234-high pictures, with 12 rows between them:
+        Cysize = (Kepysize-SPLITKOZ)/2;
+		Cy1 = Kepysize-Cysize; // Mivel kep fejjel lefele van, forditva vannak koordok
+        Cy2 = Kepysize-1; // Vagyis A player van felul, B pedig lent
         Cy1Bplayer = 0;
-        Cy2Bplayer = 233;
+        Cy2Bplayer = Cysize-1;
     }
     #ifdef TEST
-        if( Cx2 >= 640 )
-            hiba( "beallitmereteket Cx2 >= 640!" );
-        if( Cy2 >= 480 )
-            hiba( "beallitmereteket Cy2 >= 480!" );
+        if( Cx2 >= Kepxsize )
+            hiba( "beallitmereteket Cx2 >= Kepxsize!" );
+        if( Cy2 >= Kepysize )
+            hiba( "beallitmereteket Cy2 >= Kepysize!" );
     #endif
 
     // Ezek csak doboz kirajzolashoz kellenek:
@@ -68,15 +84,30 @@ void beallitmereteket( int splitscreen ) {
     Hatarx2 = Cxsize-3.0;
     Hatary2 = Cysize-3.0;
 
-    // Motoros kepernyo mely reszen helyezkedik el:
-    Mo_bal = (640/Arany)*0.15;
+    // Where the motorbike sits on the screen: the same distance in meters
+    // from the picture's edge as without zoom (so a zoomed motorbike also
+    // fits behind it), but at most to the middle of the picture:
+    Mo_bal = (Kepxsize/Arany)*0.15*Motornagyitas;
+    if( Mo_bal > Cxsize/Arany/2.0 )
+        Mo_bal = Cxsize/Arany/2.0;
     Mo_dx  = Cxsize/Arany - 2.0*Mo_bal;
     Mo_y   = Cysize/Arany/2.0;
 
-    Viewxsize = 140*sqrt(double(Cysize)/480.0); // 200
-    Viewysize = 70*sqrt(double(Cysize)/480.0);  // 80
-    Viewxorig = 40*(Kepmeret-0.6)/0.4;
+    // On a picture with more pixels (picture matching) the view window is also bigger:
+    double illesztes = Kepxsize/640.0 < Kepysize/480.0 ? Kepxsize/640.0 : Kepysize/480.0;
+    if( illesztes < 1.0 )
+        illesztes = 1.0;
+    Viewxsize = 140*illesztes*sqrt(double(Cysize)/(480.0*illesztes)); // 200
+    Viewysize = 70*illesztes*sqrt(double(Cysize)/(480.0*illesztes));  // 80
+    Viewxorig = 40*illesztes*(Kepmeret-0.6)/0.4;
     Viewxtolas = Cxsize-2*Viewxorig-Viewxsize;
+    // The view window, together with its frame (1 pixel around), must also fit in the picture:
+    if( Viewxtolas < 0 ) {
+        Viewxsize += Viewxtolas;
+        Viewxtolas = 0;
+    }
+    if( Viewysize > Cysize-2 )
+        Viewysize = Cysize-2;
 }
 
 void forditkepet( pic8* ppic ) {
@@ -183,11 +214,12 @@ static void felhokfel( int x, int y, pic8* ppicbuffer, pic8* pfelho,
     }
 } */
 
+// The map is Aranyalap/Viewzoom pixel/meter regardless of zoom:
 static void kiview( int ajatekos, pic8* ppic, double baljobb,
 				vekt2 motorkozep, motorst* pmot2 ) {
 
-    double Viewxsize_d = Viewxsize*Viewzoom*Aranyrec;
-    double Viewysize_d = Viewysize*Viewzoom*Aranyrec;
+    double Viewxsize_d = Viewxsize*Viewzoom*Aranyalaprec;
+    double Viewysize_d = Viewysize*Viewzoom*Aranyalaprec;
 
     double szeltoltav = 0.2; // 20%
     double atfuthossz = 1.0-2.0*szeltoltav;
@@ -247,15 +279,15 @@ static void kiview( int ajatekos, pic8* ppic, double baljobb,
 	// Most kirajzoljuk masik (hatso) motorost:
 	if( pmot2 ) {
 		vekt2 sarokrel = pmot2->kor1.r - sarok;
-		int mx = sarokrel.x * Arany/Viewzoom + vx1;
-		int my = sarokrel.y * Arany/Viewzoom + vy1;
+		int mx = sarokrel.x * Aranyalap/Viewzoom + vx1;
+		int my = sarokrel.y * Aranyalap/Viewzoom + vy1;
 		if( mx >= vx1 && mx <= vx2 && my >= vy1 && my <= vy2 )
 			kigyuru( ppic, mx, my, viewindex2 );
 	}
 
 	// Most kirajzoljuk elso motorost:
-	int mx = sarokbolkozepre.x*Arany/Viewzoom;
-	int my = sarokbolkozepre.y*Arany/Viewzoom;
+	int mx = sarokbolkozepre.x*Aranyalap/Viewzoom;
+	int my = sarokbolkozepre.y*Aranyalap/Viewzoom;
 	kigyuru( ppic, vx1+mx, vy1+my, viewindex1 );
 
 	// Kirajzoljuk keretet:
@@ -295,9 +327,9 @@ static void menteshakell( pic8* ppic ) {
 
 static void kitolthatteret( pic8* ppic ) {
     int y = 0;
-    while( y < 480 ) {
+    while( y < ppic->getysize() ) {
         int x = 0;
-        while( x < 640 ) {
+        while( x < ppic->getxsize() ) {
 			// hiba( "Itt van 14!" ); idejott
 			// hiba( tmp ); (16) kiirja koordokat szepen
 			
@@ -605,10 +637,12 @@ static void kirakegyjatekost(
 	// Objektumok kirajzolasa, de view-ba csak kesobb kerulnek:
 	int balalsox, balalsoy;
 	Pecsetalso->getbalalso_int( sarok, &balalsox, &balalsoy );
-	int objminx = balalsox - 2*OBJEKTUMSUGAR_I - 2;
-	int objminy = balalsoy - 2*OBJEKTUMSUGAR_I - 2;
-	int objmaxx = balalsox + 640;
-	int objmaxy = balalsoy + 480;
+	int objminx = balalsox - 2*Plgr->objektumsugar - 2;
+	int objminy = balalsoy - 2*Plgr->objektumsugar - 2;
+	// Originally it was + 640 and + 480 (the picture's size, even for a
+	// shrunk picture and split screen):
+	int objmaxx = balalsox + Kepxsize;
+	int objmaxy = balalsoy + Kepysize;
 	for( int i = 0; i < MAXKEREK; i++ ) {
 		kerek* pker = Ptop->kerektomb[i];
 		if( !pker )
@@ -631,11 +665,11 @@ static void kirakegyjatekost(
 				case T_KAJA:
 					pobjpic = Plgr->foodtomb[
 							pker->foodsorszam%Plgr->foodszam ]->getframe( t );
-					dy = 5*sin( t*15.5+pker->sinfazis );
+					dy = Plgr->objektumlebeges*sin( t*15.5+pker->sinfazis );
 					break;
 				case T_CEL:
 					pobjpic = Plgr->pexit->getframe( t );
-					dy = 5*sin( t*15.5+pker->sinfazis );
+					dy = Plgr->objektumlebeges*sin( t*15.5+pker->sinfazis );
 					break;
 				case T_HALALOS:
 					pobjpic = Plgr->pkiller->getframe( t );
@@ -677,10 +711,14 @@ static void kirakegyjatekost(
 	}
 
 	if( !Single ) {
-		// Hatso motoros kirajzolasa:
-		vekt2 kozep( sarok.x + 320.0*Aranyrec, sarok.y + 240.0*Aranyrec );
+		// Draw the other player's motorbike, if it is within half the
+		// picture's diagonal + 140 pixel (zoomed) from the picture's center
+		// (540 pixel in 640x480):
+		double felx = Kepxsize/2.0;
+		double fely = Kepysize/2.0;
+		vekt2 kozep( sarok.x + felx*Aranyrec, sarok.y + fely*Aranyrec );
 		double tav = abs( pmot2->kor1.r - kozep );
-		if( tav < 540.0*Aranyrec )
+		if( tav < (sqrt( felx*felx + fely*fely ) + 140.0*kepnagyitas())*Aranyrec )
 			kibike( !ajatekos, ppic, t, sarok, pmot2, pvalt2, pmkepek2 );
 	}
 
@@ -720,13 +758,13 @@ static void kirakegyjatekost(
 			darabok[6] = darabok[4];
 			darabok[4] = darabok[3];
 			darabok[3] = darabok[2];
-			kidigit( darabok, fogoido, t, ppic, Cxsize, Cysize );
+			kidigit( darabok, fogoido, t, ppic, Cxsize, Cysize, Kepxsize );
 		}
 		else*/
 			if( Tag )
-				kidigit( Ezenlegjobbido, fogoido, t, ppic, Cxsize, Cysize );
+				kidigit( Ezenlegjobbido, fogoido, t, ppic, Cxsize, Cysize, Kepxsize );
 			else
-				kidigit( Ezenlegjobbido, -1.0, t, ppic, Cxsize, Cysize );
+				kidigit( Ezenlegjobbido, -1.0, t, ppic, Cxsize, Cysize, Kepxsize );
 	}
 }
 
@@ -763,8 +801,17 @@ void kirajzol320(
     pic8* npic = lockbackbuffer_pic( 0 );
     Locky0_alul = 0;
 
+    // If the picture's size changed (window resize), the sizes and frame
+    // need to be recomputed:
+    if( npic->getxsize() != Kepxsize || npic->getysize() != Kepysize ) {
+        Kepxsize = npic->getxsize();
+        Kepysize = npic->getysize();
+        Kitoltestmegrak = Kitoltestmegrakkezd;
+    }
+
+    // keszitbelso writes this many row pointers into it:
     if( !Bpic )
-        Bpic = new pic8( 10, 480 );
+        Bpic = new pic8( 10, MAXKEPYSIZE );
 
 
 	// hiba( "Itt van 11!" ); idejott

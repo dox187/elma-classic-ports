@@ -34,6 +34,63 @@ static void initsoundlejatszoban( void ) {
 static viewtimest Viewtime1 = { 1, 0, 1, 0 };
 static viewtimest Viewtime2 = { 1, 0, 1, 0 };
 
+// The zoom-in (nagyit true) or zoom-out key, if it is not already used by
+// either player, the picture size, the screenshot or exit (0: none):
+static int nagyitobillentyu( int nagyit ) {
+	int kod = dd_zoom_key( nagyit );
+	if( kod <= 0 || kod >= 256 )
+		return 0;
+	jatekosopciok* opciok[2] = { &State->opciok1, &State->opciok2 };
+	for( int i = 0; i < 2; i++ ) {
+		jatekosopciok* po = opciok[i];
+		if( kod == po->billgaz || kod == po->billfek ||
+			kod == po->billugras1 || kod == po->billugras2 ||
+			kod == po->billfordul || kod == po->billview ||
+			kod == po->billtime || kod == po->billshowkep )
+			return 0;
+	}
+	if( kod == State->billplussz || kod == State->billminusz ||
+		kod == State->billsnap || kod == MK_ESC )
+		return 0;
+	return kod;
+}
+
+// The zoom steps during the game:
+#define NAGYITASLEPES (0.25)
+
+// During the game and replay, between two pictures: on pressing the zoom-in
+// or zoom-out key, switches to the next NAGYITASLEPES step (NAGYITASMIN..
+// NAGYITASMAX), saves it and rebuilds the picture:
+static void nagyitobillentyuk( int* pnagyitnyomva, int* pkicsinyitnyomva ) {
+	int nagyitkod = nagyitobillentyu( 1 );
+	int kicsinyitkod = nagyitobillentyu( 0 );
+	int nagyit = nagyitkod && mk_getstate( nagyitkod );
+	int kicsinyit = kicsinyitkod && mk_getstate( kicsinyitkod );
+	int irany = 0;
+	if( nagyit && !*pnagyitnyomva )
+		irany++;
+	if( kicsinyit && !*pkicsinyitnyomva )
+		irany--;
+	*pnagyitnyomva = nagyit;
+	*pkicsinyitnyomva = kicsinyit;
+	if( !irany )
+		return;
+	double regi = dd_zoom();
+	// Rounds to the step grid (elma.cfg can hold anything):
+	double lepes = floor( regi/NAGYITASLEPES + 1e-6 );
+	if( irany < 0 )
+		lepes = ceil( regi/NAGYITASLEPES - 1e-6 );
+	double uj = (lepes+irany)*NAGYITASLEPES;
+	if( uj < NAGYITASMIN )
+		uj = NAGYITASMIN;
+	if( uj > NAGYITASMAX )
+		uj = NAGYITASMAX;
+	if( uj == regi )
+		return;
+	dd_set_zoom( uj );
+	nagyitasvaltas();
+}
+
 // 0-meghalt, 1-megnyerte, 2-semmi kulonos:
 static int spritefeldolgoz( int sorszam, int* pkajaszam, motorst* pmot ) {
 	if( sorszam < 0 || sorszam >= MAXKEREK )
@@ -342,6 +399,9 @@ long lejatszo( char* filenev ) {
 	int plussznyomva = 0;
 	int minusznyomva = 0;
 	int snapnyomva = 0;
+	// A key already held at the start of the game only counts after release:
+	int nagyitnyomva = 1;
+	int kicsinyitnyomva = 1;
 	mv_startstopper();
 
 	// Valtozok inicializalasa:
@@ -571,6 +631,8 @@ long lejatszo( char* filenev ) {
 		if( !snapnyomva && mk_getstate( State->billsnap ) )
 			Legkozment = 1;
 		snapnyomva = mk_getstate( State->billsnap );
+		// Zoom:
+		nagyitobillentyuk( &nagyitnyomva, &kicsinyitnyomva );
 
 		// Vizsgalat kilepesre:
 		if( mk_getstate( MK_ESC ) ) {
@@ -757,6 +819,9 @@ long lejatszo_r( char* filenev, int showkepmarad ) {
 	int plussznyomva = 0;
 	int minusznyomva = 0;
 	int snapnyomva = 0;
+	// A key already held at the start of the replay only counts after release:
+	int nagyitnyomva = 1;
+	int kicsinyitnyomva = 1;
 
 	// Valtozok inicializalasa:
 	valtozok valt1; // Inicializalni kell !!!!!!!!!!!!
@@ -888,6 +953,8 @@ long lejatszo_r( char* filenev, int showkepmarad ) {
 		if( !snapnyomva && mk_getstate( State->billsnap ) )
 			Legkozment = 1;
 		snapnyomva = mk_getstate( State->billsnap );
+		// Zoom:
+		nagyitobillentyuk( &nagyitnyomva, &kicsinyitnyomva );
 
 		// Vizsgalat kilepesre (game pad vissza gombja csak ESC karaktert
 		// kuld, billentyut nem, mert jatekban az a fek):

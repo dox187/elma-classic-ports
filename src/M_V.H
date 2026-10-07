@@ -17,6 +17,9 @@ int		getbutjmou( void );
 // d_stoppe.cpp-ben vannak megvalositva:
 double mv_stopperido( void );
 void mv_startstopper( void );
+// True pauses the stopper, false resumes it: the time elapsed while paused
+// does not count into mv_stopperido (rebuilding the in-game zoom):
+void mv_pausestopper( int pause );
 // Ezt valojaban csak crc fuggvenyek hasznaljak veletlen generalasara:
 void getbiostort( unsigned short* pbios, unsigned short* ptort );
 

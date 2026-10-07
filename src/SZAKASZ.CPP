@@ -285,6 +285,8 @@ void szakaszok::rendez( double maxtav ) {
 	}
 }
 
+int Racsonkivul = 0;
+
 void szakaszok::felsorolasreset( vekt2 r ) {
 	if( !tertomb )
 		hiba( "szakaszok::felsorolasreset-ban !tertomb!" );
@@ -296,12 +298,18 @@ void szakaszok::felsorolasreset( vekt2 r ) {
 	if( r.y > 0 )
 		cellay = r.y;
 
-	if( cellax > xdim )
-		hiba( "szakaszok::felsorolasreset-ben cellax > xdim!" );
+	// Too far to the right or up from the level: originally exited with
+	// hiba here, now vizsgalat kills the bike:
+	if( cellax > xdim ) {
+		Racsonkivul = 1;
+		cellax = xdim;
+	}
 	if( cellax == xdim )
 		cellax = xdim-1;
-	if( cellay > ydim )
-		hiba( "szakaszok::felsorolasreset-ben cellay > ydim!" );
+	if( cellay > ydim ) {
+		Racsonkivul = 1;
+		cellay = ydim;
+	}
 	if( cellay == ydim )
 		cellay = ydim-1;
 	nextnode = tertomb[xdim*cellay+cellax];

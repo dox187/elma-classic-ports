@@ -58,17 +58,36 @@ class lgrfile {
 	// Konstruktor hasznalja:
 	void chopbiker( pic8* pbiker, motkepek* pkepek );
 
+	// ppic is the original picture; beirkepet and beirmaszkot store it zoomed:
 	void beirkepet( pic8* ppic, piclist* ppiclist, int index );
 	void beirtexturat( pic8* ppic, piclist* ppiclist, int index );
 	void beirmaszkot( pic8* ppic, piclist* ppiclist, int index );
 
-	lgrfile( char* nev ); // kiterj es ut nelkul
+	// nev without extension and path. Zooms the pictures, masks and objects
+	// by nagyitas, the textures by texturanagyitas, the grass pictures
+	// (qup_, qdown_, qgrass) by funagyitas (with nearest neighbor), but not
+	// the engine parts, qcolors or qframe:
+	lgrfile( char* nev, double nagyitas, double texturanagyitas,
+			 double funagyitas );
 	~lgrfile( void );
 
 	int csereljen( int i );
 public:
 	friend void loadlgrfile( char* nev ); // Leiras alul
 	friend void tesztloadlgr( void );
+
+	// Zoom levels it was made with (1: original size):
+	double nagyitas, texturanagyitas, funagyitas;
+	int szuro; // the zoom filter (szuro.h)
+	int nagyfelbontasu; // LGR13: the pictures are larger than their target size
+	int megfelel( double nagyitas, double texturanagyitas, double funagyitas );
+	// Pixel sizes belonging to the pictures, zoomed (at zoom 1 the originals):
+	int objektummeret;      // size of an object's picture frames (40)
+	int objektumsugar;      // half of objektummeret (OBJEKTUMSUGAR_I)
+	double objektumlebeges; // up-down float of food and exit (5)
+	int keltolas;           // grass picture sticks below/above the line by this (20)
+	int fuggtoldas;         // qgrass sticks above the grass picture by this (FUGGTOLDAS)
+	int kovetomaxx, kovetomaxy; // above a grass picture larger than this there is no qgrass
 
 	int kepszam;
 	kep kepek[MAXKEPSZAM];
@@ -110,9 +129,9 @@ public:
 	// Ezt betoltecseteket hivja (Ptop-bol szedi kep neveket):
 	void betolthattereket();
 
-	// Ezeket colors.pcx file-bol veszi:
-	unsigned char viewfoldsor[640];
-	unsigned char viewegsor[640];
+	// Taken from the colors.pcx file (a row of the View window comes from these):
+	unsigned char viewfoldsor[MAXKEPXSIZE];
+	unsigned char viewegsor[MAXKEPXSIZE];
 	unsigned char viewmotorindex1;
 	unsigned char viewmotorindex2;
 	unsigned char idoszin1; // Ezt torolni lehet
@@ -129,8 +148,14 @@ public:
 };
 
 extern lgrfile* Plgr; // Az eppen bentlevo lgrfile-ra mutat
-// Ha nincs ilyen nevu file, akkor default-ot olvassa:
+// If there is no file with this name, it reads default instead. Loads it
+// zoomed for the current Arany (kepnagyitas(), dd_zoom_textures,
+// dd_zoom_grass), also reloading it if the loaded one was made with a
+// different zoom:
 void loadlgrfile( char* nev );
+// True if an LGR is loaded, and it was made with the zoom level for the
+// current Arany and settings:
+int lgrnagyitasjo( void );
 
 extern int Allandokepszam;
 // [stringek szama][egy string hossza]:

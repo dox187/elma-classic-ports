@@ -10,6 +10,11 @@ extern double   Hatarx1,
 
 extern int	Cxsize, Cysize; // Belso kep meretei
 
+// The game's picture (lockbackbuffer, m_dd.h) is at most this size; the
+// static arrays that depend on the picture's size are sized for this:
+#define MAXKEPXSIZE (4096)
+#define MAXKEPYSIZE (2400)
+
 extern int Kitoltestmegrak;
 // Es ennyire toltjuk:
 extern int Kitoltestmegrakkezd; 

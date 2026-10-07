@@ -29,7 +29,32 @@ extern double Kerekrajzsugar;
 
 // MCGA kirajzolasos:
 
+// Pixel/meter: what the built-in LGR's pictures and the brushes were made
+// with. Only changed by beallitarany, together with reloading the LGR and
+// rebuilding the brushes (load.cpp):
 extern double Arany, Aranyrec;
+// The original game's Arany without zoom (initadatok: 100*0.48 = 48):
+extern double Aranyalap, Aranyalaprec;
+// The engine's zoom, which Arany was built with (1: original size):
+extern double Motornagyitas;
+
+// Zoom limits:
+#define NAGYITASMIN (0.5)
+#define NAGYITASMAX (4.0)
+
+// Arany = Aranyalap * picture fit to the screen * zoom. For the game
+// (jatekhoz true) sets it with the desired zoom, for the editor with the
+// original:
+void beallitarany( int jatekhoz );
+// True if beallitarany( 1 ) for the game would give a different Arany than
+// the current one:
+int maskellarany( void );
+// How many times bigger the LGR's pictures are scaled to the current Arany
+// (Arany/Aranyalap):
+double kepnagyitas( void );
+// A size given in one pixel (belonging to the pictures), scaled, rounded,
+// at least 1; exactly the pixel value at 1x zoom:
+int nagyitpixel( int pixel, double nagyitas );
 
 
 extern double Kord2x, Kord2y, Kord4x, Kord4y,
@@ -37,8 +62,12 @@ extern double Kord2x, Kord2y, Kord4x, Kord4y,
 
 extern double Fekegyutthato;
 
+// Half size of objects (40x40 pictures) without zoom, scaled it is
+// Plgr->objektumsugar:
 #define OBJEKTUMSUGAR_I (20)
 
+// The view window (map) has this many times smaller a ratio than Aranyalap;
+// the map is always Aranyalap/Viewzoom pixel/meter regardless of zoom:
 extern int Viewzoom;
 
 struct motorst {

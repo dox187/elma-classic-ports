@@ -85,8 +85,8 @@ int dialog( char* text1, char* text2, char* text3,
 		push(); // Leszedjuk egeret keprol
 	}
 	else {
-		Moux = 320;
-		Mouy = 240;
+		Moux = Menuxsize/2;
+		Mouy = Menuysize/2;
 	}
 
 	invalidateegesz();
@@ -96,30 +96,32 @@ int dialog( char* text1, char* text2, char* text3,
 		if( xsize < Pabc2->len( texttomb[i] ) + 16 )
 			xsize = Pabc2->len( texttomb[i] ) + 16;
 
+	// At the center of the menus' image (320, 240 on 640x480):
+	int kozepx = Buffsima->getxsize()/2, kozepy = Buffsima->getysize()/2;
 	int dy = 20;
 	int ysize = textszam*dy + 50;
-	int x1 = 320-xsize/2;
-	int y1 = 240-ysize/2;
-	int x2 = 320+xsize/2;
-	int y2 = 240+ysize/2;
+	int x1 = kozepx-xsize/2;
+	int y1 = kozepy-ysize/2;
+	int x2 = kozepx+xsize/2;
+	int y2 = kozepy+ysize/2;
 	kirajzbox( Buffsima, x1, y1, x2, y2, Dialogszin, Dialogszelszin );
 	for( i = 0; i < textszam; i++ )
-		Pabc2->writekozep( Buffsima, 320, y1+22+i*dy, texttomb[i] );
+		Pabc2->writekozep( Buffsima, kozepx, y1+22+i*dy, texttomb[i] );
 
 	// Kirajzoljuk gombokat is:
 	int gx1tomb[15], gx2tomb[15], gy1 = y2-30, gy2 = y2-10;
 	int gdx = 80;
 	if( gombszam == 1 ) {
-		gx1tomb[0] = 320;
+		gx1tomb[0] = kozepx;
 	}
 	if( gombszam == 2 ) {
-		gx1tomb[0] = 320-gdx/2;
-		gx1tomb[1] = 320+gdx/2;
+		gx1tomb[0] = kozepx-gdx/2;
+		gx1tomb[1] = kozepx+gdx/2;
 	}
 	if( gombszam == 3 ) {
-		gx1tomb[0] = 320-gdx;
-		gx1tomb[1] = 320;
-		gx1tomb[2] = 320+gdx;
+		gx1tomb[0] = kozepx-gdx;
+		gx1tomb[1] = kozepx;
+		gx1tomb[2] = kozepx+gdx;
 	}
 	if( gombszam > 3 )
 		hiba( "uofiufriufr" );

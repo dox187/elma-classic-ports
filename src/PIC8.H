@@ -77,6 +77,9 @@ unsigned char* spriteadat8( pic8* pmask, unsigned char szin, unsigned short* psp
 int pcxtopal( char* nev, unsigned char* pal );
 int pcxtopal( char* nev, ddpal** ppddpal );
 
+// New picture resized with the nearest neighbor (does not delete the old one):
+pic8* atmeretez( pic8* ps, int ujxsize, int ujysize );
+
 void mintavetel8( pic8* pdest, pic8* psour, int x1, int y1, int x2, int y2 );
 void mintavetel8( pic8* pdest, pic8* psour );
 

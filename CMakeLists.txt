@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.13)
-project(elma_classic LANGUAGES CXX)
+project(elma_classic LANGUAGES C CXX)
+
+# Without a build type, single-configuration generators such as Ninja and
+# Make compile without optimization.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 
 option(ELMA_REGISTERED "Build the registered version; needs the registered game data" OFF)
 set(ELMA_PLATFORM "desktop" CACHE STRING
@@ -40,13 +46,13 @@ set(ELMA_CORE
     ABC8.CPP ADATOK.CPP ANIM.CPP BEALLIT.CPP BESTTIME.CPP
     CUSTOM.CPP DIALOG.CPP DIALOG32.CPP DIGIT.CPP DISPLAY.CPP DOBOZ.CPP
     D_PIC.CPP ECSET.CPP EDITHELP.CPP EDITMENU.CPP EDITPLAY.CPP EDITTOLT.CPP
-    EDITTOOL.CPP EDITUJ.CPP ED_CHECK.CPP FOGOCSKA.CPP GOLYKISZ.CPP
+    EDITTOOL.CPP EDITUJ.CPP ED_CHECK.CPP FOGOCSKA.CPP GOLYKISZ.CPP GYUJTEM.CPP
     GOLYOK.CPP GOLYUTK.CPP GRAPH.CPP GYURU.CPP H_WAV.CPP JATEKOS.CPP
     KIRAJ320.CPP KISKEP.CPP KOVETO.CPP KOZOS.CPP LEJATSZO.CPP LEPTET.CPP
     LGRFILE.CPP LOAD.CPP MAIN.CPP MAINMENU.CPP MENUKEP.CPP NEWUJ.CPP
     OPTIONS.CPP PEXTMENU.CPP PIC8.CPP PICLIST.CPP PLAY.CPP
     QOPEN.CPP README.CPP RECORDER.CPP SKIP.CPP SPRITE.CPP
-    STATE.CPP SZAKASZ.CPP TELJES.CPP TOPOL.CPP UPGRADE.CPP UTKOZES.CPP
+    STATE.CPP SZAKASZ.CPP SZURO.CPP TELJES.CPP TOPOL.CPP UPGRADE.CPP UTKOZES.CPP
     UTKOZES2.CPP VALASZT2.CPP VEKT2.CPP
 )
 list(TRANSFORM ELMA_CORE PREPEND src/)
@@ -69,14 +75,24 @@ foreach(header ${ELMA_HEADERS})
     endif()
 endforeach()
 
+# The hq2x, hq3x and hq4x scalers enlarge the pictures of the level when it is
+# zoomed (LGPL 2.1, see third_party/hqx).
+add_library(hqx STATIC third_party/hqx/init.c third_party/hqx/hq2x.c
+            third_party/hqx/hq3x.c third_party/hqx/hq4x.c)
+target_include_directories(hqx INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+
 function(elma_target target)
     target_include_directories(${target} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/desktop ${ELMA_HEADER_DIR})
+    target_link_libraries(${target} PRIVATE hqx)
     # The code was written for x86, where char is signed, and for compilers
     # that let signed integers wrap around instead of optimizing on their
-    # overflow. Floating point contraction (fused multiply-add on ARM) would
-    # change the physics results, so replays stay the same on every platform.
-    target_compile_options(${target} PRIVATE -fpermissive -fsigned-char -fwrapv -ffp-contract=off)
+    # overflow. It also reads values through pointers of other types (the
+    # engine sound in H_WAV.CPP), which optimizing on strict aliasing breaks.
+    # Floating point contraction (fused multiply-add on ARM) would change the
+    # physics results, so replays stay the same on every platform.
+    target_compile_options(${target} PRIVATE -fpermissive -fsigned-char -fwrapv -fno-strict-aliasing
+                           -ffp-contract=off)
     if(ELMA_REGISTERED)
         target_compile_definitions(${target} PRIVATE ELMA_REGISTERED)
     endif()
@@ -89,7 +105,8 @@ endfunction()
 set(ELMA_SDL_SOUND desktop/F_SDL/SDL_SOUND.CPP desktop/F_SDL/SDL_HHIGH.CPP)
 
 if(SDL_FOUND)
-    add_executable(elma ${ELMA_CORE} desktop/F_SDL/SDL_PLATFORM.CPP ${ELMA_SDL_SOUND})
+    add_executable(elma ${ELMA_CORE} desktop/F_SDL/SDL_PLATFORM.CPP desktop/F_SDL/SDL_SETTINGS.CPP
+        ${ELMA_SDL_SOUND})
     elma_target(elma)
     target_link_libraries(elma PRIVATE PkgConfig::SDL)
     if(NOT ELMA_PLATFORM STREQUAL "desktop")

@@ -127,13 +127,64 @@ void options( void ) {
 		sprintf( Rubrikak[9+vantagis], "Customize Controls ..." );
 		sprintf( Rubrikak_tab[9+vantagis], "" );
 
+		int rubrikaszam = 10;
 		#ifdef ELMA_CLI
 			strcpy( Rubrikak[10+vantagis], "Terminal Graphics:" );
 			strcpy( Rubrikak_tab[10+vantagis], cli_graphics_name() );
-			val.bead( 11+vantagis, 1 );
-		#else
-			val.bead( 10+vantagis, 1 );
+			rubrikaszam = 11;
 		#endif
+
+		// Image scaling, if adjustable on the platform:
+		int nagyitassor = -1;
+		if( dd_scale_name() ) {
+			nagyitassor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Scaling:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_scale_name() );
+			rubrikaszam++;
+		}
+
+		// The game image's aspect ratio, if adjustable on the platform:
+		int aranysor = -1;
+		if( dd_aspect_name() ) {
+			aranysor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Aspect Ratio:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_aspect_name() );
+			rubrikaszam++;
+		}
+
+		// The game image's resolution, if adjustable on the platform:
+		int felbontassor = -1;
+		if( dd_resolution_name() ) {
+			felbontassor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Resolution:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_resolution_name() );
+			rubrikaszam++;
+		}
+
+		// Engine zoom and texture zoom, if adjustable on the platform:
+		int zoomsor = -1;
+		if( dd_zoom_name() ) {
+			zoomsor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Zoom:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_zoom_name() );
+			rubrikaszam++;
+		}
+		int zoomtexturasor = -1;
+		if( dd_zoom_textures_name() ) {
+			zoomtexturasor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Zoom Textures:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_zoom_textures_name() );
+			rubrikaszam++;
+		}
+		int szurosor = -1;
+		if( dd_texture_filter_name() ) {
+			szurosor = rubrikaszam;
+			strcpy( Rubrikak[rubrikaszam+vantagis], "Texture Filter:" );
+			strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_texture_filter_name() );
+			rubrikaszam++;
+		}
+
+		val.bead( rubrikaszam+vantagis, 1 );
 
 		kurrens = val.valassz();
 
@@ -202,6 +253,25 @@ void options( void ) {
 			if( kurrens == 10 )
 				cli_next_graphics();
 		#endif
+
+		if( nagyitassor >= 0 && kurrens == nagyitassor )
+			dd_next_scale();
+
+		if( aranysor >= 0 && kurrens == aranysor )
+			dd_next_aspect();
+
+		if( felbontassor >= 0 && kurrens == felbontassor )
+			dd_next_resolution();
+
+		// Takes effect when the next level loads (floadlevel_p):
+		if( zoomsor >= 0 && kurrens == zoomsor )
+			dd_next_zoom();
+
+		if( zoomtexturasor >= 0 && kurrens == zoomtexturasor )
+			dd_next_zoom_textures();
+
+		if( szurosor >= 0 && kurrens == szurosor )
+			dd_next_texture_filter();
 
 
 		if( vantagis ) // Visszaalitjuk eredeti helyzetebe

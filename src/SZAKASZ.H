@@ -64,6 +64,11 @@ struct vonal {
 
 extern szakaszok *Pszak;
 
+// felsorolasreset sets it true if the searched point is too far to the
+// right or up from the level (originally this was hiba), vizsgalat clears
+// it:
+extern int Racsonkivul;
+
 
 
 

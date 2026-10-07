@@ -1,5 +1,7 @@
 #include "all.h"
+#include "SDL_SETTINGS.H"
 #include <SDL.h>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <deque>
@@ -24,15 +26,13 @@ SDL_Surface* screen = NULL;
 // but not when flipping.
 SDL_Surface* frame = NULL;
 std::array<uint32_t, 256> screen_palette;
-Uint32 last_flip = 0;
+// The game, the menus and the editor all draw into this 640x480 picture.
+std::array<unsigned char, 640 * 480> pixels;
+std::array<unsigned char*, 480> rows;
 #else
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
-SDL_Texture* texture = NULL;
-std::array<uint32_t, 640 * 480> rgba;
 #endif
-std::array<unsigned char, 640 * 480> pixels;
-std::array<unsigned char*, 480> rows;
 std::array<uint32_t, 256> palette;
 std::array<BYTE, 256> keys;
 std::deque<int> chars;
@@ -40,19 +40,244 @@ bool locked = false;
 bool running = true;
 std::chrono::steady_clock::time_point stopper_start;
 
-bool env_flag(const char* name, bool fallback) {
-    const char* value = getenv(name);
-    if (!value || !*value) return fallback;
-    return strcmp(value, "0") != 0;
-}
-
 bool fullscreen() {
 #ifdef ELMA_HANDHELD
-    return env_flag("ELMA_FULLSCREEN", true);
+    return config_flag("fullscreen", true);
 #else
-    return env_flag("ELMA_FULLSCREEN", false);
+    return config_flag("fullscreen", false);
 #endif
 }
+
+// Where showing a frame does not wait for the display, frames are kept to
+// frame_time milliseconds so that the menus do not keep the CPU busy. Where
+// it does wait, frames take that long already and nothing is added.
+Uint32 last_frame = 0;
+void wait_for_frame(Uint32 frame_time) {
+    const Uint32 elapsed = SDL_GetTicks() - last_frame;
+    if (elapsed < frame_time) SDL_Delay(frame_time - elapsed);
+    last_frame = SDL_GetTicks();
+}
+
+#ifndef ELMA_SDL1
+// How the picture is scaled to the window (scale in elma.cfg). Sharp
+// enlarges it by a whole number with hard pixel edges and smooths it only the
+// rest of the way; integer keeps to whole numbers with a black border.
+enum Scale { SCALE_SHARP, SCALE_SMOOTH, SCALE_NEAREST, SCALE_INTEGER, SCALE_PIXELART, SCALE_COUNT };
+const char* const scale_keys[SCALE_COUNT] = { "sharp", "smooth", "nearest", "integer", "pixelart" };
+const char* const scale_names[SCALE_COUNT] = { "Sharp", "Smooth", "Nearest", "Integer", "Pixel Art" };
+Scale scale = SCALE_SHARP;
+
+Scale configured_scale() {
+    const char* name = config_get("scale", NULL);
+    if (name) {
+        for (int i = 0; i < SCALE_COUNT; ++i)
+            if (stricmp(name, scale_keys[i]) == 0) return Scale(i);
+        return SCALE_SHARP;
+    }
+    // Before elma.cfg, the scaling was chosen with SDL's own variable.
+    const char* quality = getenv("SDL_RENDER_SCALE_QUALITY");
+    if (!quality) return SCALE_SHARP;
+    if (!strcmp(quality, "0") || !stricmp(quality, "nearest")) return SCALE_NEAREST;
+    if (!strcmp(quality, "1") || !stricmp(quality, "linear")) return SCALE_SMOOTH;
+    if (!strcmp(quality, "2") || !stricmp(quality, "best")) return SCALE_PIXELART;
+    return SCALE_SHARP;
+}
+
+enum Filter { FILTER_NEAREST, FILTER_LINEAR, FILTER_PIXELART };
+
+// A picture of w x h pixels drawn by the game, and the place it takes in the
+// window, in drawable pixels. For sharp scaling it is first enlarged with hard
+// edges by factor into upscaled, which is then smoothed to place.
+struct Picture {
+    int w, h;
+    std::vector<unsigned char> pixels; // top row first
+    std::vector<unsigned char*> rows;  // handed out by the lock functions
+    std::vector<uint32_t> rgba;
+    SDL_Texture* texture;
+    Filter filter;
+    SDL_Texture* upscaled;
+    int factor;
+    SDL_Rect place;
+
+    Picture(int width, int height)
+        : w(0), h(0), texture(NULL), filter(FILTER_NEAREST), upscaled(NULL), factor(0) {
+        resize(width, height);
+    }
+    // The pixels are black again; the textures are made again by layout().
+    void resize(int width, int height);
+    // The in-game renderer sets Locky0_alul: row 0 is then the bottom row.
+    unsigned char** lock(bool bottom_up) {
+        for (int y = 0; y < h; ++y) rows[bottom_up ? h - 1 - y : y] = &pixels[size_t(y) * w];
+        return rows.data();
+    }
+};
+// The menus, dialogs and the editor draw into this picture (640x480, larger
+// menus fill the window: frontbuffermeret), which
+// keeps what they drew; the game draws its view into the other one, whose
+// size follows the aspect ratio of the window (game_view_size).
+Picture ui_picture(640, 480);
+Picture game_picture(640, 480);
+// The one unlocked last is shown.
+Picture* shown = &ui_picture;
+Aspect aspect = ASPECT_SCREEN;
+SDL_RendererInfo renderer_info;
+bool targets = false; // the renderer can draw into textures
+// The largest texture that sharp scaling draws into, in pixels. It is
+// lowered when the renderer cannot make one that large.
+const int target_pixels = 16 * 1024 * 1024;
+int max_target_pixels = target_pixels;
+
+// The filter of a texture is taken from the hint when the texture is made;
+// the override is stronger than SDL_RENDER_SCALE_QUALITY in the environment.
+// Every SDL 2 reads it (SDL_SetTextureScaleMode needs 2.0.12), and pixel art
+// is only reached through it: sdl2-compat on SDL 3.4 and later turns "2" into
+// the pixel art filter of SDL 3, while SDL 2 itself filters linearly then.
+SDL_Texture* create_texture(int w, int h, int access, Filter filter) {
+    static const char* const hints[] = { "0", "1", "2" };
+    SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, hints[filter], SDL_HINT_OVERRIDE);
+    return SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, access, w, h);
+}
+
+void destroy(SDL_Texture*& texture) {
+    if (texture) SDL_DestroyTexture(texture);
+    texture = NULL;
+}
+
+// The textures are made again by the next layout().
+void reset_textures(Picture& picture) {
+    destroy(picture.texture);
+    destroy(picture.upscaled);
+    picture.factor = 0;
+}
+
+void reset_textures() {
+    reset_textures(ui_picture);
+    reset_textures(game_picture);
+}
+
+void Picture::resize(int width, int height) {
+    reset_textures(*this);
+    w = width;
+    h = height;
+    pixels.assign(size_t(w) * h, 0);
+    rows.assign(h, NULL);
+    rgba.assign(size_t(w) * h, 0);
+    place.x = place.y = 0;
+    place.w = w;
+    place.h = h;
+}
+
+// Fits the picture into the window with its own aspect ratio and chooses how
+// it is scaled there. The textures are only made again when that changes.
+void layout(Picture& picture) {
+    const int w = picture.w, h = picture.h;
+    int out_w = 0, out_h = 0;
+    if (SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0 || out_w <= 0 || out_h <= 0) {
+        out_w = w;
+        out_h = h;
+    }
+    SDL_Rect& place = picture.place;
+    if (out_w * h > out_h * w) {
+        place.h = out_h;
+        place.w = (out_h * w + h / 2) / h;
+    } else {
+        place.w = out_w;
+        place.h = (out_w * h + w / 2) / w;
+    }
+    const int whole = std::min(out_w / w, out_h / h);
+    // The game view takes the aspect ratio of the window only to a whole
+    // pixel of its own (854x480 in 1920x1080 or 3840x2160 would leave black
+    // rows): a picture short of the window by up to one of its pixels
+    // fills it, unless it fits it by a whole number.
+    const int slack_w = (out_w + w - 1) / w, slack_h = (out_h + h - 1) / h;
+    if (place.w >= out_w - slack_w && place.h >= out_h - slack_h &&
+        !(whole >= 1 && place.w == w * whole && place.h == h * whole)) {
+        place.w = out_w;
+        place.h = out_h;
+    }
+    Filter filter = FILTER_LINEAR;
+    int factor = 0;
+    switch (scale) {
+    case SCALE_NEAREST: filter = FILTER_NEAREST; break;
+    case SCALE_PIXELART: filter = FILTER_PIXELART; break;
+    case SCALE_INTEGER:
+        // In a window smaller than the picture, it is smoothed down instead.
+        if (whole >= 1) {
+            place.w = w * whole;
+            place.h = h * whole;
+            filter = FILTER_NEAREST;
+        }
+        break;
+    case SCALE_SHARP:
+        if (whole >= 1 && place.w == w * whole && place.h == h * whole) {
+            filter = FILTER_NEAREST;
+        } else if (targets) {
+            // The smallest whole number that covers the place, within the
+            // texture size of the renderer and max_target_pixels.
+            factor = std::max((place.w + w - 1) / w, (place.h + h - 1) / h);
+            const int max_w = renderer_info.max_texture_width, max_h = renderer_info.max_texture_height;
+            while (factor > 1 && ((max_w && w * factor > max_w) || (max_h && h * factor > max_h) ||
+                                  w * factor * h * factor > max_target_pixels))
+                --factor;
+            if (factor > 1) filter = FILTER_NEAREST;
+            else factor = 0;
+        }
+        break;
+    default: break;
+    }
+    place.x = (out_w - place.w) / 2;
+    place.y = (out_h - place.h) / 2;
+
+    if (!picture.texture || picture.filter != filter) {
+        destroy(picture.texture);
+        picture.texture = create_texture(w, h, SDL_TEXTUREACCESS_STREAMING, filter);
+        picture.filter = filter;
+    }
+    if (picture.factor != factor || (factor && !picture.upscaled)) {
+        destroy(picture.upscaled);
+        picture.factor = factor;
+        if (factor) {
+            picture.upscaled = create_texture(w * factor, h * factor, SDL_TEXTUREACCESS_TARGET, FILTER_LINEAR);
+            // A smaller one is tried then; without any, sharp scaling is
+            // smooth.
+            if (!picture.upscaled) {
+                max_target_pixels = w * factor * h * factor - 1;
+                layout(picture);
+            }
+        }
+    }
+}
+
+void draw(const Picture& picture) {
+    if (picture.upscaled) {
+        SDL_SetRenderTarget(renderer, picture.upscaled);
+        SDL_RenderCopy(renderer, picture.texture, NULL, NULL);
+        SDL_SetRenderTarget(renderer, NULL);
+        SDL_RenderCopy(renderer, picture.upscaled, NULL, &picture.place);
+    } else {
+        SDL_RenderCopy(renderer, picture.texture, NULL, &picture.place);
+    }
+}
+
+// The mouse is given in window coordinates, which on high-DPI screens are not
+// the drawable pixels that the pictures are placed in.
+void drawable_ratio(double* x, double* y) {
+    int window_w = 0, window_h = 0, out_w = 0, out_h = 0;
+    SDL_GetWindowSize(window, &window_w, &window_h);
+    SDL_GetRendererOutputSize(renderer, &out_w, &out_h);
+    *x = window_w > 0 && out_w > 0 ? double(out_w) / window_w : 1.0;
+    *y = window_h > 0 && out_h > 0 ? double(out_h) / window_h : 1.0;
+}
+
+#ifndef ELMA_HANDHELD
+void toggle_fullscreen() {
+    const bool on = !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN);
+    if (SDL_SetWindowFullscreen(window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) != 0) return;
+    config_set("fullscreen", on ? "1" : "0");
+    config_save();
+}
+#endif
+#endif
 
 // Game pad buttons, named as in SDL's game controller API. The Miyoo Mini
 // reports its buttons as keys, which are translated to these as well.
@@ -174,6 +399,19 @@ int dik(int key) {
     case SDLK_LEFT: return DIK_LEFT; case SDLK_RIGHT: return DIK_RIGHT;
     case SDLK_PAGEUP: return DIK_PRIOR; case SDLK_PAGEDOWN: return DIK_NEXT;
     case SDLK_DELETE: return DIK_DELETE;
+    case SDLK_HOME: return DIK_HOME; case SDLK_END: return DIK_END;
+    case SDLK_INSERT: return DIK_INSERT;
+    case SDLK_KP_PLUS: return DIK_ADD; case SDLK_KP_MINUS: return DIK_SUBTRACT;
+    case SDLK_KP_MULTIPLY: return DIK_MULTIPLY; case SDLK_KP_DIVIDE: return DIK_DIVIDE;
+    case SDLK_KP_PERIOD: return DIK_DECIMAL;
+    case SDLK_F1: return DIK_F1; case SDLK_F2: return DIK_F2; case SDLK_F3: return DIK_F3;
+    case SDLK_F4: return DIK_F4; case SDLK_F5: return DIK_F5; case SDLK_F6: return DIK_F6;
+    case SDLK_F7: return DIK_F7; case SDLK_F8: return DIK_F8; case SDLK_F9: return DIK_F9;
+    case SDLK_F10: return DIK_F10; case SDLK_F12: return DIK_F12;
+    case SDLK_LEFTBRACKET: return DIK_LBRACKET; case SDLK_RIGHTBRACKET: return DIK_RBRACKET;
+    case SDLK_SEMICOLON: return DIK_SEMICOLON; case SDLK_QUOTE: return DIK_APOSTROPHE;
+    case SDLK_BACKQUOTE: return DIK_GRAVE; case SDLK_BACKSLASH: return DIK_BACKSLASH;
+    case SDLK_SLASH: return DIK_SLASH;
     case SDLK_LCTRL: return DIK_LCONTROL; case SDLK_RCTRL: return DIK_RCONTROL;
     case SDLK_LSHIFT: return DIK_LSHIFT; case SDLK_RSHIFT: return DIK_RSHIFT;
     case SDLK_LALT: return DIK_LMENU; case SDLK_RALT: return DIK_RMENU;
@@ -215,6 +453,21 @@ int dik(SDL_Scancode code) {
     case SDL_SCANCODE_LEFT: return DIK_LEFT; case SDL_SCANCODE_RIGHT: return DIK_RIGHT;
     case SDL_SCANCODE_PAGEUP: return DIK_PRIOR; case SDL_SCANCODE_PAGEDOWN: return DIK_NEXT;
     case SDL_SCANCODE_DELETE: return DIK_DELETE;
+    case SDL_SCANCODE_HOME: return DIK_HOME; case SDL_SCANCODE_END: return DIK_END;
+    case SDL_SCANCODE_INSERT: return DIK_INSERT;
+    case SDL_SCANCODE_KP_PLUS: return DIK_ADD; case SDL_SCANCODE_KP_MINUS: return DIK_SUBTRACT;
+    case SDL_SCANCODE_KP_MULTIPLY: return DIK_MULTIPLY; case SDL_SCANCODE_KP_DIVIDE: return DIK_DIVIDE;
+    case SDL_SCANCODE_KP_PERIOD: return DIK_DECIMAL;
+    case SDL_SCANCODE_F1: return DIK_F1; case SDL_SCANCODE_F2: return DIK_F2;
+    case SDL_SCANCODE_F3: return DIK_F3; case SDL_SCANCODE_F4: return DIK_F4;
+    case SDL_SCANCODE_F5: return DIK_F5; case SDL_SCANCODE_F6: return DIK_F6;
+    case SDL_SCANCODE_F7: return DIK_F7; case SDL_SCANCODE_F8: return DIK_F8;
+    case SDL_SCANCODE_F9: return DIK_F9; case SDL_SCANCODE_F10: return DIK_F10;
+    case SDL_SCANCODE_F12: return DIK_F12;
+    case SDL_SCANCODE_LEFTBRACKET: return DIK_LBRACKET; case SDL_SCANCODE_RIGHTBRACKET: return DIK_RBRACKET;
+    case SDL_SCANCODE_SEMICOLON: return DIK_SEMICOLON; case SDL_SCANCODE_APOSTROPHE: return DIK_APOSTROPHE;
+    case SDL_SCANCODE_GRAVE: return DIK_GRAVE; case SDL_SCANCODE_BACKSLASH: return DIK_BACKSLASH;
+    case SDL_SCANCODE_SLASH: return DIK_SLASH;
     case SDL_SCANCODE_LCTRL: return DIK_LCONTROL; case SDL_SCANCODE_RCTRL: return DIK_RCONTROL;
     case SDL_SCANCODE_LSHIFT: return DIK_LSHIFT; case SDL_SCANCODE_RSHIFT: return DIK_RSHIFT;
     case SDL_SCANCODE_LALT: return DIK_LMENU; case SDL_SCANCODE_RALT: return DIK_RMENU;
@@ -288,6 +541,17 @@ void key_event(const SDL_KeyboardEvent& event, bool down, bool repeat) {
         return;
     }
 #endif
+#if !defined(ELMA_SDL1) && !defined(ELMA_HANDHELD)
+    // Alt+Enter and F11 switch between the window and full screen; the game
+    // does not get these presses. Ctrl+Alt+Enter is left to the menus, which
+    // save the times of a replay with it.
+    const Uint16 mod = event.keysym.mod;
+    if (down && (event.keysym.sym == SDLK_F11 ||
+                 (event.keysym.sym == SDLK_RETURN && (mod & KMOD_ALT) && !(mod & KMOD_CTRL)))) {
+        if (!repeat) toggle_fullscreen();
+        return;
+    }
+#endif
 #ifdef ELMA_SDL1
     const int code = dik(event.keysym.sym);
 #else
@@ -299,6 +563,8 @@ void key_event(const SDL_KeyboardEvent& event, bool down, bool repeat) {
         if (c) chars.push_back(c);
     }
 }
+
+void present();
 
 void events() {
     SDL_Event event;
@@ -326,6 +592,20 @@ void events() {
             break;
         case SDL_CONTROLLERAXISMOTION:
             controller_axis(event.caxis.axis, event.caxis.value);
+            break;
+        case SDL_WINDOWEVENT:
+            // The menus keep their place for the mouse; the game view gets
+            // its new size with the next frame.
+            if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) layout(ui_picture);
+            // The editor only draws when something changes, so the last
+            // picture is shown again.
+            if ((event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                 event.window.event == SDL_WINDOWEVENT_EXPOSED) && !locked)
+                present();
+            break;
+        case SDL_RENDER_TARGETS_RESET: case SDL_RENDER_DEVICE_RESET:
+            max_target_pixels = target_pixels;
+            reset_textures();
             break;
 #endif
         }
@@ -364,20 +644,39 @@ void present() {
     place.h = 480;
     SDL_BlitSurface(frame, NULL, screen, &place);
     SDL_Flip(screen);
-    // SDL 1.2 does not always wait for the display; keep to 60 frames per
-    // second so the menus do not keep the CPU busy.
-    const Uint32 frame_time = 16;
-    const Uint32 elapsed = SDL_GetTicks() - last_flip;
-    if (elapsed < frame_time) SDL_Delay(frame_time - elapsed);
-    last_flip = SDL_GetTicks();
+    // SDL 1.2 does not always wait for the display.
+    wait_for_frame(16);
 }
 #else
-void present() {
-    for (size_t i = 0; i < pixels.size(); ++i) rgba[i] = palette[pixels[i]];
-    SDL_UpdateTexture(texture, NULL, rgba.data(), 640 * sizeof(uint32_t));
+// Draws the frame without showing it.
+void draw_frame() {
+    Picture& picture = *shown;
+    for (size_t i = 0; i < picture.pixels.size(); ++i) picture.rgba[i] = palette[picture.pixels[i]];
+    layout(picture);
+    SDL_UpdateTexture(picture.texture, NULL, picture.rgba.data(), picture.w * sizeof(uint32_t));
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
-    SDL_RenderCopy(renderer, texture, NULL, NULL);
+    draw(picture);
+}
+
+// A frame at the refresh rate of the display that the window is on, a
+// little shorter so that the wait never makes a frame miss the display.
+Uint32 frame_time() {
+    int rate = 60;
+    SDL_DisplayMode mode;
+    const int display = SDL_GetWindowDisplayIndex(window);
+    if (display >= 0 && SDL_GetDesktopDisplayMode(display, &mode) == 0 && mode.refresh_rate > 0)
+        rate = mode.refresh_rate;
+    return 900 / rate;
+}
+
+void present() {
+    draw_frame();
     SDL_RenderPresent(renderer);
+    // Whether presenting waits for the display is not known: the software
+    // renderer of SDL 2.0.18 and later reports vertical sync even where it
+    // cannot wait.
+    wait_for_frame(frame_time());
 }
 #endif
 }
@@ -414,6 +713,18 @@ void ddfinish() {
     frame = NULL; screen = NULL;
     SDL_Quit();
 }
+
+// SDL 1.2 shows the picture unscaled.
+const char* dd_scale_name() { return NULL; }
+void dd_next_scale() {}
+
+// The zoom is only set in elma.cfg (and with the keys during a game).
+const char* dd_zoom_name() { return NULL; }
+void dd_next_zoom() {}
+const char* dd_zoom_textures_name() { return NULL; }
+void dd_next_zoom_textures() {}
+const char* dd_texture_filter_name() { return NULL; }
+void dd_next_texture_filter() {}
 #else
 void ddinit() {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
@@ -423,20 +734,56 @@ void ddinit() {
     // Game pads are optional; the connected ones arrive as device events.
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0)
         SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
+    scale = configured_scale();
+    aspect = config_aspect();
+    int width = 640, height = 480;
+#ifndef ELMA_HANDHELD
+    // The window starts at the largest whole multiple of the game view that
+    // fits on the screen with room for the title bar and the window frame,
+    // with the aspect ratio of the screen (or 4:3).
+    SDL_Rect usable;
+    SDL_DisplayMode mode;
+    const int decorations = 64;
+    if (SDL_GetDisplayUsableBounds(0, &usable) == 0) {
+        int step_w = 640, step_h = 480;
+        if (SDL_GetDesktopDisplayMode(0, &mode) == 0)
+            base_view_size(aspect, mode.w, mode.h, &step_w, &step_h);
+        width = step_w;
+        height = step_h;
+        while (width + step_w + decorations <= usable.w && height + step_h + decorations <= usable.h) {
+            width += step_w;
+            height += step_h;
+        }
+    }
+#endif
     Uint32 flags = SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
     if (fullscreen()) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     window = SDL_CreateWindow("Elasto Mania", SDL_WINDOWPOS_CENTERED,
-                              SDL_WINDOWPOS_CENTERED, 640, 480, flags);
+                              SDL_WINDOWPOS_CENTERED, width, height, flags);
     if (!window) {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         SDL_Quit();
         exit(1);
     }
+#ifndef ELMA_HANDHELD
+    SDL_SetWindowMinimumSize(window, 320, 240);
+#endif
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE | SDL_RENDERER_PRESENTVSYNC);
+    // Up to SDL 2.0.16 the software renderer does not offer vertical sync,
+    // and asking for it finds no renderer.
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-                                SDL_TEXTUREACCESS_STREAMING, 640, 480);
-    SDL_RenderSetLogicalSize(renderer, 640, 480);
+    if (renderer) {
+        SDL_GetRendererInfo(renderer, &renderer_info);
+        targets = SDL_RenderTargetSupported(renderer) == SDL_TRUE;
+        max_target_pixels = target_pixels;
+        layout(ui_picture);
+    }
+    if (!ui_picture.texture) {
+        fprintf(stderr, "SDL renderer: %s\n", SDL_GetError());
+        SDL_Quit();
+        exit(1);
+    }
 #ifdef ELMA_HANDHELD
     SDL_ShowCursor(SDL_DISABLE);
 #endif
@@ -444,14 +791,66 @@ void ddinit() {
 }
 
 void ddfinish() {
-    if (texture) SDL_DestroyTexture(texture);
+    reset_textures();
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
-    texture = NULL; renderer = NULL; window = NULL;
+    renderer = NULL; window = NULL;
     SDL_Quit();
+}
+
+const char* dd_scale_name() { return scale_names[scale]; }
+
+void dd_next_scale() {
+    scale = Scale((scale + 1) % SCALE_COUNT);
+    config_set("scale", scale_keys[scale]);
+    config_save();
+    reset_textures();
+    layout(ui_picture);
+}
+
+const char* dd_aspect_name() { return aspect_name(aspect); }
+
+// The game view takes the new size with its next frame.
+void dd_next_aspect() {
+    aspect = Aspect((aspect + 1) % ASPECT_COUNT);
+    config_set("aspect", aspect_key(aspect));
+    config_save();
+}
+
+// The game view takes the new size with its next frame, the next level is
+// drawn in its detail.
+const char* dd_resolution_name() { return resolution_name(config_resolution()); }
+void dd_next_resolution() { set_config_resolution(next_resolution_option(config_resolution())); }
+
+// The next level is loaded with the new zoom.
+const char* dd_zoom_name() { return zoom_name(config_zoom()); }
+void dd_next_zoom() { set_config_zoom(next_zoom_option(config_zoom())); }
+const char* dd_zoom_textures_name() { return config_zoom_textures() ? "Yes" : "No"; }
+void dd_next_zoom_textures() { set_config_zoom_textures(!config_zoom_textures()); }
+// HQx, Smooth, Nearest; the next level is loaded with it.
+const char* dd_texture_filter_name() { return texture_filter_name(config_texture_filter()); }
+void dd_next_texture_filter() {
+    static const int next[3] = { SZURO_HQX, SZURO_LEGKOZELEBBI, SZURO_SIMA };
+    set_config_texture_filter(next[config_texture_filter()]);
 }
 #endif
 
+#ifdef ELMA_MIYOO
+// The biggest levels take about 50 MB at zoom 2 and 100 MB at zoom 4 (on a
+// 64-bit desktop); the Miyoo Mini has 128 MB.
+const double max_zoom = 2.0;
+#else
+const double max_zoom = NAGYITASMAX;
+#endif
+double dd_zoom() { return std::min(config_zoom(), max_zoom); }
+void dd_set_zoom(double zoom) { set_config_zoom(std::min(zoom, max_zoom)); }
+int dd_zoom_textures() { return config_zoom_textures(); }
+int dd_zoom_grass() { return config_zoom_grass(); }
+int dd_texture_filter() { return config_texture_filter(); }
+int dd_zoom_key(int zoom_in) { return config_zoom_key(zoom_in != 0); }
+
+#ifdef ELMA_SDL1
+// SDL 1.2 shows the 640x480 picture unscaled.
 unsigned char** lockbackbuffer(int) {
     if (locked) hiba((char*)"framebuffer already locked");
     locked = true;
@@ -461,15 +860,85 @@ unsigned char** lockbackbuffer(int) {
 }
 
 void unlockbackbuffer() { locked = false; present(); }
+void backbuffersize(int* w, int* h) { *w = 640; *h = 480; }
 unsigned char** lockfrontbuffer() { return lockbackbuffer(0); }
 void unlockfrontbuffer() { unlockbackbuffer(); }
+
+const char* dd_aspect_name() { return NULL; }
+void dd_next_aspect() {}
+void dd_menumeret(int* w, int* h) { *w = 640; *h = 480; }
+void frontbuffermeret(int, int) {}
+const char* dd_resolution_name() { return NULL; }
+void dd_next_resolution() {}
+#else
+namespace {
+bool game_locked = false;
+
+// Between frames, the game view takes the size that the window asks for.
+void resize_game_view() {
+    if (game_locked) return;
+    int out_w = 0, out_h = 0;
+    if (!renderer || SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0) out_w = out_h = 0;
+    int w, h;
+    game_view_size(aspect, out_w, out_h, &w, &h);
+    if (w != game_picture.w || h != game_picture.h) game_picture.resize(w, h);
+}
+}
+
+unsigned char** lockbackbuffer(int) {
+    if (locked) hiba((char*)"framebuffer already locked");
+    resize_game_view();
+    locked = game_locked = true;
+    return game_picture.lock(Locky0_alul != 0);
+}
+
+void unlockbackbuffer() {
+    locked = game_locked = false;
+    shown = &game_picture;
+    present();
+}
+
+void backbuffersize(int* w, int* h) {
+    resize_game_view();
+    *w = game_picture.w;
+    *h = game_picture.h;
+}
+
+unsigned char** lockfrontbuffer() {
+    if (locked) hiba((char*)"framebuffer already locked");
+    locked = true;
+    return ui_picture.lock(Locky0_alul != 0);
+}
+
+void dd_menumeret(int* w, int* h) {
+    int out_w = 0, out_h = 0;
+    if (!renderer || SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0) out_w = out_h = 0;
+    menu_view_size(out_w, out_h, w, h);
+}
+
+void frontbuffermeret(int w, int h) {
+    if (w == ui_picture.w && h == ui_picture.h) return;
+    ui_picture.resize(w, h);
+    layout(ui_picture);
+}
+
+void unlockfrontbuffer() {
+    locked = false;
+    shown = &ui_picture;
+    present();
+}
+#endif
+
+// 6 bits per color, as a VGA card takes them; repeating the top bits makes
+// 63 full brightness instead of 252.
+static uint32_t vga_color(unsigned char c) { return uint32_t(c) << 2 | c >> 4; }
 
 ddpal::ddpal(unsigned char* colors) {
     std::array<uint32_t, 256>* value = new std::array<uint32_t, 256>;
     for (int i = 0; i < 256; ++i) {
-        const uint32_t r = colors[i * 3] << 2;
-        const uint32_t g = colors[i * 3 + 1] << 2;
-        const uint32_t b = colors[i * 3 + 2] << 2;
+        const uint32_t r = vga_color(colors[i * 3]);
+        const uint32_t g = vga_color(colors[i * 3 + 1]);
+        const uint32_t b = vga_color(colors[i * 3 + 2]);
         (*value)[i] = 0xff000000u | r << 16 | g << 8 | b;
     }
     pddpal = value;
@@ -513,6 +982,15 @@ char* kodtobillnev(int code) {
 
 void mv_check(int) { hang(); events(); }
 void mv_startstopper() { stopper_start = std::chrono::steady_clock::now(); }
+// The time between the two calls moves the start of the stopper on.
+void mv_pausestopper(int pause) {
+    static bool paused = false;
+    static std::chrono::steady_clock::time_point pause_start;
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    if (pause && !paused) pause_start = now;
+    if (!pause && paused) stopper_start += now - pause_start;
+    paused = pause != 0;
+}
 double mv_stopperido() {
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - stopper_start;
     return elapsed.count() * 182.0;
@@ -524,11 +1002,33 @@ void getbiostort(unsigned short* bios, unsigned short* fraction) {
 }
 int s_random(int max) { return max > 0 ? rand() % max : 0; }
 
-void getmou(int* x, int* y) { SDL_GetMouseState(x, y); }
 #ifdef ELMA_SDL1
+void getmou(int* x, int* y) { SDL_GetMouseState(x, y); }
 void setmou(int x, int y) { SDL_WarpMouse(x, y); }
 #else
-void setmou(int x, int y) { SDL_WarpMouseInWindow(window, x, y); }
+// The game gets the mouse in the 640x480 picture of the menus and the
+// editor, wherever that is shown.
+void getmou(int* x, int* y) {
+    int window_x = 0, window_y = 0;
+    SDL_GetMouseState(&window_x, &window_y);
+    const Picture& picture = ui_picture;
+    const SDL_Rect& place = picture.place;
+    double ratio_x, ratio_y;
+    drawable_ratio(&ratio_x, &ratio_y);
+    *x = place.w > 0 ? int(((window_x + 0.5) * ratio_x - place.x) * picture.w / place.w) : 0;
+    *y = place.h > 0 ? int(((window_y + 0.5) * ratio_y - place.y) * picture.h / place.h) : 0;
+    *x = std::max(0, std::min(picture.w - 1, *x));
+    *y = std::max(0, std::min(picture.h - 1, *y));
+}
+
+void setmou(int x, int y) {
+    const Picture& picture = ui_picture;
+    const SDL_Rect& place = picture.place;
+    double ratio_x, ratio_y;
+    drawable_ratio(&ratio_x, &ratio_y);
+    SDL_WarpMouseInWindow(window, int((place.x + (x + 0.5) * place.w / picture.w) / ratio_x),
+                          int((place.y + (y + 0.5) * place.h / picture.h) / ratio_y));
+}
 #endif
 int getbutbmou() { return SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_LEFT); }
 int getbutjmou() { return SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_RIGHT); }
@@ -563,6 +1063,7 @@ void mv_exit(char*) { ddfinish(); exit(0); }
 int main(int, char**) {
     void upgradehakell(); void initqopen();
     void initmenukep1(); void initmenukep2();
+    config_load();
     upgradehakell(); initqopen(); mk_init(); initmenukep1();
     ddinit(); initmenukep2(); mv_main();
     return 0;

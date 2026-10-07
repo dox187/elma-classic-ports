@@ -157,12 +157,14 @@ static void kiegyszam( char* time, int x, int y ) {
 }
 
 void kidigit( char* time1, double fogoido, double time2d, pic8* ppic8,
-					int kepxsize, int kepysize ) {
+					int kepxsize, int kepysize, int teljesxsize ) {
 
 	Ppic8 = ppic8;
 	Lookup = Plgr->idonegtomb;
 
-	double kepmeretx = kepxsize/640.0;
+	// The times are always 28 pixel from the picture's edge at full size
+	// (like on a 640-wide picture), proportionally closer on a shrunk picture:
+	double kepmeretx = double(kepxsize)/teljesxsize;
 	double kepmerety = kepysize/480.0;
 
 	//unsigned char szin1 = Plgr->idoszin1;

@@ -18,6 +18,11 @@ They may not be used for any commercial purpose, and they are provided as-is,
 without warranty of any kind (see Section 5 of the license). LICENSE.md and
 this notice must be kept with the build when it is shared.
 
+The pictures of a zoomed level are enlarged with the hqx scalers of Maxim
+Stepin, Cameron Zemek and Francois Gannaz, licensed under the GNU Lesser
+General Public License 2.1 (LICENSE-hqx.txt; source: third_party/hqx of the
+port above).
+
 No game data is included. Copy elma.res and the lgr and lev folders from a
 legally obtained Elasto Mania installation next to the program; see
 https://elastomania.com for the games.

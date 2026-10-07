@@ -84,6 +84,7 @@ static double Omegavalt = 3.0;
 //static double Kezdoomega1 = -1.0, Kezdoomega2 = -1.0;
 
 void resetleptet( motorst* pmot ) {
+    Racsonkivul = 0;
     pmot->voltfek = 0;
     pmot->dfek2 = pmot->dfek4 = 0;
     pmot->ugrasban1 = pmot->ugrasban2 = 0;
@@ -279,7 +280,16 @@ void leptet( motorst* pmot, double most, double dt, int gaz, int fek,
 int vizsgalat( motorst* pmot ) {
     vekt2 t1, t2;
     vonal *pv1, *pv2;
-    if( talppontkereses( pmot->fejr, Fejsugar, &t1, &t2, &pv1, &pv2 ) )
+    int fejutkozik = talppontkereses( pmot->fejr, Fejsugar, &t1, &t2, &pv1, &pv2 );
+    // leptet or the head's collision check searched too far from the level:
+    int racsonkivul = Racsonkivul;
+    Racsonkivul = 0;
+    if( fejutkozik )
+        return 0;
+
+    // Where the original game exited with hiba because it left the level,
+    // the bike now dies:
+    if( racsonkivul || Pecsetalso->kilogna( pmot->kor1.r ) )
         return 0;
 
     // Objektumokkal utkozesvizsgalat:

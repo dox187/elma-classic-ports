@@ -216,18 +216,48 @@ void unlockbackbuffer() {
     locked = false;
     present();
 }
+// The game view is the 640x480 picture of the menus as well.
+void backbuffersize(int* w, int* h) { *w = 640; *h = 480; }
 unsigned char** lockfrontbuffer() { return lockbackbuffer(0); }
 void unlockfrontbuffer() { unlockbackbuffer(); }
+
+// 6 bits per color, as a VGA card takes them; repeating the top bits makes
+// 63 full brightness instead of 252.
+static uint32_t vga_color(unsigned char c) { return uint32_t(c) << 2 | c >> 4; }
 
 ddpal::ddpal(unsigned char* colors) {
     std::array<uint32_t, 256>* value = new std::array<uint32_t, 256>;
     for (int i = 0; i < 256; ++i)
-        (*value)[i] = uint32_t(colors[i * 3] << 2) << 16 | uint32_t(colors[i * 3 + 1] << 2) << 8 |
-                      uint32_t(colors[i * 3 + 2] << 2);
+        (*value)[i] = vga_color(colors[i * 3]) << 16 | vga_color(colors[i * 3 + 1]) << 8 |
+                      vga_color(colors[i * 3 + 2]);
     pddpal = value;
 }
 ddpal::~ddpal() { delete static_cast<std::array<uint32_t, 256>*>(pddpal); }
 void ddpal::set() { palette = *static_cast<std::array<uint32_t, 256>*>(pddpal); }
+
+// The picture is not scaled in the terminal; it has its own graphics setting.
+const char* dd_scale_name() { return NULL; }
+void dd_next_scale() {}
+const char* dd_aspect_name() { return NULL; }
+void dd_next_aspect() {}
+// The menus are 640x480 in the terminal:
+void dd_menumeret(int* w, int* h) { *w = 640; *h = 480; }
+void frontbuffermeret(int, int) {}
+const char* dd_resolution_name() { return NULL; }
+void dd_next_resolution() {}
+// The terminal keeps the original size of the bike.
+double dd_zoom() { return 1.0; }
+void dd_set_zoom(double) {}
+int dd_zoom_textures() { return 1; }
+int dd_zoom_grass() { return 1; }
+int dd_zoom_key(int) { return 0; }
+const char* dd_zoom_name() { return NULL; }
+void dd_next_zoom() {}
+const char* dd_zoom_textures_name() { return NULL; }
+int dd_texture_filter() { return SZURO_LEGKOZELEBBI; }
+const char* dd_texture_filter_name() { return NULL; }
+void dd_next_texture_filter() {}
+void dd_next_zoom_textures() {}
 
 void mk_init() {
     keys.fill(0);
@@ -315,6 +345,15 @@ void mv_check(int) {
     events();
 }
 void mv_startstopper() { stopper_start = clock_type::now(); }
+// The time between the two calls moves the start of the stopper on.
+void mv_pausestopper(int pause) {
+    static bool paused = false;
+    static clock_type::time_point pause_start;
+    const clock_type::time_point now = clock_type::now();
+    if (pause && !paused) pause_start = now;
+    if (!pause && paused) stopper_start += now - pause_start;
+    paused = pause != 0;
+}
 double mv_stopperido() {
     return std::chrono::duration<double>(clock_type::now() - stopper_start).count() * 182.0;
 }

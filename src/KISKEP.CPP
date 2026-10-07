@@ -13,9 +13,14 @@ kiskep::kiskep( char* pic8nev, pic8* ppic ) {
 	if( xsize > 255 || ysize > 255 )
 		hiba( "kiskepben size > 255!" );
 	hossz = ysize*256l;
-	{ tomb = NEW(unsigned char*) unsigned char[unsigned(hossz)]; }
+	// dobozki (doboz.cpp) can sample a pixel past the picture's edge too
+	// (more often on a zoomed engine), and the index ((y<<8)+x) is always
+	// 16 bits: allocate the full 64 kB, set to transparent outside the
+	// picture:
+	{ tomb = NEW(unsigned char*) unsigned char[65536u]; }
 	if( !tomb )
 		uzenet( "memory!" );
+	memset( tomb, lyuk, 65536u );
 	for( int y = 0; y < ysize; y++ )
 		for( int x = 0; x < xsize; x++ )
 			tomb[y*256+x] = ppic->gpixel( x, y );

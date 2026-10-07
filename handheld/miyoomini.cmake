@@ -4,6 +4,7 @@
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR armv7l)
 set(MIYOO_TOOLCHAIN /opt/miyoomini-toolchain)
+set(CMAKE_C_COMPILER ${MIYOO_TOOLCHAIN}/bin/arm-linux-gnueabihf-gcc)
 set(CMAKE_CXX_COMPILER ${MIYOO_TOOLCHAIN}/bin/arm-linux-gnueabihf-g++)
 set(CMAKE_SYSROOT ${MIYOO_TOOLCHAIN}/arm-linux-gnueabihf/libc)
 set(CMAKE_CXX_FLAGS_INIT "-marm -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard")

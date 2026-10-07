@@ -793,6 +793,8 @@ int access_topol( char* filenev ) {
     int belsopalyaszam = nevanalizis( filenev );
     if( belsopalyaszam > 0 )
         return 0;
+    if( gyujtemenypalya( filenev ) )
+        return 0;
     char tmp[30];
     sprintf( tmp, "lev\\%s", filenev );
     return access( tmp, 0 );
@@ -955,18 +957,22 @@ void topol::loadkulso( char* filenev ) {
         spritetomb[i] = NULL;
 
     FILE* h = NULL;
-    ////if( kulso ) {
+    // The collections' levels are in elma.res (gyujtem.cpp):
+    int gyujtemenybol = gyujtemenypalya( filenev );
+    if( !gyujtemenybol ) {
 		char tmpnev[40];
         sprintf( tmpnev, "lev\\%s", filenev );
         h = fopen( tmpnev, "rb" );
         if( !h )
             hiba( "topol::topol-ban nem tudta nyitni file-t!: ", tmpnev );
-    /*////}
+    }
     else {
-        h = qopen( filenev, "rb" );
+        char resnev[30];
+        gyujtemenyresnev( filenev, resnev );
+        h = qopen( resnev, "rb" );
         if( !h )
-            hiba( "topol::topol-ban nem tudta nyitni file-t!: ", filenev );
-    } */////
+            hiba( "topol::topol-ban nem tudta nyitni file-t!: ", resnev );
+    }
 
     // Verzio beolvasasa:
     char tmp[10] = "AAAAA";
@@ -1080,11 +1086,12 @@ void topol::loadkulso( char* filenev ) {
     }
 
     // Gyuruk szamat 100 byte utan kezdjuk:
-    if( verzio < 14 )
-    ////if( kulso )
-        fseek( h, 100, SEEK_SET );
-    ////else
-	////    qseek( h, 100, SEEK_SET );
+    if( verzio < 14 ) {
+        if( !gyujtemenybol )
+            fseek( h, 100, SEEK_SET );
+        else
+            qseek( h, 100, SEEK_SET );
+    }
 
     double gyuruolvszam = 0;
     if( fread( &gyuruolvszam, 1, sizeof( gyuruolvszam ), h ) != sizeof( gyuruolvszam ) )
@@ -1215,10 +1222,14 @@ void topol::loadkulso( char* filenev ) {
         }
     ////}
 
-    ////if( kulso )
+    if( !gyujtemenybol ) {
         fclose( h );
-    ////else
-    ////    qclose( h );
+    }
+    else {
+        qclose( h );
+        // Its times are not stored in the level itself:
+        gyujtemenyidok( filenev, belyeg, &idok );
+    }
 
     // Most megnezzuk, hogy belyeg stimmel-e:
     double szamitottbelyeg = belyegszamitas( verzio > 6 );
@@ -1613,6 +1624,10 @@ void topol::save( char* filenev, int nemkellcheck ) {
 
 // Csak eredetileg beolvasott filenev-vel szabad meghivni:
 void topol::saveidok( char* filenev_p ) {
+    if( gyujtemenypalya( filenev_p ) ) {
+        mentgyujtemenyidok( filenev_p, belyeg, &idok );
+        return;
+    }
     if( idokhelye < 6 ) // a 6-os talalomra ertek
         hiba( "hjdvgyj" );
 
@@ -1734,20 +1749,28 @@ void topol::checklevelforsarvari( void ) {
 
 // Barmilyen hiba eseten 1-el ter vissza:
 unsigned long getbelyeg( char* nev ) {
-    char tmp[30];
-    sprintf( tmp, "lev\\%s", nev );
-    FILE* h = fopen( tmp, "rb" );
+    int gyujtemenybol = gyujtemenypalya( nev );
+    FILE* h = NULL;
+    if( gyujtemenybol ) {
+        char resnev[30];
+        gyujtemenyresnev( nev, resnev );
+        h = qopen( resnev, "rb" );
+    }
+    else {
+        char tmp[30];
+        sprintf( tmp, "lev\\%s", nev );
+        h = fopen( tmp, "rb" );
+    }
     if( !h )
         return 1;
     unsigned long l = 0;
-    if( fread( &l, 1, 1, h ) != 1 )
-        return 1;
-    if( fread( &l, 1, 4, h ) != 4 )
-        return 1;
-    if( fread( &l, 1, 4, h ) != 4 )
-        return 1;
-    fclose( h );
-    return l;
+    int siker = fread( &l, 1, 1, h ) == 1 && fread( &l, 1, 4, h ) == 4 &&
+                fread( &l, 1, 4, h ) == 4;
+    if( gyujtemenybol )
+        qclose( h );
+    else
+        fclose( h );
+    return siker ? l : 1;
 }
 
 // Igazzal ter vissza, ha megvan nev;

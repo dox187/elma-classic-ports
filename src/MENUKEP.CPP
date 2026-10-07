@@ -3,6 +3,9 @@
 pic8* Buffsima = NULL;
 pic8* Buffgolyo = NULL;
 
+int Menuxsize = 640, Menuysize = 480, Menueltolasx = 0, Menueltolasy = 0;
+int Menueredeti = 0;
+
 static pic8 *Kisnevsima = NULL, *Kisnevgolyo = NULL;
 abc8* Pmenuabc = NULL;
 anim* Psisak = NULL;
@@ -51,6 +54,38 @@ void initmenukep2( void ) {
 		hiba( "initmenukep2-ben Pmenupal!" );
 	pcxtopal( "intro.pcx", &Pmenupal ); // O new-ik egy ddpal-t
 	pcxtopal( "intro.pcx", Menupaltomb );
+	menumeretbeallit();
+}
+
+static pic8* Tmpbuffer = NULL; // Temporary
+
+void golyofalak( int xsize, int ysize ); // golyutk.cpp
+
+int menumeretbeallit( void ) {
+	int xsize = 640, ysize = 480;
+	if( !Menueredeti )
+		dd_menumeret( &xsize, &ysize );
+	if( xsize < 640 )
+		xsize = 640;
+	if( ysize < 480 )
+		ysize = 480;
+	if( xsize == Menuxsize && ysize == Menuysize )
+		return 0;
+	Menuxsize = xsize;
+	Menuysize = ysize;
+	Menueltolasx = (Menuxsize-640)/2;
+	Menueltolasy = (Menuysize-480)/2;
+	delete Buffsima;
+	delete Buffgolyo;
+	Buffsima = new pic8( Menuxsize, Menuysize );
+	Buffgolyo = new pic8( Menuxsize, Menuysize );
+	if( Tmpbuffer ) {
+		delete Tmpbuffer;
+		Tmpbuffer = new pic8( Menuxsize, Menuysize );
+	}
+	golyofalak( Menuxsize, Menuysize );
+	frontbuffermeret( Menuxsize, Menuysize );
+	return 1;
 }
 
 void tilevaltas( void ) {
@@ -108,8 +143,6 @@ void szoveglista::clear( void ) {
 }
 
 
-static pic8* Tmpbuffer = NULL; // Ideiglenes
-
 static int Scrolly1 = 0; // Ennel kiseb x-ek helyere sotet zoldet rak kirazgolyo
 static unsigned char Introhatter = 254;
 static unsigned char* Zoldsor = NULL;
@@ -117,9 +150,9 @@ static unsigned char* Hattersor = NULL;
 
 static void kirajzgolyo( vekt2 g, double r, pic8* forras ) {
 	if( !Zoldsor ) {
-		Zoldsor = new unsigned char[640];
-		Hattersor = new unsigned char[640];
-		for( int i = 0; i < 640; i++ ) {
+		Zoldsor = new unsigned char[MAXKEPXSIZE];
+		Hattersor = new unsigned char[MAXKEPXSIZE];
+		for( int i = 0; i < MAXKEPXSIZE; i++ ) {
 			Zoldsor[i] = 248;
 			Hattersor[i] = Introhatter;
 		}
@@ -135,7 +168,7 @@ static void kirajzgolyo( vekt2 g, double r, pic8* forras ) {
 	double yo = g.y;
 	int y = yo - r;
 	while( y < yo+r ) {
-		if( y < 0 || y >=480 ) {
+		if( y < 0 || y >= Menuysize ) {
 			y++;
 			continue;
 		}
@@ -150,12 +183,12 @@ static void kirajzgolyo( vekt2 g, double r, pic8* forras ) {
 		int x2 = xo+dx;
 		if( x1 < 0 )
 			x1 = 0;
-		if( x1 > 639 )
-			x1 = 639;
+		if( x1 > Menuxsize-1 )
+			x1 = Menuxsize-1;
 		if( x2 < 0 )
 			x2 = 0;
-		if( x2 > 639 )
-			x2 = 639;
+		if( x2 > Menuxsize-1 )
+			x2 = Menuxsize-1;
 		if( x1 >= x2 ) {
 			y++;
 			continue;
@@ -206,8 +239,10 @@ void szoveglista::kirajzol( int nemkellgolyo,
 							pic8* rarakkep1, pic8* rarakkep2,
 							pic8* rarakkep3, pic8* rarakkep4 ) {
 	// Kirakjuk hatteret:
+	if( menumeretbeallit() )
+		ervenyes = 0;
 	if( !Tmpbuffer ) // Ideiglenes
-		Tmpbuffer = new pic8( 640, 480 );
+		Tmpbuffer = new pic8( Menuxsize, Menuysize );
 
 	if( Kezdoanimjon && !Pintro )
 		Kezdoanimjon = 0;
@@ -222,13 +257,13 @@ void szoveglista::kirajzol( int nemkellgolyo,
 		int y = -47;
 		int paros = 0;
 		int kezdox = 0;
-		while( y < 480 ) {
+		while( y < Menuysize ) {
 			int x = kezdox;
 			kezdox += 110;
 			while( x > 0 )
 				x -= Kisnevsima->getxsize();
 			paros = !paros;
-			while( x < 640 ) {
+			while( x < Menuxsize ) {
 				blt8( Buffsima, Kisnevsima, x, y );
 				blt8( Buffgolyo, Kisnevgolyo, x, y );
 				x += Kisnevsima->getxsize();
@@ -242,22 +277,22 @@ void szoveglista::kirajzol( int nemkellgolyo,
 
 		// Rairjuk szovegeket vagy kepet:
 		if( rarakkep4 ) {
-			blt8( Buffsima, rarakkep1 );
-			blt8( Buffsima, rarakkep2, 0, 120 );
-			blt8( Buffsima, rarakkep3, 0, 240 );
-			blt8( Buffsima, rarakkep4, 0, 360 );
+			blt8( Buffsima, rarakkep1, Menueltolasx, Menueltolasy );
+			blt8( Buffsima, rarakkep2, Menueltolasx, Menueltolasy+120 );
+			blt8( Buffsima, rarakkep3, Menueltolasx, Menueltolasy+240 );
+			blt8( Buffsima, rarakkep4, Menueltolasx, Menueltolasy+360 );
 
-			blt8( Buffgolyo, rarakkep1 );
-			blt8( Buffgolyo, rarakkep2, 0, 120 );
-			blt8( Buffgolyo, rarakkep3, 0, 240 );
-			blt8( Buffgolyo, rarakkep4, 0, 360 );
+			blt8( Buffgolyo, rarakkep1, Menueltolasx, Menueltolasy );
+			blt8( Buffgolyo, rarakkep2, Menueltolasx, Menueltolasy+120 );
+			blt8( Buffgolyo, rarakkep3, Menueltolasx, Menueltolasy+240 );
+			blt8( Buffgolyo, rarakkep4, Menueltolasx, Menueltolasy+360 );
 		}
 		else {
 			#ifndef ELMA_CLI // Terminalban szovegkent irjuk ki oket
 			for( int i = 0; i < elemszam; i++ ) {
-				Pmenuabc->write( Buffsima, sorok[i].x, sorok[i].y,
+				Pmenuabc->write( Buffsima, sorok[i].x+Menueltolasx, sorok[i].y+Menueltolasy,
 									sorok[i].text );
-				Pmenuabc->write( Buffgolyo, sorok[i].x, sorok[i].y,
+				Pmenuabc->write( Buffgolyo, sorok[i].x+Menueltolasx, sorok[i].y+Menueltolasy,
 									sorok[i].text );
 			}
 			#endif
@@ -354,7 +389,11 @@ void szoveglista::kirajzol( int nemkellgolyo,
 		else
 			sisakframe = Psisak->getframebyindex( 25 );
 
-		blt8( Tmpbuffer, sisakframe, sisakx-20, sisaky-7 );
+		// (-100 is off screen, it stays there too:)
+		if( sisakx == -100 && sisaky == -100 )
+			blt8( Tmpbuffer, sisakframe, sisakx-20, sisaky-7 );
+		else
+			blt8( Tmpbuffer, sisakframe, sisakx+Menueltolasx-20, sisaky+Menueltolasy-7 );
 	}
 	#endif
 
@@ -381,13 +420,13 @@ int szoveglista::kirajzolanim( double ido ) {
 		int y = -47;
 		int paros = 0;
 		int kezdox = 0;
-		while( y < 480 ) {
+		while( y < Menuysize ) {
 			int x = kezdox;
 			kezdox += 110;
 			while( x > 0 )
 				x -= Kisnevsima->getxsize();
 			paros = !paros;
-			while( x < 640 ) {
+			while( x < Menuxsize ) {
 				blt8( Buffsima, Kisnevsima, x, y );
 				blt8( Buffgolyo, Kisnevgolyo, x, y );
 				x += Kisnevsima->getxsize();
@@ -421,13 +460,13 @@ int szoveglista::kirajzolanim( double ido ) {
 
 		// Rairjuk szovegeket:
 		for( i = 0; i < elemszam; i++ )
-			Pmenuabc->write( Tmpbuffer, sorok[i].x, sorok[i].y,
+			Pmenuabc->write( Tmpbuffer, sorok[i].x+Menueltolasx, sorok[i].y+Menueltolasy,
 								sorok[i].text );
 
 		pic8* sisakframe = NULL;
 		sisakframe = Psisak->getframebyindex( 25 );
-		blt8( Tmpbuffer, sisakframe, sisakx-20, sisaky-7 );
-		blt8( Tmpbuffer, Pintro, 0, 0 );
+		blt8( Tmpbuffer, sisakframe, sisakx+Menueltolasx-20, sisaky+Menueltolasy-7 );
+		blt8( Tmpbuffer, Pintro, Menueltolasx, Menueltolasy );
 		// Idaig tartott minden elem kirakasa egyszer
 	}
 
@@ -447,7 +486,9 @@ int szoveglista::kirajzolanim( double ido ) {
 
 	frame -= 480;*/
 
-	if( frame >= 480 ) {
+	// The menu image rises from below (from Menuysize height), the intro
+	// image moves down off it:
+	if( frame >= Menuysize ) {
 		Scrolly1 = 0;
 		return 0;
 	}
@@ -456,10 +497,10 @@ int szoveglista::kirajzolanim( double ido ) {
 	//blt8( Tmpbuffer, Buffsima );
 
 	Tmpbuffer->fillbox( Introhatter );
-	blt8( Tmpbuffer, Buffsima, 0, 480-frame );
+	blt8( Tmpbuffer, Buffsima, 0, Menuysize-frame );
 
-	Scrolly1 = 480-frame;
-	double yeltolas = frame-480.0;
+	Scrolly1 = Menuysize-frame;
+	double yeltolas = frame-double(Menuysize);
 	for( int i = 0; i < Ngolyok; i++ ) {
 		if( !State->animatedmenus )
 			break;
@@ -480,7 +521,7 @@ int szoveglista::kirajzolanim( double ido ) {
 
 	// Rairjuk szovegeket:
 	for( i = 0; i < elemszam; i++ )
-		Pmenuabc->write( Tmpbuffer, sorok[i].x, sorok[i].y+frame-480,
+		Pmenuabc->write( Tmpbuffer, sorok[i].x+Menueltolasx, sorok[i].y+Menueltolasy+frame-Menuysize,
 							sorok[i].text );
 
 	// Rarakjuk sisakot:
@@ -490,9 +531,9 @@ int szoveglista::kirajzolanim( double ido ) {
 	else
 		sisakframe = Psisak->getframebyindex( 25 );
 
-	blt8( Tmpbuffer, sisakframe, sisakx-20, sisaky-7-479+frame );
+	blt8( Tmpbuffer, sisakframe, sisakx+Menueltolasx-20, sisaky+Menueltolasy-7-(Menuysize-1)+frame );
 
-	blt8( Tmpbuffer, Pintro, 0, frame );
+	blt8( Tmpbuffer, Pintro, Menueltolasx, Menueltolasy+frame );
 	//blt8( Tmpbuffer, Pintro, framex, 0, 0, 0, 639, 206 );
 	//blt8( Tmpbuffer, Pintro, -framex, 206, 0, 206, 639, 479 );
 	bltfront( Tmpbuffer );
@@ -506,14 +547,15 @@ static hibasor Hibasortomb[MAXHIBASOR];
 
 void grafikushiba( char* text1, char* text2, char* text3 ) {
 	// Kirajzoljuk hatteret Buffsima-ba:
+	menumeretbeallit();
 	int y = 0;
 	int paros = 0;
-	while( y < 480 ) {
+	while( y < Menuysize ) {
 		int x = 0;
 		if( paros )
 			x -= Kisnevsima->getxsize()/2;
 		paros = !paros;
-		while( x < 640 ) {
+		while( x < Menuxsize ) {
 			blt8( Buffsima, Kisnevsima, x, y );
 			x += Kisnevsima->getxsize();
 		}
@@ -572,8 +614,8 @@ void grafikushiba( char* text1, char* text2, char* text3 ) {
 
 	// Rairjuk szovegeket:
 	for( i = 0; i < sorszam; i++ ) {
-		int y = 240-20-sorszam*(40/2)+i*40;
-		Pmenuabc->writekozep( Buffsima, 320, y, Hibasortomb[i] );
+		int y = Menuysize/2-20-sorszam*(40/2)+i*40;
+		Pmenuabc->writekozep( Buffsima, Menuxsize/2, y, Hibasortomb[i] );
 	}
 	// Kirakjuk:
 	bltfront( Buffsima );

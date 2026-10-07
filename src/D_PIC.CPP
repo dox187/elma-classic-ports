@@ -1,11 +1,18 @@
 #include    "all.h"
 
+// The menus' image (front buffer), Menuxsize*Menuysize (menukep.cpp, at
+// least 640x480):
 static pic8 *Lockbuff = NULL;
+// The game's image (back buffer), its size comes from the platform per
+// lockbackbuffer:
+static pic8 *Backbuff = NULL;
 
 static int Backpiclocked = 0, Frontpiclocked = 0;
 
 //int Mindigfront = 0;
 
+// bltfront puts this into the 640x480 front buffer, so this is also
+// 640x480:
 static pic8* Pmindigfpic = NULL;
 
 pic8* lockbackbuffer_pic( int fizikai ) {
@@ -13,16 +20,17 @@ pic8* lockbackbuffer_pic( int fizikai ) {
 		hiba( "lbb_p lock!" );
 	Backpiclocked = 1;
 
-	if( !Lockbuff ) {
-		Lockbuff = new pic8( 10, 10 );
-		Lockbuff->xsize = 640;
-		Lockbuff->ysize = 480;
-		Lockbuff->sormuttomb = NULL;
+	if( !Backbuff ) {
+		Backbuff = new pic8( 10, 10 );
+		Backbuff->xsize = 640;
+		Backbuff->ysize = 480;
+		Backbuff->sormuttomb = NULL;
 	}
 
 	if( Waitforretrace ) {
-		Lockbuff->sormuttomb = lockbackbuffer( fizikai );
-		return Lockbuff;
+		Backbuff->sormuttomb = lockbackbuffer( fizikai );
+		backbuffersize( &Backbuff->xsize, &Backbuff->ysize );
+		return Backbuff;
 	}
 	else {
 		if( !Pmindigfpic )
@@ -38,7 +46,7 @@ void  unlockbackbuffer_pic( void ) {
 
 	if( Waitforretrace ) {
 		unlockbackbuffer();
-		Lockbuff->sormuttomb = NULL;
+		Backbuff->sormuttomb = NULL;
 	}
 	else {
 		bltfront( Pmindigfpic );	
@@ -55,11 +63,11 @@ void  lockfrontbuffer_pic( void ) {
 
 	if( !Lockbuff ) {
 		Lockbuff = new pic8( 10, 10 );
-		Lockbuff->xsize = 640;
-		Lockbuff->ysize = 480;
 		Lockbuff->sormuttomb = NULL;
 	}
 
+	Lockbuff->xsize = Menuxsize;
+	Lockbuff->ysize = Menuysize;
 	Lockbuff->sormuttomb = lockfrontbuffer();
 }
 
@@ -79,9 +87,18 @@ void  ppixelfront( int x, int y, unsigned char szin ) {
 }
 
 // WINDOWSOS:
+// An image smaller than the menus' image (the 640x480 intro, ending images)
+// is centered, surrounded by the color of its top-left corner:
 void  bltfront( pic8* ppic ) {
 	lockfrontbuffer_pic();
-	blt8( Lockbuff, ppic );
+	int xsize = ppic->getxsize(), ysize = ppic->getysize();
+	if( xsize < Lockbuff->getxsize() || ysize < Lockbuff->getysize() ) {
+		Lockbuff->fillbox( ppic->gpixel( 0, 0 ) );
+		blt8( Lockbuff, ppic, (Lockbuff->getxsize()-xsize)/2,
+							  (Lockbuff->getysize()-ysize)/2 );
+	}
+	else
+		blt8( Lockbuff, ppic );
 	unlockfrontbuffer_pic();
 }
 // WINDOWSOS:
