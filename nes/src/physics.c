@@ -387,10 +387,12 @@ uint8_t ph_step( uint8_t input ) {
 	}
 	if( brake ) {
 		for( uint8_t k = 0; k < 2; k++ ) {
-			// The angle difference is taken within half a turn:
-			int16_t da = (int16_t)((Bike.wheel[k].alfa-(Bike.body.alfa+Bike.dbrake[k])) >> 8);
+			// Brake deflection accumulates: wrapping at half a turn reverses
+			// the spring torque during hard landings (Hi Flyer's final pipe).
+			int32_t da = (int32_t)(Bike.wheel[k].alfa-(Bike.body.alfa+Bike.dbrake[k])) >> 8;
+			int32_t spring = (da*C_BRAKE_A_M+(1L << (C_BRAKE_A_E-1))) >> C_BRAKE_A_E;
 			int16_t dw = clamp_w( Bike.wheel[k].omega-Bike.body.omega );
-			tq[k] = sat16( -(int32_t)KMUL( da, C_BRAKE_A )-KMUL( dw, C_BRAKE_W ) );
+			tq[k] = sat16( -spring-KMUL( dw, C_BRAKE_W ) );
 		}
 	}
 

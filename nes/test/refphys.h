@@ -25,6 +25,8 @@ typedef struct {
 typedef struct { rvec r, v; } rseg;
 
 void ref_init( rbike* b, double startx, double starty );
+// Diagnostic override; 1.0 (the default) is LEPTET.CPP's original brake.
+void ref_set_brake_damping( double scale );
 // Returns 0 if the bike died (its head hit the ground).
 int ref_step( rbike* b, const rseg* segs, int nsegs, double now, double dt,
 			  int gas, int brake, int volt_right, int volt_left );

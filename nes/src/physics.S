@@ -591,6 +591,75 @@ kent_15:
 	tya
 	rts
 
+; L0 = rounded ((signed L0 >> 8) * BRAKE_A_M) >> BRAKE_A_E.
+; Keep all 24 bits of accumulated brake deflection and the full spring
+; torque until damping is added. A signed 16-bit angle wraps at half a
+; turn and reverses the spring during hard landings.
+brake_spring:
+	lda #C_BRAKE_A_M
+	SETA
+	sec
+	ldy L0+1
+	MUL8C m_p, m_p+1
+	ldy L0+2
+	MUL8C m_t, m_p+2
+	clc
+	lda m_p+1
+	adc m_t
+	sta m_p+1
+	bcc 1f
+	inc m_p+2
+1:
+	ldy L0+3
+	MUL8 m_t, m_p+3
+	clc
+	lda m_p+2
+	adc m_t
+	sta m_p+2
+	lda m_p+3
+	adc #0
+	; Signed 24-bit input: subtract M << 24 for a negative input.
+	bit L0+3
+	bpl 2f
+	sec
+	sbc #C_BRAKE_A_M
+2:
+	sta m_p+3
+	; Drop eight bits, then shift the remaining exponent arithmetically.
+	; The last shifted-out bit rounds exactly as the C constant multiply.
+	.if C_BRAKE_A_E < 9 || C_BRAKE_A_E > 16
+	.error "brake_spring requires a BRAKE_A exponent between 9 and 16"
+	.endif
+	lda m_p+1
+	sta L0
+	lda m_p+2
+	sta L0+1
+	lda m_p+3
+	sta L0+2
+	.rept C_BRAKE_A_E-8
+	cmp #$80
+	ror a
+	ror L0+1
+	ror L0
+	.endr
+	tax
+	lda L0
+	adc #0
+	sta L0
+	lda L0+1
+	adc #0
+	sta L0+1
+	txa
+	adc #0
+	sta L0+2
+	lda #0
+	bit L0+2
+	bpl 3f
+	lda #$ff
+3:
+	sta L0+3
+	rts
+
 ; A:X = dotq14 of the zero page vectors at X and Y: the first product put
 ; aside in m_q, the second added to it.
 dot_zz:
@@ -2417,7 +2486,7 @@ forces:
 
 ; The brake torque of the wheel W, Y the offset of its dbrake, into wtq.
 brake:
-	; da = (W.alfa - (body.alfa + dbrake)) >> 8, as 16 bits:
+	; Full accumulated angle difference, including the fourth byte:
 	clc
 	lda Bike+BODY+ALFA
 	adc Bike,y
@@ -2428,15 +2497,11 @@ brake:
 	lda Bike+BODY+ALFA+2
 	adc Bike+2,y
 	sta L0+2
-	sec
-	lda W+ALFA
-	sbc L0
-	lda W+ALFA+1
-	sbc L0+1
-	sta t1
-	lda W+ALFA+2
-	sbc L0+2
-	sta t1+1
+	lda Bike+BODY+ALFA+3
+	adc Bike+3,y
+	sta L0+3
+	SUBL W+ALFA, L0
+	jsr brake_spring
 	; dw = clamp( W.omega - body.omega, +-16383 ):
 	SUBW t2, W+OMEGA, Bike+BODY+OMEGA
 	BLTI t2, 16384, 1f
@@ -2445,10 +2510,7 @@ brake:
 	BGEI t2, -16383, 2f
 	LDIW t2, -16383
 2:
-	; tq = sat16( -da' - dw' ):
-	LDAX t1
-	KM K_BRAKE_A
-	jsr sext_L0
+	; tq = sat16( -spring - dw' ), spring is still wide in L0:
 	LDAX t2
 	KM K_BRAKE_W
 	jsr sext_L1

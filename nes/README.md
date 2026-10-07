@@ -1,5 +1,8 @@
 # Elasto Mania NES demake
 
+Current version: **0.9 beta2**. The release version is kept in [`VERSION`](VERSION)
+and displayed on the title screen of every NTSC, PAL and shareware build.
+
 An unofficial, fan-made version of Elasto Mania for the Nintendo
 Entertainment System. It is a separate program, not a port of the game's
 code: the levels of the game are converted into NES graphics and data, and
@@ -19,18 +22,10 @@ below) has 128 KB of each ROM. It has been tested in emulators only.
 
 ## Speed
 
-The physics of the game takes steps of 0.003 s of its own time. The NES
-takes 50 steps a second by default (`PHYS_HZ=50`), each about three times as
-long, and keeps up with the clock on most levels; where it does not, the
-game slows down a little. With `PHYS_HZ=60` it takes a step each frame of
-NTSC, 2.4 times as long as the game's, but the NES keeps up with only about
-75 to 85 % of the speed. The timer counts the time of the game, so the
-times are fair either way.
-
-The PAL version takes the same 50 steps a second, one each frame, but the
-CPU of a PAL NES is about 7 % slower and has less time for a step: in an
-emulator it kept about 86 to 94 % of the speed on the levels measured,
-against 91 to 98 % with NTSC, so it slows down more often.
+In emulator tests with the default settings, NTSC managed about 45–49
+physics updates per second and PAL about 43–47, instead of the intended 50.
+When the console cannot keep up, the game slows down, with PAL slowing
+down a little more often than NTSC.
 
 ## Build
 
@@ -104,6 +99,26 @@ the cycles of a step.
 
 `test/run.py` plays the ROM in the [cynes](https://github.com/Youlixx/cynes)
 emulator with a script of buttons and saves screenshots.
+
+`python3 test/hyflyer.py --res /path/to/elma.res --asm --scan` runs the
+Hi Flyer regression below (numpy, matplotlib and a host C compiler;
+`--asm` also needs the SDK). CSV traces, measurements and the plot are
+written to `build/hyflyer-check`. `--tv pal` and `--hz 60` select other
+physics constants. The optional parameter scan is not a player success rate.
+
+## Hi Flyer brake bounce — fixed in 0.9 beta2
+
+At the end of Hi Flyer, braking after dropping down the pipe could fail
+to bounce the bike back up to the flower. During a hard landing, a number
+in the brake calculation could wrap around, making the brake push in the
+wrong direction.
+
+**0.9 beta2 fixes this calculation in both physics implementations.**
+The bike now makes the bounce and reaches the flower in the targeted
+tests of this section, though some differences from the original physics
+remain.
+
+![Hi Flyer brake bounce: original reference, NES before beta2, and 0.9 beta2](docs/hyflyer-bounce.png)
 
 ## Sources
 

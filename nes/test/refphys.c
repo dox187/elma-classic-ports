@@ -10,6 +10,12 @@ static double dot( rvec a, rvec b ) { return a.x*b.x + a.y*b.y; }
 static double len( rvec a ) { return sqrt( dot( a, a ) ); }
 static rvec rot90( rvec a ) { return V( -a.y, a.x ); }
 
+// The original uses 1.0. Tests may isolate the NES damping change without
+// silently changing the reference equations for every comparison.
+static double Brake_damping = 1.0;
+
+void ref_set_brake_damping( double scale ) { Brake_damping = scale; }
+
 static const double K_spring = 10000.0, K_friction = 1000.0, G = 10.0;
 static const double Kord[2][2] = { { -0.85, -0.6 }, { 0.85, -0.6 } };
 static const double Kord5y = 0.44;
@@ -243,8 +249,7 @@ int ref_step( rbike* b, const rseg* segs, int n, double now, double dt,
 		for( int k = 0; k < 2; k++ ) {
 			double da = b->wheel[k].alfa-(b->body.alfa+b->dbrake[k]);
 			double dw = b->wheel[k].omega-b->body.omega;
-			// Damped 0.7 times, as in the NES version (physics.c):
-			Mw[k] = -1000*da-100*0.7*dw;
+			Mw[k] = -1000*da-100*Brake_damping*dw;
 		}
 	}
 	else {

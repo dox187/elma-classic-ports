@@ -24,6 +24,7 @@ CC := $(or $(shell command -v mos-nes-mmc3-clang 2>/dev/null),$(HOME)/.local/sha
 endif
 CFLAGS = -Os -Wall -Isrc -mlto-zp=32 -DPHYSICS_ASM
 BUILD = build
+VERSION := $(strip $(file <VERSION))
 # The simulator of the SDK, for make check, and a compiler for the host:
 MOS_BIN = $(dir $(CC))
 HOSTCC ?= cc
@@ -41,9 +42,14 @@ all: $(foreach tv,$(TV),$(BUILD)/$(NAME)_$(tv).nes)
 
 # A ROM for a TV system, with the constants of the physics of its own:
 $(BUILD)/$(NAME)_%.nes: $(SOURCES) $(wildcard src/*.h src/*.inc) $(GENERATED) \
-		$(BUILD)/%/physconst.h $(BUILD)/chrmap.h
+		$(BUILD)/%/physconst.h $(BUILD)/chrmap.h $(BUILD)/version.h
 	$(CC) $(CFLAGS) -I$(BUILD)/$* -I$(BUILD) $(if $(filter pal,$*),-DPAL_BUILD) -o $@ \
 		$(SOURCES) $(GENERATED) -lneslib
+
+# One release version for both TV systems and both resource editions.
+$(BUILD)/version.h: VERSION
+	mkdir -p $(BUILD)
+	@echo '#define NES_VERSION "$(VERSION)"' > $@
 
 # Remade when PHYS_HZ changes:
 $(BUILD)/%/physconst.h: tools/physconst.py $(BUILD)/phys_hz_$(PHYS_HZ)

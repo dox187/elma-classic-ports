@@ -10,6 +10,7 @@
 #include "save.h"
 #include "sprites.h"
 #include "video.h"
+#include "version.h"
 #include "banks.h"
 
 MENU_SECTIONS
@@ -129,6 +130,7 @@ void menu_title( void ) {
 	center( 13, "NES DEMAKE" );
 	if( Shareware )
 		center( 15, "SHAREWARE VERSION" );
+	center( 19, "VERSION " NES_VERSION );
 	center( 22, "ORIGINAL GAME (C) 2000" );
 	center( 23, "BALAZS ROZSA" );
 	center( 25, "UNOFFICIAL FAN MADE PORT:" );
