@@ -71,7 +71,7 @@ endforeach()
 
 function(elma_target target)
     target_include_directories(${target} PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${ELMA_HEADER_DIR})
+        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/desktop ${ELMA_HEADER_DIR})
     # The code was written for x86, where char is signed, and for compilers
     # that let signed integers wrap around instead of optimizing on their
     # overflow. Floating point contraction (fused multiply-add on ARM) would
@@ -86,10 +86,10 @@ function(elma_target target)
     set_target_properties(${target} PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED ON)
 endfunction()
 
-set(ELMA_SDL_SOUND F_SDL/SDL_SOUND.CPP F_SDL/SDL_HHIGH.CPP)
+set(ELMA_SDL_SOUND desktop/F_SDL/SDL_SOUND.CPP desktop/F_SDL/SDL_HHIGH.CPP)
 
 if(SDL_FOUND)
-    add_executable(elma ${ELMA_CORE} F_SDL/SDL_PLATFORM.CPP ${ELMA_SDL_SOUND})
+    add_executable(elma ${ELMA_CORE} desktop/F_SDL/SDL_PLATFORM.CPP ${ELMA_SDL_SOUND})
     elma_target(elma)
     target_link_libraries(elma PRIVATE PkgConfig::SDL)
     if(NOT ELMA_PLATFORM STREQUAL "desktop")
@@ -105,7 +105,7 @@ endif()
 # The terminal version uses SDL only for the sound; without SDL it is silent.
 if(ELMA_BUILD_CLI)
     set(ELMA_CLI_SOURCES
-        F_CLI/CLI_PLATFORM.CPP F_CLI/CLI_TERM.CPP F_CLI/CLI_RENDER.CPP)
+        desktop/F_CLI/CLI_PLATFORM.CPP desktop/F_CLI/CLI_TERM.CPP desktop/F_CLI/CLI_RENDER.CPP)
     if(SDL_FOUND)
         add_executable(elma-cli ${ELMA_CORE} ${ELMA_CLI_SOURCES} ${ELMA_SDL_SOUND})
         target_link_libraries(elma-cli PRIVATE PkgConfig::SDL)
