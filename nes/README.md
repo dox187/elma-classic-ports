@@ -16,6 +16,15 @@ point and 6502 assembly.
 - Not included: the level editor, replays, two players and the LGR
   graphics of the game.
 
+<p>
+  <img src="docs/title.gif" width="256" alt="The title screen">
+  <img src="docs/levels.gif" width="256" alt="The list of the levels">
+  <img src="docs/gameplay.gif" width="256" alt="Warm Up: the bike flips over and the rider lands on the head">
+</p>
+
+The title screen, the list of the levels and a ride on Warm Up that ends
+on the rider's head, recorded from the NTSC ROM in an emulator.
+
 The ROM is an MMC3 cartridge (mapper 4) with 512 KB PRG-ROM, 256 KB
 CHR-ROM and 8 KB of battery-backed PRG-RAM; the shareware version (see
 below) has 128 KB of each ROM. It has been tested in emulators only.
