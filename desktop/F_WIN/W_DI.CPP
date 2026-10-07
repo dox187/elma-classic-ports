@@ -1,5 +1,5 @@
 #include	"w_all.h"
-#include	"..\state.h"
+#include	"..\..\src\state.h"
  
 static LPDIRECTINPUT           g_pdi = NULL;
 static LPDIRECTINPUTDEVICE     g_pKeyboard = NULL;

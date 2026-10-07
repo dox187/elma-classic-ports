@@ -26,16 +26,16 @@
 
 #include "w_nempub.h"
 
-#include	"..\m_v.h"
-#include	"..\m_k.h"
-#include	"..\m_dd.h"
+#include	"..\..\src\m_v.h"
+#include	"..\..\src\m_k.h"
+#include	"..\..\src\m_dd.h"
 
 #include	"m_sound.h"
 
-#include	"..\hanghigh.h"
-#include	"..\qopen.h"
+#include	"..\..\src\hanghigh.h"
+#include	"..\..\src\qopen.h"
 
-#include	"..\main.h"
+#include	"..\..\src\main.h"
 
 
 

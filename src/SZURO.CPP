@@ -1,5 +1,5 @@
 #include	"all.h"
-#include	"third_party/hqx/hqx.h"
+#include	"hqx/hqx.h"
 #include	<vector>
 
 // A picture in 8-bit RGB with transparency (0 or 255, in-between after

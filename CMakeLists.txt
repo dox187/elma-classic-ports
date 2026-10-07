@@ -55,16 +55,17 @@ set(ELMA_CORE
     STATE.CPP SZAKASZ.CPP SZURO.CPP TELJES.CPP TOPOL.CPP UPGRADE.CPP UTKOZES.CPP
     UTKOZES2.CPP VALASZT2.CPP VEKT2.CPP
 )
+list(TRANSFORM ELMA_CORE PREPEND src/)
 
 # The sources include headers by lowercase names (all.h) while the files are
 # upper case (ALL.H). Generate lowercase forwarding headers so the build also
 # works on case-sensitive file systems such as Linux. They are only rewritten
 # when their content changes, so reconfiguring does not rebuild everything.
 set(ELMA_HEADER_DIR ${CMAKE_CURRENT_BINARY_DIR}/lowercase_headers)
-file(GLOB ELMA_HEADERS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/*.H)
+file(GLOB ELMA_HEADERS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/src/*.H)
 foreach(header ${ELMA_HEADERS})
     string(TOLOWER ${header} lower)
-    set(forward "#include \"${CMAKE_CURRENT_SOURCE_DIR}/${header}\"\n")
+    set(forward "#include \"${CMAKE_CURRENT_SOURCE_DIR}/src/${header}\"\n")
     set(current "")
     if(EXISTS ${ELMA_HEADER_DIR}/${lower})
         file(READ ${ELMA_HEADER_DIR}/${lower} current)
@@ -78,9 +79,11 @@ endforeach()
 # zoomed (LGPL 2.1, see third_party/hqx).
 add_library(hqx STATIC third_party/hqx/init.c third_party/hqx/hq2x.c
             third_party/hqx/hq3x.c third_party/hqx/hq4x.c)
+target_include_directories(hqx INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 
 function(elma_target target)
-    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${ELMA_HEADER_DIR})
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/desktop ${ELMA_HEADER_DIR})
     target_link_libraries(${target} PRIVATE hqx)
     # The code was written for x86, where char is signed, and for compilers
     # that let signed integers wrap around instead of optimizing on their
@@ -99,10 +102,11 @@ function(elma_target target)
     set_target_properties(${target} PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED ON)
 endfunction()
 
-set(ELMA_SDL_SOUND F_SDL/SDL_SOUND.CPP F_SDL/SDL_HHIGH.CPP)
+set(ELMA_SDL_SOUND desktop/F_SDL/SDL_SOUND.CPP desktop/F_SDL/SDL_HHIGH.CPP)
 
 if(SDL_FOUND)
-    add_executable(elma ${ELMA_CORE} F_SDL/SDL_PLATFORM.CPP F_SDL/SDL_SETTINGS.CPP ${ELMA_SDL_SOUND})
+    add_executable(elma ${ELMA_CORE} desktop/F_SDL/SDL_PLATFORM.CPP desktop/F_SDL/SDL_SETTINGS.CPP
+        ${ELMA_SDL_SOUND})
     elma_target(elma)
     target_link_libraries(elma PRIVATE PkgConfig::SDL)
     if(NOT ELMA_PLATFORM STREQUAL "desktop")
@@ -118,12 +122,12 @@ endif()
 # The terminal version uses SDL only for the sound; without SDL it is silent.
 if(ELMA_BUILD_CLI)
     set(ELMA_CLI_SOURCES
-        F_CLI/CLI_PLATFORM.CPP F_CLI/CLI_TERM.CPP F_CLI/CLI_RENDER.CPP)
+        desktop/F_CLI/CLI_PLATFORM.CPP desktop/F_CLI/CLI_TERM.CPP desktop/F_CLI/CLI_RENDER.CPP)
     if(SDL_FOUND)
         add_executable(elma-cli ${ELMA_CORE} ${ELMA_CLI_SOURCES} ${ELMA_SDL_SOUND})
         target_link_libraries(elma-cli PRIVATE PkgConfig::SDL)
     else()
-        add_executable(elma-cli ${ELMA_CORE} ${ELMA_CLI_SOURCES} H_DUMMY.CPP)
+        add_executable(elma-cli ${ELMA_CORE} ${ELMA_CLI_SOURCES} src/H_DUMMY.CPP)
     endif()
     elma_target(elma-cli)
     target_compile_definitions(elma-cli PRIVATE ELMA_CLI)
