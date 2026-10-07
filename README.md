@@ -43,6 +43,18 @@ https://elastomania.com
   changes floating point results. The builds use signed `char` and no fused
   multiply-add, so the game and its replays behave as on x86.
 
+## Source layout
+
+| Directory                              | Content                                                        |
+|----------------------------------------|----------------------------------------------------------------|
+| [`src`](src)                           | The game and physics code shared by the computer and handheld versions |
+| [`desktop`](desktop)                   | The platform layers: `F_SDL` (SDL, for Linux, macOS and the handhelds), `F_CLI` (the terminal version) and `F_WIN` (the DirectX layer of the original Windows version, not built) |
+| [`handheld`](handheld)                 | Toolchains, launchers and the build script of the handheld packages |
+| [`console/nes`](console/nes/README.md) | The NES demake, a separate program                             |
+
+`CMakeLists.txt` in the root builds the code in `src` with a platform layer
+from `desktop`.
+
 ## Ports
 
 The macOS port replaces the DirectX layer of the Windows version with SDL2.

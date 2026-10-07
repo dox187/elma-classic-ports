@@ -47,7 +47,8 @@ Requirements:
   that comes with macOS is too old, `gmake` from Homebrew works);
 - Python 3 with numpy and Pillow;
 - `elma.res` from a legally obtained copy of the game, registered or
-  shareware (see below).
+  shareware (see below). The registered `elma.res` of version 1.11a and the
+  one of the Steam release both work and give the same ROMs.
 
 ```sh
 cd console/nes
