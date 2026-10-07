@@ -43,6 +43,8 @@ Requirements:
 - the [llvm-mos SDK](https://github.com/llvm-mos/llvm-mos-sdk), with
   `mos-nes-mmc3-clang` in the `PATH`, in `~/.local/share/llvm-mos` or given
   as `LLVM_MOS=/path/to/llvm-mos`;
+- GNU Make 4.3 or newer (the Makefile uses grouped targets; the make 3.81
+  that comes with macOS is too old, `gmake` from Homebrew works);
 - Python 3 with numpy and Pillow;
 - `elma.res` from a legally obtained copy of the game, registered or
   shareware (see below).
@@ -51,6 +53,10 @@ Requirements:
 cd nes
 make ELMA_RES=/path/to/elma.res
 ```
+
+Without `ELMA_RES` the build uses `../elma.res`, the `elma.res` in the root
+of the repository, so there a plain `make` is enough. `make clean` removes
+`build/` with the ROMs and everything generated.
 
 A ROM is written for each TV system, `build/elma_ntsc.nes` and
 `build/elma_pal.nes`, or `build/elma_sw_ntsc.nes` and
@@ -104,7 +110,8 @@ page, A plays it and B goes back to the title.
 `make check ELMA_RES=/path/to/elma.res` runs the fixed point physics next to
 the game's physics on the first level, checks that `physics.S` gives the
 same bike as `physics.c` to the bit in the simulator of the SDK, and prints
-the cycles of a step.
+the cycles of a step. Besides the SDK it needs a C compiler for the host,
+`cc` or the one given as `HOSTCC=`.
 
 `test/run.py` plays the ROM in the [cynes](https://github.com/Youlixx/cynes)
 emulator with a script of buttons and saves screenshots.
