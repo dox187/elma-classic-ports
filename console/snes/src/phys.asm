@@ -805,11 +805,9 @@ phys_erok:
 	WSUB C_RY, T1
 	RSH32 T0, 3
 	RSH32 T1, 3
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b KX
-	ldx #T1
-	jsr phys_clamp16
+	CLAMP16 T1
 	sta.b KY
 	; korongrelv = rot90( koto ) * w1 + body.v - wheel.v:
 	lda #0
@@ -1148,17 +1146,13 @@ phys_fric:
 	RSH32 T2, 8
 	MOV32 T3, RLY
 	RSH32 T3, 8
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b T0                    ; g16x
-	ldx #T1
-	jsr phys_clamp16
+	CLAMP16 T1
 	sta.b T0+2                  ; g16y
-	ldx #T2
-	jsr phys_clamp16
+	CLAMP16 T2
 	sta.b T1                    ; rvx
-	ldx #T3
-	jsr phys_clamp16
+	CLAMP16 T3
 	sta.b T1+2                  ; rvy
 	lda #0
 	sec
@@ -1230,8 +1224,7 @@ _fr_none:
 	sbc.b \2+2
 	sta.b T0+2
 	RSH32 T0, 1
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 .ENDM
 
 ; The volts (leptet): starts and ends, and the rider turns with the body.
@@ -1402,8 +1395,7 @@ _v_start:
 	sbc.w pt_oldw+2
 	sta.b T1+2
 	RSH32 T1, 12
-	ldx #T1
-	jsr phys_clamp16
+	CLAMP16 T1
 	sta.b T1                    ; dw
 	HALFDIFF S_RIDX, S_BODY+C_RX
 	sta.b T2                    ; dx
@@ -1524,8 +1516,7 @@ phys_rider:
 	MB_DP SN
 	RADD16 R2+2
 	RFIN 7, 2*$808000
-	ldx #R
-	jsr phys_clamp16
+	CLAMP16 R
 	sta.b T3
 	; y = clamp16( rsh( mq16( Cs, dy )+mq16( -Sn, dx ), 7 ) ):
 	lda #0
@@ -1539,8 +1530,7 @@ phys_rider:
 	MB_DP T0
 	RADD16 R2
 	RFIN 7, 2*$808000
-	ldx #R
-	jsr phys_clamp16
+	CLAMP16 R
 	sta.b T3+2
 	stz.w pt_tmp+4              ; moved
 	lda.b S_TURNED
@@ -1562,8 +1552,7 @@ phys_rider:
 	jmp _rd_top
 _far1:
 	RSH32 R, 7
-	ldx #R
-	jsr phys_clamp16
+	CLAMP16 R
 	sta.b T1                    ; l
 	sep #$20
 	MB_DP T1
@@ -1572,8 +1561,7 @@ _far1:
 	lda.b T3
 	jsr phys_ext32
 	SUB32 T0, T0, R
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b T3
 	sep #$20
 	MB_DP T1
@@ -1582,8 +1570,7 @@ _far1:
 	lda.b T3+2
 	jsr phys_ext32
 	SUB32 T0, T0, R
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b T3+2
 	inc.w pt_tmp+4
 _rd_top:
@@ -2454,8 +2441,7 @@ phys_norm:
 	rol.b R+2
 	dex
 	bne -
-+	ldx #R
-	jsr phys_clamp16
++	CLAMP16 R
 	ldx.b NCT
 	sta.b CT_H,x
 	rts
@@ -2567,11 +2553,9 @@ phys_holds:
 	ldx.b WK
 	SHR8WX T0, phys_dpa+C_VX
 	SHR8WX T1, phys_dpa+C_VY
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b T0
-	ldx #T1
-	jsr phys_clamp16
+	CLAMP16 T1
 	sta.b T1
 	; nv = rsh( mf16( nx, vx8 )+mf16( ny, vy8 ), 7 ):
 	ldx.b NCT
@@ -2713,8 +2697,7 @@ phys_side:
 	sbc.w phys_dpb+CT_TX+2,y
 	sta.b T0+2
 	ASR32 T0, 1
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b T1                    ; dx
 	ldx.b T2
 	ldy.b T2+2
@@ -2726,8 +2709,7 @@ phys_side:
 	sbc.w phys_dpb+CT_TY+2,y
 	sta.b T0+2
 	ASR32 T0, 1
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b T1+2                  ; dy
 	ldx.b T2+2
 	lda.b CT_NY,x
@@ -2777,11 +2759,9 @@ phys_sure_new:
 	MOV32WX T1, phys_dpa+C_VY
 	RSH32 T0, 8
 	RSH32 T1, 8
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b T0
-	ldx #T1
-	jsr phys_clamp16
+	CLAMP16 T1
 	sta.b T1
 	; nv = clamp16( rsh( mq16( -ny, vx )+mq16( nx, vy ), 7 ) ):
 	ldx.b T2+2
@@ -2798,8 +2778,7 @@ phys_sure_new:
 	DIG16 T1
 	RADD16 MD0
 	RFIN 7, 2*$808000
-	ldx #R
-	jsr phys_clamp16
+	CLAMP16 R
 	sta.b T0                    ; nv
 	; m = w + rsh( mf16( nv, h ), 4 ):
 	sep #$20
@@ -3013,11 +2992,9 @@ phys_wheel:
 	MOV32WX T1, phys_dpa+C_VY
 	RSH32 T0, 8
 	RSH32 T1, 8
-	ldx #T0
-	jsr phys_clamp16
+	CLAMP16 T0
 	sta.b T0
-	ldx #T1
-	jsr phys_clamp16
+	CLAMP16 T1
 	sta.b T0+2
 	SQUARE T0
 	MOV32 T1, R

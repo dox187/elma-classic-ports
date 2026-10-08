@@ -478,21 +478,48 @@ _rfin_f1\@:
 	lda.b \1
 	clc
 	adc #(1 << ((\2)-1)) & $FFFF
+	.IF \2 >= 16
+	lda.b \1+2
+	adc #((1 << ((\2)-1)) >> 16) & $FFFF
+	.REPT (\2)-16
+	cmp #$8000
+	ror a
+	.ENDR
+	sta.b \1
+	cmp #$8000
+	lda #0
+	bcc _rsh32_f1\@
+	dec a
+_rsh32_f1\@:	sta.b \1+2
+	.ELSE
+	.IF \2 >= 8
 	sta.b \1
 	lda.b \1+2
 	adc #((1 << ((\2)-1)) >> 16) & $FFFF
-	.REPT \2
+	sta.b \1+2
+	BYTESHR \1
+	.ELSE
+	sta.b \1
+	lda.b \1+2
+	adc #((1 << ((\2)-1)) >> 16) & $FFFF
+	.ENDIF
+	.REPT (\2) & 7
 	cmp #$8000
 	ror a
 	ror.b \1
 	.ENDR
 	sta.b \1+2
+	.ENDIF
 .ENDM
 
 ; \1 = \1 >> \2, rounded down:
 .MACRO ASR32
+	.IF \2 >= 8
+	BYTESHR \1
+	.ELSE
 	lda.b \1+2
-	.REPT \2
+	.ENDIF
+	.REPT (\2) & 7
 	cmp #$8000
 	ror a
 	ror.b \1
@@ -500,20 +527,61 @@ _rfin_f1\@:
 	sta.b \1+2
 .ENDM
 
+; \1 >> 8 (direct page double word): bytes 1, 2 into the low word, A = the
+; high word (byte 3 sign-extended), not stored.
+.MACRO BYTESHR
+	lda.b \1+1
+	sta.b \1
+	lda.b \1+2
+	xba
+	and #$00FF
+	cmp #$0080
+	bcc _byteshr_f1\@
+	ora #$FF00
+_byteshr_f1\@:
+.ENDM
+
 ; R = rsh( mq24( dp double word \1, \2_M ), \2_SH-8 ): the constant
-; multiplier \2 (A 16-bit in and out; T3 is used).
+; multiplier \2 (A 16-bit in and out; T3 is used when \1 is clamped).
 .MACRO MULK
+	lda.b \1+2
+	clc
+	adc #$007F
+	cmp #$00FE
+	bcc _mulk_in\@
 	lda.b \1
 	sta.b T3
 	lda.b \1+2
 	sta.b T3+2
-	CLAMP24 T3
+	ldx #T3
+	jsr phys_clamp24
 	sep #$20
 	DIG24 T3
+	bra _mulk_dig\@
+_mulk_in\@:
+	sep #$20
+	DIG24 \1
+_mulk_dig\@:
 	MB_IMM \2_M
 	RSET24 MD0
 	rep #$20
 	RFIN (\2_SH)-8, $808000
+.ENDM
+
+; A = clamp16( the double word \1 of the direct page ), [-32640, 32639]
+; (X is changed).
+.MACRO CLAMP16
+	lda.b \1+2
+	bne _clamp16_s\@
+	lda.b \1
+	cmp #32640
+	bcc _clamp16_d\@
+	lda #32639
+	bra _clamp16_d\@
+_clamp16_s\@:
+	ldx #\1
+	jsr phys_clamp16
+_clamp16_d\@:
 .ENDM
 
 ; R = rsh( mq24( T3, MB ) + ..., ) helpers: the signed bytes of T3 after
