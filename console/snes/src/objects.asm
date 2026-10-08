@@ -3,9 +3,8 @@
 ;
 ; Each kind of object has one 16x16 picture in the VRAM (tiles 192 + 2k):
 ; the current frame of its animation (anim::getframe, 0.014 game time a
-; frame). A frame that changed is copied into a copy of the two tile rows in
-; the RAM, then the changed range goes to the VRAM through the queue of the
-; NMI (two transfers). Apples and the flower bob up and down (5 pixels of
+; frame). The frames that changed of the kinds on the screen go to the VRAM
+; straight from the ROM through the queue of the NMI (two transfers each). Apples and the flower bob up and down (5 pixels of
 ; the original game, sin(t * 15.5 + phase)). Eaten apples and the start are
 ; not drawn. OAM 64-127, the last object of the level first (on top).
 
@@ -30,8 +29,6 @@ O_T3        dw
 O_T4        dw
 O_T5        dw
 O_AC        dw          ; frames of the animations since the start
-O_LO        dw
-O_HI        dw
 O_PTR       dsb 4
 O_SRC       dsb 4
 O_OX        dw
@@ -62,7 +59,6 @@ obj_time    dw          ; the time of the last frame
 obj_prevac  dw          ; frames since the start in the last frame
 obj_kf      dsw 8       ; the frame of each kind now
 obj_oam_end dw          ; end of the sprites written in the last frame
-obj_stage   dsb 1024    ; tiles 192-207, 208-223
 .ENDS
 
 .BASE $80
@@ -72,11 +68,9 @@ obj_stage   dsb 1024    ; tiles 192-207, 208-223
 ; The bit of x >= 256 of a sprite in the high table:
 ob_hb:
 	.db 1, 4, 16, 64
-ob_zero:
-	.db 0
 
 ;---------------------------------------------------------------------------
-; void obj_reset(void): no frame loaded, the copy of the rows cleared.
+; void obj_reset(void): no frame loaded.
 obj_reset:
 	php
 	phb
@@ -98,27 +92,6 @@ obj_reset:
 	sta.l obj_prevac
 	lda.w #128*4
 	sta.l obj_oam_end
-	lda.w #obj_stage
-	sta $2181
-	sep #$20
-	lda.b #:obj_stage & 1
-	sta $2183
-	lda #$08                    ; fixed source, one register
-	sta $4370
-	lda #$80
-	sta $4371
-	rep #$20
-	lda.w #ob_zero
-	sta $4372
-	sep #$20
-	lda.b #:ob_zero
-	sta $4374
-	rep #$20
-	lda #1024
-	sta $4375
-	sep #$20
-	lda #$80
-	sta $420B
 	plb
 	plp
 	rtl
@@ -272,20 +245,13 @@ _have:
 ; The frames of the animations: loads the ones that changed of the kinds
 ; on the screen (O_VIS) (DB = $80).
 ob_frames:
-	; Room in the queue for 2 transfers (else nothing changes now: the
-	; frames are counted from obj_prevac the next time):
+	; Room in the queue for 2 transfers a kind (else nothing changes now:
+	; the frames are counted from obj_prevac the next time):
 	lda core_dmaq_n
-	cmp.w #(DMAQ_MAX-2)*8+1
+	cmp.w #(DMAQ_MAX-2*OBJ_KINDS)*8+1
 	bcc +
 	rts
-+	lda #$FFFF
-	sta.b O_LO
-	sep #$20
-	lda #$00
-	sta $4370
-	lda #$80
-	sta $4371
-	stz $2183
++	sep #$20
 	lda.b #:obj_kind_table
 	sta.b O_PTR+2
 	rep #$20
@@ -364,32 +330,17 @@ _same:
 	and #$FF00
 	xba
 	sta.b O_SRC+2
-	; Into the copy of the rows (k * 64, + 512 for the bottom row):
+	; Straight from the ROM: the top tiles at 192 + 2k, the bottom ones
+	; 16 tiles further.
 	lda.b O_K
 	asl a
 	asl a
 	asl a
-	asl a
-	asl a                       ; k * 64 (O_K = 2k)
+	asl a                       ; k * 32 words (O_K = 2k)
 	clc
-	adc.w #obj_stage
-	sta.b O_T1
-	jsr _half
-	lda.b O_SRC
-	clc
-	adc #64
-	sta.b O_SRC
-	lda.b O_T1
-	clc
-	adc #512
-	jsr _half
-	lda.b O_LO
-	cmp #$FFFF
-	bne +
-	lda.b O_K
-	sta.b O_LO
-+	lda.b O_K
-	sta.b O_HI
+	adc.w #VRAM_OBJS
+	sta.b O_T3
+	jsr ob_queue
 _knext:
 	lda.b O_K
 	inc a
@@ -401,88 +352,43 @@ _knext:
 +
 	lda.b O_AC
 	sta.l obj_prevac
-	; The queue: the range of the kinds that changed, top and bottom row.
-	lda.b O_LO
-	cmp #$FFFF
-	bne +
 	rts
-+	lda.b O_HI
-	sec
-	sbc.b O_LO
-	inc a
-	inc a
-	asl a
-	asl a
-	asl a
-	asl a
-	asl a                       ; (kinds) * 64
-	sta.b O_T1
-	lda.b O_LO
-	asl a
-	asl a
-	asl a
-	asl a
-	asl a
-	clc
-	adc.w #obj_stage
-	sta.b O_T2                  ; source
-	lda.b O_LO
-	asl a
-	asl a
-	asl a
-	asl a
-	clc
-	adc.w #VRAM_OBJS
-	sta.b O_T3                  ; VRAM: k * 32 words
-	jsr ob_queue
-	lda.b O_T2
-	clc
-	adc #512
-	sta.b O_T2
-	lda.b O_T3
-	clc
-	adc #256
-	sta.b O_T3
-; A transfer of O_T1 bytes from $7E:O_T2 to the VRAM at O_T3 (words).
+
+; The frame at O_SRC to the VRAM at O_T3 (words): two transfers of the
+; queue (its top and bottom tiles). Keeps X.
 ob_queue:
+	phx
 	ldx core_dmaq_n
 	sep #$20
 	lda.b #DMAQ_VRAM
 	sta core_dmaq,x             ; type +0, source +1, bank +3, size +4,
-	lda #$7E                    ; VRAM address +6
+	sta core_dmaq+8,x           ; VRAM address +6
+	lda.b O_SRC+2
 	sta core_dmaq+3,x
+	sta core_dmaq+8+3,x
 	rep #$20
-	lda.b O_T2
+	lda.b O_SRC
 	sta core_dmaq+1,x
-	lda.b O_T1
+	clc
+	adc #64
+	sta core_dmaq+8+1,x
+	lda #64
 	sta core_dmaq+4,x
+	sta core_dmaq+8+4,x
 	lda.b O_T3
 	sta core_dmaq+6,x
-	lda.b O_T1
 	clc
-	adc core_dmaq_bytes
+	adc #256
+	sta core_dmaq+8+6,x
+	lda core_dmaq_bytes
+	clc
+	adc #128
 	sta core_dmaq_bytes
 	txa
 	clc
-	adc #8
+	adc #16
 	sta core_dmaq_n
-	rts
-
-; 64 bytes from O_SRC to $7E:A (DMA channel 7 into the WRAM).
-_half:
-	sta $2181
-	lda.b O_SRC
-	sta $4372
-	sep #$20
-	lda.b O_SRC+2
-	sta $4374
-	rep #$20
-	lda #64
-	sta $4375
-	sep #$20
-	lda #$80
-	sta $420B
-	rep #$20
+	plx
 	rts
 
 ob_bits:
