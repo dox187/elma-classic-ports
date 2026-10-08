@@ -797,6 +797,19 @@ def main():
     a += ['.SECTION ".bike_desc" SUPERFREE', 'bike_desc_single:']
     for ref in single:
         a.append('\t.dl %s\n\t.db 0' % ref)
+    # The same as the two transfers of the queue of the NMI that load a
+    # single part's picture (bike.asm, bk_load1): 16 bytes each.
+    q = ['.SECTION ".bike_q_single" SUPERFREE', 'bike_q_single:']
+    for n, ref in enumerate(single):
+        p = n // per_part
+        vaddr = 'VRAM_OBJ+%d*16' % ((128 + 2 * p) if p < 8 else (160 + 2 * (p - 8)))
+        if ref == '0':
+            q.append('\t.dsb 16, 0')
+            continue
+        bank = ':' + ref.split('+')[0]
+        q.append('\t.db DMAQ_VRAM\n\t.dw %s\n\t.db %s\n\t.dw 64, %s' % (ref, bank, vaddr))
+        q.append('\t.db DMAQ_VRAM\n\t.dw %s+64\n\t.db %s\n\t.dw 64, %s+256' % (ref, bank, vaddr))
+    q += ['.ENDS', '']
     # The body: the number of sprites, 18 bytes not used, then for each
     # flip (none, H, V, both) the corners of the 6 sprites from the pivot
     # (x, y words), then the pointer of its rows.
@@ -821,6 +834,7 @@ def main():
     for ref in turn_rows:
         a.append('\t.dl %s\n\t.db 0' % ref)
     a += ['.ENDS', '']
+    a += q
     # Objects: per kind the number of frames and the pointers of the frames.
     a += ['.SECTION ".obj_anims" SUPERFREE', 'obj_kind_frames:']
     a.append('\t.db ' + ','.join(str(len(r)) for _, r in obj_kinds))

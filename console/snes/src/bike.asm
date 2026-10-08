@@ -529,11 +529,6 @@ W_KF        dsw 11      ; its flips << 8
 ; For each part: its bit, its first tile with its palette and priority.
 bk_bit:
 	.dw 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024
-; The VRAM address of each single part's sprite.
-bk_vram:
-	.dw VRAM_OBJ+128*16, VRAM_OBJ+130*16, VRAM_OBJ+132*16, VRAM_OBJ+134*16
-	.dw VRAM_OBJ+136*16, VRAM_OBJ+138*16, VRAM_OBJ+140*16, VRAM_OBJ+142*16
-	.dw VRAM_OBJ+160*16, VRAM_OBJ+162*16
 ; The time of the vertical blank for 0-5 loads of a single sprite:
 bk_lcap:
 	.dw 0, 128+2*ENTRY_COST, 2*(128+2*ENTRY_COST), 3*(128+2*ENTRY_COST)
@@ -1717,6 +1712,14 @@ bk_load:
 	tax
 	lda.l bk_lcap,x
 +	sta.b Z_LEFT
+	sep #$20                    ; DMA channel 7: the templates of the
+	stz $4370                   ; queue into the WRAM (bk_load1)
+	lda #$80
+	sta $4371
+	lda.b #:bike_q_single
+	sta $4374
+	stz $2183
+	rep #$20
 	lda bike_toggle             ; (toggled: 1 = the parts 0-7 first)
 	beq +
 	jsr _group0
@@ -1842,46 +1845,34 @@ _group1:
 	sta.b Z_DST
 	jmp bk_qrows
 
-; Part Y/2 (a single sprite) gets its wanted picture and loads it: two
-; transfers of 64 bytes, the bottom ones 16 tiles further. Keeps Y; its
-; bit of bike_pend stays (the caller clears it).
+; Part Y/2 (a single sprite) gets its wanted picture and loads it: its two
+; transfers of the queue copied from bike_q_single by DMA (channel 7, set
+; up by bk_load). Keeps Y; its bit of bike_pend stays (the caller clears
+; it).
 bk_load1:
 	tyx
 	lda W_KF,y
 	and #$FF00
 	ora.l bk_ta0,x
 	sta bike_ta,y
-	lda.l bk_vram,x
-	sta.b Z_DST
 	lda W_DESC,y
 	sta bike_cur,y
-	sec
-	sbc.w #bike_desc_single
-	tax
-	lda.l bike_desc_single+2,x  ; the bank of its picture
-	sta.b Z_T1
-	lda.l bike_desc_single,x
-	ldx core_dmaq_n
-	sta core_dmaq+1,x           ; type +0, source +1, bank +3, size +4,
-	clc                         ; VRAM address +6
-	adc #64
-	sta core_dmaq+8+1,x
-	lda.b Z_T1
-	sta core_dmaq+3,x           ; (its high byte: the size's, below)
-	sta core_dmaq+8+3,x
-	lda #64
-	sta core_dmaq+4,x
-	sta core_dmaq+8+4,x
-	lda.b Z_DST
-	sta core_dmaq+6,x
+	asl a                       ; bike_q_single + 4 * (desc - bike_desc_single)
+	asl a
 	clc
-	adc #256
-	sta core_dmaq+8+6,x
+	adc.w #(bike_q_single-4*bike_desc_single) & $FFFF
+	sta $4372
+	lda core_dmaq_n
+	clc
+	adc.w #core_dmaq
+	sta $2181
+	lda #16
+	sta $4375
 	sep #$20
-	stz core_dmaq,x             ; (DMAQ_VRAM)
-	stz core_dmaq+8,x
+	lda #$80
+	sta $420B
 	rep #$20
-	txa
+	lda core_dmaq_n
 	clc
 	adc #16
 	sta core_dmaq_n
