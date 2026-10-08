@@ -865,6 +865,10 @@ def main():
           for i in range(0, 257, 16)]
     a.append('bike_t_wheel:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['wheel'][i:i + 16]) for i in range(0, 64, 16)]
+    # The same by the high byte of the angle (bk_oam).
+    w256 = [tb['wheel'][((h + 2) & 255) >> 2] for h in range(256)]
+    a.append('bike_t_wheel256:')
+    a += ['\t.dw ' + ','.join(str(x) for x in w256[i:i + 16]) for i in range(0, 256, 16)]
     for n in (32, 64, 128):
         a.append('bike_t_lk%d:' % n)
         a += ['\t.dw ' + ','.join(str(x) for x in tb['lk%d' % n][i:i + 16])

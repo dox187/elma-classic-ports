@@ -272,24 +272,24 @@ W_KF        dsw 11      ; its flips << 8
 	bcc +
 	cmp.w #-15 & $FFFF
 	bcc ++
-	tax
+	pha
 	sep #$20
 	lda.b #\3
 	tsb.w \2
 	rep #$20
-	txa
+	pla
 .ENDIF
 .IF \4 == 1
 	cmp.w #256
 	bcs +
 	cmp.w #241
 	bcc ++
-	tax
+	pha
 	sep #$20
 	lda.b #\3
 	tsb.w \2
 	rep #$20
-	txa
+	pla
 .ENDIF
 .IF \4 == 3
 	cmp.w #512
@@ -350,10 +350,9 @@ W_KF        dsw 11      ; its flips << 8
 .ENDM
 
 ; Sprite \1 (0-5) of the body in its place (7 + \1), mode \2: its corner
-; from the pivot at [Z_PTR] + 4 * \1.
+; from the pivot at bike_desc_single + X + 4 * \1.
 .MACRO BODY
-	ldy.w #4*\1
-	lda [Z_PTR],y
+	lda.l bike_desc_single+4*\1,x
 	clc
 	adc.b Z_PX
 .IF \2 == 0
@@ -361,8 +360,7 @@ W_KF        dsw 11      ; its flips << 8
 .ELSE
 	EDGEX BK_OAM+4*(7+\1), BK_HB+(7+\1)/4, 1<<(2*((7+\1)&3)), (\2&1)*\2
 .ENDIF
-	ldy.w #4*\1+2
-	lda [Z_PTR],y
+	lda.l bike_desc_single+4*\1+2,x
 	clc
 	adc.b Z_PY
 .IF \2 == 2
@@ -2043,23 +2041,17 @@ bk_oam:
 	lsr a
 	lsr a
 	sta.b Z_WSY+2
-	lda.l phys_view+PV_WHEEL_A
-	clc
-	adc #512
-	xba
-	and #$00FC                  ; 64 steps * 4
-	lsr a
+	lda.l phys_view+PV_WHEEL_A+1
+	and #$00FF
+	asl a
 	tax
-	lda.l bike_t_wheel,x
+	lda.l bike_t_wheel256,x
 	sta.b Z_WT
-	lda.l phys_view+PV_WHEEL_A+2
-	clc
-	adc #512
-	xba
-	and #$00FC
-	lsr a
+	lda.l phys_view+PV_WHEEL_A+3
+	and #$00FF
+	asl a
 	tax
-	lda.l bike_t_wheel,x
+	lda.l bike_t_wheel256,x
 	sta.b Z_WT+2
 	; The parts are within 48 pixels of the center: with the center at
 	; 56..199, 56..167 they are all on the screen.
@@ -2103,7 +2095,10 @@ bk_body0:
 	txa
 	asl a
 	tax
-	jmp (_bt0,x)
+	lda.l _bt0,x
+	sta.b Z_T5
+	ldx.b Z_T4
+	jmp (bike_dp+Z_T5)
 _bt0:
 	.dw _b00, _b01, _b02, _b03, _b04, _b05, _b06
 _b06:
@@ -2132,7 +2127,10 @@ bk_body1:
 	txa
 	asl a
 	tax
-	jmp (_bt1,x)
+	lda.l _bt1,x
+	sta.b Z_T5
+	ldx.b Z_T4
+	jmp (bike_dp+Z_T5)
 _bt1:
 	.dw _b10, _b11, _b12, _b13, _b14, _b15, _b16
 _b16:
@@ -2161,7 +2159,10 @@ bk_body2:
 	txa
 	asl a
 	tax
-	jmp (_bt2,x)
+	lda.l _bt2,x
+	sta.b Z_T5
+	ldx.b Z_T4
+	jmp (bike_dp+Z_T5)
 _bt2:
 	.dw _b20, _b21, _b22, _b23, _b24, _b25, _b26
 _b26:
@@ -2190,7 +2191,10 @@ bk_body3:
 	txa
 	asl a
 	tax
-	jmp (_bt3,x)
+	lda.l _bt3,x
+	sta.b Z_T5
+	ldx.b Z_T4
+	jmp (bike_dp+Z_T5)
 _bt3:
 	.dw _b30, _b31, _b32, _b33, _b34, _b35, _b36
 _b36:
@@ -2253,8 +2257,9 @@ _whide:
 	sta.w BK_OAM,x
 	rts
 
-; Z_PTR = the corners of the sprites of the body for its flips, Z_NS =
-; their number (0: none), Z_TA = the first tile with the attributes.
+; Z_T4 = the corners of the sprites of the body for its flips (from
+; bike_desc_single), Z_NS = their number (0: none), Z_TA = the first tile
+; with the attributes.
 bk_body:
 	stz.b Z_NS
 	lda bike_cur+2*FRAME
@@ -2265,6 +2270,7 @@ bk_body:
 	and #$00FF
 	sta.b Z_NS
 	lda bike_ta+2*FRAME
+	sta.b Z_TA
 	xba
 	and #$00C0                  ; the flips: 64 f
 	lsr a
@@ -2273,11 +2279,9 @@ bk_body:
 	sta.b Z_T2                  ; 8 f
 	asl a
 	adc.b Z_T2                  ; 24 f
-	adc.w #1+3*BK_FRAME_SPRITES
+	adc.w #(1+3*BK_FRAME_SPRITES-bike_desc_single) & $FFFF
 	adc.b Z_PTR
-	sta.b Z_PTR
-	lda bike_ta+2*FRAME
-	sta.b Z_TA
+	sta.b Z_T4
 	rts
 
 ; Hides the places of the body from 7 + X/2 on.
