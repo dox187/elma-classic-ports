@@ -15,7 +15,8 @@ Steps of the script, separated by spaces:
   CLOCK                 prints the frame, the master clock and the CPU cycles
 
 The SRAM is cleared before the start (--sram FILE loads it instead, --keep-sram
-keeps what Mesen has). --lua FILE adds a script of its own (it runs before
+keeps what Mesen has). The work RAM is cleared too, so that runs repeat
+exactly (Mesen fills it at random, like the console); --random-ram keeps it. --lua FILE adds a script of its own (it runs before
 the steps; the helpers below are global). The Mesen 2 executable is taken
 from $MESEN or the usual places.
 
@@ -103,7 +104,7 @@ def read_symbols(rom):
     return syms
 
 
-def make_lua(script, rom, sram=None, keep_sram=False, extra=None):
+def make_lua(script, rom, sram=None, keep_sram=False, extra=None, random_ram=False):
     syms = read_symbols(rom)
     lines = [LUA_HEAD]
     frame = 0
@@ -164,6 +165,11 @@ emu.addEventCallback(function()
     emu.write(i, b, emu.memType.snesSaveRam)
   end
 end, emu.eventType.startFrame)''')
+    if not random_ram:
+        # At the load of the script the CPU has not started yet:
+        lines.append(r'''
+for i = 0, memsize(emu.memType.snesWorkRam) - 1 do emu.write(i, 0, emu.memType.snesWorkRam) end
+for i = 0, memsize(emu.memType.spcRam) - 1 do emu.write(i, 0, emu.memType.spcRam) end''')
     if extra:
         lines.append(open(extra).read())
     lines.append(LUA_TAIL)
@@ -171,8 +177,8 @@ end, emu.eventType.startFrame)''')
 
 
 def run(rom, script, out_dir='.', sram=None, keep_sram=False, lua=None,
-        timeout=600, verbose=False):
-    lua_src = make_lua(script, rom, sram, keep_sram, lua)
+        timeout=600, verbose=False, random_ram=False):
+    lua_src = make_lua(script, rom, sram, keep_sram, lua, random_ram)
     lua_path = os.path.join(out_dir, '.mesen_run.lua')
     os.makedirs(out_dir, exist_ok=True)
     with open(lua_path, 'w') as f:
@@ -208,9 +214,10 @@ def main():
     ap.add_argument('--keep-sram', action='store_true')
     ap.add_argument('--lua')
     ap.add_argument('--timeout', type=int, default=600)
+    ap.add_argument('--random-ram', action='store_true')
     a = ap.parse_args()
     for kind, name, data in run(a.rom, a.script, a.out, a.sram, a.keep_sram,
-                                a.lua, a.timeout):
+                                a.lua, a.timeout, random_ram=a.random_ram):
         if kind == 'PEEK':
             print('%s %s' % (name, binascii.hexlify(data).decode()))
 
