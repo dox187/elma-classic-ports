@@ -79,7 +79,7 @@ static int16_t Cs, Sn;        // the same, Q15
 
 static int16_t q15( int32_t v ) {
 	v >>= 7;
-	return (int16_t)(v > 32767 ? 32767 : v);
+	return (int16_t)(v > 32767 ? 32767 : v < -32767 ? -32767 : v);
 }
 
 static void trig( int32_t a ) {
@@ -187,10 +187,10 @@ static int contacts( int32_t rx, int32_t ry, int32_t R, uint32_t RSQ, contact_t*
 		uint16_t L = rd16( list+2+2*j );
 		if( bx < rd16( L ) || bx > rd16( L+2 ) || by < rd16( L+4 ) || by > rd16( L+6 ) )
 			continue;
-		int32_t relx = qx-rd24( L+8 ), rely = qy-rd24( L+11 );
-		int32_t rx15 = relx >> 1, ry15 = rely >> 1;
-		int16_t ex = rds16( L+14 ), ey = rds16( L+16 );
-		int8_t elx = (int8_t)Lev[L+18], ely = (int8_t)Lev[L+19];
+		// From the middle of the line, in 2^-15 m:
+		int32_t rx15 = (qx-rd24( L+8 )) >> 1, ry15 = (qy-rd24( L+11 )) >> 1;
+		int16_t ex = rds16( L+20 ), ey = rds16( L+22 );
+		int8_t elx = (int8_t)Lev[L+24], ely = (int8_t)Lev[L+25];
 		// The distance from the line, its direction to the precision of
 		// the level (e and the rest of it), and where along it:
 		int32_t tav = rsh( mq24( ry15, ex )+mq24( rx15, (int16_t)-ey )+
@@ -203,13 +203,16 @@ static int contacts( int32_t rx, int32_t ry, int32_t R, uint32_t RSQ, contact_t*
 		c.dn = 0;
 		int32_t dx = 0, dy = 0;
 		int point = 1;
-		if( pos < 0 ) {
-			dx = relx;
-			dy = rely;
+		int32_t half = rd24( L+28 );
+		if( pos < -half ) {
+			// The start of the line, A = 2M - B - par:
+			int par = Lev[L+31];
+			dx = qx-(2*rd24( L+8 )-rd24( L+14 )-(par & 1));
+			dy = qy-(2*rd24( L+11 )-rd24( L+17 )-(par >> 1));
 		}
-		else if( pos > rd24( L+22 ) ) {
-			dx = qx-rd24( L+25 );
-			dy = qy-rd24( L+28 );
+		else if( pos > half ) {
+			dx = qx-rd24( L+14 );
+			dy = qy-rd24( L+17 );
 		}
 		else
 			point = 0;
@@ -234,7 +237,7 @@ static int contacts( int32_t rx, int32_t ry, int32_t R, uint32_t RSQ, contact_t*
 				c.ny = (int16_t)-ex;
 				c.h = (int16_t)-tav;
 			}
-			c.dn = rds16( L+20 );
+			c.dn = rds16( L+26 );
 			c.has_n = 1;
 		}
 		if( !ct )
@@ -572,13 +575,15 @@ uint16_t ps_step( uint16_t input ) {
 				Dy[k] -= py << (s-7);
 			}
 		}
-		// surlodasverseny: the friction for the sound.
+		// surlodasverseny: the friction for the sound, with the direction
+		// of the body in a byte:
 		int16_t g16x = clamp16( rsh( gx, 2 ) ), g16y = clamp16( rsh( gy, 2 ) );
 		int16_t rvx = clamp16( rsh( relx, 8 ) ), rvy = clamp16( rsh( rely, 8 ) );
-		int32_t fg = mq16( Sn, g16x )+mq16( Cs, (int16_t)-g16y );
-		int32_t sb = mq16( Sn, rvx )+mq16( Cs, (int16_t)-rvy );
+		int16_t s8 = (int16_t)(Sn >> 8), c8 = (int16_t)((-Cs) >> 8);
+		int32_t fg = mq16( g16x, s8 )+mq16( g16y, c8 );
+		int32_t sb = mq16( rvx, s8 )+mq16( rvy, c8 );
 		if( fg > 0 && sb > 0 ) {
-			int32_t e = MULK( mq16( clamp16( rsh( fg, 5 ) ), clamp16( rsh( sb, 7 ) ) ), K_FRIC );
+			int32_t e = MULK( mq16( clamp16( fg ), clamp16( sb ) ), K_FRIC );
 			if( e > fric )
 				fric = e;
 		}
@@ -659,7 +664,7 @@ uint16_t ps_step( uint16_t input ) {
 		int16_t dx = clamp16( rsh( PS.rider_x-body->rx, 1 ) );
 		int16_t dy = clamp16( rsh( PS.rider_y-body->ry, 1 ) );
 		int16_t x = clamp16( rsh( mq16( Cs, dx )+mq16( Sn, dy ), 7 ) );
-		int16_t y = clamp16( rsh( mq16( Cs, dy )+mq16( Sn, (int16_t)-dx ), 7 ) );
+		int16_t y = clamp16( rsh( mq16( Cs, dy )+mq16( (int16_t)-Sn, dx ), 7 ) );
 		if( PS.turned )
 			x = (int16_t)-x;
 		int moved = 0;
@@ -698,7 +703,7 @@ uint16_t ps_step( uint16_t input ) {
 		if( moved ) {
 			if( PS.turned )
 				x = (int16_t)-x;
-			PS.rider_x = body->rx+rsh( mq16( Cs, x )+mq16( Sn, (int16_t)-y ), 6 );
+			PS.rider_x = body->rx+rsh( mq16( Cs, x )+mq16( (int16_t)-Sn, y ), 6 );
 			PS.rider_y = body->ry+rsh( mq16( Sn, x )+mq16( Cs, y ), 6 );
 		}
 		// The spring to its place over the body, and its damper:
