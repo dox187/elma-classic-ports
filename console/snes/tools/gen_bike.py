@@ -1,0 +1,758 @@
+"""Writes the sprites of the bike, the rider and the objects (apples,
+flower, killers) and the tables the program draws them with:
+build/gen/bike_data.asm, bike_data.inc and bike_data.h.
+
+  gen_bike.py ELMA_LGR OUT_DIR [PHYS_H]
+
+Every part of the bike (bikemodel.py) is drawn beforehand at a number of
+angles, 0.4 times the size of the original game, from the pictures of the
+LGR file, each into 16x16 sprites around the part's center. Only half of
+the circle is stored: the other half and the mirrored parts are the same
+sprites flipped (sprites flipped horizontally and vertically are the part
+turned by 180 degrees, flipped vertically the part mirrored).
+
+An angle alpha (u16, 65536 a turn, counterclockwise) with a handedness h
+(0: the picture as it is, 1: mirrored) of a part drawn at N angles is the
+stored picture k with the flips:
+
+  q = (alpha + 32768/N) >> (16 - log2 N) & (N - 1)
+  h = 0:  q < N/2: k = q;  else k = q - N/2, flipped both ways
+  h = 1:  q' = -q & (N - 1);  q' < N/2: k = q', flipped vertically;
+          else k = q' - N/2, flipped horizontally
+
+While the bike turns (the squash of kibike), the parts are drawn from
+pictures squashed at four levels, of the rider sitting still, at the angle
+of the bike (the same rule, alpha = the angle of the bike).
+
+Units of the program: 1/16 pixel (16 * 19.2 a meter), y up.
+"""
+
+import math
+import os
+import re
+import sys
+
+import numpy as np
+
+import bikemodel as bm
+from lgr import Lgr
+from config import BANK_SIZE
+
+PPM = 19.2                   # pixels a meter
+U = 16 * PPM                 # units a meter
+N_WHEEL = 64                 # angles of the wheels
+N_PART = 64                  # head, limbs and suspension pieces
+N_FRAME = 128                # the body of the bike
+N_TURN = 32                  # parts while turning
+N_TURN_FRAME = 64
+TURN_LEVELS = (0.06, 0.25, 0.5, 0.75)   # squash of the pictures while turning
+ALPHA_MIN = 0.4              # coverage of a pixel to be drawn
+SS = 8                       # samples a pixel, both ways
+
+# The parts with sprites loaded while drawing: index, picture, palette.
+# Their order is the order of their places in the VRAM (two rows of 8
+# sprites of 16x16): parts that change together are next to each other.
+PARTS = ['thigh', 'leg', 'uparm', 'forearm', 's1a', 's1b', 's2a', 's2b',
+         'head', 'torso']
+PART_PIC = {'thigh': 'q1thigh', 'leg': 'q1leg', 'uparm': 'q1up_arm',
+            'forearm': 'q1forarm', 's1a': 'q1susp1', 's1b': 'q1susp1',
+            's2a': 'q1susp2', 's2b': 'q1susp2', 'head': 'q1head',
+            'torso': 'q1body'}
+PALETTE = {'frame': 0, 'wheel': 0, 's1a': 0, 's1b': 0, 's2a': 0, 's2b': 0,
+           'head': 1, 'forearm': 1, 'leg': 1,
+           'torso': 2, 'uparm': 2, 'thigh': 2}
+FRAME_SPRITES = 6            # places for the sprites of the body
+# Length of a piece of a suspension, of the whole:
+PIECE = 0.58
+
+# The rods of kibike: picture, the ends a, b (joints of bikemodel), ta,
+# tb, half width, mirrored when the bike is not turned.
+RODS = {
+    'thigh': ('knee', 'hip', 0.03, 0.1, 0.14, False),
+    'leg': ('foot', 'knee', 0.03, 0.03, 0.21, False),
+    'torso': ('hip', 'torso', 0.1, 0.05, 0.2, False),
+    'uparm': ('elbow', 'shoulder', 0.08, 0.1, 0.11, True),
+    'forearm': ('hand', 'elbow', 0.08, 0.1, 0.076, False),
+    's1': ('wheel0', 'handle', 0.05, 0.03, 0.06, False),
+    's2': ('rear', 'wheel1', 0.0, 0.1, 0.06, False),
+}
+
+
+def nominal_joints(st):
+    j = bm.joints(st)
+    j['wheel0'], j['wheel1'] = st.wheel[0], st.wheel[1]
+    return j
+
+
+def rod_part(name, pic, a, b, ta, tb, w, mirror):
+    return bm.kidoboz(pic, a, b, w, ta, tb, mirror)
+
+
+class Geometry:
+    """The constants of the bike at rest (initmotor), not turned, angle 0."""
+
+    def __init__(self):
+        st = bm.State()
+        self.st = st
+        j = nominal_joints(st)
+        self.j = j
+        body, rider = st.body, st.rider
+        mi, mj, _ = bm.body_frame(st)
+
+        def un(p):
+            return [int(round(p[0] * U)), int(round(p[1] * U))]
+        # Points fixed to the body (from its center) and to the rider:
+        self.handle = un(j['handle'] - body)
+        self.rear = un(j['rear'] - body)
+        self.foot = un(j['foot'] - body)
+        self.hip = un(j['hip'] - rider)
+        self.shoulder = un(j['shoulder'] - rider)
+        # The torso: its center from the rider and its angle in the body:
+        a, b = j['hip'] - rider, j['torso'] - rider
+        e = bm.unit(b - a)
+        c = (a + b) / 2 + e * (0.05 - 0.1) / 2
+        self.torso_c = un(c)
+        self.torso_beta = int(round(math.atan2(e[1], e[0]) / (2 * math.pi) * 65536)) & 0xFFFF
+        # Lengths of the rods (with their ends) at rest:
+        self.rod_len = {}
+        for r, (ja, jb, ta, tb, w, m) in RODS.items():
+            self.rod_len[r] = math.hypot(*(j[jb] - j[ja])) + ta + tb
+        # Where the center of a rod is between its ends (a + c * (b - a)):
+        self.center_c = {}
+        for r, ln in (('thigh', bm.THIGH_LEN), ('leg', bm.LEG_LEN),
+                      ('uparm', bm.UPARM_LEN), ('forearm', bm.FOREARM_LEN)):
+            ta, tb = RODS[r][2], RODS[r][3]
+            self.center_c[r] = 0.5 + (tb - ta) / (2 * ln)
+        # Pieces of the suspensions: their length (meters):
+        self.piece_len = {s: self.rod_len[s] * PIECE for s in ('s1', 's2')}
+
+
+# --- Drawing the pictures --------------------------------------------------
+
+class Renderer:
+    def __init__(self, pics):
+        self.pics = pics
+
+    def render(self, parts, size, clip=None):
+        """The parts (world, the pivot at 0, 0) on a size x size picture
+        (pivot at its center), SS x SS samples a pixel: colors (RGB float)
+        and coverage. clip: (part, kx0, kx1) draws only the columns of that
+        part's picture between kx0 and kx1."""
+        n = size * SS
+        g = (np.arange(n) + 0.5) / SS - size / 2
+        gx, gy = np.meshgrid(g, g)
+        wx = gx / PPM
+        wy = -gy / PPM
+        idx = np.full(gx.shape, -1, dtype=int)
+        for p in parts:
+            c = self.sample(p, wx, wy, clip[1:] if clip and clip[0] is p else None)
+            idx[c >= 0] = c[c >= 0]
+        rgb = np.zeros(gx.shape + (3,))
+        m = idx >= 0
+        rgb[m] = self.pics.pal[idx[m]]
+        rgb = rgb.reshape(size, SS, size, SS, 3).sum(axis=(1, 3))
+        a = m.reshape(size, SS, size, SS).sum(axis=(1, 3)).astype(float)
+        col = rgb / np.maximum(a, 1)[..., None]
+        return col, a / (SS * SS)
+
+    def sample(self, part, wx, wy, cols=None):
+        a, lyuk = self.pics[part.name]
+        h, w = a.shape
+        uu = part.u / (w - 1)
+        vv = part.v / (h - 1)
+        det = uu[0] * vv[1] - vv[0] * uu[1]
+        out = np.full(wx.shape, -1, dtype=int)
+        if abs(det) < 1e-12:
+            return out
+        dx = wx - part.r[0]
+        dy = wy - part.r[1]
+        kx = (vv[1] * dx - vv[0] * dy) / det
+        ky = (-uu[1] * dx + uu[0] * dy) / det
+        ix = np.floor(kx + 0.5).astype(int)
+        iy = np.floor(ky + 0.5).astype(int)
+        inside = (ix >= 0) & (ix < w) & (iy >= 0) & (iy < h)
+        if cols:
+            inside &= (kx >= cols[0]) & (kx < cols[1])
+        c = a[np.clip(iy, 0, h - 1), np.clip(ix, 0, w - 1)]
+        ok = inside & (c != lyuk)
+        out[ok] = c[ok]
+        return out
+
+
+def moved(part, d):
+    p = bm.Part(part.name, part.r + d, part.u, part.v, part.kind)
+    return p
+
+
+def center_of(part):
+    return part.r + part.u / 2 + part.v / 2
+
+
+def piece_clip(part, piece, frac):
+    """Columns of the picture of a rod's piece (a: from its start, b: to its
+    end) and the piece's center (world)."""
+    w = part.picw
+    span = (w - 1) * frac
+    if piece == 'a':
+        k0, k1 = -0.5, span + 0.5
+    else:
+        k0, k1 = (w - 1) - span - 0.5, w - 0.5
+    kc = (k0 + k1) / 2
+    ky = (part.pich - 1) / 2
+    c = part.r + part.u * (kc / (w - 1)) + part.v * (ky / (part.pich - 1))
+    return k0, k1, c
+
+
+class Images:
+    """The pictures of a set: sprites (dx, dy, 16x16 RGB, coverage) each."""
+
+    def __init__(self):
+        self.images = []     # [ [(dx, dy, col, alpha), ...], ... ]
+
+
+def cover(alpha, size):
+    """16x16 windows covering every drawn pixel of the picture (greedy)."""
+    opaque = alpha >= ALPHA_MIN
+    rem = opaque.copy()
+    wins = []
+    while rem.any():
+        integ = np.zeros((size + 1, size + 1), int)
+        integ[1:, 1:] = rem.cumsum(0).cumsum(1)
+        best = None
+        for y in range(size - 15):
+            s = integ[y + 16, 16:] - integ[y, 16:] - integ[y + 16, :-16] + integ[y, :-16]
+            x = int(np.argmax(s))
+            if best is None or s[x] > best[0]:
+                best = (s[x], x, y)
+        _, x, y = best
+        wins.append((x, y))
+        rem[y:y + 16, x:x + 16] = False
+    return wins
+
+
+def single_image(rend, parts, clip=None):
+    """A part on one 16x16 sprite, its center at the sprite's center."""
+    col, a = rend.render(parts, 24, clip)
+    lost = (a >= ALPHA_MIN).sum() - (a[4:20, 4:20] >= ALPHA_MIN).sum()
+    return [(-8, -8, col[4:20, 4:20], a[4:20, 4:20])], lost
+
+
+def multi_image(rend, parts):
+    col, a = rend.render(parts, 64)
+    wins = cover(a, 64)
+    if len(wins) > FRAME_SPRITES:
+        raise SystemExit('the body of the bike needs %d sprites' % len(wins))
+    out = []
+    for x, y in wins:
+        sa = a[y:y + 16, x:x + 16].copy()
+        out.append((x - 32, y - 32, col[y:y + 16, x:x + 16], sa))
+    return out
+
+
+def rotated_state(st, theta, **kw):
+    """The bike at rest turned around its center by theta."""
+    def R(p):
+        return st.body + bm.rotate(p - st.body, theta)
+    return bm.State(body=st.body, body_a=st.body_a + theta, wheel0=R(st.wheel[0]),
+                    wheel1=R(st.wheel[1]), rider=R(st.rider), **kw)
+
+
+def draw_all(lgr, geo, log):
+    pics = bm.Pictures(lgr)
+    rend = Renderer(pics)
+    sets = {}
+    lost_max = 0
+    # The wheel:
+    imgs = []
+    for k in range(N_WHEEL // 2):
+        al = k * 2 * math.pi / N_WHEEL
+        p = bm.kidobozkerek('q1wheel', bm.v(0, 0), bm.WHEEL_R, al)
+        im, lost = single_image(rend, [p])
+        lost_max = max(lost_max, lost)
+        imgs.append(im)
+    sets['wheel'] = imgs
+    # Head and rods, not turned, at angle alpha (h = 0):
+    for name in PARTS:
+        imgs = []
+        for k in range(N_PART // 2):
+            al = k * 2 * math.pi / N_PART
+            e = bm.v(math.cos(al), math.sin(al))
+            clip = None
+            if name == 'head':
+                p = bm.kidobozkerek('q1head', bm.v(0, 0), bm.HEAD_R, al)
+                parts = [p]
+            else:
+                rod = name[:2] if name[0] == 's' else name
+                ta, tb, w = RODS[rod][2], RODS[rod][3], RODS[rod][4]
+                ln = geo.rod_len[rod]
+                p = bm.kidoboz(PART_PIC[name], -e * (ln / 2), e * (ln / 2), w, 0.0, 0.0)
+                a, _ = pics[p.name]
+                p.pich, p.picw = a.shape
+                if rod in ('s1', 's2'):
+                    k0, k1, c = piece_clip(p, name[2], geo.piece_len[rod] / ln)
+                    p = moved(p, -c)
+                    p.pich, p.picw = a.shape
+                    clip = (p, k0, k1)
+                parts = [p]
+            im, lost = single_image(rend, parts, clip)
+            lost_max = max(lost_max, lost)
+            imgs.append(im)
+        sets[name] = imgs
+    # The body of the bike at the angle of the bike:
+    imgs = []
+    for k in range(N_FRAME // 2):
+        th = k * 2 * math.pi / N_FRAME
+        st = rotated_state(geo.st, th)
+        parts = [moved(p, -st.body) for p in bm.kibike(st) if p.kind == 'frame']
+        imgs.append(multi_image(rend, parts))
+    sets['frame'] = imgs
+    log.append('frame sprites: %s' % [len(i) for i in imgs])
+    # Squashed while turning:
+    for lv, s in enumerate(TURN_LEVELS):
+        turn = math.acos(-s) / math.pi
+        fr, singles = [], {n: [] for n in PARTS}
+        for k in range(N_TURN_FRAME // 2):
+            th = k * 2 * math.pi / N_TURN_FRAME
+            st = rotated_state(geo.st, th, turn=turn)
+            parts = bm.kibike(st)
+            fparts = [moved(p, -st.body) for p in parts if p.kind == 'frame']
+            fr.append(multi_image(rend, fparts))
+            if k % (N_TURN_FRAME // N_TURN):
+                continue
+            byname = {}
+            for p in parts:
+                byname.setdefault(p.name, []).append(p)
+            for name in PARTS:
+                pic = PART_PIC[name]
+                p = byname[pic][0]
+                a, _ = pics[pic]
+                p.pich, p.picw = a.shape
+                clip = None
+                if name[0] == 's':
+                    rod = name[:2]
+                    k0, k1, c = piece_clip(p, name[2], geo.piece_len[rod] / geo.rod_len[rod])
+                    q = moved(p, -c)
+                    q.pich, q.picw = a.shape
+                    clip = (q, k0, k1)
+                else:
+                    q = moved(p, -center_of(p))
+                im, lost = single_image(rend, [q], clip)
+                lost_max = max(lost_max, lost)
+                singles[name].append(im)
+        sets['frame_t%d' % lv] = fr
+        for name in PARTS:
+            sets['%s_t%d' % (name, lv)] = singles[name]
+        log.append('squash %.2f frame sprites: %s' % (s, [len(i) for i in fr]))
+    log.append('pixels cut off at the edges of single sprites: %d at most' % lost_max)
+    return sets, pics
+
+
+# --- Colors ------------------------------------------------------------------
+
+def snes_rgb(c):
+    """A color of 8 bits a channel as the SNES shows it (5 bits)."""
+    q = np.clip(np.round(np.asarray(c, float) / 255 * 31), 0, 31)
+    return q * 255 / 31
+
+
+WEIGHT = np.array([0.30, 0.59, 0.11]) ** 0.5 * 1.7
+
+
+def kmeans(colors, weights, k, iters=40, seed=1):
+    """k colors for the weighted colors (rows of RGB)."""
+    x = colors * WEIGHT
+    if len(x) <= k:
+        c = list(x) + [x[0]] * (k - len(x))
+        return np.array(c) / WEIGHT
+    rng = np.random.default_rng(seed)
+    c = [x[rng.choice(len(x), p=weights / weights.sum())]]
+    for _ in range(k - 1):
+        d = np.min(((x[:, None, :] - np.array(c)[None]) ** 2).sum(-1), axis=1)
+        p = d * weights
+        c.append(x[rng.choice(len(x), p=p / p.sum())] if p.sum() > 0 else x[0])
+    c = np.array(c, float)
+    for _ in range(iters):
+        d = ((x[:, None, :] - c[None]) ** 2).sum(-1)
+        lab = d.argmin(1)
+        for j in range(k):
+            m = lab == j
+            if m.any():
+                c[j] = (x[m] * weights[m, None]).sum(0) / weights[m].sum()
+    return c / WEIGHT
+
+
+def make_palette(cols):
+    cols = np.concatenate(cols)
+    q = np.round(cols / 4).astype(int)
+    u, cnt = np.unique(q, axis=0, return_counts=True)
+    pal = kmeans(u * 4.0, cnt.astype(float), 15)
+    return snes_rgb(pal)
+
+
+def quantize(col, alpha, pal):
+    """Color indices 1..15 of the palette, 0 where not drawn."""
+    d = (((col[..., None, :] - pal[None, None]) * WEIGHT) ** 2).sum(-1)
+    idx = d.argmin(-1) + 1
+    idx[alpha < ALPHA_MIN] = 0
+    return idx
+
+
+def bgr555(c):
+    r, g, b = [int(round(x * 31 / 255)) for x in c]
+    return r | g << 5 | b << 10
+
+
+def tiles16(idx):
+    """A 16x16 picture of color indices as 4 tiles of 4 bits (top left,
+    top right, bottom left, bottom right): 128 bytes."""
+    out = bytearray()
+    for ty in (0, 8):
+        for tx in (0, 8):
+            t = bytearray(32)
+            for y in range(8):
+                for x in range(8):
+                    v = int(idx[ty + y, tx + x])
+                    bit = 0x80 >> x
+                    if v & 1: t[2 * y] |= bit
+                    if v & 2: t[2 * y + 1] |= bit
+                    if v & 4: t[16 + 2 * y] |= bit
+                    if v & 8: t[16 + 2 * y + 1] |= bit
+            out += t
+    return bytes(out)
+
+
+# --- Objects -------------------------------------------------------------------
+
+def object_frames(lgr):
+    """The animations of the objects (qexit, qkiller, qfood1..9): for each a
+    list of 16x16 (colors, coverage)."""
+    kinds = [('exit', 'qexit'), ('killer', 'qkiller')]
+    for i in range(1, 10):
+        if 'qfood%d' % i in lgr:
+            kinds.append(('food%d' % i, 'qfood%d' % i))
+    pal = np.array(lgr.palette(), dtype=float)
+    out = []
+    for kind, name in kinds:
+        im = np.array(lgr[name].image, dtype=np.uint8)
+        h, w = im.shape
+        size = h if lgr.lgr13 else 40
+        lyuk = im[0, 0]
+        frames = []
+        for f in range(w // size):
+            fr = im[:, f * size:(f + 1) * size]
+            # 16x16 of the frame: SS x SS samples a pixel.
+            g = ((np.arange(16 * SS) + 0.5) / (16 * SS) * size).astype(int)
+            s = fr[np.ix_(g, g)]
+            m = s != lyuk
+            rgb = np.zeros(s.shape + (3,))
+            rgb[m] = pal[s[m]]
+            rgb = rgb.reshape(16, SS, 16, SS, 3).sum(axis=(1, 3))
+            a = m.reshape(16, SS, 16, SS).sum(axis=(1, 3)).astype(float)
+            frames.append((rgb / np.maximum(a, 1)[..., None], a / (SS * SS)))
+        out.append((kind, frames))
+    return out
+
+
+# --- Tables --------------------------------------------------------------------
+
+def s8(v):
+    return max(-128, min(127, int(round(v))))
+
+
+def tables(geo):
+    t = {}
+    # sin of 1024 angles (and 256 more: cos), times 128:
+    t['sin'] = [s8(128 * math.sin(i * 2 * math.pi / 1024)) for i in range(1280)]
+    # atan of 0..256/256 in u16 angle units:
+    t['atan'] = [int(round(math.atan(i / 256) / (2 * math.pi) * 65536)) for i in range(257)]
+    # The knee and the elbow (ketkormetszete): by d4 >> 3, d4 the square of
+    # the distance in 1/4 pixels.
+    def ik(l1, l2, idx):
+        d4 = idx * 8 + 4
+        l = math.sqrt(d4) / 4 / PPM
+        lc = l
+        if lc >= l1 + l2:
+            lc = l1 + l2 - 0.000001
+        if l1 >= lc + l2:
+            l1 = lc + l2 - 0.00001
+        if l2 >= lc + l1:
+            l2 = lc + l1 - 0.00001
+        x = (l1 * l1 - l2 * l2 + lc * lc) / (2 * lc)
+        m = math.sqrt(max(l1 * l1 - x * x, 0))
+        return x / lc, m / lc
+    t['knee_b'] = [s8(64 * ik(bm.LEG_LEN, bm.THIGH_LEN, i)[1]) for i in range(1024)]
+    t['elbow_a'] = [s8(128 * ik(bm.UPARM_LEN, bm.FOREARM_LEN, i)[0]) for i in range(1024)]
+    t['elbow_b'] = [s8(64 * ik(bm.UPARM_LEN, bm.FOREARM_LEN, i)[1]) for i in range(1024)]
+    # Centers of the pieces of the suspensions, a + c * v (c times 128), by
+    # d4 >> 4:
+    for s in ('s1', 's2'):
+        ta, tb = RODS[s][2], RODS[s][3]
+        lp = geo.piece_len[s]
+        ca, cb = [], []
+        for i in range(1024):
+            l = max(math.sqrt(i * 16 + 8) / 4 / PPM, 0.05)
+            ca.append(s8(128 * (lp / 2 - ta) / l))
+            cb.append(s8(128 * (tb - lp / 2) / l))
+        t[s + 'a'] = ca
+        t[s + 'b'] = cb
+    # The arm while volting: h * cos(alfa), h * sin(alfa) times 64, by
+    # ugrasnagysag >> 8, swung up (1) or down (0).
+    for up in (0, 1):
+        c, s = [], []
+        for i in range(256):
+            volt = (i + 0.5) / 256
+            if i == 0:
+                al, h = 0.0, 1.0
+            else:
+                u = 1.0 - volt
+                if up:
+                    hat, maxa, maxh = 0.25, 2.7, -0.3
+                else:
+                    hat, maxa, maxh = 0.2, -1.6, 0.15
+                if u < hat:
+                    al, h = maxa * u / hat, maxh * u / hat + 1.0
+                else:
+                    mert = 1.0 - (u - hat) / (1.0 - hat)
+                    al, h = maxa * mert, maxh * mert + 1.0
+            c.append(s8(64 * h * math.cos(al)))
+            s.append(s8(64 * h * math.sin(al)))
+        t['volt_c%d' % up] = c
+        t['volt_s%d' % up] = s
+    # The turn: f = -cos(forgas * pi) times 128 and the level of the
+    # squashed pictures (4: not squashed), by forgas >> 8.
+    f, lv = [], []
+    for i in range(256):
+        x = -math.cos((i + 0.5) / 256 * math.pi)
+        f.append(s8(128 * x))
+        a = abs(x)
+        lv.append(4 if a >= 0.875 else min(range(4), key=lambda j: abs(TURN_LEVELS[j] - a)))
+    t['turn_f'] = f
+    t['turn_lv'] = lv
+    # Bobbing of the apples and the flower: -2 * sin (pixels, y down):
+    t['bob'] = [s8(-2 * math.sin(i * 2 * math.pi / 256)) for i in range(256)]
+    return t
+
+
+# --- Output --------------------------------------------------------------------
+
+class Blob:
+    """Tile data in sections of at most a bank, identical sprites once."""
+
+    def __init__(self, prefix):
+        self.prefix = prefix
+        self.sections = [bytearray()]
+        self.seen = {}
+
+    def add(self, data):
+        if data in self.seen:
+            return self.seen[data]
+        if len(self.sections[-1]) + len(data) > BANK_SIZE:
+            self.sections.append(bytearray())
+        ref = '%s%d+%d' % (self.prefix, len(self.sections) - 1, len(self.sections[-1]))
+        self.sections[-1] += data
+        self.seen[data] = ref
+        return ref
+
+    def size(self):
+        return sum(len(s) for s in self.sections)
+
+
+def db(data, per=16):
+    out = []
+    for i in range(0, len(data), per):
+        out.append('\t.db ' + ','.join('$%02X' % (b & 0xFF) for b in data[i:i + per]))
+    return out
+
+
+def phys_hz(path):
+    if path and os.path.exists(path):
+        m = re.search(r'#define\s+PHYS_HZ\s+\(?\s*(\d+)', open(path).read())
+        if m:
+            return int(m.group(1))
+    return 60
+
+
+def main():
+    lgr = Lgr(sys.argv[1])
+    out = sys.argv[2]
+    hz = phys_hz(sys.argv[3] if len(sys.argv) > 3 else None)
+    geo = Geometry()
+    log = []
+    sets, pics = draw_all(lgr, geo, log)
+
+    # Palettes 0-2 of the bike from all its pictures:
+    group = {}
+    for name, imgs in sets.items():
+        base = name.split('_')[0]
+        pl = PALETTE[base]
+        for im in imgs:
+            for dx, dy, col, a in im:
+                group.setdefault(pl, []).append(col[a >= ALPHA_MIN])
+    pals = [make_palette(group[i]) for i in range(3)]
+    objs = object_frames(lgr)
+    pals.append(make_palette([c[a >= ALPHA_MIN] for _, fr in objs for c, a in fr]))
+
+    blob = Blob('bike_tiles_')
+    # Wheels: their 32 pictures as tiles 0-127 of the VRAM.
+    wheel_vram = bytearray(128 * 32)
+    for k, im in enumerate(sets['wheel']):
+        t = tiles16(quantize(im[0][2], im[0][3], pals[0]))
+        base = (k >> 3) * 32 + (k & 7) * 2
+        for half in range(2):
+            o = (base + half * 16) * 32
+            wheel_vram[o:o + 64] = t[half * 64:half * 64 + 64]
+    # Descriptors of the single parts: 4 bytes (pointer, 0) for each.
+    single = []
+    single_idx = []
+    for name in PARTS:
+        pl = pals[PALETTE[name]]
+        lst = [sets[name]] + [sets['%s_t%d' % (name, l)] for l in range(4)]
+        for imgs in lst:
+            for im in imgs:
+                dx, dy, col, a = im[0]
+                q = quantize(col, a, pl)
+                single_idx.append(q.astype(np.uint8))
+                single.append(blob.add(tiles16(q)))
+    per_part = N_PART // 2 + 4 * (N_TURN // 2)
+    assert len(single) == len(PARTS) * per_part
+    # Descriptors of the body: count, then (dx, dy, pointer) for each sprite.
+    frame = []
+    frame_idx = []
+    for imgs in [sets['frame']] + [sets['frame_t%d' % l] for l in range(4)]:
+        for im in imgs:
+            spr = []
+            for dx, dy, col, a in im:
+                q = quantize(col, a, pals[0])
+                frame_idx.append(q.astype(np.uint8))
+                spr.append((dx, dy, blob.add(tiles16(q))))
+            frame.append(spr)
+    wheel_idx = [quantize(im[0][2], im[0][3], pals[0]).astype(np.uint8)
+                 for im in sets['wheel']]
+    # Objects:
+    obj_blob = Blob('obj_tiles_')
+    obj_kinds = []
+    obj_idx = []
+    for kind, frames in objs:
+        qs = [quantize(c, a, pals[3]) for c, a in frames]
+        obj_idx.append([q.astype(np.uint8) for q in qs])
+        refs = [obj_blob.add(tiles16(q)) for q in qs]
+        obj_kinds.append((kind, refs))
+    tb = tables(geo)
+
+    # --- bike_data.asm ---
+    a = ['; Generated by tools/gen_bike.py from %s.' % os.path.basename(sys.argv[1]),
+         '.include "hdr.asm"', '']
+    for n, sec in enumerate(blob.sections):
+        a += ['.SECTION ".bike_tiles_%d" SUPERFREE' % n, 'bike_tiles_%d:' % n]
+        a += db(sec, 32)
+        a += ['.ENDS', '']
+    for n, sec in enumerate(obj_blob.sections):
+        a += ['.SECTION ".obj_tiles_%d" SUPERFREE' % n, 'obj_tiles_%d:' % n]
+        a += db(sec, 32)
+        a += ['.ENDS', '']
+    a += ['.SECTION ".bike_wheels" SUPERFREE', 'bike_wheel_tiles:']
+    a += db(wheel_vram, 32)
+    a += ['.ENDS', '']
+    # Palettes (OBJ 0-3, color 0 unused):
+    pal_words = []
+    for p in pals:
+        pal_words += [0] + [bgr555(c) for c in p]
+    a += ['.SECTION ".bike_pal" SUPERFREE', 'bike_palettes:']
+    a += ['\t.dw ' + ','.join('$%04X' % w for w in pal_words[i:i + 16])
+          for i in range(0, 64, 16)]
+    a += ['.ENDS', '']
+    # Descriptors, in one bank:
+    a += ['.SECTION ".bike_desc" SUPERFREE', 'bike_desc_single:']
+    for ref in single:
+        a.append('\t.dl %s\n\t.db 0' % ref)
+    a.append('bike_desc_frame:')
+    for spr in frame:
+        a.append('\t.db %d' % len(spr))
+        for dx, dy, ref in spr:
+            a.append('\t.db %d & $FF, %d & $FF\n\t.dl %s' % (dx, dy, ref))
+        a.append('\t.dsb %d, 0' % (31 - 5 * len(spr)))
+    a += ['.ENDS', '']
+    # Objects: per kind the number of frames and the pointers of the frames.
+    a += ['.SECTION ".obj_anims" SUPERFREE', 'obj_kind_frames:']
+    a.append('\t.db ' + ','.join(str(len(r)) for _, r in obj_kinds))
+    a.append('obj_kind_table:')
+    for n in range(len(obj_kinds)):
+        a.append('\t.dw obj_frames_%d' % n)
+    for n, (kind, refs) in enumerate(obj_kinds):
+        a.append('obj_frames_%d:' % n)
+        for ref in refs:
+            a.append('\t.dl %s' % ref)
+    a += ['.ENDS', '']
+    # Tables:
+    a += ['.SECTION ".bike_tables" SUPERFREE']
+    for name in ('sin', 'knee_b', 'elbow_a', 'elbow_b', 's1a', 's1b', 's2a', 's2b',
+                 'volt_c0', 'volt_s0', 'volt_c1', 'volt_s1', 'turn_f', 'turn_lv', 'bob'):
+        a.append('bike_t_%s:' % name)
+        a += db(tb[name], 32)
+    a.append('bike_t_atan:')
+    a += ['\t.dw ' + ','.join(str(x) for x in tb['atan'][i:i + 16])
+          for i in range(0, 257, 16)]
+    a += ['.ENDS', '']
+
+    # --- bike_data.inc ---
+    inc = ['; Generated by tools/gen_bike.py.']
+
+    def d(n, v):
+        inc.append('.DEFINE %s %d' % (n, v))
+    for n, p in (('HANDLE', geo.handle), ('REAR', geo.rear), ('FOOT', geo.foot),
+                 ('HIP', geo.hip), ('SHOULDER', geo.shoulder), ('TORSO_C', geo.torso_c)):
+        d('BK_%s_J' % n, p[0])
+        d('BK_%s_F' % n, p[1])
+    d('BK_TORSO_BETA', geo.torso_beta)
+    for r in ('thigh', 'leg', 'uparm', 'forearm'):
+        d('BK_C_%s' % r.upper(), s8(128 * geo.center_c[r]))
+    for n in PARTS + ['frame', 'wheel']:
+        d('BK_PAL_%s' % n.upper(), PALETTE[n])
+    d('BK_PER_PART', per_part)
+    d('BK_N_PART_HALF', N_PART // 2)
+    d('BK_N_TURN_HALF', N_TURN // 2)
+    d('BK_N_FRAME_HALF', N_FRAME // 2)
+    d('BK_N_TURN_FRAME_HALF', N_TURN_FRAME // 2)
+    d('BK_FRAME_SPRITES', FRAME_SPRITES)
+    d('OBJ_KINDS', len(obj_kinds))
+    d('OBJ_FOODS', len(obj_kinds) - 2)
+    # Animation of the objects: frames a step (0.4368 / PHYS_HZ / 0.014)
+    # and the angle of the bobbing a step (t * 15.5), times 65536:
+    d('OBJ_ANIM_K', int(round(65536 * 0.4368 / hz / 0.014)))
+    d('OBJ_BOB_K', int(round(65536 * 0.4368 * 15.5 / hz / (2 * math.pi))))
+    d('BIKE_PHYS_HZ', hz)
+
+    # --- bike_data.h ---
+    h = ['// Generated by tools/gen_bike.py.', '#ifndef BIKE_DATA_H', '#define BIKE_DATA_H', '',
+         '#define OBJ_KINDS %d' % len(obj_kinds),
+         '#define OBJ_FOODS %d' % (len(obj_kinds) - 2),
+         'extern const u8 bike_wheel_tiles[];   // VRAM tiles 0-127',
+         'extern const u16 bike_palettes[];     // OBJ palettes 0-3',
+         'extern const u8 obj_kind_frames[];    // frames of each kind of object',
+         '', '#endif']
+    os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, 'bike_data.asm'), 'w') as f:
+        f.write('\n'.join(a) + '\n')
+    with open(os.path.join(out, 'bike_data.inc'), 'w') as f:
+        f.write('\n'.join(inc) + '\n')
+    with open(os.path.join(out, 'bike_data.h'), 'w') as f:
+        f.write('\n'.join(h) + '\n')
+    log.append('tiles: bike %d bytes, objects %d bytes, wheels %d bytes' % (
+        blob.size(), obj_blob.size(), len(wheel_vram)))
+    log.append('PHYS_HZ %d' % hz)
+    with open(os.path.join(out, 'bike_data.log'), 'w') as f:
+        f.write('\n'.join(log) + '\n')
+    # For the tests (test/bikefix.py): the numbers of the program.
+    import pickle
+    with open(os.path.join(out, 'bike_data.pkl'), 'wb') as f:
+        pickle.dump({'geo': {k: v for k, v in geo.__dict__.items() if k not in ('st', 'j')},
+                     'tables': tb, 'pals': [p.tolist() for p in pals],
+                     'frame': [[(dx, dy) for dx, dy, _ in spr] for spr in frame],
+                     'obj_frames': [len(r) for _, r in obj_kinds], 'hz': hz}, f)
+    with open(os.path.join(out, 'bike_images.pkl'), 'wb') as f:
+        pickle.dump({'single': single_idx, 'frame': frame_idx, 'wheel': wheel_idx,
+                     'obj': obj_idx}, f)
+
+
+if __name__ == '__main__':
+    main()
