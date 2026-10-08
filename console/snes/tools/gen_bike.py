@@ -853,6 +853,11 @@ def main():
     a.append('bike_t_bob16:')
     a += ['\t.dw ' + ','.join('%d & $FFFF' % x for x in tb['bob'][i:i + 16])
           for i in range(0, 256, 16)]
+    # El * 19 + (El * 51 >> 8): the low byte of a distance in level pixels
+    # (bk_lpx16).
+    a.append('bike_t_lpx:')
+    a += ['\t.dw ' + ','.join(str(e * 19 + (e * 51 >> 8)) for e in range(i, i + 16))
+          for i in range(0, 256, 16)]
     a.append('bike_t_atan:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['atan'][i:i + 16])
           for i in range(0, 257, 16)]

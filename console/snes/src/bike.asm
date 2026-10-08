@@ -576,32 +576,19 @@ bk_lpx16:
 	asl a
 	asl a
 	asl a
-	sta.b Z_T2
+	sta.b Z_T2                  ; 16 * Eh * 19
 	sep #$20
 	lda #51
 	sta.w $211C
 	rep #$20
-	lda.w $2134
-	sta.b Z_T3
 	lda.b Z_T0
 	xba
 	and #$00FF
-	MA
-	lda #19
-	sta.w $211C
-	rep #$20
-	lda.w $2134
+	asl a
+	tax
+	lda.w $2134                 ; Eh * 51
 	clc
-	adc.b Z_T3
-	sta.b Z_T3
-	sep #$20
-	lda #51
-	sta.w $211C
-	rep #$20
-	lda.w $2135
-	and #$00FF
-	clc
-	adc.b Z_T3
+	adc.l bike_t_lpx,x          ; El * 19 + (El * 51 >> 8)
 	lsr a
 	lsr a
 	lsr a
