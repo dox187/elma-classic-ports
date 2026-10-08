@@ -25,6 +25,13 @@ phys_dpa            dsb 256     ; the direct page of the step (PHYS_DPA)
 phys_dpb            dsb 256     ; the direct page of the collisions
 .ENDS
 
+; Work variables of the parts of the step (low RAM, absolute addresses):
+.RAMSECTION ".phys_work" BANK 0 SLOT 1
+g1_ram              dsb 32      ; the springs (torques ... gravity)
+g2_ram              dsb 32      ; the body, the rider, the view
+g3_ram              dsb 32      ; the collisions and the objects
+.ENDS
+
 .RAMSECTION ".phys_vars" BANK 0 SLOT 1
 phys_view           dsb 52      ; bike_view_t
 phys_nobjs          dw
