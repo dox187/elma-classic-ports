@@ -269,6 +269,26 @@ def broken_copy(args, levels):
           'a broken newer copy: the older one is read (%s)' % st2.players[0]['name'])
 
 
+def options(args, sram):
+    # Options: Animated Menus off (a still helmet, no balls), a new player
+    # from Player A, Sound off; written when leaving Options.
+    s = ' '.join(['W40 START W120 A', WAIT, press('DOWN'), 'A', WAIT,
+                  press('DOWN', 'DOWN'), 'A', WAIT, 'SHOT:01_static.png', 'W30 SHOT:02_static.png',
+                  press('UP', 'UP'), 'A', WAIT, 'SHOT:03_choose_player.png',
+                  press('UP'), 'A', WAIT, name_keys('AL'), 'A', WAIT, 'SHOT:04_options.png',
+                  press('DOWN'), 'A', WAIT, 'B', WAIT, 'SHOT:05_main.png'])
+    out, st, sram2 = run(args, 'options', s, sram=sram)
+    check(st.nplayers == 2 and st.players[1]['name'] == 'AL' and st.player == 1,
+          'a second player AL plays: %d %s %d' % (st.nplayers, st.players[1]['name'], st.player))
+    check(st.anim_menus == 0 and st.sound == 0, 'Animated Menus and Sound off')
+    newest = max(read_sram(sram2), key=lambda c: c[1])[2]
+    check(newest.pack() == st.pack(), 'the options are in the SRAM')
+    from PIL import Image
+    a = Image.open(os.path.join(out, '01_static.png'))
+    b = Image.open(os.path.join(out, '02_static.png'))
+    check(a.tobytes() == b.tobytes(), 'nothing moves without Animated Menus')
+
+
 def all_levels(args, levels):
     # A player with every level done: the top and the bottom of the list.
     st = State()
@@ -295,6 +315,7 @@ def main():
     args = ap.parse_args()
     sram = first_boot(args, args.levels)
     reboot(args, sram)
+    options(args, sram)
     top_ten(args, args.levels)
     garbage(args, args.levels)
     broken_copy(args, args.levels)
