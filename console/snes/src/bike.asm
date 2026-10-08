@@ -40,8 +40,10 @@
 .DEFINE BA_VOLT1    4
 
 .DEFINE TURN_DONE   65470       ; forgas >= 0.999: not turning
-.DEFINE ENTRY_COST  96          ; an entry of the queue in the vertical blank,
-.DEFINE LOAD_COST   1600+4*ENTRY_COST ; the loads of a frame: in bytes
+; The time of the vertical blank (in bytes of DMA, 8 master clocks each)
+; an entry of the queue of the NMI takes, and the loads of a frame may take:
+.DEFINE ENTRY_COST  96
+.DEFINE LOAD_COST   1600+4*ENTRY_COST
 .DEFINE OBJ_ROOM    2*OBJ_KINDS ; entries of the queue left for the objects
 .DEFINE PRIO        $20         ; priority 2: behind the front pictures
 .DEFINE FRAME       10          ; the part of the body of the bike
