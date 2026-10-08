@@ -180,7 +180,6 @@ W_KF        dsw 11      ; its flips << 8
 ; The relative position of a point of phys_view, in units: the bytes 1-2
 ; of the 16.16 meters (1/256 meters) minus the body's, * 1.2 (77/64).
 .MACRO CONV
-	rep #$20
 	lda.l phys_view+\1+1
 	sec
 	sbc.b \2
@@ -331,15 +330,9 @@ W_KF        dsw 11      ; its flips << 8
 .ENDM
 
 ; Sprite \1 (0-5) of the body in its place (7 + \1), mode \2: its corner
-; from the pivot at [Z_PTR] + 4 * \1. Hides the rest when the body has no
-; more.
+; from the pivot at [Z_PTR] + 4 * \1.
 .MACRO BODY
-	lda.b Z_NS
-	cmp.w #\1+1
-	bcs +
-	ldx.w #2*\1
-	jmp bk_hbody
-+	ldy.w #4*\1
+	ldy.w #4*\1
 	lda [Z_PTR],y
 	clc
 	adc.b Z_PX
@@ -418,17 +411,6 @@ W_KF        dsw 11      ; its flips << 8
 	rts
 .ENDM
 
-; The sprites of the body in mode \1.
-.MACRO BODIES
-	jsr bk_body
-	BODY 0, \1
-	BODY 1, \1
-	BODY 2, \1
-	BODY 3, \1
-	BODY 4, \1
-	BODY 5, \1
-	rts
-.ENDM
 
 ; A (8 bits) = (A * Z_G >> 8) >> 6 (bits 6-13 of the product >> 8).
 .MACRO M6
@@ -2075,14 +2057,93 @@ bk_oam1:
 bk_oam2:
 	SPRITES 2, bk_body2
 
+; The sprites of the body in modes 0, 1, 2.
 bk_body0:
-	BODIES 0
+	jsr bk_body
+	ldx.b Z_NS                  ; the places not used hidden
+	txa
+	asl a
+	tax
+	jsr bk_hbody
+	ldx.b Z_NS                  ; the sprites from the last one
+	txa
+	asl a
+	tax
+	jmp (_bt0,x)
+_bt0:
+	.dw _b00, _b01, _b02, _b03, _b04, _b05, _b06
+_b06:
+	BODY 5, 0
+_b05:
+	BODY 4, 0
+_b04:
+	BODY 3, 0
+_b03:
+	BODY 2, 0
+_b02:
+	BODY 1, 0
+_b01:
+	BODY 0, 0
+_b00:
+	rts
 
 bk_body1:
-	BODIES 1
+	jsr bk_body
+	ldx.b Z_NS                  ; the places not used hidden
+	txa
+	asl a
+	tax
+	jsr bk_hbody
+	ldx.b Z_NS                  ; the sprites from the last one
+	txa
+	asl a
+	tax
+	jmp (_bt1,x)
+_bt1:
+	.dw _b10, _b11, _b12, _b13, _b14, _b15, _b16
+_b16:
+	BODY 5, 1
+_b15:
+	BODY 4, 1
+_b14:
+	BODY 3, 1
+_b13:
+	BODY 2, 1
+_b12:
+	BODY 1, 1
+_b11:
+	BODY 0, 1
+_b10:
+	rts
 
 bk_body2:
-	BODIES 2
+	jsr bk_body
+	ldx.b Z_NS                  ; the places not used hidden
+	txa
+	asl a
+	tax
+	jsr bk_hbody
+	ldx.b Z_NS                  ; the sprites from the last one
+	txa
+	asl a
+	tax
+	jmp (_bt2,x)
+_bt2:
+	.dw _b20, _b21, _b22, _b23, _b24, _b25, _b26
+_b26:
+	BODY 5, 2
+_b25:
+	BODY 4, 2
+_b24:
+	BODY 3, 2
+_b23:
+	BODY 2, 2
+_b22:
+	BODY 1, 2
+_b21:
+	BODY 0, 2
+_b20:
+	rts
 
 ; Turning: the wheel drawn over the bike in place 0, the other one in 17
 ; (checked as in mode 2).
@@ -2161,7 +2222,7 @@ bk_hbody:
 	lda #$E000
 	jmp (_hb,x)
 _hb:
-	.dw _h0, _h1, _h2, _h3, _h4, _h5
+	.dw _h0, _h1, _h2, _h3, _h4, _h5, _h6
 _h0:
 	sta.w BK_OAM+4*7
 _h1:
@@ -2174,6 +2235,7 @@ _h4:
 	sta.w BK_OAM+4*11
 _h5:
 	sta.w BK_OAM+4*12
+_h6:
 	rts
 
 ; Sets the bit of x >= 256 of the sprite in place X/4. Keeps A, X.
