@@ -1,16 +1,36 @@
-// Elasto Mania for the SNES.
+// Elasto Mania for the SNES: the menus and the levels, as the original game
+// goes from one to the other (PLAY.CPP playlevel).
 #include <snes.h>
 #include "core.h"
-#include "version.h"
-
-static const u8 Pal[4] = { 0x00, 0x7C, 0xFF, 0x03 };  // blue, yellow
+#include "snd.h"
+#include "ui.h"
+#include "game.h"
 
 int main(void) {
+	s16 level;
+	u16 r;
+	u32 time;
+	u8 finished;
+
 	consoleInit();
 	core_init();
-	core_cgram_now(0, Pal, 4);
-	core_screen_on(15);
-	while( 1 )
-		core_frame_done();
+	snd_init();
+	ui_intro();
+	while( 1 ) {
+		ui_main_menu();
+		while( 1 ) {
+			level = ui_level_menu();
+			if( level < 0 )
+				break;
+			while( 1 ) {
+				time = game_play( (u16)level, &finished );
+				r = ui_after_play( (u16)level, finished, time );
+				if( r == UI_PLAY_NEXT )
+					level++;
+				else if( r != UI_PLAY_AGAIN )
+					break;
+			}
+		}
+	}
 	return 0;
 }
