@@ -89,7 +89,7 @@ CHUNK = 8                       # cells
 FILL_W, FILL_H = 35, 31
 CACHE_SLACK = 16
 TEX2_MAX_TILES = 144
-TEX_MAX_TILES = 256
+TEX_MAX_TILES = 240              # (ROM: 32 bytes each, in every level)
 # A pixel of a texture differs from the texture this much at most (in a
 # color channel 0-255) to count as the texture:
 PURE_DIFF = 10
@@ -99,13 +99,13 @@ MERGE_MEAN = 6
 MERGE_MAX = 48
 
 
-def axis_candidates(n, scale=0.4):
-    """Pattern sizes (pixels, multiple of 8) for a texture n pixels long:
-    (size, periods, relative error), the best for each size."""
+def axis_candidates(n, scale=0.4, most=336):
+    """Pattern sizes (pixels, multiple of 8, at most most) for a texture n
+    pixels long: (size, periods, relative error), the best for each size."""
     best = {}
     for k in range(1, 24):
         p = int(round(n * scale * k / 8.0)) * 8
-        if p < 8 or p > 256:
+        if p < 8 or p > most:
             continue
         err = abs(p / (n * scale * k) - 1)
         if p not in best or err < best[p][2]:
@@ -119,14 +119,15 @@ def choose_pattern(w, h, max_tiles):
     best = None
     small = None
     for px, kx, ex in axis_candidates(w):
-        for py, ky, ey in axis_candidates(h):
+        for py, ky, ey in axis_candidates(h, most=256):
             t = (px // 8) * (py // 8)
             if small is None or (t, max(ex, ey)) < small[0]:
                 small = ((t, max(ex, ey)), (px, kx, py, ky))
             if t > max_tiles:
                 continue
-            # Errors within half a percent are as good, then fewer tiles:
-            key = (int(round(max(ex, ey) * 200)), t)
+            # Errors within half a percent are as good, then the smaller
+            # error of the other direction, then fewer tiles:
+            key = (int(round(max(ex, ey) * 200)), int(round((ex + ey) * 200)), t)
             if best is None or key < best[0]:
                 best = (key, (px, kx, py, ky))
     if best is None:
