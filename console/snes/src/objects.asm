@@ -29,13 +29,8 @@ O_T3        dw
 O_T4        dw
 O_T5        dw
 O_AC        dw          ; frames of the animations since the start
-O_PTR       dsb 4
-O_SRC       dsb 4
 O_OX        dw
-O_N         dw
 O_X         dw
-O_Y         dw
-O_K         dw
 O_VIS       dw          ; bit k: kind k on the screen
 .ENDE
 
@@ -59,6 +54,7 @@ obj_time    dw          ; the time of the last frame
 obj_prevac  dw          ; frames since the start in the last frame
 obj_kf      dsw 8       ; the frame of each kind now
 obj_oam_end dw          ; end of the sprites written in the last frame
+obj_dirty   dw          ; bit k: the frame of kind k in the VRAM is not obj_kf
 .ENDS
 
 .BASE $80
@@ -90,14 +86,27 @@ obj_reset:
 	lda #$FFFE                  ; neither the time nor the frames follow
 	sta.l obj_time
 	sta.l obj_prevac
-	lda.w #128*4
+	lda #0
+	sta.l obj_dirty
+	ldx.w #OAM_OBJ*4            ; the sprites hidden
+	txa
 	sta.l obj_oam_end
+	lda #$E000                  ; x 0, y 224
+-	sta.l core_oam,x
+	inx
+	inx
+	inx
+	inx
+	cpx.w #128*4
+	bcc -
 	plb
 	plp
 	rtl
 
 ;---------------------------------------------------------------------------
 ; void objects_draw(s16 cam_x, s16 cam_y, u16 time)
+; DB = $7E throughout: the variables and the low RAM; I/O with long
+; addresses.
 objects_draw:
 	php
 	phb
@@ -113,23 +122,11 @@ objects_draw:
 	sta.b O_TIME
 	stx.b O_CAMX
 	sty.b O_CAMY
-	sep #$20
-	lda #$80
-	pha
+	pea $7E7E
 	plb
-	rep #$30
+	plb
 	jsr ob_time
-	sep #$20
-	lda #$7E
-	pha
-	plb
-	rep #$30
 	jsr ob_sprites
-	sep #$20
-	lda #$80
-	pha
-	plb
-	rep #$30
 	jsr ob_frames
 objects_draw_end:
 	pld
@@ -138,48 +135,48 @@ objects_draw_end:
 	rtl
 
 ;---------------------------------------------------------------------------
-; O_T2:O_T3 = O_T0 * O_T1 (unsigned, CPU multiplier; DB = $80).
+; O_T2:O_T3 = O_T0 * O_T1 (unsigned, CPU multiplier).
 ob_mul:
 	sep #$20
 	lda.b O_T0
-	sta $4202
+	sta.l $004202
 	lda.b O_T1
-	sta $4203
+	sta.l $004203
 	nop
 	nop
 	nop
 	rep #$20
-	lda $4216
+	lda.l $004216
 	sta.b O_T2                  ; a0 b0
 	stz.b O_T3
 	sep #$20
 	lda.b O_T1+1
-	sta $4203
+	sta.l $004203
 	nop
 	nop
 	nop
 	rep #$20
-	lda $4216
+	lda.l $004216
 	sta.b O_T4                  ; a0 b1
 	sep #$20
 	lda.b O_T0+1
-	sta $4202
+	sta.l $004202
 	lda.b O_T1
-	sta $4203
+	sta.l $004203
 	nop
 	nop
 	nop
 	rep #$20
-	lda $4216
+	lda.l $004216
 	sta.b O_T5                  ; a1 b0
 	sep #$20
 	lda.b O_T1+1
-	sta $4203
+	sta.l $004203
 	nop
 	nop
 	nop
 	rep #$20
-	lda $4216
+	lda.l $004216
 	sta.b O_T3                  ; a1 b1
 	lda.b O_T4
 	jsr _add
@@ -199,25 +196,32 @@ _add:
 	rts
 
 ;---------------------------------------------------------------------------
-; The time of the animations (DB = $80).
+; The time of the animations. Frames since the start: time * OBJ_ANIM_K
+; >> 16; angle of the bobbing: time * OBJ_BOB_K. Added to when the time
+; grew by a few steps, multiplied else.
 ob_time:
-	; Frames since the start: time * OBJ_ANIM_K >> 16; angle of the
-	; bobbing: time * OBJ_BOB_K. Added to when the time grew by one.
+	lda obj_time
+	cmp.w #$FFFE
+	beq _mul
 	lda.b O_TIME
-	dec a
-	cmp.l obj_time
-	bne _mul
-	lda.l obj_acc
+	sec
+	sbc obj_time
+	beq _have
+	cmp.w #5
+	bcs _mul
+	tax
+-	lda obj_acc
 	clc
 	adc.w #OBJ_ANIM_K
-	sta.l obj_acc
-	lda.l obj_acc+2
-	adc #0
-	sta.l obj_acc+2
-	lda.l obj_ba
+	sta obj_acc
+	bcc +
+	inc obj_acc+2
++	lda obj_ba
 	clc
 	adc.w #OBJ_BOB_K
-	sta.l obj_ba
+	sta obj_ba
+	dex
+	bne -
 	bra _have
 _mul:
 	lda.b O_TIME
@@ -226,24 +230,24 @@ _mul:
 	sta.b O_T1
 	jsr ob_mul
 	lda.b O_T2
-	sta.l obj_acc
+	sta obj_acc
 	lda.b O_T3
-	sta.l obj_acc+2
+	sta obj_acc+2
 	lda.w #OBJ_BOB_K
 	sta.b O_T1
 	jsr ob_mul
 	lda.b O_T2
-	sta.l obj_ba
+	sta obj_ba
 _have:
 	lda.b O_TIME
-	sta.l obj_time
-	lda.l obj_acc+2
+	sta obj_time
+	lda obj_acc+2
 	sta.b O_AC
 	rts
 
 ;---------------------------------------------------------------------------
 ; The frames of the animations: loads the ones that changed of the kinds
-; on the screen (O_VIS) (DB = $80).
+; on the screen (O_VIS).
 ob_frames:
 	; Room in the queue for 2 transfers a kind (else nothing changes now:
 	; the frames are counted from obj_prevac the next time):
@@ -251,143 +255,108 @@ ob_frames:
 	cmp.w #(DMAQ_MAX-2*OBJ_KINDS)*8+1
 	bcc +
 	rts
-+	sep #$20
-	lda.b #:obj_kind_table
-	sta.b O_PTR+2
-	rep #$20
-	stz.b O_K
-_kind:
-	lda.b O_K
-	tax
-	lda.l obj_used
-	and.l ob_bits,x
-	bne +
-	jmp _knext
-+
-	; f = ac mod frames of the kind: the same as in the last frame, one
++	; f = ac mod frames of the kind: the same as in the last frame, one
 	; more, or divided.
 	lda.b O_AC
-	cmp.l obj_prevac
-	beq _same
-	dec a
-	cmp.l obj_prevac
-	bne _div
-	lda.l obj_kf,x
-	inc a
-	sta.b O_T0
-	txa
-	lsr a
-	tax
-	lda.l obj_kind_frames,x
-	and #$00FF
-	cmp.b O_T0
+	sec
+	sbc obj_prevac
+	sta.b O_T5
 	bne +
-	stz.b O_T0
-+	ldx.b O_K
-	lda.b O_T0
+	lda obj_dirty               ; the same frames: only kinds that came
+	and.b O_VIS                 ; onto the screen may want theirs
+	bne +
+	rts
++	stz obj_dirty
+	lda obj_used
+	sta.b O_T4                  ; the kinds left
+	ldx #0                      ; 2 * kind
+_kind:
+	lsr.b O_T4
+	bcc _knext
+	lda.b O_T5
+	bne +
+	lda obj_kf,x
+	bra _cmp
++	dec a
+	bne _div
+	lda obj_kf,x
+	inc a
+	cmp.l obj_kind_nfr,x
+	bcc _kf
+	lda #0
 	bra _kf
 _div:
 	lda.b O_AC
-	sta $4204
-	txa
-	lsr a
-	tax
+	sta.l $004204
 	sep #$20
-	lda.l obj_kind_frames,x
-	sta $4206
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
+	lda.l obj_kind_nfr,x
+	sta.l $004206
 	rep #$20
-	ldx.b O_K
-	lda $4216
+	nop
+	nop
+	nop
+	nop
+	nop
+	lda.l $004216
 _kf:
-	sta.l obj_kf,x
-_same:
+	sta obj_kf,x
+_cmp:
+	cmp obj_curf,x
+	beq _knext
+	tay
 	lda.l ob_bits,x
 	and.b O_VIS
-	beq _knext
-	lda.l obj_kf,x
-	sta.b O_T0
-	cmp.l obj_curf,x
-	beq _knext
-	sta.l obj_curf,x
-	; The pointer of the frame: obj_frames_k + f * 3.
-	lda.l obj_kind_table,x
-	sta.b O_PTR
-	lda.b O_T0
-	asl a
-	clc
-	adc.b O_T0
-	tay
-	lda [O_PTR],y
-	sta.b O_SRC
-	iny
-	lda [O_PTR],y
-	and #$FF00
-	xba
-	sta.b O_SRC+2
-	; Straight from the ROM: the top tiles at 192 + 2k, the bottom ones
-	; 16 tiles further.
-	lda.b O_K
-	asl a
-	asl a
-	asl a
-	asl a                       ; k * 32 words (O_K = 2k)
-	clc
-	adc.w #VRAM_OBJS
-	sta.b O_T3
-	jsr ob_queue
+	beq _dirty
+	tya
+	sta obj_curf,x
+	jsr ob_load
+	bra _knext
+_dirty:
+	lda.l ob_bits,x
+	tsb obj_dirty
 _knext:
-	lda.b O_K
-	inc a
-	inc a
-	sta.b O_K
-	cmp.w #2*OBJ_KINDS
-	bcs +
-	jmp _kind
-+
+	inx
+	inx
+	lda.b O_T4
+	bne _kind
 	lda.b O_AC
-	sta.l obj_prevac
+	sta obj_prevac
 	rts
 
-; The frame at O_SRC to the VRAM at O_T3 (words): two transfers of the
-; queue (its top and bottom tiles). Keeps X.
-ob_queue:
+; Frame A of kind X/2 straight from the ROM to the VRAM: its two transfers
+; of the queue (obj_q, gen_bike.py). Keeps X.
+ob_load:
+	asl a
+	asl a
+	asl a
+	asl a                       ; 16 bytes a frame
+	adc.l obj_q_offs,x
 	phx
-	ldx core_dmaq_n
-	sep #$20
-	lda.b #DMAQ_VRAM
-	sta core_dmaq,x             ; type +0, source +1, bank +3, size +4,
-	sta core_dmaq+8,x           ; VRAM address +6
-	lda.b O_SRC+2
-	sta core_dmaq+3,x
-	sta core_dmaq+8+3,x
-	rep #$20
-	lda.b O_SRC
-	sta core_dmaq+1,x
-	clc
-	adc #64
-	sta core_dmaq+8+1,x
-	lda #64
-	sta core_dmaq+4,x
-	sta core_dmaq+8+4,x
-	lda.b O_T3
-	sta core_dmaq+6,x
-	clc
-	adc #256
-	sta core_dmaq+8+6,x
-	lda core_dmaq_bytes
-	clc
-	adc #128
-	sta core_dmaq_bytes
-	txa
+	tax
+	ldy core_dmaq_n
+	lda.l obj_q,x
+	sta core_dmaq,y
+	lda.l obj_q+2,x
+	sta core_dmaq+2,y
+	lda.l obj_q+4,x
+	sta core_dmaq+4,y
+	lda.l obj_q+6,x
+	sta core_dmaq+6,y
+	lda.l obj_q+8,x
+	sta core_dmaq+8,y
+	lda.l obj_q+10,x
+	sta core_dmaq+10,y
+	lda.l obj_q+12,x
+	sta core_dmaq+12,y
+	lda.l obj_q+14,x
+	sta core_dmaq+14,y
+	tya
 	clc
 	adc #16
 	sta core_dmaq_n
+	lda core_dmaq_bytes
+	adc #128
+	sta core_dmaq_bytes
 	plx
 	rts
 
@@ -395,27 +364,29 @@ ob_bits:
 	.dw 1, 2, 4, 8, 16, 32, 64, 128
 
 ;---------------------------------------------------------------------------
-; The sprites (DB = $7E). Y = 2 * object. Positions are biased by 256
-; pixels: a sprite is on the screen when x is 241..511 and y 241..479.
+; The sprites. Y = 2 * object. Positions are biased by 256 pixels: a
+; sprite is on the screen when x is 241..511 and y 241..479.
 ob_sprites:
 	lda.b O_CAMX
 	clc
-	adc.w #8-256
-	sta.b O_T2
+	adc.w #8-256+241
+	sta.b O_T2                  ; x - O_T2 = biased x - 241
 	lda.b O_CAMY
 	clc
-	adc.w #8-256
+	adc.w #8-256+241
 	sta.b O_T3
 	lda obj_ba
 	xba
 	and #$00FF
 	sta.b O_T4                  ; angle of the bobbing (0-255)
-	ldx #0
--	stz core_oam+512+OAM_OBJ/4,x
-	inx
-	inx
-	cpx #16
-	bcc -
+	stz core_oam+512+OAM_OBJ/4
+	stz core_oam+512+OAM_OBJ/4+2
+	stz core_oam+512+OAM_OBJ/4+4
+	stz core_oam+512+OAM_OBJ/4+6
+	stz core_oam+512+OAM_OBJ/4+8
+	stz core_oam+512+OAM_OBJ/4+10
+	stz core_oam+512+OAM_OBJ/4+12
+	stz core_oam+512+OAM_OBJ/4+14
 	ldx.w #OAM_OBJ*4
 	stx.b O_OX
 	stz.b O_VIS
@@ -425,24 +396,20 @@ ob_sprites:
 _obj:
 	dey
 	dey
-	bpl +
-	jmp _hide
-+	lda obj_x,y
+	bmi _hide
+	lda obj_x,y
 	sec
 	sbc.b O_T2
-	cmp.w #512
+	cmp.w #512-241
 	bcs _obj
-	cmp.w #241
-	bcc _obj
-	sta.b O_X
+	sta.b O_X                   ; x - 241
 	ldx obj_poff,y              ; an apple: not eaten?
 	bmi +
 	lda.l phys_objs+PO_ACTIVE,x
 	and #$00FF
 	beq _obj
-+	lda #0
-	ldx obj_phase,y             ; killers do not bob
-	bmi +
++	ldx obj_phase,y             ; killers do not bob
+	bmi _still
 	txa
 	clc
 	adc.b O_T4
@@ -450,50 +417,51 @@ _obj:
 	asl a
 	tax
 	lda.l bike_t_bob16,x
-+	clc
+	clc
 	adc obj_y,y
-	sec
+	bra +
+_still:
+	lda obj_y,y
++	sec
 	sbc.b O_T3
-	cmp.w #480
+	cmp.w #480-241
 	bcs _obj
-	cmp.w #241
-	bcc _obj
+	adc.w #241
 	ldx.b O_OX
-	sta.b O_Y
-	lda obj_kbit,y
-	tsb.b O_VIS
-	lda.b O_X
-	sta core_oam,x
-	lda.b O_Y
-	sta core_oam+1,x
+	sta core_oam+1,x            ; y (its high byte goes into the tile)
 	lda obj_ta,y
 	sta core_oam+2,x
 	lda.b O_X
+	adc.w #241                  ; (C clear)
+	sep #$20
+	sta core_oam,x              ; x
+	rep #$20
 	cmp.w #256
 	bcs +
 	jsr ob_x8
-+	txa
-	clc
-	adc #4
-	sta.b O_OX
-	cmp.w #128*4
-	bcs _hide
-	jmp _obj
++	lda obj_kbit,y
+	tsb.b O_VIS
+	inx
+	inx
+	inx
+	inx
+	stx.b O_OX
+	cpx.w #128*4
+	bcc _obj
 _hide:
 	; Hide the sprite after the last and the ones used in the last frame.
 	ldx.b O_OX
-	stx.b O_T0
-	lda #$E000                  ; y 224
--	cpx.w #128*4
+	cpx obj_oam_end
 	bcs +
-	sta core_oam,x
+	lda #$E000                  ; y 224
+-	sta core_oam,x
 	inx
 	inx
 	inx
 	inx
 	cpx obj_oam_end
 	bcc -
-+	lda.b O_T0
++	lda.b O_OX
 	sta obj_oam_end
 	rts
 
