@@ -7,7 +7,8 @@ the host (test/physdump), to the bit, and the time of the steps.
       runs the ROM in Mesen 2 (test/mesen.py), the cases on the host,
       compares their logs step by step and prints the master clocks of
       phys_step (typical and worst) for each case. With --full N the whole
-      state of the first steps of case N is compared too, field by field.
+      state of 160 steps of case N (from its step --from K) is compared
+      too, field by field.
 
 The exit status is 1 if the logs differ.
 """
@@ -118,7 +119,7 @@ def run(args):
     host_full = os.path.join(args.out, 'host_full.bin')
     cmd = [args.physdump, args.gen, args.cases, host_log]
     if args.full is not None:
-        cmd += [str(args.full), host_full]
+        cmd += [str(args.full), host_full, str(args.full_from)]
     subprocess.run(cmd, check=True)
     host = open(host_log, 'rb').read()
     counts = []
@@ -134,7 +135,7 @@ def run(args):
         counts.append(n)
     lua = os.path.join(args.out, 'physrom.lua')
     full = args.full if args.full is not None else 0xFFFF
-    first = sum(counts[:args.full]) if args.full is not None else 1 << 30
+    first = sum(counts[:args.full]) + args.full_from if args.full is not None else 1 << 30
     with open(lua, 'w') as f:
         f.write(LUA % (syms['phys_test_go'], syms['phys_test_full'], syms['phys_test_done'],
                        syms['phys_step'], syms['phys_step_ret'], first,
@@ -181,6 +182,7 @@ def run(args):
         allc.sort()
         print('  all: %d / %d / %d' % (allc[len(allc) // 2], allc[int(len(allc) * 0.9)], allc[-1]))
     if args.full is not None:
+        FROM[0] = args.full_from
         hf = open(host_full, 'rb').read()
         compare_full(hf, rom_full[:len(hf)])
     return ok
@@ -198,6 +200,9 @@ FIELDS += [('rider_x', 4), ('rider_y', 4), ('rider_vx', 4), ('rider_vy', 4), ('h
            ('turned', 1), ('gravity', 1), ('brake_was', 1), ('volt1', 1), ('apples', 1),
            ('view', 52), ('bump', 2), ('eaten', 2), ('friction', 2), ('omega', 2), ('left', 2),
            ('volt_age', 1), ('volt1o', 1), ('ev', 2), ('cs22', 4), ('sn22', 4), ('cs', 2), ('sn', 2)]
+
+
+FROM = [0]
 
 
 def compare_full(host, rom):
@@ -222,7 +227,7 @@ def compare_full(host, rom):
                 diffs.append('%s host %d rom %d' % (name, hv, rv))
             off += size
         if diffs:
-            print('full step %d: %s' % (s, '; '.join(diffs)))
+            print('full step %d: %s' % (s + FROM[0], '; '.join(diffs)))
             return
     print('full: the %d steps are the same' % n)
 
@@ -239,6 +244,7 @@ def main():
     r.add_argument('gen')
     r.add_argument('cases')
     r.add_argument('--full', type=int)
+    r.add_argument('--from', dest='full_from', type=int, default=0)
     r.add_argument('--out', default='build/physrom')
     a = ap.parse_args()
     if a.cmd == 'gen':
