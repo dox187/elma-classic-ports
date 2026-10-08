@@ -92,12 +92,12 @@ core_nmi_fast:
 _dmaloop:
 	cpx core_dmaq_n
 	bcs _dmadone
-	lda core_dmaq+2,x           ; source address
+	lda core_dmaq+1,x           ; source address
 	sta $4302
-	lda core_dmaq+5,x           ; size
+	lda core_dmaq+4,x           ; size
 	sta $4305
 	sep #$20
-	lda core_dmaq+4,x           ; source bank
+	lda core_dmaq+3,x           ; source bank
 	sta $4304
 	lda core_dmaq,x             ; type
 	cmp #DMAQ_CGRAM
@@ -360,13 +360,13 @@ _queue:
 	lda 5,s                     ; vaddr (after php)
 	sta.l core_dmaq+6,x
 	lda 7,s                     ; src low
-	sta.l core_dmaq+2,x
+	sta.l core_dmaq+1,x
 	lda 9,s                     ; src bank
 	sep #$20
-	sta.l core_dmaq+4,x
+	sta.l core_dmaq+3,x
 	rep #$20
 	lda 11,s                    ; size
-	sta.l core_dmaq+5,x
+	sta.l core_dmaq+4,x
 	clc
 	adc.l core_dmaq_bytes
 	sta.l core_dmaq_bytes
