@@ -2,6 +2,7 @@
 # of BG2 (tools/gen_map.py, about a minute with 4 processes).
 GEN_ASM += $(GEN)/map_data.asm
 GEN_H += $(GEN)/map_data.h
+TEST_ROMS += $(BUILD)/test_map.sfc
 MAP_JOBS ?= 4
 
 $(GEN)/map_data.asm $(GEN)/map_data.h &: tools/gen_map.py tools/mapmodel.py \
