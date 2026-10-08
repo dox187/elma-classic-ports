@@ -19,7 +19,11 @@ sys.path.insert(0, os.path.join(HERE, '..', 'tools'))
 PRIO = 0x20                  # sprites behind the front pictures (priority 2)
 FLIP_H, FLIP_V = 0x40, 0x80
 TURN_DONE = 65470            # forgas >= 0.999: not turning
-BUDGET = 1600                # bytes of tiles a frame
+# Loads a frame: their time in the vertical blank, in bytes (8 master
+# clocks a byte, about 96 bytes the time of a transfer of the queue): at
+# most as much as 1600 bytes in 4 transfers.
+ENTRY_COST = 96
+LOAD_COST = 1600 + 4 * ENTRY_COST
 
 # Parts with sprites loaded while drawing (gen_bike.PARTS), then the body:
 PARTS = ['thigh', 'leg', 'uparm', 'forearm', 's1a', 's1b', 's2a', 's2b',
@@ -295,31 +299,37 @@ class Bike:
         for i in range(11):
             if want[i] == self.cur[i]:
                 self.cur_flip[i] = flip[i]
-        ranges = {}
+        # Each load is two transfers (the top and the bottom halves of its
+        # sprites): a single part, the body, or while turning the parts
+        # 0-7 together. The parts 0-7 and the head, the torso and the body
+        # take turns to go first, a group stops at its first load that does
+        # not fit.
+        def loads(pair):
+            if pair == 0:
+                p0 = [i for i in pend if i < 8]
+                if p0 and lv != 4:
+                    return [(list(range(8)), 8 * 128)]
+                return [([i], 128) for i in p0]
+            out = [([i], 128) for i in pend if i in (8, 9)]
+            if FRAME in pend:
+                out.append(([FRAME], nspr(FRAME, want[FRAME]) * 128))
+            return out
         accepted = []
         pairs = [0, 1] if self.toggle == 0 else [1, 0]
         if pend:
             self.toggle ^= 1
-        left = BUDGET
-        for n, pair in enumerate(pairs):
-            lo = hi = None
-            for i in pend:
-                if SLOT[i][0] != pair:
-                    continue
-                s0 = SLOT[i][1]
-                s1 = s0 + nspr(i, want[i]) - 1
-                nlo = s0 if lo is None else lo
-                if (s1 - nlo + 1) * 128 > left:
+        left = LOAD_COST
+        dma = 0
+        for pair in pairs:
+            for parts, size in loads(pair):
+                if size + 2 * ENTRY_COST > left:
                     break
-                lo, hi = nlo, s1
-                accepted.append(i)
-            if lo is not None:
-                ranges[pair] = (lo, hi)
-                left -= (hi - lo + 1) * 128
+                left -= size + 2 * ENTRY_COST
+                dma += size
+                accepted += parts
         for i in accepted:
             self.cur[i] = want[i]
             self.cur_flip[i] = flip[i]
-        dma = sum((hi - lo + 1) * 128 for lo, hi in ranges.values())
         # OAM:
         oam = []
 

@@ -42,7 +42,7 @@ emu.addMemoryCallback(function() o0 = emu.getMasterClock() end, emu.callbackType
 emu.addMemoryCallback(function()
   local o1 = emu.getMasterClock() - o0
   print(string.format("FRAME %s %d %d %s %s %s", rd(A.test_time, 2), t1, o1, rd(A.core_dmaq_n, 2),
-    rd(A.core_oam, 544), rd(A.core_dmaq, 8 * 12)))
+    rd(A.core_oam, 544), rd(A.core_dmaq, 8 * 48)))
 end, emu.callbackType.exec, A.objects_draw_end)
 local vf = { __VFRAMES__ }
 local f = 0
@@ -119,7 +119,7 @@ def main():
         oam = bytes.fromhex(oamhex)
         q = bytes.fromhex(qhex)
         nq = int.from_bytes(bytes.fromhex(qn), 'little') // 8
-        qbytes = sum(int.from_bytes(q[i * 8 + 4:i * 8 + 6], 'little') for i in range(min(nq, 12)))
+        qbytes = sum(int.from_bytes(q[i * 8 + 4:i * 8 + 6], 'little') for i in range(min(nq, 48)))
         dmas.append(qbytes)
         ex_oam, ex_ooam, ex_dma, cur, curf, ocur = expect[tt]
         frames_csv.append('%d,%d,%d,%d,%s' % (tt, int(c1), int(c2), ex_dma, ' '.join(str(a) for a in accs[tt])))

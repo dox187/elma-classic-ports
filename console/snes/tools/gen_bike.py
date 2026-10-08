@@ -692,6 +692,7 @@ def main():
     # Descriptors of the single parts: 4 bytes (pointer, 0) for each.
     single = []
     single_idx = []
+    single_data = []
     for name in PARTS:
         pl = pals[PALETTE[name]]
         lst = [sets[name]] + [sets['%s_t%d' % (name, l)] for l in range(4)]
@@ -700,20 +701,38 @@ def main():
                 dx, dy, col, a = im[0]
                 q = quantize(col, a, pl)
                 single_idx.append(q.astype(np.uint8))
-                single.append(blob.add(tiles16(q)))
+                t = bytes(tiles16(q))
+                single_data.append(t)
+                single.append(blob.add(t))
     per_part = N_PART // 2 + 4 * (N_TURN // 2)
     assert len(single) == len(PARTS) * per_part
+    # Whole rows of sprites for the loads with two transfers (bike.asm):
+    # the top halves of the sprites, then their bottom halves.
+    rows_blob = Blob('bike_rows_')
+
+    def rows(datas):
+        return rows_blob.add(b''.join(t[:64] for t in datas) + b''.join(t[64:] for t in datas))
+    # The squashed pictures of the parts 0-7 while turning (they all have
+    # the same angle and squash): by squash level * 16 + angle.
+    turn_rows = [rows([single_data[p * per_part + N_PART // 2 + lv * (N_TURN // 2) + k]
+                       for p in range(8)])
+                 for lv in range(4) for k in range(N_TURN // 2)]
     # Descriptors of the body: count, then (dx, dy, pointer) for each sprite.
     frame = []
     frame_idx = []
+    frame_rows = []
     for imgs in [sets['frame']] + [sets['frame_t%d' % l] for l in range(4)]:
         for im in imgs:
             spr = []
+            datas = []
             for dx, dy, col, a in im:
                 q = quantize(col, a, pals[0])
                 frame_idx.append(q.astype(np.uint8))
-                spr.append((dx, dy, blob.add(tiles16(q))))
+                t = bytes(tiles16(q))
+                datas.append(t)
+                spr.append((dx, dy, blob.add(t)))
             frame.append(spr)
+            frame_rows.append(rows(datas))
     wheel_idx = [quantize(im[0][2], im[0][3], pals[0], ALPHA_WHEEL).astype(np.uint8)
                  for im in sets['wheel']]
     # Objects:
@@ -732,6 +751,10 @@ def main():
          '.include "hdr.asm"', '.include "core.inc"', '']
     for n, sec in enumerate(blob.sections):
         a += ['.SECTION ".bike_tiles_%d" SUPERFREE' % n, 'bike_tiles_%d:' % n]
+        a += db(sec, 32)
+        a += ['.ENDS', '']
+    for n, sec in enumerate(rows_blob.sections):
+        a += ['.SECTION ".bike_rows_%d" SUPERFREE' % n, 'bike_rows_%d:' % n]
         a += db(sec, 32)
         a += ['.ENDS', '']
     for n, sec in enumerate(obj_blob.sections):
@@ -754,9 +777,10 @@ def main():
     for ref in single:
         a.append('\t.dl %s\n\t.db 0' % ref)
     # The body: the number of sprites, their pointers (6), then for each
-    # flip (none, H, V, both) the corners of the 6 from the pivot + 128.
+    # flip (none, H, V, both) the corners of the 6 from the pivot + 128,
+    # then the pointer of its rows.
     a.append('bike_desc_frame:')
-    for spr in frame:
+    for spr, rref in zip(frame, frame_rows):
         a.append('\t.db %d' % len(spr))
         for dx, dy, ref in spr:
             a.append('\t.dl %s' % ref)
@@ -769,7 +793,12 @@ def main():
                 offs += [fx + 128, fy + 128]
             offs += [0] * (2 * (FRAME_SPRITES - len(spr)))
             a.append('\t.db ' + ','.join(str(x) for x in offs))
-        a.append('\t.dsb %d, 0' % (FRAME_DESC - 1 - 3 * FRAME_SPRITES - 8 * FRAME_SPRITES))
+        a.append('\t.dl %s' % rref)
+        a.append('\t.dsb %d, 0' % (FRAME_DESC - 1 - 3 * FRAME_SPRITES - 8 * FRAME_SPRITES - 3))
+    # The rows of the parts 0-7 while turning (4 bytes each):
+    a.append('bike_turn_rows:')
+    for ref in turn_rows:
+        a.append('\t.dl %s\n\t.db 0' % ref)
     a += ['.ENDS', '']
     # Objects: per kind the number of frames and the pointers of the frames.
     a += ['.SECTION ".obj_anims" SUPERFREE', 'obj_kind_frames:']
@@ -809,13 +838,6 @@ def main():
     a.append('bike_t_atan:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['atan'][i:i + 16])
           for i in range(0, 257, 16)]
-    # The lowest and the highest set bit of a byte:
-    a.append('bike_t_lowbit:')
-    a += db([(v & -v).bit_length() - 1 if v else 0 for v in range(256)], 32)
-    a.append('bike_t_highbit:')
-    a += db([v.bit_length() - 1 if v else 0 for v in range(256)], 32)
-    a.append('bike_t_popcnt:')
-    a += db([bin(v).count('1') for v in range(256)], 32)
     a.append('bike_t_wheel:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['wheel'][i:i + 16]) for i in range(0, 64, 16)]
     for n in (32, 64, 128):
@@ -867,6 +889,7 @@ def main():
     d('BK_N_TURN_FRAME_HALF', N_TURN_FRAME // 2)
     d('BK_FRAME_SPRITES', FRAME_SPRITES)
     d('BK_FRAME_DESC', FRAME_DESC)
+    d('BK_FRAME_ROWS', 1 + 3 * FRAME_SPRITES + 8 * FRAME_SPRITES)
     # The pieces of the suspensions: their centers from the ends of the rod
     # along it (units).
     for r in ('s1', 's2'):
