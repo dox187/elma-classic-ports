@@ -84,6 +84,7 @@ class Model:
 
     def __init__(self, res, lgr):
         self.levels = elmadata.internal_levels(elmadata.Resource(res))
+        self.test_levels = gh.test_levels(self.levels)
         self.col = gh.colors(Lgr(lgr))
         self.maps = {}
         self.paths = {}
@@ -91,7 +92,7 @@ class Model:
         self.backdrop = (bd & 31, bd >> 5 & 31, bd >> 10 & 31)
 
     def level(self, k):
-        li = gh.TEST_LEVELS[k]
+        li = self.test_levels[k]
         if li not in self.maps:
             self.maps[li] = gh.LevelMap(self.levels[li])
             self.paths[li] = gh.test_path(self.levels[li])
@@ -189,7 +190,7 @@ def main():
     for name in shots:
         m = re.match(r'hud_L(\d+)_F(\d+)\.png', name)
         k, f = int(m.group(1)), int(m.group(2))
-        if k >= len(gh.TEST_LEVELS):
+        if k >= len(model.test_levels):
             continue
         got = np.array(Image.open(os.path.join(a.out, name)).convert('RGB')) >> 3
         want = model.screen(k, f)
