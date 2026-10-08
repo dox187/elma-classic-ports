@@ -471,6 +471,8 @@ def level_blob(lev):
     rid = (2.75 + dxs, 4.04 + dys)
     kx0, kx1, ky0, ky1 = kill_bounds(lines)
     rx, ry = racs_bounds(lines)
+    # src/phys.asm tests Racsonkivul only for points outside the grid:
+    assert rx >= fx(gx + gw * cell + 3) and ry >= fx(gy + gh * cell + 3), 'racs bounds in the grid'
     head = struct.pack('<2i2H2H4H2i4i', fx(gx), fx(gy), gw, gh, len(lines), len(objs),
                        off_lines, off_objs, off_lists, off_rows, rx, ry, kx0, kx1, ky0, ky1)
     head += struct.pack('<8i', fx(k1[0]), fx(k1[1]), fx(k2[0]), fx(k2[1]), fx(k4[0]), fx(k4[1]),
