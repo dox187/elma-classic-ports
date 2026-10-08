@@ -985,6 +985,10 @@ phys_level:
 	sta.w lev_gh+2
 	lda.w LH_ROWS,x
 	sta.w lev_rows
+	lda #$FFFF                  ; no cell of the circles yet
+	sta.w g3_ram+4
+	sta.w g3_ram+12
+	sta.w g3_ram+28
 	lda.w LH_NEED,x
 	sta.w lev_need
 	lda.w LH_NOBJS,x
@@ -3424,7 +3428,7 @@ phys_half:
 .DEFINE G3_LEND $A4             ; the end of the list of lines
 .DEFINE G3_RS $A6               ; the runs of the row: the first
 .DEFINE G3_RE3 $A8              ; and the last
-.DEFINE G3_SLOT $AA             ; the hint of the circle in g3_ram
+.DEFINE G3_SLOT $AA             ; the circle in g3_ram
 .DEFINE G3_H $AC                ; 64 half (4)
 .DEFINE G3_ON $AA               ; objects: the number of candidates
 .DEFINE G3_OL $AC               ; and their offsets / 4 (up to 52)
@@ -3978,10 +3982,49 @@ _ct_none:
 	lda #0
 	rts
 _ct_in:
-	; The run of the row of the cell: from the one of the last time (a
-	; hint of each circle in g3_ram: the number of the run in its row; WK
-	; is S_K2 or S_K4).
+	; The list of the cell: the one of the last time when the circle is
+	; still in the same cell (g3_ram: 8 bytes for each circle, WK = S_K2,
+	; S_K4 or 32 for the head: the hint, 2 cx, 2 cy and the list), else
+	; from the runs of the row.
 	and #$FFFE                  ; 2 cy
+	sta.b G3_RS
+	ldx.b WK
+	lda.b QHEAD
+	beq +
+	ldx #32                     ; the head
++	stx.b G3_SLOT
+	lda.b G3_RS
+	cmp.w g3_ram-24+4,x
+	bne _ct_miss
+	lda.b QX+2
+	and #$FFFE
+	cmp.w g3_ram-24+2,x
+	bne _ct_miss
+	lda.w g3_ram-24+6,x
+	bne _ct_list
+	rts
+_ct_list:
+	tay
+	lda.w 0,y
+	asl a
+	sta.b G3_LEND
+	tya
+	clc
+	adc #2
+	adc.b G3_LEND
+	sta.b G3_LEND               ; the end of the list
+	iny
+	iny
+	jmp _ct_line
+_ct_miss:
+	; The run of the row of the cell: from the one of the last time (the
+	; hint: the number of the run in its row).
+	sta.w g3_ram-24+4,x
+	lda.b QX+2
+	and #$FFFE
+	sta.w g3_ram-24+2,x
+	lda.b G3_RS
+	clc
 	adc.w lev_rows
 	tay
 	lda.w 2,y
@@ -3989,11 +4032,6 @@ _ct_in:
 	sta.b G3_RE3                ; the last run of the row
 	lda.w 0,y
 	sta.b G3_RS                 ; the first one
-	ldx.b WK
-	lda.b QHEAD
-	beq +
-	ldx #26                     ; the head
-+	stx.b G3_SLOT
 	lda.w g3_ram-24,x
 	and #$00FF
 	tax
@@ -4005,11 +4043,7 @@ _ct_in:
 	cmp.b G3_RE3
 	beq +
 	bcc +
-++	ldx.b G3_SLOT               ; (not in the row: from its start)
-	sep #$20
-	stz.w g3_ram-24,x
-	rep #$20
-	ldx #0
+++	ldx #0                      ; (not in the row: from its start)
 	lda.b G3_RS
 +	tay
 	lda.b QX+2
@@ -4018,9 +4052,9 @@ _ct_in:
 	cmp.w 0,y
 	bcc _ct_back
 	cpy.b G3_RE3
-	bcs _ct_run0
+	bcs _ct_run
 	cmp.w 3,y
-	bcc _ct_run0                ; (the same run: the hint stays)
+	bcc _ct_run
 _ct_fwd:
 	iny
 	iny
@@ -4044,24 +4078,16 @@ _ct_run:
 	txa
 	ldx.b G3_SLOT
 	sta.w g3_ram-24,x
-_ct_run0:
 	rep #$20
 	lda.w 1,y
-	beq _ct_none2
-	tay
-	lda.w 0,y
-	asl a
-	sta.b G3_LEND
-	tya
-	adc #2                      ; (C clear: the end is below $10000)
-	adc.b G3_LEND
-	sta.b G3_LEND               ; the end of the list
-	iny
-	iny
-	bra _ct_line
+	sta.w g3_ram-24+6,x
+	beq +
+	jmp _ct_list
++	rts
 _ct_none8:
 	rep #$20
-_ct_none2:
+	ldx.b G3_SLOT
+	stz.w g3_ram-24+6,x
 	lda #0
 	rts
 _ct_next:
