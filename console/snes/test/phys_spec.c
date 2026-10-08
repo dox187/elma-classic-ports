@@ -576,7 +576,9 @@ uint16_t ps_step( uint16_t input ) {
 			}
 		}
 		// surlodasverseny: the friction for the sound, with the direction
-		// of the body in a byte:
+		// of the body in a byte (not in a quick step):
+		if( input & PH_QUICK )
+			continue;
 		int16_t g16x = clamp16( rsh( gx, 2 ) ), g16y = clamp16( rsh( gy, 2 ) );
 		int16_t rvx = clamp16( rsh( relx, 8 ) ), rvy = clamp16( rsh( rely, 8 ) );
 		int16_t s8 = (int16_t)(Sn >> 8), c8 = (int16_t)((-Cs) >> 8);
@@ -751,10 +753,12 @@ uint16_t ps_step( uint16_t input ) {
 		if( PS.volt_t[k] < 255 )
 			PS.volt_t[k]++;
 
-	// The sounds:
-	PS_friction = (uint16_t)(fric > 65535 ? 65535 : fric);
-	int32_t om = MULK( iabs( PS.c[PS.turned ? 1 : 2].w ) >> 8, K_OMEGA );
-	PS_wheel_omega = (uint16_t)(om > 65535 ? 65535 : om);
+	// The sounds (not in a quick step):
+	if( !(input & PH_QUICK) ) {
+		PS_friction = (uint16_t)(fric > 65535 ? 65535 : fric);
+		int32_t om = MULK( iabs( PS.c[PS.turned ? 1 : 2].w ) >> 8, K_OMEGA );
+		PS_wheel_omega = (uint16_t)(om > 65535 ? 65535 : om);
+	}
 
 	// vizsgalat: the head, leaving the level, the objects.
 	if( contacts( PS.head_x, PS.head_y, R_HEAD_P, R_HEAD_SQ, 0 ) )

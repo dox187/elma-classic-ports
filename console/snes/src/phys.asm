@@ -386,6 +386,8 @@ phys_mkview:
 	sta.w phys_view+30
 	lda.b S_TURNED              ; turned, gravity
 	sta.w phys_view+48
+; The other outputs (also after a quick step):
+phys_mkout:
 	sep #$20
 	lda.b S_LASTVOLT
 	sta.w phys_volt_age
@@ -970,7 +972,11 @@ _ek_nospring:
 	ora.w pt_m+2,y
 	beq +
 	jsr phys_ftn
-+	jmp phys_fric
++	lda.b IN
+	bit #PH_QUICK
+	bne +
+	jmp phys_fric
++	rts
 
 ; Ftestnyom: the torque M[k] of the wheel pushes its axle (A 16-bit).
 phys_ftn:
@@ -3730,8 +3736,12 @@ _st_wheel:
 	beq +
 	sta.b S_VOLTT+1
 +	rep #$20
-	; The sounds: friction, the driven wheel's omega.
-	lda.w pt_fric+2
+	; The sounds: friction, the driven wheel's omega (not in a quick step).
+	lda.b IN
+	bit #PH_QUICK
+	beq +
+	jmp _st_head
++	lda.w pt_fric+2
 	beq +
 	lda #$FFFF
 	bra ++
@@ -3766,6 +3776,7 @@ _st_wheel:
 	bra ++
 +	lda.b R
 ++	sta.w phys_wheel_omega
+_st_head:
 	; vizsgalat: the head against the lines.
 	lda.b S_HEADX
 	sta.w phys_dpb+QRX
@@ -3828,8 +3839,13 @@ _st_dead:
 	ora #PH_DEAD
 	sta.b EV
 _st_end:
+	lda.b IN
+	bit #PH_QUICK
+	bne +
 	jsr phys_mkview
-	lda.b EV
+	bra ++
++	jsr phys_mkout
+++	lda.b EV
 	sta.w pt_tmp
 	pld
 	plb

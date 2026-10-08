@@ -3,6 +3,7 @@
 //
 //   physdump GEN_DIR CASES LOG [FULL_CASE FULL_OUT [FULL_FROM]]
 //
+// Steps 2, 6, 10... of a case are quick ones (PH_QUICK), as in the ROM.
 // LOG gets 6 bytes a step (events, two Fletcher sums of the state);
 // FULL_OUT the whole state of the steps of case FULL_CASE from its step
 // FULL_FROM on (220 bytes each, at most 160, before a turn of the step), as
@@ -36,7 +37,14 @@ static void put32( uint8_t* p, int32_t v ) {
 
 // The outputs as the ROM has them: phys_view (52 bytes with padding), then
 // bump, eaten, friction, wheel_omega, apples_left, volt_age, volt1.
+static uint8_t View[104];        // phys_view of the last full step (and scratch)
+static int Quick;
+
 static void outputs( uint8_t* view, uint8_t* rest ) {
+	if( Quick ) {
+		memcpy( view, View, 52 );
+		view = View+52;           // (written, not used)
+	}
 	memset( view, 0, 52 );
 	put32( view, PS.c[0].rx );
 	put32( view+4, PS.c[0].ry );
@@ -60,6 +68,8 @@ static void outputs( uint8_t* view, uint8_t* rest ) {
 	put16( rest+8, (uint16_t)(PS_apples_needed-PS.apples) );
 	rest[10] = PS.last_volt;
 	rest[11] = PS.volt1;
+	if( !Quick )
+		memcpy( View, view, 52 );
 }
 
 static uint8_t Blob[65536];
@@ -141,7 +151,9 @@ int main( int argc, char** argv ) {
 			int n = (int)strtol( p, &p, 10 );
 			if( n <= 0 ) n = 1;
 			for( int j = 0; j < n; j++ ) {
-				ev = ps_step( (uint16_t)in );
+				int quick = (k & 3) == 2;
+				Quick = quick;
+				ev = ps_step( (uint16_t)(in | (quick ? PH_QUICK : 0)) );
 				uint8_t st[PHYS_DUMP];
 				if( c == fullcase && full && k >= fullfrom && nfull < 160 ) {
 					memset( st, 0, sizeof st );
@@ -153,8 +165,13 @@ int main( int argc, char** argv ) {
 					nfull++;
 				}
 				k++;
-				if( turn && j == 0 )
+				if( turn && j == 0 ) {
+					// (phys_turn makes the view anew)
+					uint8_t tmp[64];
 					ps_turn();
+					Quick = 0;
+					outputs( tmp, tmp+52 );
+				}
 				memset( st, 0, sizeof st );
 				ps_dump( st );
 				outputs( st+PHYS_STATE, st+PHYS_STATE+52 );

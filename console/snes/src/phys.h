@@ -16,6 +16,10 @@
 #define PH_BRAKE   2
 #define PH_VOLT_R  4   // ugrik1 of the PC (the "right volt" key, clockwise)
 #define PH_VOLT_L  8   // ugrik2 (counterclockwise)
+// A quick step: the physics only, without phys_view, phys_friction and
+// phys_wheel_omega (they keep the values of the last full step; the other
+// outputs are made). For all but the last step of a frame.
+#define PH_QUICK   0x100
 // Events returned by phys_step:
 #define PH_DEAD    1   // head hit, killer, or left the level
 #define PH_FINISH  2   // flower touched with all apples eaten (wins over a

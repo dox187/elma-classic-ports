@@ -210,6 +210,20 @@ def run(args):
                 c, lev, cc[len(cc) // 2], cc[int(len(cc) * 0.9)], cc[-1], len(cc), line[:40]))
         allc.sort()
         print('  all: %d / %d / %d' % (allc[len(allc) // 2], allc[int(len(allc) * 0.9)], allc[-1]))
+        # The steps of a frame of the game: a quick step (2, 6, 10... of a
+        # case) and the next one together, and the other (full) steps:
+        pairs, full = [], []
+        k = 0
+        for i in range(min(len(clocks), len(step_case))):
+            k = k + 1 if i and step_case[i] == step_case[i - 1] else 0
+            if k % 4 == 2 and i + 1 < len(clocks) and step_case[i + 1] == step_case[i]:
+                pairs.append(clocks[i] + clocks[i + 1])
+            elif k % 4 != 3:
+                full.append(clocks[i])
+        for name, v in (('one full step', full), ('a quick and a full step', pairs)):
+            if v:
+                v.sort()
+                print('  %s: %d / %d / %d' % (name, v[len(v) // 2], v[int(len(v) * 0.9)], v[-1]))
     if args.full is not None:
         FROM[0] = args.full_from
         hf = open(host_full, 'rb').read()

@@ -8,7 +8,9 @@
 // events, and two Fletcher sums of the state (the direct page of phys.asm,
 // phys_view and the other outputs); phys_test_steps counts them. At the end
 // phys_test_done = 1. A warp item of a case moves the bike: its front wheel
-// (kor2) onto an object, or 2000 m to the right (out of the level).
+// (kor2) onto an object, or 2000 m to the right (out of the level). Steps
+// 2, 6, 10... of a case are quick ones (PH_QUICK), as the first of the two
+// steps of every third frame of the game at 80 steps a second.
 #include <snes.h>
 #include "phys.h"
 #include "phys_testcases.h"
@@ -72,7 +74,7 @@ static void warp( u16 obj ) {
 }
 
 int main( void ) {
-	u16 c, i, j, ev, input, logn;
+	u16 c, i, j, k, ev, input, logn;
 	u8* log;
 	consoleInit();
 	*(u8*)0x4200 = 0;                   // no NMI: the steps are timed
@@ -86,6 +88,7 @@ int main( void ) {
 	while( c < PT_NCASES ) {
 		phys_level( pt_case_level[c] );
 		ev = 0;
+		k = 0;
 		i = pt_case_first[c];
 		while( i < pt_case_first[c]+pt_case_items[c] && !(ev & (PH_DEAD | PH_FINISH)) ) {
 			input = pt_item_input[i];
@@ -96,7 +99,11 @@ int main( void ) {
 			}
 			j = 0;
 			while( j < pt_item_count[i] ) {
-				ev = phys_step( input & 15 );
+				if( (k & 3) == 2 )
+					ev = phys_step( (input & 15) | PH_QUICK );
+				else
+					ev = phys_step( input & 15 );
+				k++;
 				if( (input & 128) && j == 0 )
 					phys_turn();
 				Sa = Sb = 0;

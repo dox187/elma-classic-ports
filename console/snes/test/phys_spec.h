@@ -19,6 +19,7 @@ extern "C" {
 #define PH_BRAKE   2
 #define PH_VOLT_R  4
 #define PH_VOLT_L  8
+#define PH_QUICK   0x100
 #define PH_DEAD    1
 #define PH_FINISH  2
 #define PH_EAT     4
