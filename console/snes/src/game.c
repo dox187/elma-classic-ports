@@ -170,6 +170,7 @@ u32 game_play( u16 level, u8* finished ) {
 	side_reset( &Side_h, phys_view.gravity == 0 ? !phys_view.turned : phys_view.turned );
 	camera( level, side_baljobb( &Side_h ) );
 	map_set_camera( Cam_x, Cam_y );
+	map_detail = save.detail;
 	map_load( level );
 	bike_load();
 	hud_load( level );

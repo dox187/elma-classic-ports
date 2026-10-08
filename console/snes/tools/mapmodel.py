@@ -26,6 +26,9 @@ When drawing, ground is the foreground texture anchored to the ecset, the
 textures of pieces too; sky is the background texture anchored to the
 screen (ecset::kitesz).
 
+With Video Detail Low (State->highquality 0) the game puts no pieces into
+the ecset at all: no pictures, no grass, only ground and sky.
+
 Coordinates: the ecset has its origin at the bottom left, column u and row
 v (v grows upward). Pixel (u, v) covers [u, u+1) x [v, v+1). A level pixel
 px covers u in [2.5 px + cx, 2.5 px + cx + 2.5); a level pixel row py covers
@@ -131,9 +134,10 @@ class Piece:
 class PcLevel:
     """The ecset of a level."""
 
-    def __init__(self, lev, tex, fg=None, bg=None):
+    def __init__(self, lev, tex, fg=None, bg=None, detail=True):
         self.lev = lev
         self.tex = tex
+        self.detail = detail          # False: Video Detail Low, no pieces
         self.fg = fg or getattr(lev, 'foreground', 'ground')
         self.bg = bg or getattr(lev, 'background', 'sky')
         if self.fg not in tex.lgr:
@@ -381,6 +385,9 @@ class PcLevel:
     def pieces(self):
         """All pieces in the order the game puts them in."""
         if self._pieces is not None:
+            return self._pieces
+        if not self.detail:
+            self._pieces = []
             return self._pieces
         sp = self._sprites()
         out = list(sp[PH_FOLD])

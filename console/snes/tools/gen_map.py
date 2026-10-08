@@ -7,6 +7,10 @@ game draws them (mapmodel.py), scaled to 0.4.
 Writes OUT_DIR/map_data.asm (with the binary parts in OUT_DIR/map/),
 OUT_DIR/map_data.h and OUT_DIR/map_report.txt.
 
+Every level also gets the cells of Video Detail Low (only the ground of the
+polygons: air, the foreground texture and its edges), stored as the
+differences from High.
+
 BG1 is made of 8x8 cells:
 - air: the sky shows through (tile 0, transparent);
 - texture: all pixels of the foreground texture, or of the texture of the
@@ -48,6 +52,14 @@ ROM format (read by src/map.asm):
       the level's tile number;
     bit 15 clear: bit 14 the texture (0 foreground, 1 second), bits 0-13
       the mask (0: the full mask, the texture's own tile).
+  A word of the directory of 2..$7FFF is a chunk that Video Detail Low
+  shows differently: 2 + the offset of a pair of words in the low part
+  of the level, the word of the directory with High detail and the one
+  with Low. A word of Low of 2..$7FFF is a mixed chunk of the low part (2
+  + its offset), else as in the directory. With Low detail there are no
+  complex cells and no second texture (the original draws no pictures
+  and no grass then, ECSET.CPP).
+  map_level_low: 4 bytes a level: the low part (24 bit, 0: none), 0.
   map_masks_N: 2048 masks of 16 bytes (every row of the 8x8 mask twice, bit
     7 the left pixel), map_mask_bank/map_mask_base: bank and address of
     each part.
@@ -262,7 +274,17 @@ def convert_level(args):
     n2 = (pk2[0] // 8) * (pk2[2] // 8) if pk2 else 0
     if budget - n2 < 16:
         raise RuntimeError('%s: %d special cells in a window, no room for textures' % (lev.name, worst))
-    pk1, pat1 = pattern(pl.fg, min(TEX_MAX_TILES, budget - n2))
+    # Video Detail Low: the ground of the polygons only, air, the
+    # foreground texture and its edges (the same texture tiles, without
+    # the second texture's).
+    sky_l = mapmodel.level_classes(mapmodel.PcLevel(lev, tex, detail=False))[0]
+    cl = cells_of(sky_l < 0.5, hc, wc)
+    kind_l = np.where(cl.all(axis=2), 1, np.where(cl.any(axis=2), 2, 0)).astype(np.int8)
+    worst_l = window_max(kind_l == 2, FILL_W, FILL_H)
+    budget_l = BG1_TILES - 1 - worst_l - CACHE_SLACK
+    if budget_l < 16:
+        raise RuntimeError('%s: %d edges in a window, no room for the texture' % (lev.name, worst_l))
+    pk1, pat1 = pattern(pl.fg, min(TEX_MAX_TILES, budget - n2, budget_l))
     cls, mix = classify(pat1, pat2)
 
     # Palette 3 (and 4) and the texture tiles:
@@ -345,6 +367,12 @@ def convert_level(args):
     if len(tlist) > 4096:
         raise RuntimeError('%s: %d complex tiles' % (lev.name, len(tlist)))
 
+    ly, lx = np.nonzero(kind_l == 2)
+    lbits = np.packbits(cl[ly, lx].reshape(-1, 8, 8), axis=2).reshape(-1, 8)
+    low = {'kind': kind_l, 'nop': cl.sum(axis=2), 'worst': worst_l,
+           'edge_pos': [(int(ly[n]), int(lx[n]), 0) for n in range(len(ly))],
+           'edge_masks': [bytes(np.repeat(b, 2)) for b in lbits]}
+
     pal = np.zeros((5, 16, 3))
     pal[0, 1:] = tpal
     pal[1, 1:] = tpal2
@@ -362,7 +390,7 @@ def convert_level(args):
         'tex_tiles': tileq.encode4_many(tidx).tobytes() + tileq.encode4_many(tidx2).tobytes(),
         'palette': pal.reshape(-1, 3), 'anchor': anchor,
         'pattern': pk1, 'pattern2': pk2, 'worst': worst,
-        'pictures': len(lev.pictures),
+        'pictures': len(lev.pictures), 'low': low,
         'time': time.time() - t0,
     }
 
@@ -530,34 +558,33 @@ def sky_k(lv, sk):
 
 
 # ------------------------------------------------------------------ output
-def chunk_data(lv, mask_ids):
-    """The chunk directory and the mixed chunks of a level."""
-    kind = lv['kind']
+def chunk_records(kind, nop, edge_pos, mask_ids, cplx_pos=None, cplx_entries=None):
+    """The chunks of a level, row by row: 0 all air, 1 all foreground
+    texture, else the bytes of a mixed chunk. Returns cw, ch, the list."""
     hc, wc = kind.shape
     cw, ch = -(-wc // CHUNK), -(-hc // CHUNK)
     k = np.ones((ch * CHUNK, cw * CHUNK), dtype=np.int64)    # outside: ground
     k[:hc, :wc] = kind
     val = np.zeros(k.shape, dtype=np.int64)
-    nop = np.full(k.shape, 64, dtype=np.int64)
-    nop[:hc, :wc] = lv['nop']
-    for n, (y, x, t) in enumerate(lv['edge_pos']):
+    nn_ = np.full(k.shape, 64, dtype=np.int64)
+    nn_[:hc, :wc] = nop
+    for n, (y, x, t) in enumerate(edge_pos):
         val[y, x] = (t << 14) | mask_ids[n]
-    cy_, cx_ = lv['cplx_pos']
-    for n in range(len(cy_)):
-        val[cy_[n], cx_[n]] = lv['cplx_entries'][n]
-    dirv = []
-    data = bytearray()
-    seen = {}
+    if cplx_pos is not None:
+        cy_, cx_ = cplx_pos
+        for n in range(len(cy_)):
+            val[cy_[n], cx_[n]] = cplx_entries[n]
+    recs = []
     for cy in range(ch):
         for cx in range(cw):
             kk = k[cy * 8:cy * 8 + 8, cx * 8:cx * 8 + 8]
             vv = val[cy * 8:cy * 8 + 8, cx * 8:cx * 8 + 8]
-            nn = nop[cy * 8:cy * 8 + 8, cx * 8:cx * 8 + 8]
+            nn = nn_[cy * 8:cy * 8 + 8, cx * 8:cx * 8 + 8]
             if (kk == 0).all():
-                dirv.append(0)
+                recs.append(0)
                 continue
             if (kk == 1).all():
-                dirv.append(1)
+                recs.append(1)
                 continue
             spec = kk >= 2
             sb = np.packbits(spec, axis=1).reshape(8)
@@ -566,13 +593,75 @@ def chunk_data(lv, mask_ids):
             rec = bytes(sb) + bytes(gb) + bytes(pre)
             for v in vv[spec].tolist():
                 rec += struct.pack('<H', v)
-            if rec not in seen:
-                seen[rec] = 0x8000 + len(data)
-                data += rec
-            dirv.append(seen[rec])
+            recs.append(rec)
+    return cw, ch, recs
+
+
+def chunk_data(lv):
+    """The chunk directory of a level, its mixed chunks, and the part of
+    Video Detail Low: a directory word of 2..$7FFF is a pair of words in
+    the low part (2 + its offset), the chunk with High and with Low
+    detail. The low part holds the pairs, then the mixed chunks of Low
+    that High does not have; a word of 2..$7FFF in a pair is one of these
+    (2 + its offset)."""
+    cw, ch, hrecs = chunk_records(lv['kind'], lv['nop'], lv['edge_pos'], lv['mask_ids'],
+                                  lv['cplx_pos'], lv['cplx_entries'])
+    lo = lv['low']
+    _, _, lrecs = chunk_records(lo['kind'], lo['nop'], lo['edge_pos'], lo['mask_ids'])
+    data = bytearray()
+    seen = {}
+    hval = []
+    for r in hrecs:
+        if isinstance(r, int):
+            hval.append(r)
+            continue
+        if r not in seen:
+            seen[r] = 0x8000 + len(data)
+            data += r
+        hval.append(seen[r])
+    # The chunks of Low that High has not got, and the pairs:
+    lnew = {}
+    pairs = {}
+    lkey = []
+    for n, r in enumerate(lrecs):
+        if r == hrecs[n]:
+            lkey.append(None)
+            continue
+        if isinstance(r, int):
+            k = ('v', r)
+        elif r in seen:
+            k = ('v', seen[r])
+        else:
+            lnew.setdefault(r, len(lnew))
+            k = ('n', lnew[r])
+        lkey.append(k)
+        pairs.setdefault((hval[n], k), len(pairs))
+    lrecs_off = {}
+    off = 4 * len(pairs)
+    for r in sorted(lnew, key=lnew.get):
+        lrecs_off[lnew[r]] = off
+        off += len(r)
+    low = bytearray()
+
+    def lowword(k):
+        return k[1] if k[0] == 'v' else 2 + lrecs_off[k[1]]
+    for (hv, k) in sorted(pairs, key=pairs.get):
+        low += struct.pack('<HH', hv, lowword(k))
+    for r in sorted(lnew, key=lnew.get):
+        low += r
+    dirv = []
+    for n in range(len(hrecs)):
+        if lkey[n] is None:
+            dirv.append(hval[n])
+        else:
+            dirv.append(2 + 4 * pairs[(hval[n], lkey[n])])
     if len(data) > 0x8000:
         raise RuntimeError('%s: chunk data of %d bytes' % (lv['name'], len(data)))
-    return cw, ch, struct.pack('<%dH' % len(dirv), *dirv), bytes(data)
+    if len(low) > 0x7FFD:
+        raise RuntimeError('%s: low chunk data of %d bytes' % (lv['name'], len(low)))
+    # (map.asm: with Low detail $FFFF is the end of the words of High chunks)
+    assert 0xFFFF not in hval and len(pairs) * 4 + sum(map(len, lnew)) == len(low)
+    return cw, ch, struct.pack('<%dH' % len(dirv), *dirv), bytes(data), bytes(low), len(pairs)
 
 
 def write_bin(out, name, data):
@@ -631,6 +720,15 @@ def main():
                 mask_list.append(m)
             ids.append(masks[m])
         lv['mask_ids'] = ids
+    nmask_high = len(mask_list)
+    for lv in lvs:
+        ids = []
+        for m in lv['low']['edge_masks']:
+            if m not in masks:
+                masks[m] = len(mask_list)
+                mask_list.append(m)
+            ids.append(masks[m])
+        lv['low']['mask_ids'] = ids
     if len(mask_list) > 0x4000:
         raise RuntimeError('too many masks: %d' % len(mask_list))
     # Complex tiles of all levels:
@@ -692,6 +790,7 @@ def main():
 
     # Levels:
     info = ['.SECTION ".map_level_info" SUPERFREE', 'map_level_info:']
+    linfo = ['.SECTION ".map_level_low" SUPERFREE', 'map_level_low:']
     report = []
     man = {'masks': len(mask_list), 'mask_banks': nmb, 'tile_banks': ntb,
            'skies': [{'name': sk['name'], 'period': sk['period'], 'ncol': sk['ncol'],
@@ -699,12 +798,20 @@ def main():
            'levels': {}}
     for lv in lvs:
         i = lv['index']
-        cw, ch, dirb, data = chunk_data(lv, lv['mask_ids'])
+        cw, ch, dirb, data, low, npairs = chunk_data(lv)
         lv['chunk_bytes'] = len(dirb) + len(data)
+        lv['low_bytes'] = len(low)
         section(asm, '.map_dir_%d' % i, 'map_dir_%d' % i,
                 write_bin(a.out, 'dir_%d.bin' % i, dirb), len(dirb))
         section(asm, '.map_chunks_%d' % i, 'map_chunks_%d' % i,
                 write_bin(a.out, 'chunks_%d.bin' % i, data or b'\0'), len(data) or 1)
+        if low:
+            section(asm, '.map_chunksl_%d' % i, 'map_chunksl_%d' % i,
+                    write_bin(a.out, 'chunksl_%d.bin' % i, low), len(low))
+            linfo.append('\t.dl map_chunksl_%d\n\t.db 0' % i)
+        else:
+            linfo.append('\t.dl 0\n\t.db 0')
+        add('low', len(low))
         other = lv['tex_tiles'] + tileq.bgr555(lv['palette'])
         section(asm, '.map_tex_%d' % i, 'map_tex_%d' % i,
                 write_bin(a.out, 'tex_%d.bin' % i, other), len(other))
@@ -732,7 +839,8 @@ def main():
         man['levels'][str(i)] = {
             'name': lv['name'], 'cells': lv['cells'], 'tex': lv['tex'],
             'tex2': lv['tex2_size'], 'tbase': lv['tbase'], 'sky': sk, 'skyk': skyk,
-            'anchor': lv['anchor'], 'fg': lv['fg'], 'bg': lv['bg'], 'tex2name': lv['tex2']}
+            'anchor': lv['anchor'], 'fg': lv['fg'], 'bg': lv['bg'], 'tex2name': lv['tex2'],
+            'low': len(low) > 0}
         ncpl = len(lv['cplx_entries'])
         report.append('%2d %-20s %-6s %-6s %-6s cells %4dx%-4d pics %3d edge %5d complex %5d '
                       'tiles %5d tex %3d+%-2d (%s) worst %3d data %6d B  %.1fs' % (
@@ -741,8 +849,12 @@ def main():
                           ntx * nty, ntx2 * nty2, '%dx%d/%dx%d' % (lv['pattern'][0], lv['pattern'][2],
                                                                    lv['pattern'][1], lv['pattern'][3]),
                           lv['worst'], lv['chunk_bytes'] + len(lv['tiles']) + len(other), lv['time']))
+        lo = lv['low']
+        report.append('   Low: edge %5d worst %3d, pairs %4d, data %6d B' % (
+            len(lo['mask_ids']), lo['worst'], npairs, len(low)))
     info += ['.ENDS', '']
-    asm += info
+    linfo += ['.ENDS', '']
+    asm += info + linfo
     with open(os.path.join(a.out, 'map', 'manifest.json'), 'w') as f:
         json.dump(man, f, indent=1)
     total = sum(sizes.values())
@@ -759,8 +871,8 @@ def main():
         f.write('\n'.join(report) + '\n')
         for k, v in sorted(sizes.items()):
             f.write('%-9s %8d\n' % (k, v))
-        f.write('total     %8d (%d masks, %d complex tiles; %s)\n' % (
-            total, len(mask_list), tbase,
+        f.write('total     %8d (%d masks, %d of them only for Low; %d complex tiles; %s)\n' % (
+            total, len(mask_list), len(mask_list) - nmask_high, tbase,
             ', '.join('%s %d tiles' % (s['name'], s['ntiles']) for s in skies)))
         f.write('time %.1fs\n' % (time.time() - t0))
     print('map: %d levels, %d bytes, %.1fs' % (len(lvs), total, time.time() - t0))

@@ -22,6 +22,12 @@
 ; BG2 holds the sky: a pattern of columns whose width divides 256, written
 ; once; it scrolls at half the speed horizontally and not vertically.
 ;
+; Video Detail Low (map_detail 0) shows the level as the original does
+; then, without pictures and grass: the chunks that differ come from the
+; low part of the level (map_chunk), there are no complex cells and no
+; second texture, and only the foreground texture and its palette are
+; loaded.
+;
 ; The routines called from C set D to map_dp and DB to $7F (all our RAM is
 ; there) and restore them.
 
@@ -121,9 +127,14 @@
 .DEFINE DMB      $5A            ; its bit
 .DEFINE DRI      $5C            ; byte of the row mask
 .DEFINE DRB      $5E            ; its bit
+.DEFINE DLS      $60            ; long: a pair of the low part
 
 .RAMSECTION ".map_dp" BANK 0 SLOT 1 ALIGN 256
-map_dp              dsb 96
+map_dp              dsb 100
+.ENDS
+
+.RAMSECTION ".map_detail" BANK 0 SLOT 1
+map_detail          db          ; Video Detail: 1 High, 0 Low (no pictures, no grass); set before map_load
 .ENDS
 
 .BASE $00
@@ -148,6 +159,10 @@ map_cache0          dw          ; first tile of the cache
 map_tbase           dw          ; complex tiles of the level from this one
 map_skyk            dw          ; BG2 scroll: (cam_x + skyk) / 2
 map_cdelta          dw          ; address of the chunks - $8000
+map_ldelta          dw          ; address of the low part - 2
+map_lbank           db          ; and its bank
+map_lowf            dw          ; $8000: Video Detail Low, else 0
+map_dlim            dw          ; map_chunk: words below this are not chunks of the High part ($FFFF with Low)
 map_fglim           dw          ; foreground entries are below this
 map_crow            dw          ; map_chunk: the last row of chunks
 map_crowo           dw          ; and its offset in the directory
@@ -1240,7 +1255,8 @@ map_put:
 .ENDM
 
 ; Reads the chunk of cell (DT0, DT1) (both inside the level) into DCP
-; (0 air, 1 foreground, else the address of a mixed chunk). Keeps X.
+; (0 air, 1 foreground, else the address of a mixed chunk), the one of
+; Video Detail Low if map_lowf says so. Keeps X.
 map_chunk:
 	lda DT1
 	lsr a
@@ -1269,8 +1285,9 @@ map_chunk:
 	adc map_crowo
 	tay
 	lda [DDIR],y
-	cmp #2
-	bcc +
+	cmp map_dlim
+	bcc @other
+@rec:
 	clc
 	adc map_cdelta
 	sta DCP
@@ -1279,7 +1296,62 @@ map_chunk:
 	adc #8
 	sta DCPP
 	rts
-+	sta DCP
+@other:
+	cmp #2
+	bcc @plain
+	bit map_lowf
+	bmi @low
+	; A chunk that Low shows differently: the first word of its pair.
+	clc
+	adc map_ldelta
+	sta DLS
+	lda [DLS]
+	cmp #2
+	bcs @rec
+@plain:
+	sta DCP
+	rts
+	; Video Detail Low (everything comes here): a chunk of either part,
+	; the bank of the pointers changes with it.
+@low:
+	cmp #$8000
+	bcs @lhigh
+	clc
+	adc map_ldelta
+	sta DLS
+	ldy #2
+	lda [DLS],y                 ; the second word of the pair
+	cmp #2
+	bcc @plain
+	cmp #$8000
+	bcc @lpart
+@lhigh:
+	clc
+	adc map_cdelta
+	sta DCP
+	adc #8
+	sta DCP8
+	adc #8
+	sta DCPP
+	sep #$20
+	lda map_cbank
+	bra @bank
+	.ACCU 16
+@lpart:
+	clc
+	adc map_ldelta
+	sta DCP
+	adc #8
+	sta DCP8
+	adc #8
+	sta DCPP
+	sep #$20
+	lda map_lbank
+@bank:
+	sta.b DCP+2
+	sta.b DCP8+2
+	sta.b DCPP+2
+	rep #$20
 	rts
 
 ; The entry of the special cell of row Y of chunk DCP whose row has the
@@ -2599,6 +2671,31 @@ map_load:
 	stz map_magic
 	lda #1
 	sta DNOW
+	; The low part of the level and the Video Detail:
+	tya
+	asl a
+	asl a
+	tax
+	lda.l map_level_low,x
+	sec
+	sbc #2
+	sta map_ldelta
+	sep #$20
+	lda.l map_level_low+2,x
+	sta map_lbank
+	sta.b DLS+2
+	rep #$20
+	stz map_lowf
+	lda #$8000
+	sta map_dlim
+	lda.l map_detail
+	and #$00FF
+	bne +
+	lda #$8000
+	sta map_lowf
+	lda #$FFFF
+	sta map_dlim
++
 	; The record of the level:
 	tya
 	asl a
@@ -2663,6 +2760,11 @@ map_load:
 	lda [DSRC],y
 	and #$00FF
 	sta map_nty2
+	bit map_lowf                ; no second texture with Low detail
+	bpl +
+	stz map_ntx2
+	stz map_nty2
++
 	sep #$20
 	lda map_ntx
 	sta.l $004202
@@ -2747,7 +2849,10 @@ map_load:
 	sta map_cdelta
 	ldy #LI_NTEX
 	lda [DSRC],y
-	sta DT6                     ; texture tiles
+	bit map_lowf                ; Low detail: the foreground's only
+	bpl +
+	lda map_ntex1
++	sta DT6                     ; texture tiles
 	inc a
 	sta map_cache0
 	; The air tile and the texture tiles:
@@ -2786,7 +2891,8 @@ map_load:
 	lda #VRAM_BG1_CHR+16
 	sta DQV
 	jsr map_queue
-	; Palettes 3-7 (the color 0 of each is transparent anyway):
+	; Palettes 3-7 (the color 0 of each is transparent anyway), with Low
+	; detail palette 3 only:
 	ldy #LI_PAL
 	lda [DSRC],y
 	sta DQS
@@ -2798,7 +2904,10 @@ map_load:
 	lda #DMAQ_CGRAM
 	sta DQT
 	lda #160
-	sta DQZ
+	bit map_lowf
+	bpl +
+	lda #32
++	sta DQZ
 	lda #PAL_TEX*16
 	sta DQV
 	jsr map_queue
