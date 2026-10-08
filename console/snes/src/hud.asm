@@ -1141,7 +1141,15 @@ hud_do_map:
 	jsr hud_reg
 +	rts
 @show:
-	lda hud_pending
+	; Nothing in a frame where the time places its digits (the first one
+	; of a level): both together would take too long.
+	lda hud_xyok
+	bne +
+	lda hud_show_time
+	and.w #$00FF
+	beq +
+	rts
++	lda hud_pending
 	beq @calc
 	jmp @finish
 @calc:
