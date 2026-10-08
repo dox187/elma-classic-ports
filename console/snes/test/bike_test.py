@@ -1,8 +1,8 @@
 """Runs build/test_bike.sfc in Mesen and checks every frame against
 test/bikefix.py: the sprites written (OAM 32-127) must be the same, and
 the tiles of the bike and the objects in the VRAM must be the pictures the
-sprites use. Also measures bike_draw and objects_draw (master clocks) and
-the bytes queued for the VRAM.
+sprites use. Also measures bike_draw and objects_draw (master clocks, the
+time of the NMI handler not counted) and the bytes queued for the VRAM.
 
   bike_test.py [--frames N] [--out DIR]
 
@@ -36,11 +36,19 @@ local function rd(addr, n)
 end
 local t0, t1, o0 = 0, 0, 0
 local bike, objs = {}, {}
-emu.addMemoryCallback(function() t0 = emu.getMasterClock() end, emu.callbackType.exec, A.bike_draw)
-emu.addMemoryCallback(function() t1 = emu.getMasterClock() - t0 end, emu.callbackType.exec, A.bike_draw_end)
-emu.addMemoryCallback(function() o0 = emu.getMasterClock() end, emu.callbackType.exec, A.objects_draw)
+-- The time of the NMI handler (not counted): from its start to its RTI.
+local nmi_t, nmi_acc, n0 = 0, 0, 0
+if A.nmi_rti ~= 0 then
+  emu.addMemoryCallback(function() nmi_t = emu.getMasterClock() end, emu.callbackType.exec, A.core_nmi_fast)
+  emu.addMemoryCallback(function() nmi_acc = nmi_acc + emu.getMasterClock() - nmi_t end,
+    emu.callbackType.exec, A.nmi_rti)
+end
+emu.addMemoryCallback(function() t0 = emu.getMasterClock() n0 = nmi_acc end, emu.callbackType.exec, A.bike_draw)
+emu.addMemoryCallback(function() t1 = emu.getMasterClock() - t0 - (nmi_acc - n0) end,
+  emu.callbackType.exec, A.bike_draw_end)
+emu.addMemoryCallback(function() o0 = emu.getMasterClock() n0 = nmi_acc end, emu.callbackType.exec, A.objects_draw)
 emu.addMemoryCallback(function()
-  local o1 = emu.getMasterClock() - o0
+  local o1 = emu.getMasterClock() - o0 - (nmi_acc - n0)
   print(string.format("FRAME %s %d %d %s %s %s", rd(A.test_time, 2), t1, o1, rd(A.core_dmaq_n, 2),
     rd(A.core_oam, 544), rd(A.core_dmaq, 8 * 48)))
 end, emu.callbackType.exec, A.objects_draw_end)
@@ -75,8 +83,9 @@ def main():
     poses = bike_poses.fixed_poses(org)
     nframes = a.frames or len(poses) * bike_poses.HOLD + 20
     names = ['bike_draw', 'bike_draw_end', 'objects_draw', 'objects_draw_end', 'test_time',
-             'core_dmaq_n', 'core_oam', 'core_dmaq']
-    lua = LUA.replace('__SYMS__', ', '.join('%s = 0x%06X' % (n, syms[n]) for n in names))
+             'core_dmaq_n', 'core_oam', 'core_dmaq', 'core_nmi_fast']
+    syms = dict(syms, nmi_rti=nmi_rti(ROM, syms['core_nmi_fast']))
+    lua = LUA.replace('__SYMS__', ', '.join('%s = 0x%06X' % (n, syms[n]) for n in names + ['nmi_rti']))
     vframes = list(range(30, nframes, 37))
     lua = lua.replace('__VFRAMES__', ', '.join(str(v) for v in vframes))
     os.makedirs(a.out, exist_ok=True)
@@ -170,6 +179,15 @@ def main():
         print('objects_draw: typical %d, worst %d' % (sorted(oclocks)[len(oclocks) // 2], max(oclocks)))
         print('bytes queued a frame: typical %d, worst %d' % (sorted(dmas)[len(dmas) // 2], max(dmas)))
     return 1 if bad or vbad else 0
+
+
+def nmi_rti(rom, nmi):
+    """The address of the RTI of the NMI handler (core.asm: rep #$30, plb,
+    ply, plx, pla, rti), 0 if not found."""
+    data = open(rom, 'rb').read()
+    off = ((nmi >> 16) & 0x7F) * 0x8000 + (nmi & 0x7FFF)
+    i = data.find(bytes([0xC2, 0x30, 0xAB, 0x7A, 0xFA, 0x68, 0x40]), off, off + 1024)
+    return (nmi & 0xFF0000) | ((nmi & 0xFFFF) + i - off + 6) if i >= 0 else 0
 
 
 def _script(out, nframes, lua_path):
