@@ -707,21 +707,23 @@ def main():
         for half in range(2):
             o = (base + half * 16) * 32
             wheel_vram[o:o + 64] = t[half * 64:half * 64 + 64]
-    # Descriptors of the single parts: 4 bytes (pointer, 0) for each.
+    # Descriptors of the single parts: 4 bytes (pointer, 0) for each. The
+    # squashed pictures of the parts 0-7 are only loaded in rows (below):
+    # no pointer.
     single = []
     single_idx = []
     single_data = []
-    for name in PARTS:
+    for pn, name in enumerate(PARTS):
         pl = pals[PALETTE[name]]
         lst = [sets[name]] + [sets['%s_t%d' % (name, l)] for l in range(4)]
-        for imgs in lst:
+        for li, imgs in enumerate(lst):
             for im in imgs:
                 dx, dy, col, a = im[0]
                 q = quantize(col, a, pl)
                 single_idx.append(q.astype(np.uint8))
                 t = bytes(tiles16(q))
                 single_data.append(t)
-                single.append(blob.add(t))
+                single.append(blob.add(t) if li == 0 or pn >= 8 else '0')
     per_part = N_PART // 2 + 4 * (N_TURN // 2)
     assert len(single) == len(PARTS) * per_part
     # Whole rows of sprites for the loads with two transfers (bike.asm):
@@ -748,7 +750,7 @@ def main():
                 frame_idx.append(q.astype(np.uint8))
                 t = bytes(tiles16(q))
                 datas.append(t)
-                spr.append((dx, dy, blob.add(t)))
+                spr.append((dx, dy, '0'))   # loaded in rows (below)
             frame.append(spr)
             frame_rows.append(rows(datas))
     wheel_idx = [quantize(im[0][2], im[0][3], pals[0], ALPHA_WHEEL).astype(np.uint8)
@@ -794,9 +796,9 @@ def main():
     a += ['.SECTION ".bike_desc" SUPERFREE', 'bike_desc_single:']
     for ref in single:
         a.append('\t.dl %s\n\t.db 0' % ref)
-    # The body: the number of sprites, their pointers (6), then for each
-    # flip (none, H, V, both) the corners of the 6 from the pivot (x, y
-    # words), then the pointer of its rows.
+    # The body: the number of sprites, 18 bytes not used, then for each
+    # flip (none, H, V, both) the corners of the 6 sprites from the pivot
+    # (x, y words), then the pointer of its rows.
     a.append('bike_desc_frame:')
     for spr, rref in zip(frame, frame_rows):
         a.append('\t.db %d' % len(spr))
@@ -877,17 +879,13 @@ def main():
     a += ['.SECTION ".bike_atan8" SUPERFREE', 'bike_t_atan8:']
     a += db(tb['atan8'], 32)
     a += ['.ENDS', '']
-    # The limbs by the rider's place, not turned then turned (mirrored):
-    # 2 x, 2 y, the angle << 8, 2 * the distance and the angle (1024
-    # steps) of the center.
+    # The limbs by the rider's place (not turned): 2 x, 2 y, the angle << 8,
+    # 2 * the distance and the angle (1024 steps) of the center.
     for name in LIMBS:
         lx, ly, la = (tb['limb_%s_%s' % (name, f)] for f in 'xya')
         lr, lp = tb['limb_%s_r2' % name], tb['limb_%s_phi' % name]
-        for f, tab in (('x2', [2 * x for x in lx] + [-2 * x for x in lx]),
-                       ('y2', [2 * y for y in ly] * 2),
-                       ('a16', [x << 8 for x in la] + [((128 - x) & 255) << 8 for x in la]),
-                       ('r2', lr * 2),
-                       ('phi', lp + [(512 - x) & 1023 for x in lp])):
+        for f, tab in (('x2', [2 * x for x in lx]), ('y2', [2 * y for y in ly]),
+                       ('a16', [x << 8 for x in la]), ('r2', lr), ('phi', lp)):
             a += ['.SECTION ".bike_limb_%s_%s" SUPERFREE' % (name, f),
                   'bike_limb_%s_%s:' % (name, f)]
             a += ['\t.dw ' + ','.join('%d & $FFFF' % x for x in tab[i:i + 16])
@@ -941,7 +939,6 @@ def main():
     d('BK_LIMB_X0', LIMB_X0)
     d('BK_LIMB_Y0', LIMB_Y0)
     d('BK_LIMB_NY', LIMB_NY)
-    d('BK_LIMB_TR', 2 * 64 * LIMB_NY)   # bytes from a table to its turned half
     d('OBJ_KINDS', len(obj_kinds))
     d('OBJ_FOODS', len(obj_kinds) - 2)
     # Animation of the objects: frames a step (0.4368 / PHYS_HZ / 0.014)

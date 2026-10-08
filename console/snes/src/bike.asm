@@ -95,6 +95,8 @@ Z_ROT       dw          ; index of the tables of the bike's angle
 Z_IDX       dw          ; index of the tables of a distance
 Z_IDXT      dw          ; index of the tables of the limbs
 Z_TI        dw          ; the bike's angle in 1024 steps
+Z_TI2       dw          ; the same + 512
+Z_THM       dw          ; the bike's angle + 1/2
 Z_A8        dw          ; an angle in 256 steps
 Z_LV        dw          ; level of the squashed pictures, 4: not turning
 Z_NEG       dw          ; the turn's squash is negative (mirrored)
@@ -927,9 +929,15 @@ bk_geometry:
 	lda.l bike_limb_\1_r2,x     ; 2 r (cos, sin) of its angle + the bike's
 	MA
 	rep #$20
+.IF \4 == 0
 	lda.l bike_limb_\1_phi,x
 	clc
 	adc.b Z_TI
+.ELSE
+	lda.b Z_TI2                 ; mirrored: 512 - its angle
+	sec
+	sbc.l bike_limb_\1_phi,x
+.ENDIF
 	and #$03FF
 	tax
 	sep #$20
@@ -942,7 +950,13 @@ bk_geometry:
 	sta P_CY+\2
 	ldx.b Z_IDXT
 .ELSE
+.IF \4 == 0
 	lda.l bike_limb_\1_x2,x
+.ELSE
+	lda #0                      ; mirrored
+	sec
+	sbc.l bike_limb_\1_x2,x
+.ENDIF
 	sta.b Z_T3                  ; turning: x squashed along the bike,
 	asl a                       ; x += x (f - 1)
 	asl a
@@ -975,10 +989,24 @@ bk_geometry:
 	sbc.b Z_T2
 	sta P_CX+\2
 .ENDIF
+.IF \4 == 0
 	lda.l bike_limb_\1_a16,x
 	clc
 	adc.b Z_TH
+.ELSE
+	lda.b Z_THM                 ; mirrored: 1/2 - its angle
+	sec
+	sbc.l bike_limb_\1_a16,x
+.ENDIF
 	sta P_AL+\2
+.ENDM
+
+; The four limbs (\1: turning, \2: turned).
+.MACRO LIMBS
+	LIMB thigh, 2*0, \1, \2
+	LIMB leg, 2*1, \1, \2
+	LIMB uparm, 2*2, \1, \2
+	LIMB forearm, 2*3, \1, \2
 .ENDM
 
 bk_limbs:
@@ -1037,25 +1065,34 @@ bk_limbs:
 +	ora.b Z_T2
 	asl a
 	sta.b Z_IDX
-	ldx.b Z_TR                  ; the tables of the turned (mirrored)
-	beq +
-	clc
-	adc.w #BK_LIMB_TR
-+	tax
+	tax
 	stx.b Z_IDXT
+	lda.b Z_TI
+	clc
+	adc.w #512
+	sta.b Z_TI2
+	lda.b Z_TH
+	eor #$8000
+	sta.b Z_THM
 	lda.b Z_LATE
 	bpl +
 	jmp _lnorm
-+	LIMB thigh, 2*0, 1
-	LIMB leg, 2*1, 1
-	LIMB uparm, 2*2, 1
-	LIMB forearm, 2*3, 1
++	lda.b Z_TR
+	beq +
+	jmp _lturn1
++	LIMBS 1, 0
+	jmp _lmir
+_lturn1:
+	LIMBS 1, 1
 	jmp _lmir
 _lnorm:
-	LIMB thigh, 2*0, 0
-	LIMB leg, 2*1, 0
-	LIMB uparm, 2*2, 0
-	LIMB forearm, 2*3, 0
+	lda.b Z_TR
+	beq +
+	jmp _lnorm1
++	LIMBS 0, 0
+	jmp _lmir
+_lnorm1:
+	LIMBS 0, 1
 _lmir:
 	lda.b Z_TR
 	beq +
