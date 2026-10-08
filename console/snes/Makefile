@@ -1,5 +1,6 @@
 # The SNES version: build/elma_ntsc.sfc and build/elma_pal.sfc from the
-# levels of an elma.res and the pictures of an LGR file of the game.
+# levels of an elma.res and the pictures of an LGR file of the game, or
+# elma_sw_ntsc.sfc and elma_sw_pal.sfc from the data of the shareware game.
 #
 #   make ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/default.lgr
 #
@@ -60,7 +61,12 @@ include $(wildcard mk/*.mk)
 GENOBJS = $(patsubst $(GEN)/%.asm,$(OBJDIR)/gen_%.obj,$(GEN_ASM))
 HEADERS = $(wildcard src/*.h src/*.inc) $(GEN_H)
 
-all: $(foreach tv,$(TV),$(BUILD)/elma_$(tv).sfc)
+# The ROMs, named by the version that the elma.res is of and by the TV
+# system:
+EDITION := $(if $(wildcard $(ELMA_RES)),$(shell $(PYTHON) tools/elmadata.py $(ELMA_RES)))
+NAME = $(if $(filter shareware,$(EDITION)),elma_sw,elma)
+
+all: $(foreach tv,$(TV),$(BUILD)/$(NAME)_$(tv).sfc)
 
 check-tools:
 	@test -x $(CC) || { echo "PVSnesLib not found: set PVSNESLIB_HOME"; exit 1; }
@@ -71,7 +77,7 @@ $(BUILD)/elma.sfc: $(OBJS) $(GENOBJS)
 	$(call link,$^)
 
 # The ROM of a TV system: the region of the header, and its checksum.
-$(BUILD)/elma_%.sfc: $(BUILD)/elma.sfc tools/romfix.py
+$(BUILD)/$(NAME)_%.sfc: $(BUILD)/elma.sfc tools/romfix.py
 	$(PYTHON) tools/romfix.py $< $@ --tv $*
 
 # A test ROM: test/snes_NAME.c with its main(), and the game without its own.
