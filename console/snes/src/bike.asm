@@ -117,6 +117,9 @@ Z_TA        dw          ; tile | attributes << 8
 Z_FL        dw          ; flips of a part
 Z_PX        dw
 Z_PY        dw
+Z_WSX       dsb 4       ; the wheels on the screen (biased) and their tiles
+Z_WSY       dsb 4
+Z_WT        dsb 4
 .ENDE
 
 .BASE $00
@@ -242,9 +245,11 @@ W_KF        dsw 11      ; its flips << 8
 +	sta.w \1
 .ENDM
 
-; The sprite of single part \1 (2 * part) in place \2 when the bike may be
-; near the edges of the screen.
-.MACRO PUTE
+; The modes of the sprites of the bike: 0 all of them on the screen, 1
+; their x checked (the bike near the left or the right edge), 2 x and y.
+
+; The sprite of single part \1 (2 * part) in place \2, mode \3.
+.MACRO PUT
 	lda.b Z_BXS
 	clc
 	adc P_CX+\1
@@ -252,7 +257,11 @@ W_KF        dsw 11      ; its flips << 8
 	lsr a
 	lsr a
 	lsr a
+.IF \3 == 0
+	sta.w BK_OAM+4*\2
+.ELSE
 	EDGEX BK_OAM+4*\2, BK_HB+\2/4, 1<<(2*(\2&3))
+.ENDIF
 	lda.b Z_BYS
 	sec
 	sbc P_CY+\1
@@ -260,85 +269,119 @@ W_KF        dsw 11      ; its flips << 8
 	lsr a
 	lsr a
 	lsr a
+.IF \3 == 2
 	EDGEY BK_OAM+4*\2+1
+.ELSE
+	sta.w BK_OAM+4*\2+1
+.ENDIF
 	lda bike_ta+\1
 	sta.w BK_OAM+4*\2+2
+.IF \3 != 0
 	bra +++
 ++	lda #$E000                  ; x 0, y 224
 	sta.w BK_OAM+4*\2
 +++
+.ENDIF
 .ENDM
 
-; The same when the whole bike is on the screen.
-.MACRO PUTF
-	lda.b Z_BXS
-	clc
-	adc P_CX+\1
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.w BK_OAM+4*\2
-	lda.b Z_BYS
-	sec
-	sbc P_CY+\1
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.w BK_OAM+4*\2+1
-	lda bike_ta+\1
-	sta.w BK_OAM+4*\2+2
-.ENDM
-
-; Sprite \1 (0-5) of the body in its place (7 + \1): its corner from the
-; pivot at [Z_PTR] + 4 * \1. Hides the rest when the body has no more.
-.MACRO BODYE
+; Sprite \1 (0-5) of the body in its place (7 + \1), mode \2: its corner
+; from the pivot at [Z_PTR] + 4 * \1. Hides the rest when the body has no
+; more.
+.MACRO BODY
 	lda.b Z_NS
 	cmp.w #\1+1
 	bcs +
-	ldx.w #4*(7+\1)
+	ldx.w #2*\1
 	jmp bk_hbody
 +	ldy.w #4*\1
 	lda [Z_PTR],y
 	clc
 	adc.b Z_PX
+.IF \2 == 0
+	sta.w BK_OAM+4*(7+\1)
+.ELSE
 	EDGEX BK_OAM+4*(7+\1), BK_HB+(7+\1)/4, 1<<(2*((7+\1)&3))
+.ENDIF
 	ldy.w #4*\1+2
 	lda [Z_PTR],y
 	clc
 	adc.b Z_PY
+.IF \2 == 2
 	EDGEY BK_OAM+4*(7+\1)+1
+.ELSE
+	sta.w BK_OAM+4*(7+\1)+1
+.ENDIF
 	lda.b Z_TA
 	clc
 	adc.w #2*\1
 	sta.w BK_OAM+4*(7+\1)+2
+.IF \2 != 0
 	bra +++
 ++	lda #$E000
 	sta.w BK_OAM+4*(7+\1)
 +++
+.ENDIF
 .ENDM
 
-.MACRO BODYF
-	lda.b Z_NS
-	cmp.w #\1+1
-	bcs +
-	ldx.w #4*(7+\1)
-	jmp bk_hbody
-+	ldy.w #4*\1
-	lda [Z_PTR],y
-	clc
-	adc.b Z_PX
-	sta.w BK_OAM+4*(7+\1)
-	ldy.w #4*\1+2
-	lda [Z_PTR],y
-	clc
-	adc.b Z_PY
-	sta.w BK_OAM+4*(7+\1)+1
-	lda.b Z_TA
-	clc
-	adc.w #2*\1
-	sta.w BK_OAM+4*(7+\1)+2
+; Wheel \1 (its place on the screen and its tile in Z_WSX ...) in place
+; \2, mode \3.
+.MACRO WHEEL
+	lda.b Z_WSX+2*\1
+.IF \3 == 0
+	sta.w BK_OAM+4*\2
+.ELSE
+	EDGEX BK_OAM+4*\2, BK_HB+\2/4, 1<<(2*(\2&3))
+.ENDIF
+	lda.b Z_WSY+2*\1
+.IF \3 == 2
+	EDGEY BK_OAM+4*\2+1
+.ELSE
+	sta.w BK_OAM+4*\2+1
+.ENDIF
+	lda.b Z_WT+2*\1
+	sta.w BK_OAM+4*\2+2
+.IF \3 != 0
+	bra +++
+++	lda #$E000
+	sta.w BK_OAM+4*\2
++++
+.ENDIF
+.ENDM
+
+; The sprites of the bike in mode \1 (\2: the routine of the body in
+; that mode), from the parts 3, 2 ... to the wheels.
+.MACRO SPRITES
+	PUT 2*3, 1, \1
+	PUT 2*2, 2, \1
+	PUT 2*9, 3, \1
+	PUT 2*1, 4, \1
+	PUT 2*0, 5, \1
+	PUT 2*8, 6, \1
+	jsr \2
+	PUT 2*7, 13, \1
+	PUT 2*6, 14, \1
+	PUT 2*5, 15, \1
+	PUT 2*4, 16, \1
+	lda.b Z_LATE
+	bmi +
+	jmp bk_late
++	WHEEL 1, 17, \1
+	WHEEL 0, 18, \1
+	lda #$E000                  ; not turning: no wheel over the bike
+	sta.w BK_OAM
+	rts
+.ENDM
+
+; The sprites of the body in mode \1.
+.MACRO BODIES
+	jsr bk_body
+	BODY 0, \1
+	BODY 1, \1
+	BODY 2, \1
+	BODY 3, \1
+	BODY 4, \1
+	BODY 5, \1
+	rts
 .ENDM
 
 .SECTION ".bike_text" SUPERFREE
@@ -1828,94 +1871,40 @@ bk_oam:
 	lda.b #:bike_desc_frame
 	sta.b Z_PTR+2
 	rep #$20
-	; The parts are within 48 pixels of the center: with the center at
-	; 56..199, 56..167 they are all on the screen.
-	lda.b Z_BSX
-	sec
-	sbc.w #56*16
-	cmp.w #144*16
-	bcs +
-	lda.b Z_BSY
-	sec
-	sbc.w #56*16
-	cmp.w #112*16
-	bcc ++
-+	jmp _edge
-++	ldx.w #4*0                  ; the wheel over the bike
-	lda.b Z_LATE
-	jsr bk_wheel
-	PUTF 2*3, 1
-	PUTF 2*2, 2
-	PUTF 2*9, 3
-	PUTF 2*1, 4
-	PUTF 2*0, 5
-	PUTF 2*8, 6
-	jsr bk_bodyf
-	PUTF 2*7, 13
-	PUTF 2*6, 14
-	PUTF 2*5, 15
-	PUTF 2*4, 16
-	jmp _wheels
-_edge:
-	ldx.w #4*0
-	lda.b Z_LATE
-	jsr bk_wheel
-	PUTE 2*3, 1
-	PUTE 2*2, 2
-	PUTE 2*9, 3
-	PUTE 2*1, 4
-	PUTE 2*0, 5
-	PUTE 2*8, 6
-	jsr bk_bodye
-	PUTE 2*7, 13
-	PUTE 2*6, 14
-	PUTE 2*5, 15
-	PUTE 2*4, 16
-_wheels:
-	; Not turning: the wheels 1 and 0, else the one not drawn first.
-	ldx.w #4*17
-	lda.b Z_LATE
-	bpl +
-	lda #1
-	jsr bk_wheel
-	ldx.w #4*18
-	lda #0
-	jmp bk_wheel
-+	eor #1
-	jsr bk_wheel
-	ldx.w #4*18
-	lda #$FFFF
-
-; Wheel A (0, 1; $FFFF: none, hidden) in place X/4.
-bk_wheel:
-	cmp #2
-	bcc +
-	lda #$E000
-	sta.w BK_OAM,x
-	rts
-+	stx.b Z_T5
-	asl a
-	tay                         ; 2 * wheel
-	asl a
-	tax
+	; The wheels: their places and tiles.
 	lda.b Z_BXS
 	clc
-	adc.b Z_W0X,x
+	adc.b Z_W0X
 	lsr a
 	lsr a
 	lsr a
 	lsr a
-	sta.b Z_T0
+	sta.b Z_WSX
+	lda.b Z_BXS
+	clc
+	adc.b Z_W1X
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_WSX+2
 	lda.b Z_BYS
 	sec
-	sbc.b Z_W0Y,x
+	sbc.b Z_W0Y
 	lsr a
 	lsr a
 	lsr a
 	lsr a
-	sta.b Z_T1
-	tyx
-	lda.l phys_view+PV_WHEEL_A,x
+	sta.b Z_WSY
+	lda.b Z_BYS
+	sec
+	sbc.b Z_W1Y
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_WSY+2
+	lda.l phys_view+PV_WHEEL_A
 	clc
 	adc #512
 	xba
@@ -1923,9 +1912,68 @@ bk_wheel:
 	lsr a
 	tax
 	lda.l bike_t_wheel,x
-	sta.b Z_TA
-	ldx.b Z_T5
-	lda.b Z_T0
+	sta.b Z_WT
+	lda.l phys_view+PV_WHEEL_A+2
+	clc
+	adc #512
+	xba
+	and #$00FC
+	lsr a
+	tax
+	lda.l bike_t_wheel,x
+	sta.b Z_WT+2
+	; The parts are within 48 pixels of the center: with the center at
+	; 56..199, 56..167 they are all on the screen.
+	lda.b Z_BSY
+	sec
+	sbc.w #56*16
+	cmp.w #112*16
+	bcc +
+	jmp bk_oam2
++	lda.b Z_BSX
+	sec
+	sbc.w #56*16
+	cmp.w #144*16
+	bcc +
+	jmp bk_oam1
++	SPRITES 0, bk_body0
+
+bk_oam1:
+	SPRITES 1, bk_body1
+
+bk_oam2:
+	SPRITES 2, bk_body2
+
+bk_body0:
+	BODIES 0
+
+bk_body1:
+	BODIES 1
+
+bk_body2:
+	BODIES 2
+
+; Turning: the wheel drawn over the bike in place 0, the other one in 17
+; (checked as in mode 2).
+bk_late:
+	lda.b Z_LATE
+	ldx #0
+	jsr bk_wheel
+	lda.b Z_LATE
+	eor #1
+	ldx.w #4*17
+	jsr bk_wheel
+	lda #$E000
+	sta.w BK_OAM+4*18
+	rts
+
+; Wheel A (0, 1) in place X/4.
+bk_wheel:
+	asl a
+	tay
+	lda.w Z_WT+bike_dp,y
+	sta.w BK_OAM+2,x
+	lda.w Z_WSX+bike_dp,y
 	sec
 	sbc.w #256
 	cmp.w #256
@@ -1934,41 +1982,20 @@ bk_wheel:
 	bcc _whide
 	jsr bk_x8
 +	sta.w BK_OAM,x
-	lda.b Z_T1
+	lda.w Z_WSY+bike_dp,y
 	sec
 	sbc.w #256
 	cmp.w #224
 	bcc +
 	cmp.w #-15 & $FFFF
 	bcc _whide
-+	sta.w BK_OAM+1,x
-	lda.b Z_TA
-	sta.w BK_OAM+2,x
++	sep #$20
+	sta.w BK_OAM+1,x
+	rep #$20
 	rts
 _whide:
 	lda #$E000
 	sta.w BK_OAM,x
-	rts
-
-; The sprites of the body (places 7-12).
-bk_bodyf:
-	jsr bk_body
-	BODYF 0
-	BODYF 1
-	BODYF 2
-	BODYF 3
-	BODYF 4
-	BODYF 5
-	rts
-
-bk_bodye:
-	jsr bk_body
-	BODYE 0
-	BODYE 1
-	BODYE 2
-	BODYE 3
-	BODYE 4
-	BODYE 5
 	rts
 
 ; Z_PTR = the corners of the sprites of the body for its flips, Z_NS =
@@ -1998,16 +2025,24 @@ bk_body:
 	sta.b Z_TA
 	rts
 
-; Hides the places of the body from X/4 on.
+; Hides the places of the body from 7 + X/2 on.
 bk_hbody:
 	lda #$E000
--	sta.w BK_OAM,x
-	inx
-	inx
-	inx
-	inx
-	cpx.w #4*13
-	bcc -
+	jmp (_hb,x)
+_hb:
+	.dw _h0, _h1, _h2, _h3, _h4, _h5
+_h0:
+	sta.w BK_OAM+4*7
+_h1:
+	sta.w BK_OAM+4*8
+_h2:
+	sta.w BK_OAM+4*9
+_h3:
+	sta.w BK_OAM+4*10
+_h4:
+	sta.w BK_OAM+4*11
+_h5:
+	sta.w BK_OAM+4*12
 	rts
 
 ; Sets the bit of x >= 256 of the sprite in place X/4. Keeps A, X.
