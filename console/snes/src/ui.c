@@ -292,8 +292,7 @@ static void best_times(void) {
 	}
 }
 
-// Options: the rows of the original that the SNES has (Video Detail is not
-// there: the pictures of the levels are always drawn).
+// Options: the rows of the original that the SNES has.
 static void options(void) {
 	s16 kur = 0, r;
 	u8 changed = 0;
@@ -308,9 +307,11 @@ static void options(void) {
 		ui_strcpy(ui_tabs[1], save.sound ? "Enabled" : "Disabled");
 		ui_strcpy(ui_items[2], "Animated Menus:");
 		ui_strcpy(ui_tabs[2], save.anim_menus ? "Yes" : "No");
-		ui_strcpy(ui_items[3], "Animated Objects:");
-		ui_strcpy(ui_tabs[3], save.anim_objects ? "Yes" : "No");
-		list.n = 4;
+		ui_strcpy(ui_items[3], "Video Detail:");
+		ui_strcpy(ui_tabs[3], save.detail ? "High" : "Low");
+		ui_strcpy(ui_items[4], "Animated Objects:");
+		ui_strcpy(ui_tabs[4], save.anim_objects ? "Yes" : "No");
+		list.n = 5;
 		r = ui_choose(&list);
 		if( r < 0 ) {
 			if( changed )
@@ -327,6 +328,8 @@ static void options(void) {
 			if( r == 2 )
 				save.anim_menus = !save.anim_menus;
 			if( r == 3 )
+				save.detail = !save.detail;
+			if( r == 4 )
 				save.anim_objects = !save.anim_objects;
 		}
 	}
