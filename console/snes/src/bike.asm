@@ -104,7 +104,8 @@ Z_TEFF      dw          ; turned as drawn
 Z_LATE      dw          ; the wheel drawn over the bike, $FFFF: none
 Z_LEFT      dw          ; the time of the vertical blank left (bytes)
 Z_PEND      dw          ; bit p: part p wants another picture
-Z_PTR       dsb 4       ; a long pointer
+Z_PTR       dsb 4       ; a long pointer (a descriptor: bike_desc_single and
+                        ; bike_desc_frame are in one bank)
 Z_DST       dw
 Z_NS        dw
 Z_BXS       dw          ; the center of the bike on the screen, biased,
@@ -581,10 +582,14 @@ bike_draw:
 	lda #$80
 	pha
 	plb
+	lda.b #:bike_desc_single    ; the bank of the descriptors (Z_PTR)
+	sta.b Z_PTR+2
 	rep #$30
 	jsr bk_geometry
+	lda.b Z_LATE                ; turning
+	bmi +
 	jsr bk_turn
-	jsr bk_pictures
++	jsr bk_pictures
 	jsr bk_load
 	jsr bk_oam
 bike_draw_end:
@@ -1449,10 +1454,7 @@ _front:
 ; The squash of the other parts: (f - 1) * (c c, c s, s s) >> 6.
 bk_turn:
 	rep #$30
-	lda.b Z_LATE
-	bpl +
-	rts
-+	lda.b Z_C
+	lda.b Z_C
 	and #$00FF
 	cmp #$0080
 	bcc +
@@ -1750,10 +1752,6 @@ bk_load:
 	tax
 	lda.l bk_lcap,x
 +	sta.b Z_LEFT
-	sep #$20
-	lda.b #:bike_desc_single    ; (the body's descriptors too)
-	sta.b Z_PTR+2
-	rep #$20
 	lda bike_toggle             ; (toggled: 1 = the parts 0-7 first)
 	beq +
 	jsr _group0
@@ -1972,10 +1970,6 @@ bk_take:
 bk_nframe:
 	lda W_DESC+2*FRAME
 	sta.b Z_PTR
-	sep #$20
-	lda.b #:bike_desc_frame
-	sta.b Z_PTR+2
-	rep #$20
 	lda [Z_PTR]
 	and #$00FF
 	inc a
@@ -2016,10 +2010,6 @@ bk_oam:
 	stz.w BK_HB
 	stz.w BK_HB+2
 	stz.w BK_HB+4
-	sep #$20
-	lda.b #:bike_desc_frame
-	sta.b Z_PTR+2
-	rep #$20
 	; The wheels: their places and tiles.
 	lda.b Z_BXS
 	clc
