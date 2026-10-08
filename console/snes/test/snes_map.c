@@ -9,12 +9,14 @@
 u16 test_ready;          // TEST_MAGIC once the script set the first values
 u16 test_level;          // level to show
 u16 test_load;           // set by the script: load test_level again
+u16 test_detail;         // Video Detail of the loads: 1 High, 0 Low
 s16 test_cam_x, test_cam_y;
 u16 test_frame;          // frames shown since the load
 
 static void load(void) {
 	core_screen_off();
 	map_set_camera(test_cam_x, test_cam_y);
+	map_detail = test_detail ? 1 : 0;
 	map_load(test_level);
 	test_load = 0;
 	test_frame = 0;

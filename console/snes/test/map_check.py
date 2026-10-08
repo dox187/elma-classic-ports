@@ -4,12 +4,14 @@ what VRAM and CGRAM hold for the screen with the converted data
 (map_ref.py), and the screenshot with the expected picture. Measures the
 master clocks of map_set_camera and the bytes it queues, every frame.
 
-  map_check.py [--levels 0,19,33,45,47] [--path sweep,fast] [--out DIR]
+  map_check.py [--levels 0,19,33,45,47] [--path sweep,fast] [--detail high]
+               [--out DIR]
 
 Paths: "sweep" goes over the whole level row by row at 8 pixels a frame;
 "fast" makes diagonal moves of 10-16 pixels a frame (falls) between random
 places; "start" only looks at the start of the level. Every check holds the
-camera still for a few frames first.
+camera still for a few frames first. --detail: the Video Detail of the
+loads, high, low or both (every path with each).
 """
 
 import argparse
@@ -88,7 +90,7 @@ def path_fast(w, h, n=12, seed=1):
 
 
 def make_lua(syms, plan, last):
-    """plan: list of (level, cams, checks) one after the other."""
+    """plan: list of (level, cams, checks, low) one after the other."""
     L = []
     a = lambda n: syms[n]
     L.append('local mem = emu.memType.snesMemory')
@@ -101,10 +103,12 @@ def make_lua(syms, plan, last):
     L.append('local function dumpc(name) local t = {} for i = 0, 255 do t[#t + 1] = string.char(emu.read(i, cgram)) end print("OUT CGRAM " .. name .. " " .. hex(table.concat(t))) end')
     L.append('local cams = {}')
     L.append('local loads = {}')
+    L.append('local details = {}')
     L.append('local checks = {}')
     f = 1
-    for n, (level, cams, checks) in enumerate(plan):
+    for n, (level, cams, checks, low) in enumerate(plan):
         L.append('loads[%d] = %d' % (f, level))
+        L.append('details[%d] = %d' % (f, 0 if low else 1))
         for i, (x, y) in enumerate(cams):
             L.append('cams[%d] = {%d, %d}' % (f + i, x & 0xFFFF, y & 0xFFFF))
         for c in checks:
@@ -148,10 +152,10 @@ def make_lua(syms, plan, last):
     waited = 0
   end
   local l = loads[pf]
-  if l and waited == 0 then w16(%(level)d, l) w16(%(load)d, 1) end
+  if l and waited == 0 then w16(%(level)d, l) w16(%(detail)d, details[pf]) w16(%(load)d, 1) end
   local c = cams[pf]
   if c then w16(%(cx)d, c[1]) w16(%(cy)d, c[2]) end
-  if frame == 1 then w16(%(ready)d, 0x5A5A) end
+  if frame == 1 then w16(%(detail)d, details[1]) w16(%(ready)d, 0x5A5A) end
   print(string.format("STAT %%d %%d %%d %%d %%d %%d %%d %%d %%d %%d %%d", frame, cpu, r16(%(bytes)d), r16(%(tiles)d), r16(%(comp)d), r16(%(jobs)d), r16(%(short)d), r16(%(minfree)d), r16(%(mcx)d), r16(%(mcy)d), pf))
   cpu = 0
   local ck = checks[pf]
@@ -173,7 +177,7 @@ def make_lua(syms, plan, last):
     emu.stop(0)
   end
 end, emu.eventType.endFrame)''' % {
-        'level': a('test_level'), 'load': a('test_load'), 'cx': a('test_cam_x'), 'cy': a('test_cam_y'),
+        'level': a('test_level'), 'load': a('test_load'), 'detail': a('test_detail'), 'cx': a('test_cam_x'), 'cy': a('test_cam_y'),
         'ready': a('test_ready'), 'bytes': a('map_stat_bytes'), 'tiles': a('map_stat_tiles'),
         'comp': a('map_stat_comp'), 'jobs': a('map_stat_jobs'), 'short': a('map_stat_short'),
         'minfree': a('map_stat_minfree'), 'mcx': a('map_cam_x'), 'mcy': a('map_cam_y'),
@@ -186,8 +190,9 @@ def words(b):
     return np.frombuffer(b, dtype='<u2')
 
 
-def check(md, level, cam, dumps, shot):
-    """Errors of a check: VRAM of BG1 for the screen, BG2, CGRAM, picture."""
+def check(md, level, cam, dumps, shot, low=False):
+    """Errors of a check: VRAM of BG1 for the screen, BG2, CGRAM, picture;
+    low: Video Detail Low."""
     errs = []
     chr_, bmap, sky, cg = dumps
     mapw = words(bmap)
@@ -199,7 +204,7 @@ def check(md, level, cam, dumps, shot):
             e = int(mapw[(1024 if cs >= 32 else 0) + rs * 32 + (cs & 31)])
             t, p, pr = e & 0x3FF, (e >> 10) & 7, (e >> 13) & 1
             data = chr_[t * 32:t * 32 + 32]
-            want, wp, wpr = md.cell_tile(level, cx, cy)
+            want, wp, wpr = md.cell_tile(level, cx, cy, low)
             ok = data == want and (p == wp or not any(want)) and pr == wpr and not e & 0xC000
             if not ok:
                 errs.append('cell (%d,%d) entry %04x: tile %s pal %d/%d prio %d/%d' % (
@@ -217,10 +222,10 @@ def check(md, level, cam, dumps, shot):
     tiles = sky[0x400 * 2:0x400 * 2 + nt * 32]
     if tiles != lv['sky_raw']:
         errs.append('BG2 tiles differ')
-    # CGRAM 16..127:
-    pal = md.palettes(level)
+    # CGRAM 16..127 (Low detail: 16..63, the rest is not loaded):
+    pal = md.palettes(level, low)
     cgw = words(cg)
-    for i in range(16, 128):
+    for i in range(16, 64 if low else 128):
         if i % 16 == 0:
             continue
         want = pal[i // 16][i % 16]
@@ -234,7 +239,7 @@ def check(md, level, cam, dumps, shot):
     img = np.array(Image.open(io.BytesIO(shot)).convert('RGB')).astype(np.float64)
     if img.shape[0] != SCREEN_H:
         img = img[::img.shape[0] // SCREEN_H, ::img.shape[1] // SCREEN_W]
-    exp, _, _ = md.screen(level, cam_x, cam_y)
+    exp, _, _ = md.screen(level, cam_x, cam_y, low=low)
     d = np.abs(np.round(img * 31 / 255) - np.round(exp * 31 / 255)).max(axis=2)
     bad = int((d > 0).sum())
     return errs, bad, img, exp
@@ -255,6 +260,7 @@ def main():
     ap.add_argument('--levels', default='0,19,33,45,47')
     ap.add_argument('--path', default='sweep;fast')
     ap.add_argument('--every', type=int, default=90)
+    ap.add_argument('--detail', default='high', choices=('high', 'low', 'both'))
     ap.add_argument('--out', default=None)
     ap.add_argument('--keep', action='store_true', help='save the pictures of failed checks')
     ap.add_argument('--model', action='store_true',
@@ -265,7 +271,8 @@ def main():
     levs = elmadata.internal_levels(elmadata.Resource(a.res))
     syms = mesen.read_symbols(a.rom)
     plan = []
-    for li in [int(x) for x in a.levels.split(',')]:
+    lows = {'high': (False,), 'low': (True,), 'both': (False, True)}[a.detail]
+    for li, low in [(int(x), lw) for x in a.levels.split(',') for lw in lows]:
         w, h = levgeom.size_px(levs[li])
         sx, sy = levs[li].start()
         px, py = levgeom.to_px(levs[li], sx, sy)
@@ -310,8 +317,8 @@ def main():
                 start = cams[0]      # loaded where the path starts
             cams = [start] * (LOAD_WAIT + HOLD) + cams
             checks = [LOAD_WAIT + HOLD] + [c + LOAD_WAIT + HOLD for c in checks]
-            plan.append((li, cams, checks))
-    last = sum(len(c) + 2 for _, c, _ in plan) + 2
+            plan.append((li, cams, checks, low))
+    last = sum(len(c) + 2 for _, c, _, _ in plan) + 2
     out = a.out or os.path.join(ROOT, 'build', 'map_check')
     os.makedirs(out, exist_ok=True)
     lua = os.path.join(out, 'map_check.lua')
@@ -351,13 +358,20 @@ def main():
     st = np.array(stats) if stats else np.zeros((0, 11), dtype=np.int64)
     # The frames of the paths (a load takes the frames after it):
     moving = st
+    modes = {}
     if len(st):
         keep = np.ones(len(st), dtype=bool)
+        lowf = np.zeros(len(st), dtype=bool)
         f = 1
-        for _, cams, _ in plan:
+        for _, cams, _, low in plan:
             keep &= ~((st[:, 10] >= f) & (st[:, 10] < f + LOAD_WAIT))
+            if low:
+                lowf |= (st[:, 10] >= f) & (st[:, 10] < f + len(cams) + 2)
             f += len(cams) + 2
         moving = st[keep & (st[:, 1] > 0)]
+        if a.detail == 'both':
+            modes = {'High': st[keep & (st[:, 1] > 0) & ~lowf],
+                     'Low': st[keep & (st[:, 1] > 0) & lowf]}
     nfail = 0
     nbad = 0
     model_diffs = []
@@ -371,13 +385,14 @@ def main():
         if resets:
             print('check %s: %d resets of the map since the load' % (name, resets))
         level = int(name.split('_')[0])
+        low = plan[int(name.split('_')[1])][3]
         try:
             d = (dumps['chr_' + name], dumps['map_' + name], dumps['sky_' + name], dumps['cg_' + name])
         except KeyError:
             print('check %s: no dump' % name)
             nfail += 1
             continue
-        errs, bad, img, exp = check(md, level, (mcx, mcy), d, dumps['shot_' + name])
+        errs, bad, img, exp = check(md, level, (mcx, mcy), d, dumps['shot_' + name], low)
         if jobs:
             errs.append('%d jobs left' % jobs)
         if s0 != mcx or ((s1 + 1) & 0xFFFF) != mcy:
@@ -386,9 +401,9 @@ def main():
             errs.append('PPU scroll %d,%d for camera %d,%d' % (h1, v1, mcx, mcy))
         nbad += bad
         if a.model:
-            if level not in pcl:
-                pcl[level] = mapmodel.PcLevel(levs[level], tex)
-            pc, cov, front = mapmodel.pc_frame(pcl[level], mcx, mcy)
+            if (level, low) not in pcl:
+                pcl[level, low] = mapmodel.PcLevel(levs[level], tex, detail=not low)
+            pc, cov, front = mapmodel.pc_frame(pcl[level, low], mcx, mcy)
             dd = np.abs(img - pc).max(axis=2)
             model_diffs.append((np.abs(img - pc).mean(), (dd > 48).mean()))
             from PIL import Image
@@ -410,6 +425,13 @@ def main():
         print('against the original game at 0.4: mean color difference %.1f (0-255), '
               'pixels differing by more than 48: %.1f%% (worst check %.1f%%)' % (
                   md_[:, 0].mean(), 100 * md_[:, 1].mean(), 100 * md_[:, 1].max()))
+    for mode, mv in modes.items():
+        if len(mv):
+            cpu = mv[:, 1]
+            print('%s detail: map_set_camera: %d frames, master clocks median %d, mean %d, 99%% %d, '
+                  'max %d; DMA bytes mean %.0f, max %d' % (
+                      mode, len(cpu), np.median(cpu), cpu.mean(), np.percentile(cpu, 99), cpu.max(),
+                      mv[:, 2].mean(), mv[:, 2].max()))
     if len(moving):
         cpu = moving[:, 1]
         print('map_set_camera: %d frames, master clocks median %d, mean %d, 99%% %d, max %d' % (

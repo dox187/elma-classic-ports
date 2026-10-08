@@ -2,7 +2,7 @@
 the converted data (build/gen/map/, tools/gen_map.py) independently of the
 program, and the check of a VRAM dump of the program against it.
 
-  map_ref.py GEN_DIR LEVEL CAM_X CAM_Y OUT.png      the expected screen
+  map_ref.py GEN_DIR LEVEL CAM_X CAM_Y OUT.png [low]   the expected screen
 """
 
 import json
@@ -60,6 +60,7 @@ class MapData:
         lv = dict(m)
         lv['dirv'] = _words(self._read('dir_%d.bin' % li))
         lv['chunks'] = self._read('chunks_%d.bin' % li)
+        lv['lowpart'] = self._read('chunksl_%d.bin' % li) if m.get('low') else b''
         lv['cw'] = -(-wc // 8)
         lv['tex_raw'] = tex[:(n1 + n2) * 32]
         lv['tex_tiles'] = [tileq.decode4(tex[i * 32:i * 32 + 32]) for i in range(n1 + n2)]
@@ -76,25 +77,38 @@ class MapData:
         self._lev[li] = lv
         return lv
 
-    def palettes(self, li):
-        """The 8 BG palettes (RGB 0-255) of a level; palette 0 is not ours."""
+    def palettes(self, li, low=False):
+        """The 8 BG palettes (RGB 0-255) of a level; palette 0 is not ours,
+        with Low detail only 1-3 are."""
         lv = self.level(li)
         pal = np.zeros((8, 16, 3))
         pal[1:3] = lv['pal_sky'].reshape(2, 16, 3)
         pal[3:8] = lv['pal_bg1'].reshape(5, 16, 3)
+        if low:
+            pal[4:8] = 0
         return pal
 
-    def cell(self, li, cx, cy):
+    def cell(self, li, cx, cy, low=False):
         """(kind, entry) of a cell: 0 air, 1 foreground texture, 2 special
-        (entry of the chunk); outside the level the foreground."""
+        (entry of the chunk); outside the level the foreground. low: as
+        Video Detail Low shows it."""
         lv = self.level(li)
         wc, hc = lv['cells']
         if cx < 0 or cy < 0 or cx >= wc or cy >= hc:
             return 1, 0
         d = int(lv['dirv'][(cy >> 3) * lv['cw'] + (cx >> 3)])
+        c = None
+        if 2 <= d < 0x8000:
+            # A pair of the low part: the chunk with High and with Low.
+            hv, lw = struct.unpack_from('<HH', lv['lowpart'], d - 2)
+            d = lw if low else hv
+            assert hv < 2 or hv >= 0x8000
+            if 2 <= d < 0x8000:
+                c = lv['lowpart'][d - 2:]
         if d < 2:
             return d, 0
-        c = lv['chunks'][d - 0x8000:]
+        if c is None:
+            c = lv['chunks'][d - 0x8000:]
         i, j = cx & 7, cy & 7
         bit = 0x80 >> i
         if not c[j] & bit:
@@ -103,12 +117,14 @@ class MapData:
         assert c[16 + j] == sum(popcount(c[r]) for r in range(j))
         return 2, struct.unpack_from('<H', c, 24 + 2 * n)[0]
 
-    def cell_tile(self, li, cx, cy):
+    def cell_tile(self, li, cx, cy, low=False):
         """The 32 bytes of the tile BG1 shows in a cell, its palette (0..7)
         and priority."""
         lv = self.level(li)
         ntx, nty = lv['tex']
-        k, e = self.cell(li, cx, cy)
+        k, e = self.cell(li, cx, cy, low)
+        if low and k == 2:
+            assert not e & 0xC000, 'Low: a complex cell or the second texture'
         if k == 0:
             return bytes(32), 0, 0
         t1 = (cy % nty) * ntx + (cx % ntx)
@@ -145,11 +161,11 @@ class MapData:
             lv['sky_img'] = img
         return lv['sky_img']
 
-    def screen(self, li, cam_x, cam_y, w=256, h=224):
+    def screen(self, li, cam_x, cam_y, w=256, h=224, low=False):
         """The expected picture (RGB 0-255 of SNES colors), BG1's opacity
         and its priority."""
         lv = self.level(li)
-        pal = self.palettes(li)
+        pal = self.palettes(li, low)
         s = (cam_x + lv['skyk']) >> 1
         cols = (s + np.arange(w)) % lv['sky_period']
         out = self.sky_image(li)[:h][:, cols].copy()
@@ -163,7 +179,7 @@ class MapData:
         bpr = np.zeros((ny * 8, nx * 8), dtype=bool)
         for j in range(ny):
             for i in range(nx):
-                data, p, prio = self.cell_tile(li, cx0 + i, cy0 + j)
+                data, p, prio = self.cell_tile(li, cx0 + i, cy0 + j, low)
                 t = tileq.decode4(data)
                 big[j * 8:j * 8 + 8, i * 8:i * 8 + 8] = pal[p][t]
                 bop[j * 8:j * 8 + 8, i * 8:i * 8 + 8] = t > 0
@@ -180,7 +196,7 @@ def main():
     from PIL import Image
     md = MapData(sys.argv[1])
     li, cx, cy = int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
-    img, _, _ = md.screen(li, cx, cy)
+    img, _, _ = md.screen(li, cx, cy, low=sys.argv[6:] == ['low'])
     Image.fromarray(np.round(img).astype(np.uint8)).save(sys.argv[5])
 
 
