@@ -30,12 +30,13 @@
 
 .DEFINE MAP_COLS     35         ; cells kept ready: the 33 columns of the screen and one more on each side
 .DEFINE MAP_ROWS     31         ; the 29 rows and one more above and below
-.DEFINE MAP_MAXT     40         ; tiles made in a frame
+.DEFINE MAP_MAXT     32         ; tiles made in a frame
 .DEFINE MAP_MAXCOMP  20         ; edges (masked texture) made in a frame
 .DEFINE MAP_MAXRUNS  12         ; DMA transfers of tiles in a frame
 .DEFINE MAP_MAXJOBS  80         ; lines waiting (all of them in the region and more)
-.DEFINE MAP_LINES    40         ; scanlines map_set_camera may start new work in (about 55000 master clocks)
-.DEFINE MAP_TOUCH    6          ; lines written to the VRAM map in a frame
+.DEFINE MAP_LINES    42         ; scanlines map_set_camera may start new work in (about 57000 master clocks)
+.DEFINE MAP_DECLINES 22         ; and decoding a line (about 20 scanlines of work)
+.DEFINE MAP_TOUCH    8          ; lines written to the VRAM map in a frame
 .DEFINE MAP_JOBSIZE  224        ; a job: 10 bytes and 6 a special cell
 .DEFINE BG1_TILES    704
 .DEFINE PAL_TEX      3          ; palettes: 1-2 sky, 3 foreground texture, 4 second texture, complex 4-7
@@ -148,6 +149,8 @@ map_tbase           dw          ; complex tiles of the level from this one
 map_skyk            dw          ; BG2 scroll: (cam_x + skyk) / 2
 map_cdelta          dw          ; address of the chunks - $8000
 map_fglim           dw          ; foreground entries are below this
+map_crow            dw          ; map_chunk: the last row of chunks
+map_crowo           dw          ; and its offset in the directory
 map_popr            dsb 256     ; bits set in a byte (copied from map_pop)
 map_bitw            dsw 8       ; bit of a cell in a chunk byte
 map_bit1            dsb 8       ; 1 << n
@@ -167,8 +170,14 @@ map_jn              dw          ; jobs waiting
 map_jq              dsw MAP_MAXJOBS ; their offsets in map_jobs, in order
 map_jfn             dw          ; free records, times 2
 map_jfree           dsw MAP_MAXJOBS ; their offsets
+map_jn2             dw          ; map_jn * 2
+map_jundn           dw          ; jobs not decoded yet, times 2
+map_jund            dsw MAP_MAXJOBS ; their offsets
+map_ndone           dw          ; jobs done since the queue was last tidied
+map_jline           dsw 64+32   ; the job of each column, row of the map (offset + 1; 0 none)
+map_tln             dw          ; jobs written this frame, times 2
+map_tl              dsw MAP_TOUCH ; their offsets
 map_ndecoded        dw          ; jobs decoded this frame
-map_touched         dw          ; jobs written this frame
 map_ncolbuf         dw          ; column buffers used, times 64
 map_wk_i            dw          ; place in map_jq of the job looked at, times 2
 map_wk_n            dw
@@ -324,6 +333,11 @@ map_region:
 	bmi @left
 	lda map_rx0
 	jsr map_free_col
+	lda map_rx0
+	and #$003F
+	asl a
+	tax
+	jsr map_line_left
 	inc map_rx0
 	lda map_rx0
 	clc
@@ -338,7 +352,13 @@ map_region:
 	lda map_rx0
 	clc
 	adc #MAP_COLS-1
+	pha
 	jsr map_free_col
+	pla
+	and #$003F
+	asl a
+	tax
+	jsr map_line_left
 	dec map_rx0
 	lda map_rx0
 	ldx #0
@@ -354,6 +374,13 @@ map_region:
 	bmi @up
 	lda map_ry0
 	jsr map_free_row
+	lda map_ry0
+	and #$001F
+	clc
+	adc #64
+	asl a
+	tax
+	jsr map_line_left
 	inc map_ry0
 	lda map_ry0
 	clc
@@ -368,7 +395,15 @@ map_region:
 	lda map_ry0
 	clc
 	adc #MAP_ROWS-1
+	pha
 	jsr map_free_row
+	pla
+	and #$001F
+	clc
+	adc #64
+	asl a
+	tax
+	jsr map_line_left
 	dec map_ry0
 	lda map_ry0
 	ldx #1
@@ -608,6 +643,8 @@ map_free_at:
 ; No jobs; all records free.
 map_jobs_init:
 	stz map_jn
+	stz map_jundn
+	stz map_ndone
 	ldx #0
 	lda #0
 -	sta map_jfree,x
@@ -618,6 +655,30 @@ map_jobs_init:
 	cpx #MAP_MAXJOBS*2
 	bcc -
 	stx map_jfn
+	ldx #0
+-	stz map_jline,x
+	inx
+	inx
+	cpx #(64+32)*2
+	bcc -
+	rts
+
+; The place in map_jline of the line of job Y -> X.
+map_job_line:
+	lda map_jobs+J_TYPE,y
+	and #$00FF
+	bne +
+	lda map_jobs+J_COORD,y
+	and #$003F
+	asl a
+	tax
+	rts
++	lda map_jobs+J_COORD,y
+	and #$001F
+	clc
+	adc #64
+	asl a
+	tax
 	rts
 
 ; A job for line A (X: 0 column, 1 row) at the end of the queue; carry set
@@ -641,6 +702,12 @@ map_job_add:
 	tax
 	tya
 	sta map_jq,x
+	inc map_jn
+	ldx map_jundn
+	sta map_jund,x
+	inx
+	inx
+	stx map_jundn
 	plx
 	txa
 	sep #$20
@@ -653,21 +720,129 @@ map_job_add:
 	rep #$20
 	pla
 	sta map_jobs+J_COORD,y
-	inc map_jn
+	; The job of the line (an earlier one of the same line is over):
+	jsr map_job_line
+	lda map_jline,x
+	beq +
+	phy
+	phx
+	dec a
+	tay
+	jsr map_job_end
+	plx
+	ply
++	tya
+	inc a
+	sta map_jline,x
 	clc
+	rts
+
+; The line (map_jline place X) left the region: its job is over.
+map_line_left:
+	lda map_jline,x
+	beq +
+	dec a
+	tay
+	jsr map_job_end
++	rts
+
+; Job Y is over (whatever it had left to do): done, not undecoded, not the
+; job of its line.
+map_job_end:
+	sep #$20
+	lda map_jobs+J_DONE1,y
+	bne +
+	rep #$20
+	jsr map_und_remove
+	sep #$20
++	lda #1
+	sta map_jobs+J_DONE1,y
+	lda #0
+	sta map_jobs+J_NSPEC,y
+	sta map_jobs+J_CUR,y
+	rep #$20
+	inc map_ndone
+	jsr map_job_line
+	tya
+	inc a
+	cmp map_jline,x
+	bne +
+	stz map_jline,x
++	rts
+
+; Job Y finished its special cells: done, and not the job of its line.
+map_job_finished:
+	inc map_ndone
+	jsr map_job_line
+	tya
+	inc a
+	cmp map_jline,x
+	bne +
+	stz map_jline,x
++	rts
+
+; Takes job Y off the list of jobs not decoded yet (keeps Y).
+map_und_remove:
+	ldx #0
+-	cpx map_jundn
+	bcs ++
+	tya
+	cmp map_jund,x
+	beq +
+	inx
+	inx
+	bra -
++	; The last one comes to its place:
+	phy
+	ldy map_jundn
+	dey
+	dey
+	sty map_jundn
+	lda map_jund,y
+	sta map_jund,x
+	ply
+++	rts
+
+; Job Y is written to the VRAM map this frame (DJ = Y); carry set if there
+; is no room for one more line. Keeps Y.
+map_touch:
+	sep #$20
+	lda map_jobs+J_DIRTY,y
+	rep #$20
+	and #$00FF
+	bne +
+	ldx map_tln
+	cpx #MAP_TOUCH*2
+	bcs ++
+	tya
+	sta map_tl,x
+	inx
+	inx
+	stx map_tln
+	sep #$20
+	lda #2
+	sta map_jobs+J_DIRTY,y
+	lda #$FF
+	sta map_jobs+J_LO,y
+	lda #0
+	sta map_jobs+J_HI,y
+	rep #$20
++	clc
+	rts
+++	sec
 	rts
 
 ;---------------------------------------------------------------------------
 ; The jobs of the frame. First the lines that are on the screen and not
 ; decoded yet (they must be shown now), then all jobs in order as far as
 ; the time of the frame (MAP_LINES scanlines from the start of
-; map_set_camera) and the tiles of the frame allow.
+; map_set_camera), the tiles and the lines of the frame allow.
 map_work:
 	stz map_nstage
 	stz map_ncomp
 	stz map_nruns
 	stz map_ndecoded
-	stz map_touched
+	stz map_tln
 	stz DSTAT
 	lda #$FFFF
 	sta map_lastslot
@@ -680,35 +855,15 @@ map_work:
 	jsr map_first
 	inc a
 	sta map_vy0
-	; Lines on the screen first:
+	; Lines on the screen first (map_jund changes when one is decoded):
 	stz map_wk_i
-	lda map_jn
-	sta map_wk_n
 @vis:
-	lda map_wk_n
-	beq @fifo
-	lda map_touched
-	cmp #MAP_TOUCH
-	bcs @fifo
 	ldx map_wk_i
-	lda map_jq,x
+	cpx map_jundn
+	bcs @fifo
+	lda map_jund,x
 	sta DJ
 	tay
-	jsr map_job_inside
-	bcs +
-	; Left the region: done.
-	sep #$20
-	lda map_jobs+J_NSPEC,y
-	sta map_jobs+J_CUR,y
-	lda #1
-	sta map_jobs+J_DONE1,y
-	rep #$20
-	bra @vnext
-+	sep #$20
-	lda map_jobs+J_DONE1,y
-	rep #$20
-	and #$00FF
-	bne @vnext
 	lda map_jobs+J_TYPE,y
 	and #$00FF
 	bne @vrow
@@ -726,80 +881,60 @@ map_work:
 	bcs @vnext
 @vdec:
 	jsr map_decode_job
+	bcs @fifo
+	bra @vis                    ; (another job is at this place now)
 @vnext:
 	inc map_wk_i
 	inc map_wk_i
-	dec map_wk_n
 	bra @vis
 @fifo:
 	stz map_wk_i                ; place of the job in the queue
 	lda map_jn
-	sta map_wk_n                ; jobs left to look at
+	asl a
+	sta map_jn2
 @job:
-	lda map_wk_n
-	bne +
-	jmp @end
-+	lda map_touched
-	cmp #MAP_TOUCH
+	ldx map_wk_i
+	cpx map_jn2
 	bcc +
 	jmp @end
-+	ldx map_wk_i
-	lda map_jq,x
++	lda map_jq,x
 	sta DJ
 	tay
-	; A line that left the region is done.
-	jsr map_job_inside
-	bcs +
 	sep #$20
-	lda map_jobs+J_NSPEC,y
-	sta map_jobs+J_CUR,y
-	lda #1
-	sta map_jobs+J_DONE1,y
-	rep #$20
-	jmp @next
-+	sep #$20
 	lda map_jobs+J_DONE1,y
 	rep #$20
 	and #$00FF
 	bne @made
-	jsr map_over
+	lda #MAP_DECLINES
+	jsr map_over_at
 	bcs @end
 	jsr map_decode_job
+	bcs @end
 	ldy DJ
 @made:
-	; Special cells left: the job is written to the VRAM map this frame
-	; (if there is room for one more line).
+	; Special cells left?
 	sep #$20
 	lda map_jobs+J_CUR,y
 	cmp map_jobs+J_NSPEC,y
-	bcs @nomake
-	lda map_jobs+J_DIRTY,y
-	bne +
 	rep #$20
-	lda map_touched
-	cmp #MAP_TOUCH
+	bcs @next
+	jsr map_touch
 	bcs @end
-	inc map_touched
-	sep #$20
-	lda #2
-	sta map_jobs+J_DIRTY,y
-	lda #$FF
-	sta map_jobs+J_LO,y
-	lda #0
-	sta map_jobs+J_HI,y
-+	rep #$20
 @p_make0:
 	jsr map_make
 @p_make1:
 	ldy DJ
-	lda DSTAT
-	bne @end
-@nomake:
+	sep #$20
+	lda map_jobs+J_CUR,y
+	cmp map_jobs+J_NSPEC,y
 	rep #$20
+	bcc +
+	jsr map_job_finished
++	lda DSTAT
+	bne @end
 @next:
 	inc map_wk_i
 	inc map_wk_i
-	dec map_wk_n
 	jmp @job
 @end:
 	lda DSTAT
@@ -807,8 +942,17 @@ map_work:
 	inc map_stat_short
 +	rts
 
-; Decodes job DJ (Y) and marks it decoded and to be written.
+; Decodes job DJ (Y) and marks it decoded and to be written; carry set (and
+; nothing done) if no more lines can be written this frame.
 map_decode_job:
+	jsr map_touch
+	bcc +
+	rts
++	sep #$20
+	lda #1
+	sta map_jobs+J_DIRTY,y
+	rep #$20
+	jsr map_und_remove
 	inc map_ndecoded
 @p_dec0:
 	jsr map_decode
@@ -817,9 +961,11 @@ map_decode_job:
 	sep #$20
 	lda #1
 	sta map_jobs+J_DONE1,y
-	sta map_jobs+J_DIRTY,y
+	lda map_jobs+J_NSPEC,y
 	rep #$20
-	inc map_touched
+	bne +
+	jsr map_job_finished
++	clc
 	rts
 
 ; The scanline the PPU is drawing (0-261 NTSC, 0-311 PAL) -> A.
@@ -836,8 +982,11 @@ map_vline:
 	rts
 
 ; Carry set (and DSTAT 1) if the time of the frame is over (never while
-; loading).
+; loading); map_over_at: if A scanlines of it have passed.
 map_over:
+	lda #MAP_LINES
+map_over_at:
+	sta.b DLT+2
 	lda DNOW
 	bne @no
 	jsr map_vline
@@ -846,41 +995,13 @@ map_over:
 	bpl +
 	clc
 	adc #262
-+	cmp #MAP_LINES
++	cmp.b DLT+2
 	bcc @no
 	lda #1
 	sta DSTAT
 	sec
 	rts
 @no:
-	clc
-	rts
-
-; Carry set if job Y's line is still among the cells kept ready.
-map_job_inside:
-	lda map_jobs+J_COORD,y
-	sta DT0
-	lda map_jobs+J_TYPE,y
-	and #$00FF
-	bne @row
-	lda DT0
-	sec
-	sbc map_rx0
-	bmi @out
-	cmp #MAP_COLS
-	bcs @out
-	sec
-	rts
-@row:
-	lda DT0
-	sec
-	sbc map_ry0
-	bmi @out
-	cmp #MAP_ROWS
-	bcs @out
-	sec
-	rts
-@out:
 	clc
 	rts
 
@@ -1123,19 +1244,27 @@ map_chunk:
 	lsr a
 	lsr a
 	lsr a
+	cmp map_crow
+	beq +
+	sta map_crow
 	sep #$20
 	sta.l $004202
 	lda map_cw
 	sta.l $004203
 	rep #$20
-	lda DT0
-	lsr a
-	lsr a
-	lsr a
 	nop
-	clc
-	adc.l $004216
+	nop
+	nop
+	lda.l $004216
 	asl a
+	sta map_crowo
++	lda DT0
+	lsr a
+	lsr a
+	lsr a
+	asl a
+	clc
+	adc map_crowo
 	tay
 	lda [DDIR],y
 	cmp #2
@@ -2059,31 +2188,59 @@ map_flush:
 	sta map_stat_tiles
 	lda map_ncomp
 	sta map_stat_comp
-	; The lines written, and the jobs done go:
+	; The lines written:
 	stz map_ncolbuf
-	stz map_wk_i
-	stz DT8                     ; jobs kept, times 2
-	lda map_jn
-	sta map_wk_n
-@job:
-	lda map_wk_n
-	beq @end
-	ldx map_wk_i
-	lda map_jq,x
+	ldx #0
+@tl:
+	cpx map_tln
+	bcs @tld
+	phx
+	lda map_tl,x
 	sta DJ
 	tay
-	sep #$20
-	lda map_jobs+J_DIRTY,y
-	beq +
-	rep #$20
 	jsr map_line_dma
 	ldy DJ
 	sep #$20
 	lda #0
 	sta map_jobs+J_DIRTY,y
-+	rep #$20
-	; Done: its record is free; else it stays in the queue.
-	ldy DJ
+	rep #$20
+	plx
+	inx
+	inx
+	bra @tl
+@tld:
+	; The jobs done go (when there are a few of them):
+	lda map_ndone
+	cmp #8
+	bcs +
+	lda map_jfn
+	cmp #16*2
+	bcs @dropped
++	jsr map_tidy
+@dropped:
+	lda map_jn
+	sec
+	sbc map_ndone
+	sta map_stat_jobs
+	lda.l core_dmaq_bytes
+	sec
+	sbc map_bytes0
+	sta map_stat_bytes
+	rts
+
+; Takes the jobs that are done off the queue and frees their records.
+map_tidy:
+	stz map_ndone
+	ldx #0
+	stz DT8                     ; jobs kept, times 2
+	lda map_jn
+	asl a
+	sta DT9
+@job:
+	cpx DT9
+	bcs @end
+	lda map_jq,x
+	tay
 	sep #$20
 	lda map_jobs+J_DONE1,y
 	beq @keep
@@ -2091,37 +2248,33 @@ map_flush:
 	cmp map_jobs+J_NSPEC,y
 	bcc @keep
 	rep #$20
+	phx
 	ldx map_jfn
 	tya
 	sta map_jfree,x
 	inx
 	inx
 	stx map_jfn
-	bra @nextj
+	plx
+	bra @next
 @keep:
 	rep #$20
+	phx
 	ldx DT8
 	tya
 	sta map_jq,x
 	inx
 	inx
 	stx DT8
-@nextj:
-	inc map_wk_i
-	inc map_wk_i
-	dec map_wk_n
+	plx
+@next:
+	inx
+	inx
 	bra @job
 @end:
 	lda DT8
 	lsr a
 	sta map_jn
-@dropped:
-	lda map_jn
-	sta map_stat_jobs
-	lda.l core_dmaq_bytes
-	sec
-	sbc map_bytes0
-	sta map_stat_bytes
 	rts
 
 ; The VRAM map of job DJ's line, or of the part J_LO..J_HI of it (from
@@ -2224,12 +2377,44 @@ map_line_dma:
 	and #$003F
 	sta DT0
 	asl a
+	sta DT3
+	; A few rows one by one, else all of them at once:
+	lda DT2
+	sec
+	sbc DT1
+	cmp #8
+	bcs @all32
+	inc a
+	sta DT9
+	lda DT1
+	xba
+	lsr a
+	ora DT3
 	tax
+	lda DT1
+	asl a
+	clc
+	adc map_ncolbuf
+	tay
+-	lda map_shadow,x
+	sta map_colbuf,y
+	iny
+	iny
+	txa
+	clc
+	adc #128
+	tax
+	dec DT9
+	bne -
+	jmp @copied
+@all32:
+	ldx DT3
 	ldy map_ncolbuf
 .REPT 32 INDEX r
 	lda map_shadow+128*r,x
 	sta map_colbuf+2*r,y
 .ENDR
+@copied:
 	lda DT2
 	sec
 	sbc DT1
@@ -2491,6 +2676,8 @@ map_load:
 	ldy #LI_SKYK
 	lda [DSRC],y
 	sta map_skyk
+	lda #$FFFF
+	sta map_crow
 	ldy #LI_CHUNKS
 	lda [DSRC],y
 	sec
@@ -2671,7 +2858,10 @@ map_load:
 -	jsr map_work
 	jsr map_flush
 	lda map_jn
+	sec
+	sbc map_ndone
 	bne -
+	jsr map_tidy
 	stz DNOW
 	stz map_stat_short
 	stz map_stat_nofree
