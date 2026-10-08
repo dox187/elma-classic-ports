@@ -380,22 +380,37 @@ W_KF        dsw 11      ; its flips << 8
 .ENDIF
 .ENDM
 
-; Wheel \1 (its place on the screen and its tile in Z_WSX ...) in place
-; \2, mode \3.
+; Wheel \1 in place \2, mode \3.
 .MACRO WHEEL
-	lda.b Z_WSX+2*\1
+	lda.b Z_BXS
+	clc
+	adc.b Z_W0X+4*\1
+	lsr a
+	lsr a
+	lsr a
+	lsr a
 .IF \3 == 0
 	sta.w BK_OAM+4*\2
 .ELSE
 	EDGEX BK_OAM+4*\2, BK_HB+\2/4, 1<<(2*(\2&3)), (\3&1)*\3
 .ENDIF
-	lda.b Z_WSY+2*\1
+	lda.b Z_BYS
+	sec
+	sbc.b Z_W0Y+4*\1
+	lsr a
+	lsr a
+	lsr a
+	lsr a
 .IF \3 == 2
 	EDGEY BK_OAM+4*\2+1
 .ELSE
 	sta.w BK_OAM+4*\2+1
 .ENDIF
-	lda.b Z_WT+2*\1
+	lda.l phys_view+PV_WHEEL_A+2*\1+1
+	and #$00FF
+	asl a
+	tax
+	lda.l bike_t_wheel256,x
 	sta.w BK_OAM+4*\2+2
 .IF \3 != 0
 	bra +++
@@ -2008,51 +2023,6 @@ bk_oam:
 	stz.w BK_HB
 	stz.w BK_HB+2
 	stz.w BK_HB+4
-	; The wheels: their places and tiles.
-	lda.b Z_BXS
-	clc
-	adc.b Z_W0X
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b Z_WSX
-	lda.b Z_BXS
-	clc
-	adc.b Z_W1X
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b Z_WSX+2
-	lda.b Z_BYS
-	sec
-	sbc.b Z_W0Y
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b Z_WSY
-	lda.b Z_BYS
-	sec
-	sbc.b Z_W1Y
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b Z_WSY+2
-	lda.l phys_view+PV_WHEEL_A+1
-	and #$00FF
-	asl a
-	tax
-	lda.l bike_t_wheel256,x
-	sta.b Z_WT
-	lda.l phys_view+PV_WHEEL_A+3
-	and #$00FF
-	asl a
-	tax
-	lda.l bike_t_wheel256,x
-	sta.b Z_WT+2
 	; The parts are within 48 pixels of the center: with the center at
 	; 56..199, 56..167 they are all on the screen.
 	lda.b Z_BSY
@@ -2215,6 +2185,7 @@ _b30:
 ; Turning: the wheel drawn over the bike in place 0, the other one in 17
 ; (checked as in mode 2).
 bk_late:
+	jsr bk_wpre
 	lda.b Z_LATE
 	ldx #0
 	jsr bk_wheel
@@ -2224,6 +2195,54 @@ bk_late:
 	jsr bk_wheel
 	lda #$E000
 	sta.w BK_OAM+4*18
+	rts
+
+; The wheels: their places on the screen (biased) and their tiles.
+bk_wpre:
+	lda.b Z_BXS
+	clc
+	adc.b Z_W0X
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_WSX
+	lda.b Z_BXS
+	clc
+	adc.b Z_W1X
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_WSX+2
+	lda.b Z_BYS
+	sec
+	sbc.b Z_W0Y
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_WSY
+	lda.b Z_BYS
+	sec
+	sbc.b Z_W1Y
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_WSY+2
+	lda.l phys_view+PV_WHEEL_A+1
+	and #$00FF
+	asl a
+	tax
+	lda.l bike_t_wheel256,x
+	sta.b Z_WT
+	lda.l phys_view+PV_WHEEL_A+3
+	and #$00FF
+	asl a
+	tax
+	lda.l bike_t_wheel256,x
+	sta.b Z_WT+2
 	rts
 
 ; Wheel A (0, 1) in place X/4.
