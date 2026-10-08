@@ -1041,11 +1041,15 @@ bk_geometry:
 	sta P_AL+\2
 .ENDM
 
-; The four limbs (\1: turning, \2: turned).
+; The four limbs (\1: turning, \2: turned), the arms not while volting.
 .MACRO LIMBS
 	LIMB thigh, 2*0, \1, \2
 	LIMB leg, 2*1, \1, \2
-	LIMB uparm, 2*2, \1, \2
+	lda.l bike_anim+BA_VOLT     ; volting: the arms elsewhere (bk_arm)
+	and #$FF00
+	beq +
+	jmp _lmir
++	LIMB uparm, 2*2, \1, \2
 	LIMB forearm, 2*3, \1, \2
 .ENDM
 
