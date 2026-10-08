@@ -475,6 +475,20 @@ def s8(v):
     return max(-128, min(127, int(round(v))))
 
 
+def rod_k(geo, r):
+    """The pieces of suspension r: their centers from the ends of the rod
+    along it (units)."""
+    ext_a, ext_b = RODS[r][2], RODS[r][3]
+    lp = geo.piece_len[r]
+    return int(round((lp / 2 - ext_a) * U)), int(round((ext_b - lp / 2) * U))
+
+
+def mul8(a, b):
+    """The PPU's multiplication of bike.asm: s16 * s8, bits 8-23."""
+    v = ((a * b) >> 8) & 0xFFFF
+    return v - 0x10000 if v & 0x8000 else v
+
+
 def tables(geo):
     t = {}
     # sin of 1024 angles (and 256 more: cos), times 128:
@@ -848,18 +862,29 @@ def main():
     a += ['.SECTION ".bike_atan8" SUPERFREE', 'bike_t_atan8:']
     a += db(tb['atan8'], 32)
     a += ['.ENDS', '']
+    # The limbs by the rider's place, not turned then turned (mirrored):
+    # 2 x, 2 y, the angle << 8.
     for name in LIMBS:
-        a += ['.SECTION ".bike_limb_%s" SUPERFREE' % name]
-        for f in ('x', 'y'):
-            a.append('bike_limb_%s_%s:' % (name, f))
-            tab = tb['limb_%s_%s' % (name, f)]
+        lx, ly, la = (tb['limb_%s_%s' % (name, f)] for f in 'xya')
+        for f, tab in (('x2', [2 * x for x in lx] + [-2 * x for x in lx]),
+                       ('y2', [2 * y for y in ly] * 2),
+                       ('a16', [x << 8 for x in la] + [((128 - x) & 255) << 8 for x in la])):
+            a += ['.SECTION ".bike_limb_%s_%s" SUPERFREE' % (name, f),
+                  'bike_limb_%s_%s:' % (name, f)]
             a += ['\t.dw ' + ','.join('%d & $FFFF' % x for x in tab[i:i + 16])
                   for i in range(0, len(tab), 16)]
-        a += ['.ENDS', '']
-    a += ['.SECTION ".bike_limb_angles" SUPERFREE']
-    for name in LIMBS:
-        a.append('bike_limb_%s_a:' % name)
-        a += db(tb['limb_%s_a' % name], 32)
+            a += ['.ENDS', '']
+    # The centers of the pieces of the suspensions from the ends of the rod
+    # by its angle (256 steps): (2 k cos, 2 k sin) as bike.asm multiplies.
+    a += ['.SECTION ".bike_rods" SUPERFREE']
+    for r in ('s1', 's2'):
+        for kn, k in zip(('ka', 'kb'), rod_k(geo, r)):
+            a.append('bike_t_%s_%s:' % (r, kn))
+            vals = []
+            for ang in range(256):
+                vals += [mul8(2 * k, tb['sin'][4 * ang + 256]), mul8(2 * k, tb['sin'][4 * ang])]
+            a += ['\t.dw ' + ','.join('%d & $FFFF' % x for x in vals[i:i + 16])
+                  for i in range(0, len(vals), 16)]
     a += ['.ENDS', '']
     for name in geo.points:
         a += ['.SECTION ".bike_rot_%s" SUPERFREE' % name, 'bike_rot_%s:' % name]
@@ -890,16 +915,14 @@ def main():
     d('BK_FRAME_SPRITES', FRAME_SPRITES)
     d('BK_FRAME_DESC', FRAME_DESC)
     d('BK_FRAME_ROWS', 1 + 3 * FRAME_SPRITES + 16 * FRAME_SPRITES)
-    # The pieces of the suspensions: their centers from the ends of the rod
-    # along it (units).
     for r in ('s1', 's2'):
-        ext_a, ext_b = RODS[r][2], RODS[r][3]
-        lp = geo.piece_len[r]
-        d('BK_%s_KA' % r.upper(), int(round((lp / 2 - ext_a) * U)))
-        d('BK_%s_KB' % r.upper(), int(round((ext_b - lp / 2) * U)))
+        ka, kb = rod_k(geo, r)
+        d('BK_%s_KA' % r.upper(), ka)
+        d('BK_%s_KB' % r.upper(), kb)
     d('BK_LIMB_X0', LIMB_X0)
     d('BK_LIMB_Y0', LIMB_Y0)
     d('BK_LIMB_NY', LIMB_NY)
+    d('BK_LIMB_TR', 2 * 64 * LIMB_NY)   # bytes from a table to its turned half
     d('OBJ_KINDS', len(obj_kinds))
     d('OBJ_FOODS', len(obj_kinds) - 2)
     # Animation of the objects: frames a step (0.4368 / PHYS_HZ / 0.014)

@@ -549,15 +549,15 @@ bk_atan2:
 	eor #$FFFF
 	inc a
 +	sta.b Z_AY
-_norm:
 	ora.b Z_AX
 	cmp #512
-	bcc +
-	lsr.b Z_AX
+	bcc ++
+-	lsr.b Z_AX
 	lsr.b Z_AY
-	lda.b Z_AY
-	bra _norm
-+	lda.b Z_AY
+	lsr a
+	cmp #512
+	bcs -
+++	lda.b Z_AY
 	asl a
 	asl a
 	asl a
@@ -786,13 +786,7 @@ bk_geometry:
 ; of the bike (gen_bike.py): their centers rotated with the bike, their
 ; angles added to its angle; mirrored when turned.
 .MACRO LIMB
-	ldx.b Z_IDX
-	lda.l bike_limb_\1_x,x
-	ldy.b Z_TR
-	beq +
-	eor #$FFFF
-	inc a
-+	asl a
+	lda.l bike_limb_\1_x2,x
 	MA
 	lda.b Z_C
 	MB
@@ -801,8 +795,7 @@ bk_geometry:
 	lda.b Z_S
 	MB
 	sta.b Z_T1                  ; x s
-	lda.l bike_limb_\1_y,x
-	asl a
+	lda.l bike_limb_\1_y2,x
 	MA
 	lda.b Z_S
 	MB
@@ -817,18 +810,7 @@ bk_geometry:
 	sec
 	sbc.b Z_T2
 	sta P_CX+\2
-	txa
-	lsr a
-	tax
-	lda.l bike_limb_\1_a,x
-	and #$00FF
-	ldy.b Z_TR
-	beq +
-	eor #$FFFF
-	clc
-	adc.w #129
-	and #$00FF
-+	xba
+	lda.l bike_limb_\1_a16,x
 	clc
 	adc.b Z_TH
 	sta P_AL+\2
@@ -890,6 +872,11 @@ bk_limbs:
 +	ora.b Z_T2
 	asl a
 	sta.b Z_IDX
+	ldx.b Z_TR                  ; the tables of the turned (mirrored)
+	beq +
+	clc
+	adc.w #BK_LIMB_TR
++	tax
 	LIMB thigh, 2*0
 	LIMB leg, 2*1
 	LIMB uparm, 2*2
@@ -1137,105 +1124,58 @@ bk_arm:
 ;---------------------------------------------------------------------------
 ; The suspensions, two pieces each: front from the front wheel to the
 ; handlebar, rear from the rear point to the rear wheel. The pieces' centers
-; are at fixed distances from the ends along the rod.
-bk_susp:
-	rep #$30
-	lda.b Z_TR
-	bne +
-	lda.b Z_W0X
-	sta.b Z_T0
-	lda.b Z_W0Y
-	sta.b Z_T1
-	bra ++
-+	lda.b Z_W1X
-	sta.b Z_T0
-	lda.b Z_W1Y
-	sta.b Z_T1
-++	lda.b Z_HAX
-	sta.b Z_T2
-	lda.b Z_HAY
-	sta.b Z_T3
-	lda.w #2*BK_S1_KA
-	sta.b Z_T4
-	lda.w #(2*BK_S1_KB) & $FFFF
-	sta.b Z_T5
-	ldy.w #2*4
-	jsr _pieces
-	lda.b Z_REX
-	sta.b Z_T0
-	lda.b Z_REY
-	sta.b Z_T1
-	lda.b Z_TR
-	bne +
-	lda.b Z_W1X
-	sta.b Z_T2
-	lda.b Z_W1Y
-	sta.b Z_T3
-	bra ++
-+	lda.b Z_W0X
-	sta.b Z_T2
-	lda.b Z_W0Y
-	sta.b Z_T3
-++	lda.w #2*BK_S2_KA
-	sta.b Z_T4
-	lda.w #(2*BK_S2_KB) & $FFFF
-	sta.b Z_T5
-	ldy.w #2*6
-; a = (Z_T0, Z_T1), b = (Z_T2, Z_T3), Y = 2 * the first piece, 2 * the
-; distances of the pieces' centers from a and b in Z_T4, Z_T5.
-_pieces:
-	lda.b Z_T2
+; are at fixed distances from the ends along the rod (bike_t_s1_ka ...: by
+; its angle).
+.MACRO ROD
+	lda.b \3
 	sec
-	sbc.b Z_T0
+	sbc.b \1
 	sta.b Z_VX
-	lda.b Z_T3
+	lda.b \4
 	sec
-	sbc.b Z_T1
+	sbc.b \2
 	sta.b Z_VY
 	jsr bk_atan2
-	sta.b Z_A8
 	xba
-	sta P_AL,y
-	sta P_AL+2,y
-	lda.b Z_A8
+	sta P_AL+\5
+	sta P_AL+\5+2
+	xba
 	asl a
 	asl a
 	tax
-	lda #0
-	sta P_H,y
-	sta P_H+2,y
-	sep #$20
-	lda.l bike_t_sin+256,x
-	sta.b Z_B                   ; cos
-	lda.l bike_t_sin,x
-	sta.b Z_A                   ; sin
-	rep #$20
-	lda.b Z_T4
-	MA
-	lda.b Z_B
-	MB
+	lda.l bike_t_\6_ka,x
 	clc
-	adc.b Z_T0
-	sta P_CX,y
-	sep #$20
-	lda.b Z_A
-	MB
+	adc.b \1
+	sta P_CX+\5
+	lda.l bike_t_\6_ka+2,x
 	clc
-	adc.b Z_T1
-	sta P_CY,y
-	lda.b Z_T5
-	MA
-	lda.b Z_B
-	MB
+	adc.b \2
+	sta P_CY+\5
+	lda.l bike_t_\6_kb,x
 	clc
-	adc.b Z_T2
-	sta P_CX+2,y
-	sep #$20
-	lda.b Z_A
-	MB
+	adc.b \3
+	sta P_CX+\5+2
+	lda.l bike_t_\6_kb+2,x
 	clc
-	adc.b Z_T3
-	sta P_CY+2,y
+	adc.b \4
+	sta P_CY+\5+2
+.ENDM
+
+bk_susp:
+	rep #$30
+	stz P_H+2*4
+	stz P_H+2*5
+	stz P_H+2*6
+	stz P_H+2*7
+	lda.b Z_TR
+	beq +
+	jmp _strn
++	ROD Z_W0X, Z_W0Y, Z_HAX, Z_HAY, 2*4, s1
+	ROD Z_REX, Z_REY, Z_W1X, Z_W1Y, 2*6, s2
+	rts
+_strn:
+	ROD Z_W1X, Z_W1Y, Z_HAX, Z_HAY, 2*4, s1
+	ROD Z_REX, Z_REY, Z_W0X, Z_W0Y, 2*6, s2
 	rts
 
 ;---------------------------------------------------------------------------
