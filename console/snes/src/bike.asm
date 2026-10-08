@@ -126,8 +126,11 @@ bike_curf   dsw 11      ; flips of its sprites << 8
 bike_ta     dsw 11      ; its first tile | attributes << 8
 bike_toggle dw          ; which group of parts loads first
 bike_pend   dw          ; bit p: part p wants a picture not in the VRAM
-bike_key    dsw 11      ; the step of the angle and the mirroring of the
-                        ; picture of each part in the last frame
+bike_key    dsb 10      ; the step of the angle and the mirroring of the
+                        ; picture of each single part in the last frame
+                        ; ($FF: none)
+bike_fkey   dw          ; the same for the body
+bike_tkey   dw          ; the same for the single parts while turning
 P_CX        dsw 11      ; the parts: center
 P_CY        dsw 11
 P_AL        dsw 11      ; angle
@@ -186,21 +189,30 @@ W_KF        dsw 11      ; its flips << 8
 .ENDM
 
 ; The step of the angle of a single part at 64 angles and its mirroring
-; (\1 = 2 * part): its picture when they changed since the last frame
-; (\2: bk_pic64 or bk_pic64s).
+; (\1 = 2 * part, 8 bits): its picture when they changed since the last
+; frame (\2 = 1: the first piece of a suspension, the second one too).
 .MACRO PIC64
-	lda P_AL+\1
+	lda P_AL+\1+1
 	clc
-	adc.w #512
-	xba
-	and.w #$00FF
+	adc #2
 	lsr a
 	lsr a
 	ora P_H+\1
-	cmp bike_key+\1
+	cmp bike_key+\1/2
 	beq +
+	sta bike_key+\1/2
+.IF \2 == 1
+	sta bike_key+\1/2+1
+.ENDIF
+	rep #$20
+	and #$00FF
 	ldy.w #\1
-	jsr \2
+.IF \2 == 1
+	jsr bk_pic64s
+.ELSE
+	jsr bk_pic64
+.ENDIF
+	sep #$20
 +
 .ENDM
 
@@ -422,7 +434,6 @@ bike_reset:
 	ldx #0
 -	lda #$FFFF                  ; no picture yet: empty tiles
 	sta bike_cur,x
-	sta bike_key,x
 	lda #0
 	sta bike_curf,x
 	lda.l bk_ta0,x
@@ -435,6 +446,14 @@ bike_reset:
 	sta bike_cur+2*FRAME        ; the body: no sprites
 	sta bike_toggle
 	sta bike_pend
+	dec a
+	sta bike_key
+	sta bike_key+2
+	sta bike_key+4
+	sta bike_key+6
+	sta bike_key+8
+	sta bike_fkey
+	sta bike_tkey
 	ldx.w #OAM_BIKE*4           ; the sprites hidden
 	lda #$E000                  ; x 0, y 224
 -	sta core_oam,x
@@ -1396,7 +1415,7 @@ _m6:
 ; The pictures wanted (W_DESC, W_KF): the step of the angle (P_AL) and the
 ; mirroring (P_H) give the stored picture and its flips from the tables
 ; bike_t_lk32/64/128 (k | flips << 8, gen_bike.py). Only for the parts
-; whose step or mirroring changed (bike_key): a part whose picture is not
+; whose step or mirroring changed (bike_key ...): a part whose picture is not
 ; in the VRAM is pending (bike_pend), else its flips are taken.
 bk_pictures:
 	rep #$30
@@ -1404,14 +1423,18 @@ bk_pictures:
 	cmp #4
 	beq +
 	jmp bk_tpictures
-+	PIC64 2*0, bk_pic64
-	PIC64 2*1, bk_pic64
-	PIC64 2*2, bk_pic64
-	PIC64 2*3, bk_pic64
-	PIC64 2*4, bk_pic64s        ; the pieces of a suspension: the same angle
-	PIC64 2*6, bk_pic64s
-	PIC64 2*8, bk_pic64
-	PIC64 2*9, bk_pic64
++	lda #$FFFF                  ; not turning
+	sta bike_tkey
+	sep #$20
+	PIC64 2*0, 0
+	PIC64 2*1, 0
+	PIC64 2*2, 0
+	PIC64 2*3, 0
+	PIC64 2*4, 1                ; the pieces of a suspension: the same angle
+	PIC64 2*6, 1
+	PIC64 2*8, 0
+	PIC64 2*9, 0
+	rep #$20
 	lda P_AL+2*FRAME            ; the body: 128 steps
 	clc
 	adc.w #256
@@ -1419,10 +1442,10 @@ bk_pictures:
 	and.w #$00FF
 	lsr a
 	ora P_H+2*FRAME
-	cmp bike_key+2*FRAME
+	cmp bike_fkey
 	bne +
 	rts
-+	sta bike_key+2*FRAME
++	sta bike_fkey
 	asl a
 	tax
 	lda.l bike_t_lk128,x
@@ -1439,7 +1462,6 @@ bk_pictures:
 ; Part Y/2 at the step and mirroring A (its key): its picture from
 ; bike_t_lk64.
 bk_pic64:
-	sta bike_key,y
 	asl a
 	tax
 	lda.l bike_t_lk64,x
@@ -1474,8 +1496,6 @@ bk_check:
 ; The same for the first piece of a suspension (Y/2) and the second one.
 bk_pic64s:
 	jsr bk_pic64
-	lda bike_key,y
-	sta bike_key+2,y
 	lda W_KF,y
 	sta W_KF+2,y
 	lda W_DESC,y
@@ -1487,7 +1507,7 @@ bk_pic64s:
 	bra bk_check
 
 ; The squashed pictures: all at the angle of the bike as drawn. The parts
-; 0-9 share their key ((level + 1) << 8 | step).
+; 0-9 share their key (bike_tkey: (level + 1) << 8 | step).
 bk_tpictures:
 	lda.b Z_TH
 	ldx.b Z_TEFF
@@ -1509,9 +1529,15 @@ bk_tpictures:
 	inc a
 	xba
 	ora.b Z_T3
-	cmp bike_key
+	cmp bike_tkey
 	beq _tframe
-	sta.b Z_T2                  ; the key
+	sta bike_tkey
+	lda #$FFFF                  ; the keys of the single parts are new
+	sta bike_key                ; after the turn
+	sta bike_key+2
+	sta bike_key+4
+	sta bike_key+6
+	sta bike_key+8
 	lda.b Z_T3
 	asl a
 	tax
@@ -1534,9 +1560,7 @@ bk_tpictures:
 	adc.w #bike_desc_single     ; + 4 * (32 + lv * 16 + k)
 	sta.b Z_T3
 	ldy #0
--	lda.b Z_T2
-	sta bike_key,y
-	lda.b Z_T3
+-	lda.b Z_T3
 	sta W_DESC,y
 	clc
 	adc.w #4*BK_PER_PART
@@ -1564,10 +1588,10 @@ _tframe:
 	inc a
 	xba
 	ora.b Z_T3
-	cmp bike_key+2*FRAME
+	cmp bike_fkey
 	bne +
 	rts
-+	sta bike_key+2*FRAME
++	sta bike_fkey
 	lda.b Z_T3
 	asl a
 	tax
