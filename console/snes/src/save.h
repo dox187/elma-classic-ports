@@ -9,12 +9,28 @@
 #define SAVE_H
 
 #include <snes.h>
+#include "core.h"
 
 #define SAVE_PLAYERS  16        // players on the list (the original: 50)
 #define SAVE_NAME_LEN 8         // letters of a name (JATEKOS.CPP)
 #define SAVE_TIMES    10        // best times of a level (MAXIDOK)
 #define SAVE_LEVELS   64        // room for levels; LEVEL_COUNT are used
 #define SAVE_NO_TIME  0xFFFFFFFF
+
+// The buttons of a level (Customize Controls, CUSTOM.CPP), indexes of
+// save.keys; each holds one JOY_* bit, 0 for none. Start is always the
+// original's Esc.
+#define KEY_GAS   0             // Throttle
+#define KEY_BRAKE 1             // Brake
+#define KEY_LEFT  2             // Rotate left
+#define KEY_RIGHT 3             // Rotate right
+#define KEY_TURN  4             // Change direction
+#define KEY_VIEW  5             // Toggle Navigator (the view box)
+#define KEY_TIME  6             // Toggle Time
+#define SAVE_KEYS 7
+// The buttons that can be given to the controls (all but Start):
+#define SAVE_KEYS_ALLOWED (JOY_B | JOY_Y | JOY_A | JOY_X | JOY_L | JOY_R | \
+	JOY_SELECT | JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)
 
 // What save_record did with a time (the messages of idoelintezes):
 #define SAVE_REC_NONE  0        // not among the best ten
@@ -45,6 +61,7 @@ typedef struct {
 	u8 spare[2];
 	save_player_t players[SAVE_PLAYERS];
 	save_times_t times[SAVE_LEVELS];
+	u16 keys[SAVE_KEYS];        // the buttons of a level
 } save_t;
 
 extern save_t save;             // the state; save_write stores it
@@ -72,5 +89,8 @@ save_player_t* save_player(void);
 u8 save_add_player(const char* name);
 u8 save_skipped(u16 level);
 void save_set_skipped(u16 level, u8 on);
+// The buttons of a level as they were at the start (Reset all controls to
+// default).
+void save_default_keys(void);
 
 #endif

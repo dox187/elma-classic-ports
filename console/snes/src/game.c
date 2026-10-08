@@ -21,14 +21,9 @@
 // At most this many steps in a frame; beyond it the game slows down:
 #define MAXSTEPS 4
 
-// The buttons of a level (the original's keys):
-#define BTN_GAS   JOY_B                  // Up
-#define BTN_BRAKE (JOY_A|JOY_Y)          // Down
-#define BTN_TURN  (JOY_X|JOY_L|JOY_R)    // Space
-#define BTN_VOLTR JOY_RIGHT              // Right
-#define BTN_VOLTL JOY_LEFT               // Left
-#define BTN_ESC   JOY_START              // Esc
-#define BTN_VIEW  JOY_SELECT             // V, the view box
+// The buttons of a level are those of Customize controls (save.keys);
+// Start is the original's Esc:
+#define BTN_ESC   JOY_START
 
 // baljobbvaltozok of the original: the step of the last turn, the step the
 // move of the camera counts from, and the direction (hatra).
@@ -195,19 +190,21 @@ u32 game_play( u16 level, u8* finished ) {
 			snd_stop();
 			return 0;
 		}
-		if( edges & BTN_VIEW )
+		if( edges & save.keys[KEY_VIEW] )
 			hud_show_map = !hud_show_map;
-		if( edges & BTN_TURN )
+		if( edges & save.keys[KEY_TIME] )
+			hud_show_time = !hud_show_time;
+		if( edges & save.keys[KEY_TURN] )
 			phys_turn();
-		gas = (pad & BTN_GAS) ? 1 : 0;
+		gas = (pad & save.keys[KEY_GAS]) ? 1 : 0;
 		input = 0;
 		if( gas )
 			input |= PH_GAS;
-		if( pad & BTN_BRAKE )
+		if( pad & save.keys[KEY_BRAKE] )
 			input |= PH_BRAKE;
-		if( pad & BTN_VOLTR )
+		if( pad & save.keys[KEY_RIGHT] )
 			input |= PH_VOLT_R;
-		if( pad & BTN_VOLTL )
+		if( pad & save.keys[KEY_LEFT] )
 			input |= PH_VOLT_L;
 
 		// The steps due since the last frame, PHYS_HZ a second:

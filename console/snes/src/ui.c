@@ -17,15 +17,31 @@
 #define LIST_Y0 90
 #define LIST_DY 33
 
-// The keys of Help (OPTIONS.CPP), the buttons of the SNES.
+// The keys of Help (OPTIONS.CPP), the buttons of the SNES as they are at
+// the start (save_default_keys).
 static const char* const help_keys[] = {
-	"B", "A", "LEFT", "RIGHT", "X", "SELECT"
+	"B", "A", "LEFT", "RIGHT", "X", "SELECT", "L"
 };
 static const char* const help_what[] = {
 	"- Accelerate", "- Block Wheels", "- Rotate AntiClockwise",
-	"- Rotate Clockwise", "- Turn Around", "- View Box Toggle"
+	"- Rotate Clockwise", "- Turn Around", "- View Box Toggle",
+	"- Time Display Toggle"
 };
-#define HELP_ROWS 6
+#define HELP_ROWS 7
+
+// The rows of Customize controls (CUSTOM.CPP bejegyez12), save.keys:
+static const char* const key_rows[SAVE_KEYS] = {
+	"Throttle", "Brake", "Rotate left", "Rotate right", "Change direction",
+	"Toggle Navigator", "Toggle Time"
+};
+static const u16 button_bits[] = {
+	JOY_B, JOY_Y, JOY_A, JOY_X, JOY_L, JOY_R, JOY_SELECT,
+	JOY_UP, JOY_DOWN, JOY_LEFT, JOY_RIGHT
+};
+static const char* const button_names[] = {
+	"B", "Y", "A", "X", "L", "R", "Select", "Up", "Down", "Left", "Right"
+};
+#define BUTTONS 11
 
 static ui_list_t list;
 static s16 main_kur;
@@ -292,6 +308,82 @@ static void best_times(void) {
 	}
 }
 
+// The name of a button of the controls, "???" for none (kodtobillnev).
+static const char* button_name(u16 k) {
+	u16 i;
+	for( i = 0; i < BUTTONS; i++ )
+		if( k == button_bits[i] )
+			return button_names[i];
+	return "???";
+}
+
+// The list of Customize controls, its second column "_" at row wait (0:
+// none).
+static void controls_fill(u16 wait) {
+	u16 i;
+	ui_strcpy(ui_items[0], "Reset all controls to default");
+	ui_tabs[0][0] = 0;
+	for( i = 0; i < SAVE_KEYS; i++ ) {
+		ui_strcpy(ui_items[1 + i], key_rows[i]);
+		ui_strcpy(ui_tabs[1 + i], wait == 1 + i ? "_" : button_name(save.keys[i]));
+	}
+}
+
+// gombotvalaszt: the list with "_" at the row, then the next button
+// pressed after all are let go is given to the control of the row (and
+// taken from the others). Start leaves it as it was.
+static void choose_button(u16 row) {
+	u16 i, p, k = 0;
+	controls_fill(row);
+	ui_begin();
+	ui_text_center(320, list.cimy, list.title);
+	for( i = 0; i < list.n; i++ ) {
+		ui_text(list.x0, list.y0 + i * list.dy, ui_items[i]);
+		ui_text(list.x0_tab, list.y0 + i * list.dy, ui_tabs[i]);
+	}
+	ui_end();
+	ui_helmet(list.x0 - 30, list.y0 + row * list.dy);
+	while( core_pad )
+		ui_frame();
+	core_pad_take();
+	while( !k ) {
+		ui_frame();
+		p = core_pad_take();
+		if( p & JOY_START )
+			return;
+		for( i = 0; i < BUTTONS; i++ )
+			if( p & button_bits[i] ) {
+				k = button_bits[i];
+				break;
+			}
+	}
+	for( i = 0; i < SAVE_KEYS; i++ )
+		if( save.keys[i] == k )
+			save.keys[i] = 0;
+	save.keys[row - 1] = k;
+}
+
+// Customize controls: the buttons of a level (CUSTOM.CPP, for one player).
+static void customize(void) {
+	s16 kur = 0, r;
+	while( 1 ) {
+		ui_list_init(&list, "Customize controls", 60, 86, 40, 10);
+		list.x0_tab = 400;
+		list.tabs = 1;
+		list.kur = kur;
+		controls_fill(0);
+		list.n = 1 + SAVE_KEYS;
+		r = ui_choose(&list);
+		if( r < 0 )
+			return;
+		kur = r;
+		if( r == 0 )
+			save_default_keys();
+		else
+			choose_button((u16)r);
+	}
+}
+
 // Options: the rows of the original that the SNES has.
 static void options(void) {
 	s16 kur = 0, r;
@@ -311,7 +403,9 @@ static void options(void) {
 		ui_strcpy(ui_tabs[3], save.detail ? "High" : "Low");
 		ui_strcpy(ui_items[4], "Animated Objects:");
 		ui_strcpy(ui_tabs[4], save.anim_objects ? "Yes" : "No");
-		list.n = 5;
+		ui_strcpy(ui_items[5], "Customize Controls ...");
+		ui_tabs[5][0] = 0;
+		list.n = 6;
 		r = ui_choose(&list);
 		if( r < 0 ) {
 			if( changed )
@@ -331,6 +425,8 @@ static void options(void) {
 				save.detail = !save.detail;
 			if( r == 4 )
 				save.anim_objects = !save.anim_objects;
+			if( r == 5 )
+				customize();
 		}
 	}
 }

@@ -21,7 +21,10 @@ import mesen  # noqa: E402
 PLAYERS, NAME_LEN, TIMES, LEVELS = 16, 8, 10, 64
 PLAYER_SIZE = NAME_LEN + 1 + 1 + 1 + LEVELS // 8
 TIMES_SIZE = 1 + TIMES + 3 * TIMES
-SAVE_SIZE = 8 + PLAYERS * PLAYER_SIZE + LEVELS * TIMES_SIZE
+# The buttons of the controls (save.keys, JOY_* bits), as at the start:
+DEFAULT_KEYS = [0x8000, 0x0080, 0x0200, 0x0100, 0x0040, 0x2000, 0x0020]
+SAVE_VERSION = 2
+SAVE_SIZE = 8 + PLAYERS * PLAYER_SIZE + LEVELS * TIMES_SIZE + 2 * len(DEFAULT_KEYS)
 SLOT, DATA_OFS, SEED = 0x1000, 16, 0x5A3C
 
 WAIT = 'W50'   # after a button, until the next screen is drawn
@@ -57,6 +60,10 @@ class State:
             n = t[0]
             self.times.append([(t[1 + i], t[11 + 3 * i] | t[12 + 3 * i] << 8 | t[13 + 3 * i] << 16)
                                for i in range(min(n, TIMES))])
+        o = base + LEVELS * TIMES_SIZE
+        self.keys = list(struct.unpack_from('<%dH' % len(DEFAULT_KEYS), data, o))
+        if not any(self.keys):
+            self.keys = list(DEFAULT_KEYS)
 
     def pack(self):
         out = bytearray(SAVE_SIZE)
@@ -76,6 +83,7 @@ class State:
             for i, (pl, t) in enumerate(ts):
                 out[o + 1 + i] = pl
                 out[o + 11 + 3 * i:o + 14 + 3 * i] = struct.pack('<I', t)[:3]
+        struct.pack_into('<%dH' % len(self.keys), out, base + LEVELS * TIMES_SIZE, *self.keys)
         return bytes(out)
 
 
@@ -89,7 +97,7 @@ def sram_image(state, levels, seq=(1, 2), broken=None):
         o = slot * SLOT
         out[o + DATA_OFS:o + DATA_OFS + SAVE_SIZE] = data
         total = checksum(data, SEED + s)
-        out[o:o + 12] = b'ELMS' + bytes([1, levels]) + struct.pack('<HHH', s, total, total ^ 0xFFFF)
+        out[o:o + 12] = b'ELMS' + bytes([SAVE_VERSION, levels]) + struct.pack('<HHH', s, total, total ^ 0xFFFF)
     if broken is not None:
         out[broken * SLOT + DATA_OFS + 20] ^= 0x55
     return bytes(out)

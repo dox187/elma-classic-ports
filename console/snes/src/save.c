@@ -9,7 +9,7 @@
 
 #define SLOT_SIZE  0x1000
 #define DATA_OFS   16
-#define SAVE_VERSION 1
+#define SAVE_VERSION 2
 #define SUM_SEED   0x5A3C
 
 typedef struct {
@@ -46,6 +46,17 @@ static u8 head_valid(u16 slot) {
 	return 1;
 }
 
+// The buttons a level starts with:
+static const u16 default_keys[SAVE_KEYS] = {
+	JOY_B, JOY_A, JOY_LEFT, JOY_RIGHT, JOY_X, JOY_SELECT, JOY_L
+};
+
+void save_default_keys(void) {
+	u16 i;
+	for( i = 0; i < SAVE_KEYS; i++ )
+		save.keys[i] = default_keys[i];
+}
+
 static void save_defaults(void) {
 	u16 i;
 	u8* p = (u8*)&save;
@@ -55,6 +66,7 @@ static void save_defaults(void) {
 	save.anim_menus = 1;
 	save.anim_objects = 1;
 	save.detail = 1;
+	save_default_keys();
 }
 
 static u8 name_char(char c) {
@@ -96,6 +108,25 @@ static void save_check(void) {
 	save.anim_menus = save.anim_menus != 0;
 	save.anim_objects = save.anim_objects != 0;
 	save.detail = save.detail != 0;
+	// A button each, of those allowed, and none twice (and not none at
+	// all):
+	j = 0;
+	for( i = 0; i < SAVE_KEYS; i++ )
+		j |= save.keys[i];
+	if( !j )
+		save_default_keys();
+	for( i = 0; i < SAVE_KEYS; i++ ) {
+		u16 k = save.keys[i];
+		if( (k & ~SAVE_KEYS_ALLOWED) || (k & (k - 1)) ) {
+			save_default_keys();
+			break;
+		}
+		for( j = 0; j < i; j++ )
+			if( k && save.keys[j] == k ) {
+				save_default_keys();
+				break;
+			}
+	}
 }
 
 static void write_slot(u8 slot) {
