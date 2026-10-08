@@ -95,7 +95,7 @@ Z_ROT       dw          ; index of the tables of the bike's angle
 Z_IDX       dw          ; index of the tables of a distance
 Z_IDXT      dw          ; index of the tables of the limbs
 Z_TI        dw          ; the bike's angle in 1024 steps
-Z_TI2       dw          ; the same + 512
+Z_TI2       dw          ; the same + 512 + 1024
 Z_THM       dw          ; the bike's angle + 1/2
 Z_A8        dw          ; an angle in 256 steps
 Z_LV        dw          ; level of the squashed pictures, 4: not turning
@@ -971,21 +971,19 @@ bk_geometry:
 ; angles added to its angle; mirrored when turned.
 .MACRO LIMB
 .IF \3 == 0
-	lda.l bike_limb_\1_r2,x     ; 2 r (cos, sin) of its angle + the bike's
-	MA
-	rep #$20
 .IF \4 == 0
-	lda.l bike_limb_\1_phi,x
+	lda.l bike_limb_\1_phi,x   ; 2 r (cos, sin) of its angle + the bike's
 	clc
 	adc.b Z_TI
 .ELSE
-	lda.b Z_TI2                 ; mirrored: 512 - its angle
-	sec
+	lda.b Z_TI2                 ; mirrored: 512 - its angle (+ 1024:
+	sec                         ; bike_t_sin is long enough)
 	sbc.l bike_limb_\1_phi,x
 .ENDIF
-	and #$03FF
-	tax
-	sep #$20
+	tay
+	lda.l bike_limb_\1_r2,x
+	MA
+	tyx
 	lda.l bike_t_sin+256,x
 	MB
 	sta P_CX+\2
@@ -1109,12 +1107,11 @@ bk_limbs:
 	lda #63
 +	ora.b Z_T2
 	asl a
-	sta.b Z_IDX
 	tax
 	stx.b Z_IDXT
 	lda.b Z_TI
 	clc
-	adc.w #512
+	adc.w #512+1024
 	sta.b Z_TI2
 	lda.b Z_TH
 	eor #$8000

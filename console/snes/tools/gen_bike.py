@@ -492,7 +492,8 @@ def mul8(a, b):
 def tables(geo):
     t = {}
     # sin of 1024 angles (and 256 more: cos), times 128:
-    t['sin'] = [s8(128 * math.sin(i * 2 * math.pi / 1024)) for i in range(1280)]
+    # (periodic, long enough for the angles of the limbs: bk_limbs)
+    t['sin'] = [s8(128 * math.sin(i * 2 * math.pi / 1024)) for i in range(2816)]
     # atan of 0..256/256 in u16 angle units:
     t['atan'] = [int(round(math.atan(i / 256) / (2 * math.pi) * 65536)) for i in range(257)]
     # The knee and the elbow (ketkormetszete): by d4 >> 3, d4 the square of
