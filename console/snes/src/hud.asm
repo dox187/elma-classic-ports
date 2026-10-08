@@ -1507,6 +1507,10 @@ hud_do_map:
 	sta core_oam+HUD_OAM_FRAME*4+2
 	lda.w #(HUD_FRAME_TILE+4)|(HUD_ATTR_BLACK<<8)
 	sta core_oam+HUD_OAM_FRAME*4+6
+	sep #$20                    ; 32x32 (in case the OAM was cleared)
+	lda.b #$A0
+	sta core_oam+512+HUD_OAM_FRAME/4
+	rep #$20
 
 	; The bike, then the flowers (the bike in front): sprites over holes.
 	stz hud_ndot
