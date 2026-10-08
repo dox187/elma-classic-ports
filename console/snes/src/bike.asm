@@ -114,9 +114,6 @@ Z_TA        dw          ; tile | attributes << 8
 Z_FL        dw          ; flips of a part
 Z_PX        dw
 Z_PY        dw
-Z_WSX       dsb 4       ; the wheels on the screen (biased) and their tiles
-Z_WSY       dsb 4
-Z_WT        dsb 4
 .ENDE
 
 .BASE $00
@@ -494,15 +491,12 @@ W_KF        dsw 11      ; its flips << 8
 	sta P_CY+\1
 .ENDM
 
-; The angle of part \1 mirrored: Z_T0 - alpha, the mirroring \2 flipped.
+; The angle of part \1 mirrored: Z_T0 - alpha.
 .MACRO MIR
 	lda.b Z_T0
 	sec
 	sbc P_AL+\1
 	sta P_AL+\1
-	lda P_H+\1
-	eor.w #\2
-	sta P_H+\1
 .ENDM
 
 ; The center of the rod of part \6 (2 * part) from a = (\1, \2) to b =
@@ -551,9 +545,6 @@ bk_ta0:
 	.dw 140|(BK_PAL_S2A*2|PRIO)<<8, 142|(BK_PAL_S2B*2|PRIO)<<8
 	.dw 160|(BK_PAL_HEAD*2|PRIO)<<8, 162|(BK_PAL_TORSO*2|PRIO)<<8
 	.dw 164|(BK_PAL_FRAME*2|PRIO)<<8
-; The bit of x >= 256 of a sprite in the high table:
-bk_hb:
-	.db 1, 4, 16, 64
 
 ;---------------------------------------------------------------------------
 ; void bike_reset(void): no part in the VRAM, the sprites hidden.
@@ -1469,17 +1460,40 @@ _sq4:
 	clc
 	adc #$8000
 	sta.b Z_T0
-	MIR 2*0, 64
-	MIR 2*1, 64
-	MIR 2*2, 64
-	MIR 2*3, 64
-	MIR 2*4, 64
-	MIR 2*6, 64
-	MIR 2*8, 64
-	MIR 2*9, 64
-	MIR 2*FRAME, 128
-	lda #$FFFF                  ; P_H to be set again
+	MIR 2*0
+	MIR 2*1
+	MIR 2*2
+	MIR 2*3
+	MIR 2*4
+	MIR 2*6
+	MIR 2*8
+	MIR 2*9
+	MIR 2*FRAME
+	; The mirroring flipped (P_H was set for Z_TR), to be set again in the
+	; next frame.
+	lda #$FFFF
 	sta bike_ph
+	lda.w #64
+	sta P_H+2*4
+	sta P_H+2*6
+	ldx.b Z_TR
+	bne +
+	sta P_H+2*0
+	sta P_H+2*1
+	stz P_H+2*2
+	sta P_H+2*3
+	sta P_H+2*8
+	sta P_H+2*9
+	asl a
+	sta P_H+2*FRAME
+	rts
++	stz P_H+2*0
+	stz P_H+2*1
+	sta P_H+2*2
+	stz P_H+2*3
+	stz P_H+2*8
+	stz P_H+2*9
+	stz P_H+2*FRAME
 	rts
 
 ;---------------------------------------------------------------------------
@@ -2133,95 +2147,18 @@ _b30:
 ; Turning: the wheel drawn over the bike in place 0, the other one in 17
 ; (checked as in mode 2).
 bk_late:
-	jsr bk_wpre
 	lda.b Z_LATE
-	ldx #0
-	jsr bk_wheel
-	lda.b Z_LATE
-	eor #1
-	ldx.w #4*17
-	jsr bk_wheel
+	bne +
+	jmp _late0
++	WHEEL 1, 0, 2
+	WHEEL 0, 17, 2
+	jmp _late1
+_late0:
+	WHEEL 0, 0, 2
+	WHEEL 1, 17, 2
+_late1:
 	lda #$E000
 	sta.w BK_OAM+4*18
-	rts
-
-; The wheels: their places on the screen (biased) and their tiles.
-bk_wpre:
-	lda.b Z_BXS
-	clc
-	adc.b Z_W0X
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b Z_WSX
-	lda.b Z_BXS
-	clc
-	adc.b Z_W1X
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b Z_WSX+2
-	lda.b Z_BYS
-	sec
-	sbc.b Z_W0Y
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b Z_WSY
-	lda.b Z_BYS
-	sec
-	sbc.b Z_W1Y
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b Z_WSY+2
-	lda.l phys_view+PV_WHEEL_A+1
-	and #$00FF
-	asl a
-	tax
-	lda.l bike_t_wheel256,x
-	sta.b Z_WT
-	lda.l phys_view+PV_WHEEL_A+3
-	and #$00FF
-	asl a
-	tax
-	lda.l bike_t_wheel256,x
-	sta.b Z_WT+2
-	rts
-
-; Wheel A (0, 1) in place X/4.
-bk_wheel:
-	asl a
-	tay
-	lda.w Z_WT+bike_dp,y
-	sta.w BK_OAM+2,x
-	lda.w Z_WSX+bike_dp,y
-	sec
-	sbc.w #256
-	cmp.w #256
-	bcc +
-	cmp.w #-15 & $FFFF
-	bcc _whide
-	jsr bk_x8
-+	sta.w BK_OAM,x
-	lda.w Z_WSY+bike_dp,y
-	sec
-	sbc.w #256
-	cmp.w #224
-	bcc +
-	cmp.w #-15 & $FFFF
-	bcc _whide
-+	sep #$20
-	sta.w BK_OAM+1,x
-	rep #$20
-	rts
-_whide:
-	lda #$E000
-	sta.w BK_OAM,x
 	rts
 
 ; Z_T4 = the corners of the sprites of the body for its flips (from
@@ -2277,34 +2214,6 @@ _h4:
 _h5:
 	sta.w BK_OAM+4*12
 _h6:
-	rts
-
-; Sets the bit of x >= 256 of the sprite in place X/4. Keeps A, X.
-bk_x8:
-	pha
-	phx
-	txa
-	lsr a
-	lsr a
-	and #$0003
-	tax
-	sep #$20
-	lda.l bk_hb,x
-	sta.b Z_T2
-	rep #$20
-	lda 1,s
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	tax
-	sep #$20
-	lda.b Z_T2
-	ora.w BK_HB,x
-	sta.w BK_HB,x
-	rep #$20
-	plx
-	pla
 	rts
 
 .ENDS
