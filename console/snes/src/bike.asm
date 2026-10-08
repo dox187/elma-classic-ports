@@ -261,10 +261,11 @@ W_KF        dsw 11      ; its flips << 8
 .DEFINE BK_OAM      core_oam+4*OAM_BIKE
 .DEFINE BK_HB       core_oam+512+OAM_BIKE/4
 
-; A coordinate on the screen (A, biased by 256) to the OAM at \1 (x: \2 =
-; 256, the bit of x >= 256 at \3 with mask \4; y: \2 = 224): hidden (y 224)
-; when off the screen (jumps to the next ++).
+; x on the screen (A, biased by 256) to the OAM at \1, the bit of x >= 256
+; at \2 with mask \3, checked on \4: 0 both sides, 1 the left one, 3 the
+; right one. Off the screen: jumps to the next ++ (hidden).
 .MACRO EDGEX
+.IF \4 == 0
 	sec
 	sbc.w #256
 	cmp.w #256
@@ -277,9 +278,27 @@ W_KF        dsw 11      ; its flips << 8
 	tsb.w \2
 	rep #$20
 	txa
+.ENDIF
+.IF \4 == 1
+	cmp.w #256
+	bcs +
+	cmp.w #241
+	bcc ++
+	tax
+	sep #$20
+	lda.b #\3
+	tsb.w \2
+	rep #$20
+	txa
+.ENDIF
+.IF \4 == 3
+	cmp.w #512
+	bcs ++
+.ENDIF
 +	sta.w \1
 .ENDM
 
+; y on the screen (A, biased by 256) to the OAM at \1, or hidden.
 .MACRO EDGEY
 	sec
 	sbc.w #256
@@ -291,7 +310,8 @@ W_KF        dsw 11      ; its flips << 8
 .ENDM
 
 ; The modes of the sprites of the bike: 0 all of them on the screen, 1
-; their x checked (the bike near the left or the right edge), 2 x and y.
+; their x checked on the left (the bike near the left edge), 3 on the
+; right, 2 x and y.
 
 ; The sprite of single part \1 (2 * part) in place \2, mode \3.
 .MACRO PUT
@@ -305,7 +325,7 @@ W_KF        dsw 11      ; its flips << 8
 .IF \3 == 0
 	sta.w BK_OAM+4*\2
 .ELSE
-	EDGEX BK_OAM+4*\2, BK_HB+\2/4, 1<<(2*(\2&3))
+	EDGEX BK_OAM+4*\2, BK_HB+\2/4, 1<<(2*(\2&3)), (\3&1)*\3
 .ENDIF
 	lda.b Z_BYS
 	sec
@@ -339,7 +359,7 @@ W_KF        dsw 11      ; its flips << 8
 .IF \2 == 0
 	sta.w BK_OAM+4*(7+\1)
 .ELSE
-	EDGEX BK_OAM+4*(7+\1), BK_HB+(7+\1)/4, 1<<(2*((7+\1)&3))
+	EDGEX BK_OAM+4*(7+\1), BK_HB+(7+\1)/4, 1<<(2*((7+\1)&3)), (\2&1)*\2
 .ENDIF
 	ldy.w #4*\1+2
 	lda [Z_PTR],y
@@ -369,7 +389,7 @@ W_KF        dsw 11      ; its flips << 8
 .IF \3 == 0
 	sta.w BK_OAM+4*\2
 .ELSE
-	EDGEX BK_OAM+4*\2, BK_HB+\2/4, 1<<(2*(\2&3))
+	EDGEX BK_OAM+4*\2, BK_HB+\2/4, 1<<(2*(\2&3)), (\3&1)*\3
 .ENDIF
 	lda.b Z_WSY+2*\1
 .IF \3 == 2
@@ -2047,9 +2067,14 @@ bk_oam:
 	sec
 	sbc.w #56*16
 	cmp.w #144*16
-	bcc +
+	bcc ++
+	lda.b Z_BSX                 ; near the left or the right edge
+	sec
+	sbc.w #128*16
+	bpl +
 	jmp bk_oam1
-+	SPRITES 0, bk_body0
++	jmp bk_oam3
+++	SPRITES 0, bk_body0
 
 bk_oam1:
 	SPRITES 1, bk_body1
@@ -2057,7 +2082,10 @@ bk_oam1:
 bk_oam2:
 	SPRITES 2, bk_body2
 
-; The sprites of the body in modes 0, 1, 2.
+bk_oam3:
+	SPRITES 3, bk_body3
+
+; The sprites of the body in modes 0-3.
 bk_body0:
 	jsr bk_body
 	ldx.b Z_NS                  ; the places not used hidden
@@ -2143,6 +2171,35 @@ _b22:
 _b21:
 	BODY 0, 2
 _b20:
+	rts
+
+bk_body3:
+	jsr bk_body
+	ldx.b Z_NS                  ; the places not used hidden
+	txa
+	asl a
+	tax
+	jsr bk_hbody
+	ldx.b Z_NS                  ; the sprites from the last one
+	txa
+	asl a
+	tax
+	jmp (_bt3,x)
+_bt3:
+	.dw _b30, _b31, _b32, _b33, _b34, _b35, _b36
+_b36:
+	BODY 5, 3
+_b35:
+	BODY 4, 3
+_b34:
+	BODY 3, 3
+_b33:
+	BODY 2, 3
+_b32:
+	BODY 1, 3
+_b31:
+	BODY 0, 3
+_b30:
 	rts
 
 ; Turning: the wheel drawn over the bike in place 0, the other one in 17
