@@ -126,7 +126,6 @@ bike_dp     dsb 256
 
 .RAMSECTION ".bike_vars" BANK 0 SLOT 1
 bike_cur    dsw 11      ; the descriptor of each part in the VRAM, 0: none
-bike_curf   dsw 11      ; flips of its sprites << 8
 bike_ta     dsw 11      ; its first tile | attributes << 8
 bike_toggle dw          ; which group of parts loads first
 bike_pend   dw          ; bit p: part p wants a picture not in the VRAM
@@ -203,10 +202,9 @@ W_KF        dsw 11      ; its flips << 8
 	trb bike_pend
 	lda W_KF+\1
 	and.w #$FF00
-	cmp bike_curf+\1
-	beq ++
-	sta bike_curf+\1
 	ora.l bk_ta0+\1
+	cmp bike_ta+\1
+	beq ++
 	sta bike_ta+\1
 ++
 .ENDM
@@ -494,6 +492,9 @@ W_KF        dsw 11      ; its flips << 8
 ; For each part: its bit, its first tile with its palette and priority.
 bk_bit:
 	.dw 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024
+; The parts below part X/2: (1 << X/2) - 1.
+bk_below:
+	.dw 0, 1, 3, 7, 15, 31, 63, 127, 255
 ; The VRAM address of each single part's sprite.
 bk_vram:
 	.dw VRAM_OBJ+128*16, VRAM_OBJ+130*16, VRAM_OBJ+132*16, VRAM_OBJ+134*16
@@ -528,8 +529,6 @@ bike_reset:
 	ldx #0
 -	lda #$FFFF                  ; no picture yet: empty tiles
 	sta bike_cur,x
-	lda #0
-	sta bike_curf,x
 	lda.l bk_ta0,x
 	sta bike_ta,x
 	inx
@@ -1595,10 +1594,9 @@ bk_check:
 	trb bike_pend
 	lda W_KF,y
 	and.w #$FF00
-	cmp bike_curf,y
-	beq +
-	sta bike_curf,y
 	ora.l bk_ta0,x
+	cmp bike_ta,y
+	beq +
 	sta bike_ta,y
 +	rts
 
@@ -1802,13 +1800,17 @@ _single0:
 	lda.b Z_LEFT
 	sec
 	sbc.w #128+2*ENTRY_COST
-	bcc _r0
+	bcc ++
 	sta.b Z_LEFT
 	jsr bk_load1
 +	iny
 	iny
 	lda.b Z_T5
 	bne -
+++	tyx                         ; the parts before Y/2 are loaded
+	lda.l bk_below,x
+	and.b Z_PEND
+	trb bike_pend
 _r0:
 	rts
 
@@ -1824,6 +1826,8 @@ _group1:
 	sta.b Z_LEFT
 	ldy.w #2*8
 	jsr bk_load1
+	lda.w #$0100
+	trb bike_pend
 +	lda.b Z_PEND
 	and #$0200
 	beq +
@@ -1834,6 +1838,8 @@ _group1:
 	sta.b Z_LEFT
 	ldy.w #2*9
 	jsr bk_load1
+	lda.w #$0200
+	trb bike_pend
 +	lda.b Z_PEND
 	and #$0400
 	beq _r0
@@ -1866,28 +1872,32 @@ _group1:
 	jmp bk_qrows
 
 ; Part Y/2 (a single sprite) gets its wanted picture and loads it: two
-; transfers of 64 bytes, the bottom ones 16 tiles further. Keeps Y.
+; transfers of 64 bytes, the bottom ones 16 tiles further. Keeps Y; its
+; bit of bike_pend stays (the caller clears it).
 bk_load1:
 	tyx
+	lda W_KF,y
+	and #$FF00
+	ora.l bk_ta0,x
+	sta bike_ta,y
 	lda.l bk_vram,x
 	sta.b Z_DST
-	jsr bk_take
+	lda W_DESC,y
+	sta bike_cur,y
+	sec
+	sbc.w #bike_desc_single
+	tax
+	lda.l bike_desc_single+2,x  ; the bank of its picture
+	sta.b Z_T1
+	lda.l bike_desc_single,x
 	ldx core_dmaq_n
-	lda [Z_PTR]
 	sta core_dmaq+1,x           ; type +0, source +1, bank +3, size +4,
 	clc                         ; VRAM address +6
 	adc #64
 	sta core_dmaq+8+1,x
-	phy
-	ldy #2
-	lda [Z_PTR],y
-	ply
-	sep #$20
-	sta core_dmaq+3,x
+	lda.b Z_T1
+	sta core_dmaq+3,x           ; (its high byte: the size's, below)
 	sta core_dmaq+8+3,x
-	stz core_dmaq,x             ; (DMAQ_VRAM)
-	stz core_dmaq+8,x
-	rep #$20
 	lda #64
 	sta core_dmaq+4,x
 	sta core_dmaq+8+4,x
@@ -1896,7 +1906,12 @@ bk_load1:
 	clc
 	adc #256
 	sta core_dmaq+8+6,x
+	sep #$20
+	stz core_dmaq,x             ; (DMAQ_VRAM)
+	stz core_dmaq+8,x
+	rep #$20
 	txa
+	clc
 	adc #16
 	sta core_dmaq_n
 	lda core_dmaq_bytes
@@ -1947,7 +1962,6 @@ bk_take:
 	sta.b Z_PTR
 	lda W_KF,y
 	and #$FF00
-	sta bike_curf,y
 	ora.l bk_ta0,x
 	sta bike_ta,y
 	rts
@@ -2258,7 +2272,7 @@ bk_body:
 	lda [Z_PTR]
 	and #$00FF
 	sta.b Z_NS
-	lda bike_curf+2*FRAME
+	lda bike_ta+2*FRAME
 	xba
 	and #$00C0                  ; the flips: 64 f
 	lsr a
