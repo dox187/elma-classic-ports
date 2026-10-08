@@ -106,35 +106,31 @@ def lookup(alpha, h, n):
 
 
 def atan2(vx, vy, t):
+    """The angle in 256 steps, times 256: the table by |y| >> 3, |x| >> 3."""
     ax, ay = abs(vx), abs(vy)
-    if ax == 0 and ay == 0:
-        return 0
-    while ax >= 256 or ay >= 256:
+    while (ax | ay) >= 512:
         ax >>= 1
         ay >>= 1
-    if ay <= ax:
-        base = t['atan'][(ay << 8) // ax]
-    else:
-        base = 16384 - t['atan'][(ax << 8) // ay]
+    a = t['atan8'][((ay << 3) & 0xFC0) | (ax >> 3)]
     if vx >= 0:
-        a = base if vy >= 0 else -base
+        a = a if vy >= 0 else -a
     else:
-        a = 32768 - base if vy >= 0 else 32768 + base
-    return a & 0xFFFF
+        a = 128 - a if vy >= 0 else 128 + a
+    return (a & 255) << 8
 
 
-def conv(d):
-    """16.16 meters (small) to 1/16 pixels: (d >> 3) * 77 >> 11."""
-    d13 = s16(d >> 3)
-    return s16((d13 * 77) >> 11)
+def conv(p, body):
+    """A point of the physics (16.16) from the body's, in units: the bytes
+    1-2 of both (1/256 m) subtracted, times 77/64."""
+    d8 = s16(((p >> 8) & 0xFFFF) - ((body >> 8) & 0xFFFF))
+    return mul8(s16(4 * d8), 77)
 
 
 def lpx16(d):
     """16.16 meters from the origin to 1/16 level pixels (mod 65536)."""
     if d < 0:
-        d = 0
-    e = (d >> 4) & 0xFFFFFF
-    return ((e * 4915) >> 16) & 0xFFFF
+        return 0
+    return (((d >> 8) * 4915) >> 12) & 0xFFFF
 
 
 class Bike:
@@ -155,7 +151,7 @@ class Bike:
         bsy = s16(lpx16(s.org[1] - by) - s.cam[1] * 16)
 
         def rel(p):
-            return (conv(p[0] - bx), conv(p[1] - by))
+            return (conv(p[0], bx), conv(p[1], by))
         w0, w1 = rel(s.wheel[0]), rel(s.wheel[1])
         rider, head = rel(s.rider), rel(s.head)
         th = s.body_a
@@ -163,25 +159,23 @@ class Bike:
         c, sn = t['sin'][ti + 256], t['sin'][ti]
         tr = s.turned
 
-        # Along the bike: cos and sin negated when turned (-128 -> 127).
-        cj = min(-c, 127) if tr else c
-        sj = min(-sn, 127) if tr else sn
-
-        def rot(pj, pf):
-            return (s16(mul8(2 * pj, cj) - mul8(2 * pf, sn)),
-                    s16(mul8(2 * pj, sj) + mul8(2 * pf, c)))
-
         def add(a, b):
             return (s16(a[0] + b[0]), s16(a[1] + b[1]))
 
         def sub(a, b):
             return (s16(a[0] - b[0]), s16(a[1] - b[1]))
-        handle = rot(g['BK_HANDLE_J'], g['BK_HANDLE_F'])
-        rear = rot(g['BK_REAR_J'], g['BK_REAR_F'])
-        foot = rot(g['BK_FOOT_J'], g['BK_FOOT_F'])
-        hip = add(rider, rot(g['BK_HIP_J'], g['BK_HIP_F']))
-        sh = add(rider, rot(g['BK_SHOULDER_J'], g['BK_SHOULDER_F']))
-        torso = add(rider, rot(g['BK_TORSO_C_J'], g['BK_TORSO_C_F']))
+        # Points fixed to the bike and the rider: tables by the angle.
+        ri = (th >> 6) + (1024 if tr else 0)
+
+        def rot(name):
+            return tuple(t['rot_' + name][ri])
+        handle = rot('handle')
+        rear = rot('rear')
+        foot = rot('foot')
+        hip = add(rider, rot('hip'))
+        sh = add(rider, rot('shoulder'))
+        torso = add(rider, rot('torso_c'))
+        head = add(rider, rot('head'))      # szamitfejr
         # The hand:
         vi = s.volt >> 8
         hand = handle
@@ -200,36 +194,48 @@ class Bike:
             b = max(-127, min(127, asr(v[1], 2)))
             return a * a + b * b
         sg = -1 if tr else 1
-        # Knee:
-        v = sub(hip, foot)
-        b = t['knee_b'][min(d4(v) >> 3, 1023)]
-        knee = (s16(foot[0] + asr(v[0], 1) + mul8(4 * (-v[1] * sg), b)),
-                s16(foot[1] + asr(v[1], 1) + mul8(4 * (v[0] * sg), b)))
-        # Elbow:
-        v = sub(hand, sh)
-        i = min(d4(v) >> 3, 1023)
-        a, b = t['elbow_a'][i], t['elbow_b'][i]
-        elbow = (s16(sh[0] + mul8(2 * v[0], a) + mul8(4 * (-v[1] * sg), b)),
-                 s16(sh[1] + mul8(2 * v[1], a) + mul8(4 * (v[0] * sg), b)))
-        # Parts: center, alpha, h.
         P = {}
+        # The legs and the arms from the table by the rider's place in the
+        # frame of the bike (mirrored when turned).
+        rbx = s16(mul8(2 * rider[0], c) + mul8(2 * rider[1], sn))
+        rby = s16(mul8(2 * rider[1], c) - mul8(2 * rider[0], sn))
+        if tr:
+            rbx = s16(-rbx)
+        ix = min(max((rbx - g['BK_LIMB_X0']) >> 2, 0), 63)
+        iy = min(max((rby - g['BK_LIMB_Y0']) >> 2, 0), g['BK_LIMB_NY'] - 1)
+        idx = iy * 64 + ix
+        for name, h in (('thigh', tr), ('leg', tr), ('uparm', 1 - tr), ('forearm', tr)):
+            bx, by = t['limb_%s_x' % name][idx], t['limb_%s_y' % name][idx]
+            a8 = t['limb_%s_a' % name][idx]
+            if tr:
+                bx, a8 = -bx, (128 - a8) & 255
+            P[name] = [(s16(mul8(2 * bx, c) - mul8(2 * by, sn)),
+                        s16(mul8(2 * bx, sn) + mul8(2 * by, c))), (th + (a8 << 8)) & 0xFFFF, h]
+        if vi:
+            # Volting: the arm swung, computed (ketkormetszete).
+            v = sub(hand, sh)
+            i = min(d4(v) >> 3, 1023)
+            a, b = t['elbow_a'][i], t['elbow_b'][i]
+            elbow = (s16(sh[0] + mul8(2 * v[0], a) + mul8(4 * (-v[1] * sg), b)),
+                     s16(sh[1] + mul8(2 * v[1], a) + mul8(4 * (v[0] * sg), b)))
+            a8 = atan2(v[0], v[1], t) >> 8
+            uparm_a = ((a8 + 128 + sg * t['elbow_gu'][i]) & 255) << 8
+            forearm_a = ((a8 + 128 - sg * t['elbow_gf'][i]) & 255) << 8
 
-        def rod(name, a, b, cc, h):
-            v = sub(b, a)
-            P[name] = [(s16(a[0] + mul8(2 * v[0], cc)), s16(a[1] + mul8(2 * v[1], cc))),
-                       atan2(v[0], v[1], t), h]
-        rod('thigh', knee, hip, g['BK_C_THIGH'], tr)
-        rod('leg', foot, knee, g['BK_C_LEG'], tr)
-        rod('uparm', elbow, sh, g['BK_C_UPARM'], 1 - tr)
-        rod('forearm', hand, elbow, g['BK_C_FOREARM'], tr)
+            def rod(name, a, b, cc, al, h):
+                v = sub(b, a)
+                P[name] = [(s16(a[0] + mul8(2 * v[0], cc)), s16(a[1] + mul8(2 * v[1], cc))), al, h]
+            rod('uparm', elbow, sh, g['BK_C_UPARM'], uparm_a, 1 - tr)
+            rod('forearm', hand, elbow, g['BK_C_FOREARM'], forearm_a, tr)
         k1, k2 = (w1, w0) if tr else (w0, w1)
         for name, a, b in (('s1', k1, handle), ('s2', rear, k2)):
+            # The pieces: from the ends along the rod (its angle's cos, sin).
             v = sub(b, a)
-            i = min(d4(v) >> 4, 1023)
-            ca, cb = t[name + 'a'][i], t[name + 'b'][i]
             al = atan2(v[0], v[1], t)
-            P[name + 'a'] = [(s16(a[0] + mul8(2 * v[0], ca)), s16(a[1] + mul8(2 * v[1], ca))), al, 0]
-            P[name + 'b'] = [(s16(b[0] + mul8(2 * v[0], cb)), s16(b[1] + mul8(2 * v[1], cb))), al, 0]
+            ec, es = t['sin'][(al >> 6) + 256], t['sin'][al >> 6]
+            ka, kb = g['BK_%s_KA' % name.upper()], g['BK_%s_KB' % name.upper()]
+            P[name + 'a'] = [(s16(a[0] + mul8(2 * ka, ec)), s16(a[1] + mul8(2 * ka, es))), al, 0]
+            P[name + 'b'] = [(s16(b[0] + mul8(2 * kb, ec)), s16(b[1] + mul8(2 * kb, es))), al, 0]
         half = 0x8000 if tr else 0
         P['torso'] = [torso, (th + (0x8000 - g['BK_TORSO_BETA'] if tr else g['BK_TORSO_BETA'])) & 0xFFFF, tr]
         P['head'] = [head, (th + half) & 0xFFFF, tr]
@@ -244,13 +250,17 @@ class Bike:
             neg = f < 0
             teff = tr ^ int(neg)
             late = 0 if ((f > 0 and not tr) or (f <= 0 and tr)) else 1
+            # The squash as a matrix: (f - 1) * j j^T, times 64.
+            gg = t['turn_g'][ti2]
+            ma = mul8(c * c, gg) >> 6
+            mb = mul8(c * sn, gg) >> 6
+            md = mul8(sn * sn, gg) >> 6
             for name, p in P.items():
                 if name == 'frame':
                     continue
                 px, py = p[0]
-                tt = s16(mul8(2 * px, c) + mul8(2 * py, sn))
-                dd = s16(mul8(2 * tt, f) - tt)
-                p[0] = (s16(px + mul8(2 * dd, c)), s16(py + mul8(2 * dd, sn)))
+                p[0] = (s16(px + mul8(4 * px, ma) + mul8(4 * py, mb)),
+                        s16(py + mul8(4 * px, mb) + mul8(4 * py, md)))
             for name, p in P.items():
                 if lv == 4:
                     if neg:
@@ -288,7 +298,8 @@ class Bike:
         ranges = {}
         accepted = []
         pairs = [0, 1] if self.toggle == 0 else [1, 0]
-        self.toggle ^= 1
+        if pend:
+            self.toggle ^= 1
         left = BUDGET
         for n, pair in enumerate(pairs):
             lo = hi = None
@@ -331,9 +342,15 @@ class Bike:
             put(11 + n, ctr, [(-8, -8)], [tile], fl, 0, [('wheel', k)])
 
         def part(i):
-            if self.cur[i] is None:
-                return
             name = (PARTS + ['frame'])[i]
+            if self.cur[i] is None:
+                # Not loaded yet: a single part shows its empty tiles.
+                if i != FRAME:
+                    pair, slot = SLOT[i]
+                    pal = g['BK_PAL_%s' % name.upper()]
+                    put(i, P[name][0], [(-8, -8)], [PAIR_TILE[pair] + 2 * slot], 0, pal,
+                        [('empty', 0)])
+                return
             pal = g['BK_PAL_%s' % name.upper()]
             pair, slot = SLOT[i]
             if i == FRAME:
@@ -364,6 +381,8 @@ def preview(data, oam, size=(256, 224)):
     img = np.zeros((size[1], size[0], 4), np.uint8)
     pals = [np.array(p) for p in data.pals]
     for x, y, tile, attr, part, (kind, idx) in reversed(oam):
+        if kind == 'empty':
+            continue
         q = data.images[kind][idx]
         if attr & FLIP_H:
             q = q[:, ::-1]
@@ -410,14 +429,8 @@ class Objects:
         g = self.d.inc
         ac = ((time * g['OBJ_ANIM_K']) >> 16) & 0xFFFF
         ba = (time * g['OBJ_BOB_K']) & 0xFFFF
-        loaded = []
-        for k, n in enumerate(self.d.obj_frames):
-            if self.used >> k & 1:
-                f = ac % n
-                if f != self.curf[k]:
-                    self.curf[k] = f
-                    loaded.append(k)
         oam = []
+        vis = set()
         for x, y, k, i, ph in reversed(self.tab):
             if k >= 2 and not active[i]:
                 continue
@@ -429,5 +442,17 @@ class Objects:
             if not -15 <= sy <= 223:
                 continue
             if len(oam) < 64:
-                oam.append((sx, sy, 192 + 2 * k, PRIO | 3 << 1, k, ('obj', (k, self.curf[k]))))
+                oam.append([sx, sy, 192 + 2 * k, PRIO | 3 << 1, k, ['obj', [k, None]]])
+                vis.add(k)
+        # The frames of the kinds on the screen that changed are loaded.
+        loaded = []
+        for k, n in enumerate(self.d.obj_frames):
+            if self.used >> k & 1 and k in vis:
+                f = ac % n
+                if f != self.curf[k]:
+                    self.curf[k] = f
+                    loaded.append(k)
+        for o in oam:
+            o[5][1][1] = self.curf[o[4]]
+        oam = [(o[0], o[1], o[2], o[3], o[4], (o[5][0], tuple(o[5][1]))) for o in oam]
         return oam, loaded

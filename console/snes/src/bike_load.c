@@ -22,7 +22,7 @@ void obj_reset(void);
 extern s32 bike_org_x, bike_org_y;
 extern u16 obj_count, obj_used;
 extern s16 obj_x[], obj_y[];
-extern u16 obj_kind[], obj_poff[], obj_phase[];
+extern u16 obj_ta[], obj_kbit[], obj_poff[], obj_phase[];
 
 static const u16 Bits[8] = { 1, 2, 4, 8, 16, 32, 64, 128 };
 
@@ -65,10 +65,13 @@ void objects_load(u16 level) {
 			k = 2 + o->anim % OBJ_FOODS;
 		obj_x[n] = lpx(o->x - bike_org_x);
 		obj_y[n] = lpx(bike_org_y - o->y);
-		obj_kind[n] = k;
-		obj_poff[n] = i * 12;
-		// The phase of the bobbing (s_random of the original):
-		obj_phase[n] = (i * 151 + 71) & 255;
+		// Tile 192 + 2k, palette 3, priority 2:
+		obj_ta[n] = 192 + 2 * k + 0x2600;
+		obj_kbit[n] = Bits[k];
+		obj_poff[n] = o->type == 2 ? i * 12 : 0xFFFF;
+		// The phase of the bobbing (s_random of the original), killers
+		// do not bob:
+		obj_phase[n] = o->type == 3 ? 0xFFFF : (i * 151 + 71) & 255;
 		obj_used |= Bits[k];
 		n++;
 	}

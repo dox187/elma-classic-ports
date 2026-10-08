@@ -103,7 +103,7 @@ def main():
             expect[t] = (oam, ooam, dma, list(bike.cur), list(bike.cur_flip), list(objs.curf))
             t += 1
     bad = 0
-    clocks, oclocks, dmas = [], [], []
+    clocks, oclocks, dmas, kinds = [], [], [], []
     states = {}
     for line in lines:
         if not line.startswith('FRAME '):
@@ -120,6 +120,8 @@ def main():
         qbytes = sum(int.from_bytes(q[i * 8 + 4:i * 8 + 6], 'little') for i in range(min(nq, 12)))
         dmas.append(qbytes)
         ex_oam, ex_ooam, ex_dma, cur, curf, ocur = expect[tt]
+        kinds.append(('turn' if poses[tt // bike_poses.HOLD].turn < bikefix.TURN_DONE else
+                      'load' if ex_dma else 'calm', int(c1), ex_dma))
         states[tt] = (cur, curf, ocur)
         got = decode(oam, 32, 64)
         want = [(x & 0x1FF, y & 0xFF, tile, attr) for x, y, tile, attr, _, _ in ex_oam]
@@ -154,6 +156,12 @@ def main():
     print('frames checked: %d, OAM differences: %d, VRAM differences: %d' % (len(clocks), bad, vbad))
     if clocks:
         print('bike_draw: master clocks typical (median) %d, worst %d' % (sorted(clocks)[len(clocks) // 2], max(clocks)))
+        for k in ('calm', 'load', 'turn'):
+            c = sorted(x[1] for x in kinds if x[0] == k)
+            b = [x[2] for x in kinds if x[0] == k]
+            if c:
+                print('  %s frames (%d): median %d, worst %d; bike tiles %d..%d bytes' % (
+                    k, len(c), c[len(c) // 2], c[-1], min(b), max(b)))
         print('objects_draw: typical %d, worst %d' % (sorted(oclocks)[len(oclocks) // 2], max(oclocks)))
         print('bytes queued a frame: typical %d, worst %d' % (sorted(dmas)[len(dmas) // 2], max(dmas)))
     return 1 if bad or vbad else 0

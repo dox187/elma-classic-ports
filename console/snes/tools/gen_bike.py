@@ -62,8 +62,13 @@ PALETTE = {'frame': 0, 'wheel': 0, 's1a': 0, 's1b': 0, 's2a': 0, 's2b': 0,
            'head': 1, 'forearm': 1, 'leg': 1,
            'torso': 2, 'uparm': 2, 'thigh': 2}
 FRAME_SPRITES = 6            # places for the sprites of the body
+FRAME_DESC = 128             # bytes of the descriptor of a picture of the body
 # Length of a piece of a suspension, of the whole:
 PIECE = 0.58
+# The table of the limbs (by the rider's place in the frame of the bike):
+LIMBS = ('thigh', 'leg', 'uparm', 'forearm')
+LIMB_X0, LIMB_NX = -160, 64
+LIMB_Y0, LIMB_NY = 8, 40
 
 # The rods of kibike: picture, the ends a, b (joints of bikemodel), ta,
 # tb, half width, mirrored when the bike is not turned.
@@ -112,6 +117,11 @@ class Geometry:
         e = bm.unit(b - a)
         c = (a + b) / 2 + e * (0.05 - 0.1) / 2
         self.torso_c = un(c)
+        # The same in units, not rounded (for the tables of the angles):
+        self.points = {'handle': (j['handle'] - body) * U, 'rear': (j['rear'] - body) * U,
+                       'foot': (j['foot'] - body) * U, 'hip': (j['hip'] - rider) * U,
+                       'shoulder': (j['shoulder'] - rider) * U, 'torso_c': c * U,
+                       'head': bm.v(-0.09, 0.63) * U}
         self.torso_beta = int(round(math.atan2(e[1], e[0]) / (2 * math.pi) * 65536)) & 0xFFFF
         # Lengths of the rods (with their ends) at rest:
         self.rod_len = {}
@@ -483,6 +493,18 @@ def tables(geo):
     t['knee_b'] = [s8(64 * ik(bm.LEG_LEN, bm.THIGH_LEN, i)[1]) for i in range(1024)]
     t['elbow_a'] = [s8(128 * ik(bm.UPARM_LEN, bm.FOREARM_LEN, i)[0]) for i in range(1024)]
     t['elbow_b'] = [s8(64 * ik(bm.UPARM_LEN, bm.FOREARM_LEN, i)[1]) for i in range(1024)]
+    # The angles of the limbs from the angle of foot -> hip and shoulder ->
+    # hand (256 steps): the leg +-atan(2b), the thigh -+atan(2b); the upper
+    # arm 128 +- atan(b / a), the forearm 128 -+ atan(b / (1 - a)).
+    def ang(y, x):
+        return int(round(math.atan2(y, x) / (2 * math.pi) * 256)) & 255
+    t['knee_beta'] = [ang(2 * ik(bm.LEG_LEN, bm.THIGH_LEN, i)[1], 1) for i in range(1024)]
+    t['elbow_gu'] = []
+    t['elbow_gf'] = []
+    for i in range(1024):
+        a, b = ik(bm.UPARM_LEN, bm.FOREARM_LEN, i)
+        t['elbow_gu'].append(ang(b, a))
+        t['elbow_gf'].append(ang(b, 1 - a))
     # Centers of the pieces of the suspensions, a + c * v (c times 128), by
     # d4 >> 4:
     for s in ('s1', 's2'):
@@ -528,8 +550,68 @@ def tables(geo):
         lv.append(4 if a >= 0.875 else min(range(4), key=lambda j: abs(TURN_LEVELS[j] - a)))
     t['turn_f'] = f
     t['turn_lv'] = lv
+    # f - 1 times 64 (the squash matrix, bike.asm):
+    t['turn_g'] = [s8(64 * (-math.cos((i + 0.5) / 256 * math.pi) - 1)) for i in range(256)]
     # Bobbing of the apples and the flower: -2 * sin (pixels, y down):
     t['bob'] = [s8(-2 * math.sin(i * 2 * math.pi / 256)) for i in range(256)]
+    # The points fixed to the bike and the rider, rotated with the bike: by
+    # the angle >> 6 (1024 steps), not turned then turned (mirrored along
+    # the bike), x and y in units.
+    for name, (pj, pf) in geo.points.items():
+        tab = []
+        for tr in (0, 1):
+            for i in range(1024):
+                th = (i + 0.5) * 2 * math.pi / 1024
+                c, sn = math.cos(th), math.sin(th)
+                x = -pj if tr else pj
+                tab.append((int(round(x * c - pf * sn)), int(round(x * sn + pf * c))))
+        t['rot_' + name] = tab
+    # The legs and the arms (not volting) by the rider's place in the frame
+    # of the bike (not turned, units): LIMB_NX x LIMB_NY cells of 4 units
+    # from (LIMB_X0, LIMB_Y0): the centers of the thigh, the leg, the upper
+    # arm and the forearm (units, from the center of the bike) and their
+    # angles (256 steps).
+    for name in LIMBS:
+        t['limb_%s_x' % name], t['limb_%s_y' % name], t['limb_%s_a' % name] = [], [], []
+    for iy in range(LIMB_NY):
+        for ix in range(LIMB_NX):
+            rx = (LIMB_X0 + 4 * ix + 2) / U
+            ry = (LIMB_Y0 + 4 * iy + 2) / U
+            st = bm.State(body=(0.0, 0.0), wheel0=(-0.85, -0.6), wheel1=(0.85, -0.6),
+                          rider=(rx, ry))
+            j = bm.joints(st)
+            for name in LIMBS:
+                ja, jb, ta, tb = RODS[name][:4]
+                a, b = j[ja], j[jb]
+                e = bm.unit(b - a)
+                c = (a - e * ta + b + e * tb) / 2 * U
+                t['limb_%s_x' % name].append(int(round(c[0])))
+                t['limb_%s_y' % name].append(int(round(c[1])))
+                t['limb_%s_a' % name].append(int(round(math.atan2(e[1], e[0]) / (2 * math.pi) * 256)) & 255)
+    # The angle (256 steps) of a vector by |y| >> 3 (rows) and |x| >> 3
+    # (columns), 0..63 each:
+    t['atan8'] = [int(round(math.atan2(y, x) / (2 * math.pi) * 256)) & 255
+                  for y in range(64) for x in range(64)]
+    # The stored picture and flips of an angle step q (N steps) for h = 0
+    # then h = 1: k | flips << 8 (gen_bike.py's rule).
+    for n in (32, 64, 128):
+        tab = []
+        for h in (0, 1):
+            for q in range(n):
+                half = n // 2
+                if not h:
+                    k, f = (q, 0) if q < half else (q - half, 0xC0)
+                else:
+                    q2 = -q & (n - 1)
+                    k, f = (q2, 0x80) if q2 < half else (q2 - half, 0x40)
+                tab.append(k | f << 8)
+        t['lk%d' % n] = tab
+    # The wheel at 64 steps: its tile | (priority 2 | flips) << 8.
+    tab = []
+    for q in range(64):
+        k, f = (q, 0) if q < 32 else (q - 32, 0xC0)
+        tab.append((k >> 3) * 32 + (k & 7) * 2 | (0x20 | f) << 8)
+    t['wheel'] = tab
     return t
 
 
@@ -665,12 +747,23 @@ def main():
     a += ['.SECTION ".bike_desc" SUPERFREE', 'bike_desc_single:']
     for ref in single:
         a.append('\t.dl %s\n\t.db 0' % ref)
+    # The body: the number of sprites, their pointers (6), then for each
+    # flip (none, H, V, both) the corners of the 6 from the pivot + 128.
     a.append('bike_desc_frame:')
     for spr in frame:
         a.append('\t.db %d' % len(spr))
         for dx, dy, ref in spr:
-            a.append('\t.db %d & $FF, %d & $FF\n\t.dl %s' % (dx, dy, ref))
-        a.append('\t.dsb %d, 0' % (31 - 5 * len(spr)))
+            a.append('\t.dl %s' % ref)
+        a.append('\t.dsb %d, 0' % (3 * (FRAME_SPRITES - len(spr))))
+        for fl in range(4):
+            offs = []
+            for dx, dy, ref in spr:
+                fx = -dx - 16 if fl & 1 else dx
+                fy = -dy - 16 if fl & 2 else dy
+                offs += [fx + 128, fy + 128]
+            offs += [0] * (2 * (FRAME_SPRITES - len(spr)))
+            a.append('\t.db ' + ','.join(str(x) for x in offs))
+        a.append('\t.dsb %d, 0' % (FRAME_DESC - 1 - 3 * FRAME_SPRITES - 8 * FRAME_SPRITES))
     a += ['.ENDS', '']
     # Objects: per kind the number of frames and the pointers of the frames.
     a += ['.SECTION ".obj_anims" SUPERFREE', 'obj_kind_frames:']
@@ -685,14 +778,51 @@ def main():
     a += ['.ENDS', '']
     # Tables:
     a += ['.SECTION ".bike_tables" SUPERFREE']
-    for name in ('sin', 'knee_b', 'elbow_a', 'elbow_b', 's1a', 's1b', 's2a', 's2b',
-                 'volt_c0', 'volt_s0', 'volt_c1', 'volt_s1', 'turn_f', 'turn_lv', 'bob'):
+    for name in ('sin', 'elbow_a', 'elbow_b',
+                 'volt_c0', 'volt_s0', 'volt_c1', 'volt_s1', 'turn_f', 'turn_lv', 'turn_g',
+                 'bob', 'elbow_gu', 'elbow_gf'):
         a.append('bike_t_%s:' % name)
         a += db(tb[name], 32)
+    a.append('bike_t_bob16:')
+    a += ['\t.dw ' + ','.join('%d & $FFFF' % x for x in tb['bob'][i:i + 16])
+          for i in range(0, 256, 16)]
     a.append('bike_t_atan:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['atan'][i:i + 16])
           for i in range(0, 257, 16)]
+    # The lowest and the highest set bit of a byte:
+    a.append('bike_t_lowbit:')
+    a += db([(v & -v).bit_length() - 1 if v else 0 for v in range(256)], 32)
+    a.append('bike_t_highbit:')
+    a += db([v.bit_length() - 1 if v else 0 for v in range(256)], 32)
+    a.append('bike_t_wheel:')
+    a += ['\t.dw ' + ','.join(str(x) for x in tb['wheel'][i:i + 16]) for i in range(0, 64, 16)]
+    for n in (32, 64, 128):
+        a.append('bike_t_lk%d:' % n)
+        a += ['\t.dw ' + ','.join(str(x) for x in tb['lk%d' % n][i:i + 16])
+              for i in range(0, 2 * n, 16)]
     a += ['.ENDS', '']
+    a += ['.SECTION ".bike_atan8" SUPERFREE', 'bike_t_atan8:']
+    a += db(tb['atan8'], 32)
+    a += ['.ENDS', '']
+    for name in LIMBS:
+        a += ['.SECTION ".bike_limb_%s" SUPERFREE' % name]
+        for f in ('x', 'y'):
+            a.append('bike_limb_%s_%s:' % (name, f))
+            tab = tb['limb_%s_%s' % (name, f)]
+            a += ['\t.dw ' + ','.join('%d & $FFFF' % x for x in tab[i:i + 16])
+                  for i in range(0, len(tab), 16)]
+        a += ['.ENDS', '']
+    a += ['.SECTION ".bike_limb_angles" SUPERFREE']
+    for name in LIMBS:
+        a.append('bike_limb_%s_a:' % name)
+        a += db(tb['limb_%s_a' % name], 32)
+    a += ['.ENDS', '']
+    for name in geo.points:
+        a += ['.SECTION ".bike_rot_%s" SUPERFREE' % name, 'bike_rot_%s:' % name]
+        tab = tb['rot_' + name]
+        for i in range(0, len(tab), 8):
+            a.append('\t.dw ' + ','.join('%d & $FFFF,%d & $FFFF' % xy for xy in tab[i:i + 8]))
+        a += ['.ENDS', '']
 
     # --- bike_data.inc ---
     inc = ['; Generated by tools/gen_bike.py.']
@@ -714,6 +844,17 @@ def main():
     d('BK_N_FRAME_HALF', N_FRAME // 2)
     d('BK_N_TURN_FRAME_HALF', N_TURN_FRAME // 2)
     d('BK_FRAME_SPRITES', FRAME_SPRITES)
+    d('BK_FRAME_DESC', FRAME_DESC)
+    # The pieces of the suspensions: their centers from the ends of the rod
+    # along it (units).
+    for r in ('s1', 's2'):
+        ext_a, ext_b = RODS[r][2], RODS[r][3]
+        lp = geo.piece_len[r]
+        d('BK_%s_KA' % r.upper(), int(round((lp / 2 - ext_a) * U)))
+        d('BK_%s_KB' % r.upper(), int(round((ext_b - lp / 2) * U)))
+    d('BK_LIMB_X0', LIMB_X0)
+    d('BK_LIMB_Y0', LIMB_Y0)
+    d('BK_LIMB_NY', LIMB_NY)
     d('OBJ_KINDS', len(obj_kinds))
     d('OBJ_FOODS', len(obj_kinds) - 2)
     # Animation of the objects: frames a step (0.4368 / PHYS_HZ / 0.014)

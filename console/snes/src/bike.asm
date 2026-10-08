@@ -1,4 +1,4 @@
-; The bike, the rider and the objects as sprites (bike.h).
+; The bike and the rider as sprites (bike.h).
 ;
 ; The parts of the bike are drawn beforehand at many angles (tools/
 ; gen_bike.py); every frame bike_draw computes where each part is and at
@@ -22,8 +22,8 @@
 .include "core.inc"
 .include "bike_data.inc"
 
-; phys_view (bike_view_t) and phys_objs (phys_obj_t) as 816-tcc lays them
-; out (s32 on 4 bytes, aligned to 4 bytes):
+; phys_view (bike_view_t) as 816-tcc lays it out (s32 on 4 bytes, aligned
+; to 4 bytes):
 .DEFINE PV_BODY_X   0
 .DEFINE PV_BODY_Y   4
 .DEFINE PV_BODY_A   8
@@ -35,7 +35,6 @@
 .DEFINE PV_HEAD_X   40
 .DEFINE PV_HEAD_Y   44
 .DEFINE PV_TURNED   48
-.DEFINE PO_ACTIVE   3
 ; bike_anim (bike_anim_t):
 .DEFINE BA_TURN     0
 .DEFINE BA_VOLT     2
@@ -48,9 +47,8 @@
 .DEFINE OAM_BIKE    32          ; first sprite of the bike
 .DEFINE OAM_OBJ     64          ; first sprite of the objects
 .DEFINE VRAM_PARTS  VRAM_OBJ+128*16
-.DEFINE VRAM_OBJS   VRAM_OBJ+192*16
 
-; The direct page of bike_draw and objects_draw:
+; The direct page of bike_draw (and objects_draw):
 .ENUM $00
 Z_CAMX      dw
 Z_CAMY      dw
@@ -60,12 +58,12 @@ Z_TH        dw          ; angle of the bike
 Z_TR        dw          ; turned (hatra_f): 0 or 1
 Z_C         db          ; cos and sin of the bike's angle, times 128
 Z_S         db
-Z_CJ        db          ; the same, negated when the bike is turned
-Z_SJ        db
 Z_B         db          ; factors
 Z_A         db
-Z_F         db          ; the squash of the turn, times 128
-Z_PAD       db
+Z_MA        db          ; the squash of the turn: (f - 1) j j^T, times 64
+Z_MB        db
+Z_MD        db
+Z_G         db
 Z_T0        dw
 Z_T1        dw
 Z_T2        dw
@@ -100,6 +98,8 @@ Z_KNX       dw
 Z_KNY       dw
 Z_ELX       dw
 Z_ELY       dw
+Z_IDX       dw          ; index of the tables of a distance
+Z_A8        dw          ; an angle in 256 steps
 Z_LV        dw          ; level of the squashed pictures, 4: not turning
 Z_NEG       dw          ; the turn's squash is negative (mirrored)
 Z_TEFF      dw          ; turned as drawn
@@ -108,22 +108,21 @@ Z_LEFT      dw          ; bytes left of the budget
 Z_LO        dw
 Z_HI        dw
 Z_PAIR      dw
+Z_PEND      dw          ; bit p: part p wants another picture
 Z_ACC       dw          ; bit p: part p is loaded this frame
 Z_PTR       dsb 4       ; a long pointer
 Z_SRC       dsb 4       ; source of a DMA
 Z_DST       dw
-Z_OX        dw          ; offset of the next sprite in core_oam
-Z_N         dw          ; sprites written
-Z_NMAX      dw
-Z_HB        dw          ; first byte of the high table of the sprites
-Z_PX        dw          ; pivot of a part on the screen (pixels)
-Z_PY        dw
-Z_ATTR      dw
-Z_TILE      dw
 Z_NS        dw
-Z_I         dw
-Z_LKHALF    dw
-Z_LKMASK    dw
+Z_BXB       dw          ; the center of the bike on the screen, biased
+Z_BYB       dw          ; (bk_oam)
+Z_BXS       dw          ; the same for the corner of a single sprite
+Z_BYS       dw
+Z_TA        dw          ; tile | attributes << 8
+Z_FL        dw          ; flips of a part
+Z_PX        dw
+Z_PY        dw
+Z_FAST      dw          ; $FFFF: the bike far from the edges of the screen
 .ENDE
 
 .BASE $00
@@ -134,16 +133,18 @@ bike_dp     dsb 256
 
 .RAMSECTION ".bike_vars" BANK 0 SLOT 1
 bike_cur    dsw 11      ; the descriptor of each part in the VRAM, 0: none
-bike_curf   dsw 11      ; flips of its sprites
+bike_curf   dsw 11      ; flips of its sprites << 8
+bike_ta     dsw 11      ; its first tile | attributes << 8
 bike_toggle dw          ; which pair of rows goes first
 bike_rlo    dsw 2       ; ranges of slots loaded this frame ($FFFF: none)
 bike_rhi    dsw 2
+bike_oam_end dw         ; end of the sprites written in the last frame
 P_CX        dsw 11      ; the parts: center
 P_CY        dsw 11
 P_AL        dsw 11      ; angle
-P_H         dsw 11      ; mirrored
-W_DESC      dsw 11      ; the picture wanted (descriptor) and its flips
-W_FLIP      dsw 11
+P_H         dsw 11      ; mirrored: 64 (128 for the body) or 0
+W_DESC      dsw 11      ; the picture wanted (descriptor)
+W_KF        dsw 11      ; its flips << 8
 .ENDS
 
 .RAMSECTION ".bike_stage" BANK $7E SLOT 2
@@ -184,95 +185,147 @@ bike_stage  dsb 2048    ; tiles 128-191 (rows: 128, 144, 160, 176)
 	MB
 .ENDM
 
-; The relative position of a point of phys_view, in units:
-; ((p - body) >> 3) * 77 >> 11.
+; The relative position of a point of phys_view, in units: the bytes 1-2
+; of the 16.16 meters (1/256 meters) minus the body's, * 1.2 (77/64).
 .MACRO CONV
 	rep #$20
-	lda.l phys_view+\1
+	lda.l phys_view+\1+1
 	sec
-	sbc.l phys_view+\2
-	sta.b Z_T0
-	lda.l phys_view+\1+2
-	sbc.l phys_view+\2+2
-	xba
-	and.w #$FF00
+	sbc.l phys_view+\2+1
 	asl a
 	asl a
-	asl a
-	asl a
-	asl a
-	sta.b Z_T1
-	lda.b Z_T0
-	lsr a
-	lsr a
-	lsr a
-	ora.b Z_T1
 	MA
 	lda.b #77
 	MB
-	ASR
-	ASR
-	ASR
 	sta.b \3
 .ENDM
 
-; (\3, \4) = the point (\1, \2) of the bike (along it, up), rotated with
-; the bike (and mirrored if turned).
-.MACRO ROT
-	rep #$20
-	lda.w #(2*(\1)) & $FFFF
-	MA
-	lda.b Z_CJ
-	MB
-	sta.b \3
-	sep #$20
-	lda.b Z_SJ
-	MB
-	sta.b \4
-	lda.w #(2*(\2)) & $FFFF
-	MA
-	lda.b Z_S
-	MB
-	sta.b Z_T0
-	lda.b \3
-	sec
-	sbc.b Z_T0
-	sta.b \3
-	sep #$20
-	lda.b Z_C
-	MB
+; The picture of a single part at 64 angles: \1 = 2 * part.
+.MACRO PIC64
+	lda P_AL+\1
 	clc
-	adc.b \4
-	sta.b \4
+	adc.w #512
+	xba
+	and.w #$00FF
+	lsr a
+	lsr a
+	ora P_H+\1
+	asl a
+	tax
+	lda.l bike_t_lk64,x
+	sta W_KF+\1
+	and.w #$00FF
+	asl a
+	asl a
+	clc
+	adc.w #bike_desc_single+4*BK_PER_PART*\1/2
+	sta W_DESC+\1
+.ENDM
+
+; Part \1 (2 * part) keeps its picture: its flips may change. Else its bit
+; \2 in Z_PEND.
+.MACRO CHECK
+	lda W_DESC+\1
+	cmp bike_cur+\1
+	beq +
+	lda.w #\2
+	tsb.b Z_PEND
+	bra ++
++	lda W_KF+\1
+	and.w #$FF00
+	cmp bike_curf+\1
+	beq ++
+	sta bike_curf+\1
+	ora.l bk_ta0+\1
+	sta bike_ta+\1
+++
+.ENDM
+
+; The sprite of a single part (\1 = 2 * part) into core_oam at X, when
+; the bike may be near the edges of the screen.
+.MACRO PUT1
+	lda.b Z_BXS
+	clc
+	adc P_CX+\1
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	cmp.w #512
+	bcs +++
+	cmp.w #241
+	bcc +++
+	sta core_oam,x
+	sta.b Z_T0
+	lda.b Z_BYS
+	sec
+	sbc P_CY+\1
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	cmp.w #480
+	bcs +++
+	cmp.w #241
+	bcc +++
+	sta core_oam+1,x
+	lda bike_ta+\1
+	sta core_oam+2,x
+	lda.b Z_T0
+	cmp.w #256
+	bcs +
+	jsr bk_x8
++	inx
+	inx
+	inx
+	inx
++++
+.ENDM
+
+; The same when the whole bike is on the screen (bk_oam).
+.MACRO PUT1F
+	lda.b Z_BXS
+	clc
+	adc P_CX+\1
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta core_oam,x
+	lda.b Z_BYS
+	sec
+	sbc P_CY+\1
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta core_oam+1,x
+	lda bike_ta+\1
+	sta core_oam+2,x
+	inx
+	inx
+	inx
+	inx
 .ENDM
 
 .SECTION ".bike_text" SUPERFREE
 
-; For each part: its place in the copy of the rows, its first tile, its
-; palette and priority, its bit, p * pictures of a part.
+; For each part: its place in the copy of the rows, its first tile with its
+; palette and priority, its bit, its slot.
 bk_dst:
 	.dw 0, 64, 128, 192, 256, 320, 384, 448, 1024, 1088, 1152
-bk_tile:
-	.dw 128, 130, 132, 134, 136, 138, 140, 142, 160, 162, 164
-bk_attr:
-	.dw BK_PAL_THIGH*2|PRIO, BK_PAL_LEG*2|PRIO, BK_PAL_UPARM*2|PRIO
-	.dw BK_PAL_FOREARM*2|PRIO, BK_PAL_S1A*2|PRIO, BK_PAL_S1B*2|PRIO
-	.dw BK_PAL_S2A*2|PRIO, BK_PAL_S2B*2|PRIO, BK_PAL_HEAD*2|PRIO
-	.dw BK_PAL_TORSO*2|PRIO, BK_PAL_FRAME*2|PRIO
+bk_ta0:
+	.dw 128|(BK_PAL_THIGH*2|PRIO)<<8, 130|(BK_PAL_LEG*2|PRIO)<<8
+	.dw 132|(BK_PAL_UPARM*2|PRIO)<<8, 134|(BK_PAL_FOREARM*2|PRIO)<<8
+	.dw 136|(BK_PAL_S1A*2|PRIO)<<8, 138|(BK_PAL_S1B*2|PRIO)<<8
+	.dw 140|(BK_PAL_S2A*2|PRIO)<<8, 142|(BK_PAL_S2B*2|PRIO)<<8
+	.dw 160|(BK_PAL_HEAD*2|PRIO)<<8, 162|(BK_PAL_TORSO*2|PRIO)<<8
+	.dw 164|(BK_PAL_FRAME*2|PRIO)<<8
 bk_bit:
 	.dw 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024
-bk_base:
-	.dw 0, BK_PER_PART, 2*BK_PER_PART, 3*BK_PER_PART, 4*BK_PER_PART
-	.dw 5*BK_PER_PART, 6*BK_PER_PART, 7*BK_PER_PART, 8*BK_PER_PART
-	.dw 9*BK_PER_PART
-; The parts of each pair of rows and their slots:
-bk_pair_part:
-	.dw 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20
-bk_pair_slot:
-	.dw 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2
-; The order of the sprites (the first on top), the PC draws the reverse:
-bk_order:
-	.dw 2*3, 2*2, 2*9, 2*1, 2*0, 2*8, 2*FRAME, 2*7, 2*6, 2*5, 2*4
+; (2 << slot) - 1:
+bike_t_fitmask:
+	.dw 1, 3, 7, 15, 31, 63, 127, 255
 ; The bit of x >= 256 of a sprite in the high table:
 bk_hb:
 	.db 1, 4, 16, 64
@@ -289,14 +342,21 @@ bike_reset:
 	plb
 	rep #$20
 	ldx #0
+-	lda #$FFFF                  ; no picture yet: empty tiles
+	sta bike_cur,x
 	lda #0
--	sta bike_cur,x
 	sta bike_curf,x
+	lda.l bk_ta0,x
+	sta bike_ta,x
 	inx
 	inx
 	cpx #22
 	bcc -
+	lda #0
+	sta bike_cur+2*FRAME        ; the body: no sprites
 	sta bike_toggle
+	lda.w #OAM_OBJ*4
+	sta bike_oam_end
 	; Zeros into bike_stage (DMA from a fixed 0 byte):
 	lda.w #bike_stage
 	sta $2181
@@ -358,102 +418,64 @@ bike_draw_end:
 	rtl
 
 ;---------------------------------------------------------------------------
-; A = (Z_T1:Z_T0 >> 4) * 4915 >> 16 (16 bits): 1/16 level pixels of a
-; distance from the origin (0 if negative).
+; A = (d >> 8) * 4915 >> 12 (16 bits), d = Z_T1:Z_T0 (0 if negative): the
+; 1/16 level pixels of a distance from the origin. With Eh = d >> 16 and
+; El = d >> 8 & 255: 16 * Eh * 19 + (Eh * 51 + El * 19 + El * 51 >> 8) >> 4.
 bk_lpx16:
 	rep #$20
 	lda.b Z_T1
 	bpl +
 	lda #0
 	rts
-+	lda.b Z_T0
-	lsr a
-	lsr a
-	lsr a
-	lsr a
++	MA
+	lda #19
+	sta.w $211C
+	rep #$20
+	lda.w $2134
+	asl a
+	asl a
+	asl a
+	asl a
 	sta.b Z_T2
-	lda.b Z_T1
-	xba
-	and #$FF00
-	asl a
-	asl a
-	asl a
-	asl a
-	ora.b Z_T2
-	sta.b Z_T2                  ; e1:e0
-	lda.b Z_T1
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	and #$00FF
-	sta.b Z_T3                  ; e2
-	lda.b Z_T2
-	and #$00FF
-	MA
-	lda #$33
-	sta.w $211C
-	rep #$20
-	lda.w $2134
-	sta.b Z_T4                  ; low = e0 * $33
 	sep #$20
-	lda #$13
+	lda #51
 	sta.w $211C
 	rep #$20
 	lda.w $2134
-	sta.b Z_T5                  ; e0 * $13
-	lda.b Z_T2
+	sta.b Z_T3
+	lda.b Z_T0
 	xba
 	and #$00FF
 	MA
-	lda #$33
+	lda #19
 	sta.w $211C
 	rep #$20
 	lda.w $2134
 	clc
-	adc.b Z_T5
-	sta.b Z_T5                  ; mid = e0 * $13 + e1 * $33
-	lda.b Z_T4
-	xba
+	adc.b Z_T3
+	sta.b Z_T3
+	sep #$20
+	lda #51
+	sta.w $211C
+	rep #$20
+	lda.w $2135
 	and #$00FF
 	clc
-	adc.b Z_T5
-	xba
-	and #$00FF
-	sta.b Z_T4                  ; (low >> 8 + mid) >> 8
-	sep #$20
-	lda #$13
-	sta.w $211C
-	rep #$20
-	lda.w $2134
+	adc.b Z_T3
+	lsr a
+	lsr a
+	lsr a
+	lsr a
 	clc
-	adc.b Z_T4
-	sta.b Z_T4                  ; + e1 * $13
-	lda.b Z_T3
-	MA
-	lda #$33
-	sta.w $211C
-	rep #$20
-	lda.w $2134
-	clc
-	adc.b Z_T4
-	sta.b Z_T4                  ; + e2 * $33
-	sep #$20
-	lda #$13
-	sta.w $211C
-	rep #$20
-	lda.w $2134
-	xba
-	and #$FF00
-	clc
-	adc.b Z_T4                  ; + e2 * $13 << 8
+	adc.b Z_T2
 	rts
 
 ;---------------------------------------------------------------------------
-; The squared length of (Z_VX, Z_VY) in 1/4 pixels, each clamped to
-; -127..127: A = d4. Keeps X and Y.
+; Z_IDX = the squared length of (Z_VX, Z_VY) in 1/4 pixels (each clamped
+; to -127..127) >> A (3 or 4), at most 1023. Keeps X and Y.
 bk_d4:
 	rep #$20
+	sta.b Z_IDX
 	lda.b Z_VX
 	jsr _q
 	sta.b Z_T5
@@ -461,6 +483,18 @@ bk_d4:
 	jsr _q
 	clc
 	adc.b Z_T5
+	lsr a
+	lsr a
+	lsr a
+	dec.b Z_IDX
+	dec.b Z_IDX
+	dec.b Z_IDX
+	beq +
+	lsr a
++	cmp #1024
+	bcc +
+	lda #1023
++	sta.b Z_IDX
 	rts
 _q:
 	ASR
@@ -483,7 +517,8 @@ _q:
 	rts
 
 ;---------------------------------------------------------------------------
-; A = the angle of (Z_VX, Z_VY) (u16, counterclockwise). Keeps Y.
+; A = the angle of (Z_VX, Z_VY) in 256 steps (counterclockwise): the table
+; by |y| >> 3 and |x| >> 3, both halved until they are below 512. Keeps Y.
 bk_atan2:
 	rep #$30
 	lda.b Z_VX
@@ -496,109 +531,71 @@ bk_atan2:
 	eor #$FFFF
 	inc a
 +	sta.b Z_AY
+_norm:
 	ora.b Z_AX
-	bne _scale
-	rts                         ; 0
-_scale:
-	and #$FF00
-	beq +
+	cmp #512
+	bcc +
 	lsr.b Z_AX
 	lsr.b Z_AY
-	lda.b Z_AX
-	ora.b Z_AY
-	bra _scale
-+	lda.b Z_AY
-	cmp.b Z_AX
-	beq _yle
-	bcs _ygt
-_yle:
-	xba                         ; ay << 8
-	sta.w $4204
-	sep #$20
-	lda.b Z_AX
-	sta.w $4206
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	rep #$20
-	lda.w $4214
-	asl a
-	tax
-	lda.l bike_t_atan,x
-	bra _quad
-_ygt:
-	lda.b Z_AX
-	xba
-	sta.w $4204
-	sep #$20
 	lda.b Z_AY
-	sta.w $4206
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	rep #$20
-	lda.w $4214
+	bra _norm
++	lda.b Z_AY
 	asl a
+	asl a
+	asl a
+	and #$0FC0
+	sta.b Z_AY
+	lda.b Z_AX
+	lsr a
+	lsr a
+	lsr a
+	ora.b Z_AY
 	tax
-	lda #16384
-	sec
-	sbc.l bike_t_atan,x
-_quad:
-	sta.b Z_T5                  ; base
-	lda.b Z_VX
-	bmi _xneg
-	lda.b Z_VY
+	lda.l bike_t_atan8,x
+	and #$00FF
+	ldx.b Z_VX
+	bmi _xn
+	ldx.b Z_VY
+	bpl _done
+	eor #$FFFF
+	inc a
+	bra _done
+_xn:
+	ldx.b Z_VY
 	bmi +
-	lda.b Z_T5
-	rts
-+	lda #0
-	sec
-	sbc.b Z_T5
-	rts
-_xneg:
-	lda.b Z_VY
-	bmi +
-	lda #32768
-	sec
-	sbc.b Z_T5
-	rts
-+	lda #32768
-	clc
-	adc.b Z_T5
+	eor #$FFFF
+	inc a
++	clc
+	adc #128
+_done:
+	and #$00FF
 	rts
 
 ;---------------------------------------------------------------------------
-; A part that is a rod from a = (Z_T0, Z_T1) to b = (Z_T2, Z_T3): its
-; center a + c * (b - a) (c in Z_B, times 128), its angle, mirrored as X.
-; Y = 2 * part.
-bk_rod:
-	rep #$30
-	txa
-	sta P_H,y
+; The center of the rod of part Y/2 from a = (Z_T0, Z_T1) to b = (Z_T2,
+; Z_T3): a + c * (b - a), c in Z_B (times 128). Keeps Y.
+bk_center:
+	rep #$20
 	lda.b Z_T2
 	sec
 	sbc.b Z_T0
-	sta.b Z_VX
-	lda.b Z_T3
-	sec
-	sbc.b Z_T1
-	sta.b Z_VY
-	MUL2 Z_VX, Z_B
+	asl a
+	MA
+	lda.b Z_B
+	MB
 	clc
 	adc.b Z_T0
 	sta P_CX,y
-	MUL2 Z_VY, Z_B
+	lda.b Z_T3
+	sec
+	sbc.b Z_T1
+	asl a
+	MA
+	lda.b Z_B
+	MB
 	clc
 	adc.b Z_T1
 	sta P_CY,y
-	jsr bk_atan2
-	sta P_AL,y
 	rts
 
 ;---------------------------------------------------------------------------
@@ -657,25 +654,14 @@ bk_geometry:
 	sep #$20
 	lda.l bike_t_sin,x
 	sta.b Z_S
-	sta.b Z_SJ
 	lda.l bike_t_sin+256,x
 	sta.b Z_C
-	sta.b Z_CJ
 	rep #$20
 	lda.l phys_view+PV_TURNED
 	and #$00FF
 	beq +
 	lda #1
 +	sta.b Z_TR
-	beq +
-	sep #$20
-	lda.b Z_C
-	jsr _neg8
-	sta.b Z_CJ
-	lda.b Z_S
-	jsr _neg8
-	sta.b Z_SJ
-+
 	; Points from the physics:
 	CONV PV_WHEEL_X, PV_BODY_X, Z_W0X
 	CONV PV_WHEEL_Y, PV_BODY_Y, Z_W0Y
@@ -683,116 +669,79 @@ bk_geometry:
 	CONV PV_WHEEL_Y+4, PV_BODY_Y, Z_W1Y
 	CONV PV_RIDER_X, PV_BODY_X, Z_RX
 	CONV PV_RIDER_Y, PV_BODY_Y, Z_RY
-	CONV PV_HEAD_X, PV_BODY_X, Z_HDX
-	CONV PV_HEAD_Y, PV_BODY_Y, Z_HDY
-	; Points fixed to the bike and to the rider:
-	ROT BK_HANDLE_J, BK_HANDLE_F, Z_HAX, Z_HAY
-	ROT BK_REAR_J, BK_REAR_F, Z_REX, Z_REY
-	ROT BK_FOOT_J, BK_FOOT_F, Z_FOX, Z_FOY
-	ROT BK_HIP_J, BK_HIP_F, Z_HIX, Z_HIY
-	ROT BK_SHOULDER_J, BK_SHOULDER_F, Z_SHX, Z_SHY
-	ROT BK_TORSO_C_J, BK_TORSO_C_F, Z_T2, Z_T3
+	; Points fixed to the bike and to the rider: tables by the angle >> 6
+	; and turned.
 	rep #$30
-	lda.b Z_HIX
+	lda.b Z_TH
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	and #$0FFC
+	ldx.b Z_TR
+	beq +
+	ora #$1000
++	tax
+	lda.l bike_rot_handle,x
+	sta.b Z_HAX
+	lda.l bike_rot_handle+2,x
+	sta.b Z_HAY
+	lda.l bike_rot_rear,x
+	sta.b Z_REX
+	lda.l bike_rot_rear+2,x
+	sta.b Z_REY
+	lda.l bike_rot_foot,x
+	sta.b Z_FOX
+	lda.l bike_rot_foot+2,x
+	sta.b Z_FOY
+	lda.l bike_rot_hip,x
 	clc
 	adc.b Z_RX
 	sta.b Z_HIX
-	lda.b Z_HIY
+	lda.l bike_rot_hip+2,x
 	clc
 	adc.b Z_RY
 	sta.b Z_HIY
-	lda.b Z_SHX
+	lda.l bike_rot_shoulder,x
 	clc
 	adc.b Z_RX
 	sta.b Z_SHX
-	lda.b Z_SHY
+	lda.l bike_rot_shoulder+2,x
 	clc
 	adc.b Z_RY
 	sta.b Z_SHY
-	lda.b Z_T2
+	lda.l bike_rot_torso_c,x
 	clc
 	adc.b Z_RX
 	sta P_CX+2*9
-	lda.b Z_T3
+	lda.l bike_rot_torso_c+2,x
 	clc
 	adc.b Z_RY
 	sta P_CY+2*9
+	lda.l bike_rot_head,x       ; szamitfejr
+	clc
+	adc.b Z_RX
+	sta P_CX+2*8
+	lda.l bike_rot_head+2,x
+	clc
+	adc.b Z_RY
+	sta P_CY+2*8
+	jsr bk_limbs
+	lda.l bike_anim+BA_VOLT     ; volting: the arm swung
+	and #$FF00
+	beq +
 	jsr bk_hand
-	jsr bk_knee
-	jsr bk_elbow
-	; Rods: thigh (knee -> hip), leg (foot -> knee), upper arm (elbow ->
-	; shoulder), forearm (hand -> elbow).
-	rep #$30
-	lda.b Z_KNX
-	sta.b Z_T0
-	lda.b Z_KNY
-	sta.b Z_T1
-	lda.b Z_HIX
-	sta.b Z_T2
-	lda.b Z_HIY
-	sta.b Z_T3
-	sep #$20
-	lda.b #BK_C_THIGH
-	sta.b Z_B
-	rep #$20
-	ldx.b Z_TR
-	ldy.w #2*0
-	jsr bk_rod
-	lda.b Z_FOX
-	sta.b Z_T0
-	lda.b Z_FOY
-	sta.b Z_T1
-	lda.b Z_KNX
-	sta.b Z_T2
-	lda.b Z_KNY
-	sta.b Z_T3
-	sep #$20
-	lda.b #BK_C_LEG
-	sta.b Z_B
-	rep #$20
-	ldx.b Z_TR
-	ldy.w #2*1
-	jsr bk_rod
-	lda.b Z_ELX
-	sta.b Z_T0
-	lda.b Z_ELY
-	sta.b Z_T1
-	lda.b Z_SHX
-	sta.b Z_T2
-	lda.b Z_SHY
-	sta.b Z_T3
-	sep #$20
-	lda.b #BK_C_UPARM
-	sta.b Z_B
-	rep #$20
-	lda.b Z_TR
-	eor #1
-	tax
-	ldy.w #2*2
-	jsr bk_rod
-	lda.b Z_KX
-	sta.b Z_T0
-	lda.b Z_KY
-	sta.b Z_T1
-	lda.b Z_ELX
-	sta.b Z_T2
-	lda.b Z_ELY
-	sta.b Z_T3
-	sep #$20
-	lda.b #BK_C_FOREARM
-	sta.b Z_B
-	rep #$20
-	ldx.b Z_TR
-	ldy.w #2*3
-	jsr bk_rod
-	jsr bk_susp
+	jsr bk_arm
++	jsr bk_susp
 	; Torso, head, body: at the angle of the bike.
 	rep #$30
 	lda.b Z_TR
+	beq +
+	lda.w #64
 	sta P_H+2*9
 	sta P_H+2*8
+	asl a
 	sta P_H+2*FRAME
-	beq +
 	lda.b Z_TH
 	clc
 	adc.w #($8000-BK_TORSO_BETA) & $FFFF
@@ -800,28 +749,146 @@ bk_geometry:
 	lda.b Z_TH
 	eor #$8000
 	bra ++
-+	lda.b Z_TH
++	stz P_H+2*9
+	stz P_H+2*8
+	stz P_H+2*FRAME
+	lda.b Z_TH
 	clc
 	adc.w #BK_TORSO_BETA
 	sta P_AL+2*9
 	lda.b Z_TH
 ++	sta P_AL+2*8
 	sta P_AL+2*FRAME
-	lda.b Z_HDX
-	sta P_CX+2*8
-	lda.b Z_HDY
-	sta P_CY+2*8
 	stz P_CX+2*FRAME
 	stz P_CY+2*FRAME
 	rts
 
-; A (8 bits) = -A, -128 -> 127.
-_neg8:
-	cmp.b #$80
-	bne +
-	lda.b #$81
-+	eor.b #$FF
+;---------------------------------------------------------------------------
+; The legs and the arms from the tables by the rider's place in the frame
+; of the bike (gen_bike.py): their centers rotated with the bike, their
+; angles added to its angle; mirrored when turned.
+.MACRO LIMB
+	ldx.b Z_IDX
+	lda.l bike_limb_\1_x,x
+	ldy.b Z_TR
+	beq +
+	eor #$FFFF
 	inc a
++	asl a
+	MA
+	lda.b Z_C
+	MB
+	sta.b Z_T0                  ; x c
+	sep #$20
+	lda.b Z_S
+	MB
+	sta.b Z_T1                  ; x s
+	lda.l bike_limb_\1_y,x
+	asl a
+	MA
+	lda.b Z_S
+	MB
+	sta.b Z_T2                  ; y s
+	sep #$20
+	lda.b Z_C
+	MB
+	clc
+	adc.b Z_T1
+	sta P_CY+\2
+	lda.b Z_T0
+	sec
+	sbc.b Z_T2
+	sta P_CX+\2
+	txa
+	lsr a
+	tax
+	lda.l bike_limb_\1_a,x
+	and #$00FF
+	ldy.b Z_TR
+	beq +
+	eor #$FFFF
+	clc
+	adc.w #129
+	and #$00FF
++	xba
+	clc
+	adc.b Z_TH
+	sta P_AL+\2
+.ENDM
+
+bk_limbs:
+	rep #$30
+	; The rider in the frame of the bike: x = rx c + ry s, y = ry c - rx s.
+	lda.b Z_RX
+	asl a
+	MA
+	lda.b Z_C
+	MB
+	sta.b Z_T0
+	sep #$20
+	lda.b Z_S
+	MB
+	sta.b Z_T1
+	lda.b Z_RY
+	asl a
+	MA
+	lda.b Z_S
+	MB
+	clc
+	adc.b Z_T0
+	sta.b Z_T0
+	sep #$20
+	lda.b Z_C
+	MB
+	sec
+	sbc.b Z_T1
+	sec
+	sbc.w #BK_LIMB_Y0
+	bpl +
+	lda #0
++	lsr a
+	lsr a
+	cmp.w #BK_LIMB_NY
+	bcc +
+	lda.w #BK_LIMB_NY-1
++	xba
+	lsr a
+	lsr a                       ; row * 64
+	sta.b Z_T2
+	lda.b Z_T0
+	ldx.b Z_TR
+	beq +
+	eor #$FFFF
+	inc a
++	sec
+	sbc.w #BK_LIMB_X0
+	bpl +
+	lda #0
++	lsr a
+	lsr a
+	cmp #64
+	bcc +
+	lda #63
++	ora.b Z_T2
+	asl a
+	sta.b Z_IDX
+	LIMB thigh, 2*0
+	LIMB leg, 2*1
+	LIMB uparm, 2*2
+	LIMB forearm, 2*3
+	lda.b Z_TR
+	beq +
+	lda.w #64
+	sta P_H+2*0
+	sta P_H+2*1
+	sta P_H+2*3
+	stz P_H+2*2
+	rts
++	stz P_H+2*0
+	stz P_H+2*1
+	stz P_H+2*3
+	lda.w #64
+	sta P_H+2*2
 	rts
 
 ;---------------------------------------------------------------------------
@@ -915,7 +982,7 @@ _tr:
 
 ;---------------------------------------------------------------------------
 ; Operands of the side term of ketkormetszete: Z_T2 = 4 * (-vy * sg),
-; Z_T3 = 4 * (vx * sg), sg = -1 when turned.
+; Z_T3 = 4 * (vx * sg), sg = -1 when turned. Keeps Y.
 bk_side:
 	rep #$30
 	lda.b Z_VY
@@ -936,57 +1003,19 @@ bk_side:
 +	sta.b Z_T3
 	rts
 
-; The knee: the middle of foot -> hip, b * (the side) from it.
-bk_knee:
-	rep #$30
-	lda.b Z_HIX
-	sec
-	sbc.b Z_FOX
-	sta.b Z_VX
-	lda.b Z_HIY
-	sec
-	sbc.b Z_FOY
-	sta.b Z_VY
-	jsr bk_d4
-	lsr a
-	lsr a
-	lsr a
-	cmp #1024
-	bcc +
-	lda #1023
-+	tax
-	sep #$20
-	lda.l bike_t_knee_b,x
-	sta.b Z_B
-	jsr bk_side
-	lda.b Z_T2
-	MA
-	lda.b Z_B
-	MB
-	sta.b Z_T0
-	lda.b Z_VX
-	ASR
-	clc
-	adc.b Z_T0
-	clc
-	adc.b Z_FOX
-	sta.b Z_KNX
-	lda.b Z_T3
-	MA
-	lda.b Z_B
-	MB
-	sta.b Z_T0
-	lda.b Z_VY
-	ASR
-	clc
-	adc.b Z_T0
-	clc
-	adc.b Z_FOY
-	sta.b Z_KNY
+; Z_T4 = A, negated when turned.
+bk_sg:
+	ldx.b Z_TR
+	beq +
+	eor #$FFFF
+	inc a
++	sta.b Z_T4
 	rts
 
-; The elbow: shoulder + a * (hand - shoulder) + b * (the side).
-bk_elbow:
+; The elbow: shoulder + a * (hand - shoulder) + b * (the side); the upper
+; arm at 128 + atan(b / a), the forearm at 128 - atan(b / (1 - a)) from the
+; angle of shoulder -> hand.
+bk_arm:
 	rep #$30
 	lda.b Z_KX
 	sec
@@ -996,14 +1025,9 @@ bk_elbow:
 	sec
 	sbc.b Z_SHY
 	sta.b Z_VY
+	lda #3
 	jsr bk_d4
-	lsr a
-	lsr a
-	lsr a
-	cmp #1024
-	bcc +
-	lda #1023
-+	tax
+	ldx.b Z_IDX
 	sep #$20
 	lda.l bike_t_elbow_a,x
 	sta.b Z_A
@@ -1032,11 +1056,70 @@ bk_elbow:
 	clc
 	adc.b Z_ELY
 	sta.b Z_ELY
-	rts
+	jsr bk_atan2
+	clc
+	adc #128
+	sta.b Z_A8
+	ldx.b Z_IDX
+	lda.l bike_t_elbow_gu,x
+	and #$00FF
+	jsr bk_sg
+	lda.b Z_A8
+	clc
+	adc.b Z_T4
+	and #$00FF
+	xba
+	sta P_AL+2*2                ; upper arm
+	ldx.b Z_IDX
+	lda.l bike_t_elbow_gf,x
+	and #$00FF
+	jsr bk_sg
+	lda.b Z_A8
+	sec
+	sbc.b Z_T4
+	and #$00FF
+	xba
+	sta P_AL+2*3                ; forearm
+	lda.b Z_TR
+	beq +
+	lda.w #64
+	sta P_H+2*3
+	stz P_H+2*2
+	bra ++
++	stz P_H+2*3
+	lda.w #64
+	sta P_H+2*2
+++	lda.b Z_ELX
+	sta.b Z_T0
+	lda.b Z_ELY
+	sta.b Z_T1
+	lda.b Z_SHX
+	sta.b Z_T2
+	lda.b Z_SHY
+	sta.b Z_T3
+	sep #$20
+	lda.b #BK_C_UPARM
+	sta.b Z_B
+	ldy.w #2*2
+	jsr bk_center
+	lda.b Z_KX
+	sta.b Z_T0
+	lda.b Z_KY
+	sta.b Z_T1
+	lda.b Z_ELX
+	sta.b Z_T2
+	lda.b Z_ELY
+	sta.b Z_T3
+	sep #$20
+	lda.b #BK_C_FOREARM
+	sta.b Z_B
+	ldy.w #2*3
+	jmp bk_center
 
 ;---------------------------------------------------------------------------
 ; The suspensions, two pieces each: front from the front wheel to the
-; handlebar, rear from the rear point to the rear wheel.
+; handlebar, rear from the rear point to the rear wheel. The pieces' centers
+; are at fixed distances from the ends along the rod.
 bk_susp:
 	rep #$30
 	lda.b Z_TR
@@ -1054,8 +1137,11 @@ bk_susp:
 	sta.b Z_T2
 	lda.b Z_HAY
 	sta.b Z_T3
+	lda.w #2*BK_S1_KA
+	sta.b Z_T4
+	lda.w #(2*BK_S1_KB) & $FFFF
+	sta.b Z_T5
 	ldy.w #2*4
-	ldx #0
 	jsr _pieces
 	lda.b Z_REX
 	sta.b Z_T0
@@ -1072,12 +1158,14 @@ bk_susp:
 	sta.b Z_T2
 	lda.b Z_W0Y
 	sta.b Z_T3
-++	ldy.w #2*6
-	ldx #2048
-; a = (Z_T0, Z_T1), b = (Z_T2, Z_T3), Y = 2 * the first piece, X = offset
-; of the tables of the pieces (bike_t_s1a, s1b, s2a, s2b follow each other).
+++	lda.w #2*BK_S2_KA
+	sta.b Z_T4
+	lda.w #(2*BK_S2_KB) & $FFFF
+	sta.b Z_T5
+	ldy.w #2*6
+; a = (Z_T0, Z_T1), b = (Z_T2, Z_T3), Y = 2 * the first piece, 2 * the
+; distances of the pieces' centers from a and b in Z_T4, Z_T5.
 _pieces:
-	stx.b Z_T4
 	lda.b Z_T2
 	sec
 	sbc.b Z_T0
@@ -1086,44 +1174,50 @@ _pieces:
 	sec
 	sbc.b Z_T1
 	sta.b Z_VY
-	jsr bk_d4
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	cmp #1024
-	bcc +
-	lda #1023
-+	clc
-	adc.b Z_T4
-	tax
-	sep #$20
-	lda.l bike_t_s1a,x
-	sta.b Z_A
-	lda.l bike_t_s1a+1024,x
-	sta.b Z_B
-	MUL2 Z_VX, Z_A
-	clc
-	adc.b Z_T0
-	sta P_CX,y
-	MUL2 Z_VY, Z_A
-	clc
-	adc.b Z_T1
-	sta P_CY,y
-	MUL2 Z_VX, Z_B
-	clc
-	adc.b Z_T2
-	sta P_CX+2,y
-	MUL2 Z_VY, Z_B
-	clc
-	adc.b Z_T3
-	sta P_CY+2,y
 	jsr bk_atan2
+	sta.b Z_A8
+	xba
 	sta P_AL,y
 	sta P_AL+2,y
+	lda.b Z_A8
+	asl a
+	asl a
+	tax
 	lda #0
 	sta P_H,y
 	sta P_H+2,y
+	sep #$20
+	lda.l bike_t_sin+256,x
+	sta.b Z_B                   ; cos
+	lda.l bike_t_sin,x
+	sta.b Z_A                   ; sin
+	rep #$20
+	lda.b Z_T4
+	MA
+	lda.b Z_B
+	MB
+	clc
+	adc.b Z_T0
+	sta P_CX,y
+	sep #$20
+	lda.b Z_A
+	MB
+	clc
+	adc.b Z_T1
+	sta P_CY,y
+	lda.b Z_T5
+	MA
+	lda.b Z_B
+	MB
+	clc
+	adc.b Z_T2
+	sta P_CX+2,y
+	sep #$20
+	lda.b Z_A
+	MB
+	clc
+	adc.b Z_T3
+	sta P_CY+2,y
 	rts
 
 ;---------------------------------------------------------------------------
@@ -1144,13 +1238,15 @@ bk_turn:
 	tax
 	sep #$20
 	lda.l bike_t_turn_f,x
-	sta.b Z_F
+	sta.b Z_A
+	lda.l bike_t_turn_g,x
+	sta.b Z_G
 	lda.l bike_t_turn_lv,x
 	rep #$20
 	and #$00FF
 	sta.b Z_LV
 	stz.b Z_NEG
-	lda.b Z_F
+	lda.b Z_A
 	and #$0080
 	beq +
 	inc.b Z_NEG
@@ -1158,7 +1254,7 @@ bk_turn:
 	eor.b Z_NEG
 	sta.b Z_TEFF
 	; The front wheel (0) on top: f > 0 not turned, or f <= 0 turned.
-	lda.b Z_F
+	lda.b Z_A
 	and #$00FF
 	beq _fle0
 	bit #$0080
@@ -1175,59 +1271,93 @@ _rear:
 _front:
 	lda #0
 +	sta.b Z_LATE
+	; The squash matrix: (f - 1) * (c c, c s, s s) >> 6.
+	lda.b Z_C
+	and #$00FF
+	cmp #$0080
+	bcc +
+	ora #$FF00
++	MA                          ; c
+	lda.b Z_C
+	sta.w $211C
+	rep #$20
+	lda.w $2134
+	sta.b Z_T0                  ; c c
+	sep #$20
+	lda.b Z_S
+	sta.w $211C
+	rep #$20
+	lda.w $2134
+	sta.b Z_T1                  ; c s
+	lda.b Z_S
+	and #$00FF
+	cmp #$0080
+	bcc +
+	ora #$FF00
++	MA                          ; s
+	lda.b Z_S
+	sta.w $211C
+	rep #$20
+	lda.w $2134
+	sta.b Z_T2                  ; s s
+	lda.b Z_T0
+	jsr _m6
+	sta.b Z_MA
+	rep #$20
+	lda.b Z_T1
+	jsr _m6
+	sta.b Z_MB
+	rep #$20
+	lda.b Z_T2
+	jsr _m6
+	sta.b Z_MD
 	; Squash the centers of the parts 0-9 (around the center of the bike):
-	; t = p . j, p += (t * f - t) * j.
+	; x += x a + y b, y += x b + y d.
 	ldy #0
 _sq:
 	rep #$20
 	lda P_CX,y
 	asl a
-	MA
-	lda.b Z_C
-	MB
-	sta.b Z_T0
-	lda P_CY,y
 	asl a
 	MA
-	lda.b Z_S
+	lda.b Z_MA
+	MB
+	sta.b Z_T0                  ; x a
+	sep #$20
+	lda.b Z_MB
+	MB
+	sta.b Z_T1                  ; x b
+	lda P_CY,y
+	asl a
+	asl a
+	MA
+	lda.b Z_MB
 	MB
 	clc
 	adc.b Z_T0
-	sta.b Z_T0                  ; t
-	asl a
-	MA
-	lda.b Z_F
-	MB
-	sec
-	sbc.b Z_T0
-	asl a                       ; 2 (t f - t)
-	MA
-	lda.b Z_C
-	MB
 	clc
 	adc P_CX,y
 	sta P_CX,y
 	sep #$20
-	lda.b Z_S
+	lda.b Z_MD
 	MB
+	clc
+	adc.b Z_T1
 	clc
 	adc P_CY,y
 	sta P_CY,y
 	iny
 	iny
 	cpy.w #2*FRAME
-	bcs +
-	jmp _sq
-+
-	; Pictures: not squashed (mirrored if f < 0) or squashed.
-	ldy #0
-_pic:
+	bcc _sq
+	; Not squashed pictures, mirrored if f < 0: alpha = 2 th + 1/2 - alpha.
 	lda.b Z_LV
 	cmp #4
-	bne _sqp
+	bne +++
 	lda.b Z_NEG
-	beq _next
-	lda.b Z_TH
+	beq +++
+	ldy #0
+-	lda.b Z_TH
 	asl a
 	clc
 	adc #$8000
@@ -1235,105 +1365,98 @@ _pic:
 	sbc P_AL,y
 	sta P_AL,y
 	lda P_H,y
-	eor #1
+	eor.w #64
 	sta P_H,y
-	bra _next
-_sqp:
-	lda.b Z_TEFF
-	sta P_H,y
-	beq +
+	iny
+	iny
+	cpy.w #2*FRAME
+	bcc -
 	lda.b Z_TH
-	eor #$8000
-	bra ++
-+	lda.b Z_TH
-++	sta P_AL,y
-_next:
-	iny
-	iny
-	cpy.w #2*11
-	bcc _pic
-	rts
-
-;---------------------------------------------------------------------------
-; The picture of an angle: Z_T0 = alpha, Z_T1 = mirrored; A = the stored
-; picture, Z_T2 = its flips (gen_bike.py).
-bk_lk32:
-	lda.b Z_T0
-	clc
-	adc #1024
-	xba
-	and #$00FF
-	lsr a
-	lsr a
-	lsr a
-	ldx #16
-	bra bk_lk
-bk_lk64:
-	lda.b Z_T0
-	clc
-	adc #512
-	xba
-	and #$00FF
-	lsr a
-	lsr a
-	ldx #32
-	bra bk_lk
-bk_lk128:
-	lda.b Z_T0
-	clc
-	adc #256
-	xba
-	and #$00FF
-	lsr a
-	ldx #64
-bk_lk:
-	stx.b Z_LKHALF
-	ldx.b Z_T1
-	bne _m
-	cmp.b Z_LKHALF
-	bcc +
-	sbc.b Z_LKHALF
-	ldx #$C0
-	stx.b Z_T2
-	rts
-+	stz.b Z_T2
-	rts
-_m:
-	eor #$FFFF
-	inc a
-	pha
-	lda.b Z_LKHALF
 	asl a
-	dec a
-	sta.b Z_LKMASK
-	pla
-	and.b Z_LKMASK
-	cmp.b Z_LKHALF
-	bcc +
-	sbc.b Z_LKHALF
-	ldx #$40
-	stx.b Z_T2
-	rts
-+	ldx #$80
-	stx.b Z_T2
+	clc
+	adc #$8000
+	sec
+	sbc P_AL+2*FRAME
+	sta P_AL+2*FRAME
+	lda P_H+2*FRAME
+	eor.w #128
+	sta P_H+2*FRAME
++++	rts
+; A (8 bits) = (A * Z_G >> 8) >> 6.
+_m6:
+	MA
+	lda.b Z_G
+	MB
+	ASR
+	ASR
+	ASR
+	ASR
+	ASR
+	ASR
+	sep #$20
 	rts
 
 ;---------------------------------------------------------------------------
-; The pictures wanted (W_DESC, W_FLIP).
+; The pictures wanted (W_DESC, W_KF): the step of the angle (P_AL) and the
+; mirroring (P_H) give the stored picture and its flips from the tables
+; bike_t_lk32/64/128 (k | flips << 8, gen_bike.py).
 bk_pictures:
 	rep #$30
-	ldy #0
-_part:
-	lda P_AL,y
-	sta.b Z_T0
-	lda P_H,y
-	sta.b Z_T1
 	lda.b Z_LV
 	cmp #4
-	beq _normal
-	cpy.w #2*FRAME
-	beq _tframe
-	jsr bk_lk32
+	beq +
+	jmp bk_tpictures
++	PIC64 2*0
+	PIC64 2*1
+	PIC64 2*2
+	PIC64 2*3
+	PIC64 2*4
+	PIC64 2*5
+	PIC64 2*6
+	PIC64 2*7
+	PIC64 2*8
+	PIC64 2*9
+	lda P_AL+2*FRAME            ; the body: 128 steps
+	clc
+	adc.w #256
+	xba
+	and.w #$00FF
+	lsr a
+	ora P_H+2*FRAME
+	asl a
+	tax
+	lda.l bike_t_lk128,x
+	sta W_KF+2*FRAME
+	and #$00FF
+	xba
+	lsr a                       ; * BK_FRAME_DESC
+	clc
+	adc.w #bike_desc_frame
+	sta W_DESC+2*FRAME
+	rts
+
+; The squashed pictures: all at the angle of the bike as drawn.
+bk_tpictures:
+	lda.b Z_TH
+	ldx.b Z_TEFF
+	beq +
+	eor #$8000
++	sta.b Z_T5                  ; alpha
+	clc
+	adc.w #1024
+	xba
+	and.w #$00FF
+	lsr a
+	lsr a
+	lsr a
+	ldx.b Z_TEFF
+	beq +
+	ora #32
++	asl a
+	tax
+	lda.l bike_t_lk32,x
+	sta.b Z_T4                  ; k | flips << 8
+	and #$00FF
 	clc
 	adc.w #BK_N_PART_HALF
 	sta.b Z_T3
@@ -1341,12 +1464,40 @@ _part:
 	asl a
 	asl a
 	asl a
-	asl a                       ; lv * 16
+	asl a
 	clc
 	adc.b Z_T3
-	bra _single
-_tframe:
-	jsr bk_lk64
+	asl a
+	asl a
+	clc
+	adc.w #bike_desc_single     ; + 4 * (32 + lv * 16 + k)
+	ldy #0
+-	sta W_DESC,y
+	clc
+	adc.w #4*BK_PER_PART
+	tax
+	lda.b Z_T4
+	sta W_KF,y
+	txa
+	iny
+	iny
+	cpy.w #2*FRAME
+	bcc -
+	lda.b Z_T5                  ; the body, 64 steps
+	clc
+	adc.w #512
+	xba
+	and.w #$00FF
+	lsr a
+	lsr a
+	ldx.b Z_TEFF
+	beq +
+	ora #64
++	asl a
+	tax
+	lda.l bike_t_lk64,x
+	sta W_KF+2*FRAME
+	and #$00FF
 	sta.b Z_T3
 	lda.b Z_LV
 	xba
@@ -1356,81 +1507,131 @@ _tframe:
 	clc
 	adc.b Z_T3
 	clc
-	adc.w #2*BK_N_FRAME_HALF/2    ; + 64
-	bra _frame
-_normal:
-	cpy.w #2*FRAME
-	beq _nframe
-	jsr bk_lk64
-_single:
-	tyx
-	clc
-	adc.l bk_base,x
-	asl a
-	asl a
-	clc
-	adc.w #bike_desc_single
-	bra _store
-_nframe:
-	jsr bk_lk128
-_frame:
-	asl a
-	asl a
-	asl a
-	asl a
-	asl a
+	adc.w #2*BK_N_TURN_FRAME_HALF
+	xba
+	lsr a                       ; * BK_FRAME_DESC
 	clc
 	adc.w #bike_desc_frame
-_store:
-	sta W_DESC,y
-	lda.b Z_T2
-	sta W_FLIP,y
-	iny
-	iny
-	cpy.w #2*11
-	bcc _part
+	sta W_DESC+2*FRAME
 	rts
 
 ;---------------------------------------------------------------------------
 ; Loading the pictures that changed, within the budget.
 bk_load:
 	rep #$30
-	; The flips of the parts whose picture stays:
-	ldy #0
--	lda W_DESC,y
-	cmp bike_cur,y
+	stz.b Z_PEND
+	CHECK 2*0, 1
+	CHECK 2*1, 2
+	CHECK 2*2, 4
+	CHECK 2*3, 8
+	CHECK 2*4, 16
+	CHECK 2*5, 32
+	CHECK 2*6, 64
+	CHECK 2*7, 128
+	CHECK 2*8, 256
+	CHECK 2*9, 512
+	CHECK 2*FRAME, 1024
+	lda.b Z_PEND
 	bne +
-	lda W_FLIP,y
-	sta bike_curf,y
-+	iny
-	iny
-	cpy.w #2*11
-	bcc -
-	stz.b Z_ACC
-	lda #$FFFF
-	sta bike_rlo
-	sta bike_rlo+2
-	; Room in the queue for 4 transfers:
+	rts
++	; Room in the queue for 4 transfers:
 	lda core_dmaq_n
 	cmp.w #(DMAQ_MAX-4)*8+1
 	bcc +
 	rts
-+	lda.w #BUDGET
-	sta.b Z_LEFT
++	; The ranges of slots of the parts that changed: pair 0 (parts 0-7,
+	; slots 0-7), pair 1 (head 0, torso 1, body 2..).
+	lda #$FFFF
+	sta bike_rlo
+	sta bike_rlo+2
+	stz.b Z_T4                  ; bytes of pair 0
+	stz.b Z_T5                  ; bytes of pair 1
+	lda.b Z_PEND
+	and #$00FF
+	beq +
+	tax
+	lda.l bike_t_lowbit,x
+	and #$00FF
+	sta bike_rlo
+	lda.l bike_t_highbit,x
+	and #$00FF
+	sta bike_rhi
+	sec
+	sbc bike_rlo
+	inc a
+	xba
+	lsr a
+	sta.b Z_T4
++	lda.b Z_PEND
+	xba
+	and #$0007
+	beq ++
+	tax
+	lda.l bike_t_lowbit,x
+	and #$00FF
+	sta bike_rlo+2
+	txa
+	and #$0004
+	beq +
+	jsr bk_nframe               ; the body: slots 2..2 + n - 1
+	bra +++
++	lda.l bike_t_highbit,x
+	and #$00FF
++++	sta bike_rhi+2
+	sec
+	sbc bike_rlo+2
+	inc a
+	xba
+	lsr a
+	sta.b Z_T5
+++	lda.b Z_PEND
+	sta.b Z_ACC
 	lda bike_toggle
-	pha
 	eor #1
 	sta bike_toggle
-	pla
-	pha
-	jsr bk_pair
-	pla
-	eor #1
-	jsr bk_pair
+	; All of them if they fit the budget; else the pair first in turn
+	; and the parts of the other while its range fits.
+	lda.b Z_T4
+	clc
+	adc.b Z_T5
+	cmp.w #BUDGET+1
+	bcc _stage0
+	lda bike_toggle             ; (toggled: 1 = pair 0 was first)
+	beq _p1first
+	lda.w #BUDGET
+	sec
+	sbc.b Z_T4
+	asl a
+	xba
+	and #$00FF                  ; slots left
+	clc
+	adc bike_rlo+2
+	dec a
+	sta.b Z_T3                  ; the last slot of pair 1 that fits
 	lda.b Z_ACC
-	bne +
-	rts
-+	; Copy the pictures into the copy of the rows: DMA channel 7 into the
+	and #$00FF
+	sta.b Z_ACC
+	ldx #2
+	jsr _fit
+	bra _stage0
+_p1first:
+	lda.w #BUDGET
+	sec
+	sbc.b Z_T5
+	asl a
+	xba
+	and #$00FF
+	clc
+	adc bike_rlo
+	dec a
+	sta.b Z_T3                  ; the last slot of pair 0 that fits
+	lda.b Z_ACC
+	and #$0700
+	sta.b Z_ACC
+	ldx #0
+	jsr _fit
+_stage0:
+	; Copy the pictures into the copy of the rows: DMA channel 7 into the
 	; WRAM.
 	sep #$20
 	lda #$00
@@ -1441,37 +1642,52 @@ bk_load:
 	lda.b #:bike_desc_single
 	sta.b Z_PTR+2
 	rep #$20
-	ldy #0
+	lda.b Z_ACC
+	sta.b Z_T5
 _stage:
-	tyx
+	lda.b Z_T5
+	bne +
+	jmp _queue
++	and #$00FF
+	beq +
+	tax
+	lda.l bike_t_lowbit,x
+	bra ++
++	lda.b Z_T5
+	xba
+	tax
+	lda.l bike_t_lowbit,x
+	clc
+	adc #8
+++	and #$00FF
+	asl a
+	tax
+	tay
 	lda.l bk_bit,x
-	and.b Z_ACC
-	beq _skip
+	trb.b Z_T5
 	lda W_DESC,y
 	sta bike_cur,y
 	sta.b Z_PTR
-	lda W_FLIP,y
+	lda W_KF,y
+	and #$FF00
 	sta bike_curf,y
+	ora.l bk_ta0,x
+	sta bike_ta,y
 	lda.l bk_dst,x
 	clc
 	adc.w #bike_stage
 	sta.b Z_DST
 	cpy.w #2*FRAME
 	beq _fr
-	phy
 	ldy #0
 	jsr bk_stage_sprite
-	ply
-	bra _skip
+	bra _stage
 _fr:
-	phy
 	lda [Z_PTR]
 	and #$00FF
 	sta.b Z_NS
 	ldy #1
--	iny
-	iny
-	jsr bk_stage_sprite
+-	jsr bk_stage_sprite
 	lda.b Z_DST
 	clc
 	adc #64
@@ -1481,12 +1697,8 @@ _fr:
 	iny
 	dec.b Z_NS
 	bne -
-	ply
-_skip:
-	iny
-	iny
-	cpy.w #2*11
-	bcc _stage
+	bra _stage
+_queue:
 	; The queue: top and bottom row of each pair.
 	ldx #0
 	jsr _qpair
@@ -1541,6 +1753,85 @@ _qpair:
 	clc
 	adc #256
 	sta.b Z_T3
+	jmp bk_queue
+
+; Pair X/2 second: its pending parts whose last slot is at most Z_T3 are
+; added to Z_ACC, its range shrinks to them (or goes).
+_fit:
+	lda.b Z_T3
+	cmp bike_rlo,x
+	bmi _none
+	cpx #0
+	bne _f1
+	; Pair 0: the parts of slots rlo..Z_T3.
+	cmp #8
+	bcc +
+	lda #7
++	asl a
+	tax
+	lda.l bike_t_fitmask,x      ; (2 << slot) - 1
+	and.b Z_PEND
+	and #$00FF
+	beq _none0
+	tax
+	ora.b Z_ACC
+	sta.b Z_ACC
+	lda.l bike_t_highbit,x
+	and #$00FF
+	sta bike_rhi
+	rts
+_f1:
+	; Pair 1: the head (slot 0), the torso (1), the body (2..).
+	lda.b Z_PEND
+	and #$0700
+	sta.b Z_T2
+	jsr bk_nframe
+	cmp.b Z_T3
+	beq +
+	bcc +
+	lda.b Z_T2                  ; not the body
+	and #$0300
+	sta.b Z_T2
++	lda.b Z_T3
+	cmp #1
+	bcs +
+	lda.b Z_T2                  ; not the torso
+	and #$0100
+	sta.b Z_T2
++	lda.b Z_T2
+	beq _none
+	ora.b Z_ACC
+	sta.b Z_ACC
+	lda.b Z_T2
+	xba
+	tax
+	lda.l bike_t_highbit,x
+	and #$00FF
+	cmp #2
+	bne +
+	jsr bk_nframe
++	sta bike_rhi+2
+	rts
+_none0:
+	ldx #0
+_none:
+	lda #$FFFF
+	sta bike_rlo,x
+	rts
+
+; A = the last slot of the body's wanted picture (2 + sprites - 1).
+bk_nframe:
+	lda W_DESC+2*FRAME
+	sta.b Z_PTR
+	sep #$20
+	lda.b #:bike_desc_frame
+	sta.b Z_PTR+2
+	rep #$20
+	lda [Z_PTR]
+	and #$00FF
+	inc a
+	rts
+
 ; A transfer of Z_T1 bytes from $7E:Z_T2 to the VRAM at Z_T3 (words).
 bk_queue:
 	phx
@@ -1577,25 +1868,27 @@ bk_stage_sprite:
 	lda [Z_PTR],y
 	dey
 	dey
-	and #$00FF
-	sta.b Z_SRC+2
+	sep #$20
+	sta $4374
+	rep #$20
 	lda.b Z_DST
-	jsr _half
-	lda.b Z_SRC
-	clc
-	adc #64
-	sta.b Z_SRC
-	lda.b Z_DST
-	clc
-	adc #512
-_half:
 	sta $2181
 	lda.b Z_SRC
 	sta $4372
+	lda #64
+	sta $4375
 	sep #$20
-	lda.b Z_SRC+2
-	sta $4374
+	lda #$80
+	sta $420B
 	rep #$20
+	lda.b Z_DST
+	clc
+	adc #512
+	sta $2181
+	lda.b Z_SRC
+	clc
+	adc #64
+	sta $4372
 	lda #64
 	sta $4375
 	sep #$20
@@ -1604,130 +1897,77 @@ _half:
 	rep #$20
 	rts
 
-; One pair of rows (A): the parts that changed, in the order of their
-; slots, while the range fits the budget.
-bk_pair:
-	sta.b Z_PAIR
-	lda #$FFFF
-	sta.b Z_LO
-	ldx #0
-	lda.b Z_PAIR
-	beq +
-	ldx.w #2*8
-+
-_p:
-	lda.l bk_pair_part,x
-	tay
-	lda W_DESC,y
-	cmp bike_cur,y
-	beq _pn
-	lda #1
-	sta.b Z_NS
-	cpy.w #2*FRAME
-	bne +
-	sta.b Z_PTR+2               ; any bank with the descriptors
-	lda W_DESC,y
-	sta.b Z_PTR
-	sep #$20
-	lda.b #:bike_desc_frame
-	sta.b Z_PTR+2
-	rep #$20
-	lda [Z_PTR]
-	and #$00FF
-	sta.b Z_NS
-+	lda.l bk_pair_slot,x
-	sta.b Z_T4                  ; s0
-	clc
-	adc.b Z_NS
-	dec a
-	sta.b Z_T5                  ; s1
-	lda.b Z_LO
-	cmp #$FFFF
-	bne +
-	lda.b Z_T4
-+	sta.b Z_T3                  ; new lo
-	lda.b Z_T5
-	sec
-	sbc.b Z_T3
-	inc a
-	xba
-	lsr a                       ; * 128
-	cmp.b Z_LEFT
-	beq +
-	bcs _pdone
-+	lda.b Z_T3
-	sta.b Z_LO
-	lda.b Z_T5
-	sta.b Z_HI
-	phx
-	tyx
-	lda.l bk_bit,x
-	plx
-	ora.b Z_ACC
-	sta.b Z_ACC
-_pn:
-	inx
-	inx
-	lda.b Z_PAIR
-	bne +
-	cpx.w #2*8
-	bcc _p
-	bra _pdone
-+	cpx.w #2*11
-	bcc _p
-_pdone:
-	lda.b Z_LO
-	cmp #$FFFF
-	bne +
-	rts
-+	lda.b Z_PAIR
-	asl a
-	tax
-	lda.b Z_LO
-	sta bike_rlo,x
-	lda.b Z_HI
-	sta bike_rhi,x
-	sec
-	sbc.b Z_LO
-	inc a
-	xba
-	lsr a
-	eor #$FFFF
-	sec
-	adc.b Z_LEFT
-	sta.b Z_LEFT
-	rts
-
 ;---------------------------------------------------------------------------
-; The sprites of the bike: OAM 32-63.
+; The sprites of the bike: OAM 32-63, the first on top (the reverse of the
+; order the PC draws). Pivots are biased by 256 pixels: a sprite is on the
+; screen when its x is 241..511 and y 241..479 (the low byte is what the
+; OAM gets, x < 256 sets the bit of x >= 256).
 bk_oam:
 	rep #$30
-	lda.w #OAM_BIKE*4
-	sta.b Z_OX
-	stz.b Z_N
-	lda #32
-	sta.b Z_NMAX
-	lda.w #OAM_BIKE
-	sta.b Z_HB
+	lda.b Z_BSX
+	clc
+	adc.w #8+4096
+	sta.b Z_BXB
+	sec
+	sbc #128
+	sta.b Z_BXS
+	lda.b Z_BSY
+	clc
+	adc.w #8+4096
+	sta.b Z_BYB
+	sec
+	sbc #128
+	sta.b Z_BYS
 	stz core_oam+512+OAM_BIKE/4
 	stz core_oam+512+OAM_BIKE/4+2
 	stz core_oam+512+OAM_BIKE/4+4
 	stz core_oam+512+OAM_BIKE/4+6
-	lda.w #:bike_desc_single
-	sta.b Z_PTR+2
-	lda.b Z_LATE
+	ldx.w #OAM_BIKE*4
+	; The parts are within 48 pixels of the center: with the center at
+	; 56..199, 56..167 they are all on the screen (Z_FAST).
+	stz.b Z_FAST
+	lda.b Z_BSX
+	sec
+	sbc.w #56*16
+	cmp.w #144*16
+	bcs +
+	lda.b Z_BSY
+	sec
+	sbc.w #56*16
+	cmp.w #112*16
+	bcs +
+	dec.b Z_FAST
++	lda.b Z_LATE
 	bmi +
 	jsr bk_wheel
-+	ldx #0
--	lda.l bk_order,x
-	tay
-	phx
-	jsr bk_part
-	plx
-	inx
-	inx
-	cpx.w #2*11
-	bcc -
++	bit.b Z_FAST
+	bmi +
+	jmp _edge
++	PUT1F 2*3
+	PUT1F 2*2
+	PUT1F 2*9
+	PUT1F 2*1
+	PUT1F 2*0
+	PUT1F 2*8
+	jsr bk_frame
+	PUT1F 2*7
+	PUT1F 2*6
+	PUT1F 2*5
+	PUT1F 2*4
+	jmp _wheels
+_edge:
+	PUT1 2*3
+	PUT1 2*2
+	PUT1 2*9
+	PUT1 2*1
+	PUT1 2*0
+	PUT1 2*8
+	jsr bk_frame
+	PUT1 2*7
+	PUT1 2*6
+	PUT1 2*5
+	PUT1 2*4
+_wheels:
 	lda.b Z_LATE
 	bpl +
 	lda #1
@@ -1737,213 +1977,190 @@ bk_oam:
 	bra ++
 +	eor #1
 	jsr bk_wheel
-++	ldx.b Z_OX
+++	; Hide the sprite after the last and the ones used in the last frame.
+	stx.b Z_T5
+	lda #$E000                  ; y 224
 -	cpx.w #OAM_OBJ*4
 	bcs +
-	lda #$E000                  ; y 224
 	sta core_oam,x
 	inx
 	inx
 	inx
 	inx
-	bra -
-+	rts
+	cpx bike_oam_end
+	bcc -
++	lda.b Z_T5
+	sta bike_oam_end
+	rts
 
-; A wheel (A = 0, 1).
+; A wheel (A = 0, 1). X = offset in core_oam.
 bk_wheel:
-	rep #$30
+	phx
 	asl a
 	tay
 	asl a
 	tax
-	lda.b Z_BSX
+	lda.b Z_BXS
 	clc
 	adc.b Z_W0X,x
-	jsr _pivot
-	sta.b Z_PX
-	lda.b Z_BSY
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_T0
+	lda.b Z_BYS
 	sec
 	sbc.b Z_W0Y,x
-	jsr _pivot
-	sta.b Z_PY
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_T1
 	tyx
 	lda.l phys_view+PV_WHEEL_A,x
 	clc
 	adc #512
 	xba
 	and #$00FF
-	lsr a
-	lsr a                       ; q
-	ldx.w #PRIO
-	cmp #32
-	bcc +
-	sbc #32
-	ldx.w #PRIO|$C0
-+	stx.b Z_ATTR
-	pha
-	and #$0007
-	asl a
-	sta.b Z_TILE
-	pla
-	and #$0018
-	asl a
-	asl a
-	clc
-	adc.b Z_TILE
-	sta.b Z_TILE                ; (k >> 3) * 32 + (k & 7) * 2
-	lda #$FFF8
-	sta.b Z_T0
-	sta.b Z_T1
-	jmp bk_sprite
+	and #$00FC
+	lsr a                       ; 64 steps * 2
+	tax
+	lda.l bike_t_wheel,x
+	sta.b Z_TA
+	plx
+	jmp bk_put
 
-; (A + 8) >> 4, keeping the sign.
-_pivot:
-	clc
-	adc #8
-	ASR
-	ASR
-	ASR
-	ASR
-	rts
-
-; A part (Y = 2 * part) with its picture in the VRAM.
-bk_part:
-	lda bike_cur,y
+; The sprites of the body of the bike. X = offset in core_oam.
+bk_frame:
+	lda bike_cur+2*FRAME
 	bne +
 	rts
 +	sta.b Z_PTR
-	lda.b Z_BSX
+	lda bike_ta+2*FRAME
+	sta.b Z_TA
+	lda.b Z_BXB
 	clc
-	adc P_CX,y
-	jsr _pivot
-	sta.b Z_PX
-	lda.b Z_BSY
+	adc P_CX+2*FRAME
+	lsr a
+	lsr a
+	lsr a
+	lsr a
 	sec
-	sbc P_CY,y
-	jsr _pivot
+	sbc #128
+	sta.b Z_PX
+	lda.b Z_BYB
+	sec
+	sbc P_CY+2*FRAME
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	sec
+	sbc #128
 	sta.b Z_PY
-	tyx
-	lda bike_curf,y
-	ora.l bk_attr,x
-	sta.b Z_ATTR
-	lda.l bk_tile,x
-	sta.b Z_TILE
-	cpy.w #2*FRAME
-	beq +
-	lda #$FFF8
-	sta.b Z_T0
-	sta.b Z_T1
-	jmp bk_sprite
-+	phy
 	lda [Z_PTR]
 	and #$00FF
 	sta.b Z_NS
-	ldy #1
--	lda [Z_PTR],y
-	and #$00FF
-	cmp #$0080
-	bcc +
-	ora #$FF00
-+	sta.b Z_T0
-	iny
-	lda [Z_PTR],y
-	and #$00FF
-	cmp #$0080
-	bcc +
-	ora #$FF00
-+	sta.b Z_T1
-	iny
-	iny
-	iny
-	iny
-	phy
-	jsr bk_sprite
-	ply
-	lda.b Z_TILE
+	; The corners for the flips: 1 + 3 * 6 + 12 * (flips >> 6).
+	lda bike_curf+2*FRAME
+	xba
+	and #$00C0
+	lsr a
+	lsr a
+	lsr a
+	sta.b Z_T2                  ; 8 f
+	lsr a
 	clc
-	adc #2
-	sta.b Z_TILE
+	adc.b Z_T2                  ; 12 f
+	clc
+	adc.w #1+3*BK_FRAME_SPRITES
+	tay
+-	lda [Z_PTR],y               ; dx + 128, dy + 128
+	sta.b Z_T4
+	and #$00FF
+	clc
+	adc.b Z_PX
+	sta.b Z_T0
+	lda.b Z_T4
+	xba
+	and #$00FF
+	clc
+	adc.b Z_PY
+	sta.b Z_T1
+	jsr bk_put
+	inc.b Z_TA
+	inc.b Z_TA
+	iny
+	iny
 	dec.b Z_NS
 	bne -
-	ply
 	rts
 
-; A 16x16 sprite: pivot (Z_PX, Z_PY), its corner from the pivot unflipped
-; (Z_T0, Z_T1), tile Z_TILE, attributes Z_ATTR (flips). Into core_oam at
-; Z_OX unless off the screen or Z_NMAX sprites written. Keeps Y.
-bk_sprite:
-	rep #$30
-	lda.b Z_ATTR
-	bit #$40
-	beq +
-	lda #$FFF0
-	sec
-	sbc.b Z_T0
-	sta.b Z_T0
-	lda.b Z_ATTR
-+	bit #$80
-	beq +
-	lda #$FFF0
-	sec
-	sbc.b Z_T1
-	sta.b Z_T1
-+	lda.b Z_PX
-	clc
-	adc.b Z_T0
-	sta.b Z_T0
-	clc
-	adc #15
-	cmp #271
-	bcs _off
-	lda.b Z_PY
-	clc
-	adc.b Z_T1
-	sta.b Z_T1
-	clc
-	adc #15
-	cmp #239
-	bcs _off
-	lda.b Z_N
-	cmp.b Z_NMAX
-	bcs _off
-	ldx.b Z_OX
-	sep #$20
+; A 16x16 sprite at (Z_T0, Z_T1) (biased), Z_TA = tile | attributes << 8,
+; into core_oam at X if on the screen; X goes to the next sprite. Keeps Y.
+bk_put:
+	bit.b Z_FAST
+	bpl +
 	lda.b Z_T0
 	sta core_oam,x
 	lda.b Z_T1
 	sta core_oam+1,x
-	lda.b Z_TILE
+	lda.b Z_TA
 	sta core_oam+2,x
-	lda.b Z_ATTR
-	sta core_oam+3,x
-	rep #$20
+	inx
+	inx
+	inx
+	inx
+	rts
++	lda.b Z_T0
+	cmp #241
+	bcc _off
+	cmp #512
+	bcs _off
+	sta core_oam,x
+	lda.b Z_T1
+	cmp #241
+	bcc _off
+	cmp #480
+	bcs _off
+	sta core_oam+1,x
+	lda.b Z_TA
+	sta core_oam+2,x
 	lda.b Z_T0
-	bpl +
-	lda.b Z_N
-	clc
-	adc.b Z_HB
-	pha
+	cmp #256
+	bcs +
+	jsr bk_x8
++	inx
+	inx
+	inx
+	inx
+_off:
+	rts
+
+; Sets the bit of x >= 256 of the sprite at X in core_oam.
+bk_x8:
+	phx
+	txa
+	lsr a
+	lsr a
 	and #$0003
 	tax
 	sep #$20
 	lda.l bk_hb,x
-	sta.b Z_T0
+	sta.b Z_T1
 	rep #$20
-	pla
+	lda 1,s
+	lsr a
+	lsr a
 	lsr a
 	lsr a
 	tax
 	sep #$20
-	lda.b Z_T0
+	lda.b Z_T1
 	ora core_oam+512,x
 	sta core_oam+512,x
 	rep #$20
-+	lda.b Z_OX
-	clc
-	adc #4
-	sta.b Z_OX
-	inc.b Z_N
-_off:
+	plx
 	rts
 
 .ENDS

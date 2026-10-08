@@ -86,7 +86,7 @@ def main():
         states = [state_of(dump[f]) for f in frames]
     else:
         import bike_poses
-        states = bike_poses.model_states()
+        states = [st for st, cam in bike_poses.model_states()]
     w = h = 80
     cols = 6
     rows = (len(states) + cols - 1) // cols
