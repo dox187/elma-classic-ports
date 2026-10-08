@@ -1,0 +1,5 @@
+# Finishes level 1 Warm Up on the SNES (test/finish_test.py): the bike turns
+# right, rides to the apple, eats it, turns back and rides to the flower.
+# Found by test/finish_search.py with the game in Mesen 2; it depends on the
+# exact timing of the game. Syntax of test/play.py, from the first frame.
+W1 UP+SPACE1 UP23 W2 UP24 W2 UP24 W2 UP24 W2 UP75 DOWN25 W26 RIGHT24 W2 UP+RIGHT24 W2 UP24 W2 UP25 RIGHT25 UP+RIGHT25 LEFT25 UP+RIGHT24 W2 UP24 W2 UP+RIGHT24 W2 UP24 W2 UP24 W2 DOWN24 W2 DOWN+SPACE1 DOWN23 W2 UP24 W2 DOWN25 W25 UP+LEFT24 W2 UP24 W2 UP+RIGHT24 W2 UP24 W2 UP24 W2 UP+LEFT25 DOWN25 UP+RIGHT24 W2 LEFT24 W2 UP24 W27 DOWN24 W2 UP+RIGHT24 W2 LEFT25 DOWN25 W26 DOWN24 W2 DOWN24 W2 UP+LEFT16
