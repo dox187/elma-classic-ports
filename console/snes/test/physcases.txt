@@ -1,0 +1,29 @@
+# Cases of test/physcheck: a level (0-based) and keys in steps of 1/80 s
+# (G gas, B brake, R right volt, L left volt, N nothing, T turn).
+# Warm Up: gas, a turn, volts both ways, brake.
+0 G200 NT1 G150 R1 G60 B40 L1 N40 G100
+# Warm Up: full gas until the bike flips over.
+0 G600
+# Warm Up: turned to the right, gas, brakes, volts in the air.
+0 NT1 G120 B30 G200 L1 G80 R1 G40 B80 G200
+# Flat Track: long gas, then brake hard.
+1 G500 B200 N100
+# Twin Peaks: an apple, then a killer.
+2 G400 N100
+# The Steppes: the flower right of the start.
+9 NT1 G150 N100
+# Gravity Ride: the apples that turn the gravity.
+10 G100 N200 G200 R1 G100
+10 NT1 G120 N150 L1 G150 N100
+10 B100 G60 L1 N60 R1 G200
+# Hill Legend: a killer on the left.
+12 G300
+# Hi Flyer: a long fall.
+6 G400 N200
+# Labyrinth Pro, Bowling, Downhill: dense geometry.
+34 G300 B50 G300
+45 G300 NT1 G300
+47 G400 N200
+# Upside Down: gravity apples; Haircut: many objects.
+19 G200 L1 G200
+38 G400
