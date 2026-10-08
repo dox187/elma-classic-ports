@@ -3,6 +3,7 @@
 SPC_AS = $(DEVKIT)/bin/wla-spc700
 GEN_ASM += $(GEN)/snd.asm
 GEN_H += $(GEN)/snd.inc
+TEST_ROMS += $(BUILD)/test_snd.sfc
 
 $(BUILD)/spc/driver.bin: spc/driver.asm | check-tools
 	@mkdir -p $(BUILD)/spc
