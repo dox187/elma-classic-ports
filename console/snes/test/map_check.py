@@ -130,6 +130,9 @@ def make_lua(syms, plan, last):
     cb('map_decode_job@p_dec0', 'td = emu.getMasterClock()')
     cb('map_decode_job@p_dec1', 'prof.dec = prof.dec + emu.getMasterClock() - td prof.ndec = prof.ndec + 1')
     cb('map_work@p_make0', 'tm = emu.getMasterClock()')
+    L.append('local tl0, lsum, lmax, ln = 0, 0, 0, 0')
+    cb('map_load', 'tl0 = emu.getMasterClock()')
+    cb('map_load_end', 'local d = emu.getMasterClock() - tl0 lsum = lsum + d ln = ln + 1 if d > lmax then lmax = d end')
     cb('map_work@p_make1', 'prof.make = prof.make + emu.getMasterClock() - tm prof.nmake = prof.nmake + 1')
     L.append('''emu.addEventCallback(function()
   frame = frame + 1
@@ -166,6 +169,7 @@ def make_lua(syms, plan, last):
   end
   if pf >= %(last)d then
     print(string.format("PROF %%d %%d %%d %%d %%d %%d %%d", prof.region, prof.work, prof.flush, prof.dec, prof.ndec, prof.make, prof.nmake))
+    print(string.format("LOADS %%d %%d %%d", ln, lsum, lmax))
     emu.stop(0)
   end
 end, emu.eventType.endFrame)''' % {
@@ -240,12 +244,22 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--rom', default=os.path.join(ROOT, 'build', 'test_map.sfc'))
     ap.add_argument('--gen', default=os.path.join(ROOT, 'build', 'gen'))
-    ap.add_argument('--res', default=os.environ.get('ELMA_RES', os.path.join(ROOT, '..', '..', 'elma.res')))
+    # The elma.res and LGR of the build (build/gen/data_names):
+    names = ['', '']
+    try:
+        with open(os.path.join(ROOT, 'build', 'gen', 'data_names')) as f:
+            names = f.read().split()
+    except OSError:
+        pass
+    ap.add_argument('--res', default=os.environ.get('ELMA_RES', names[0]))
     ap.add_argument('--levels', default='0,19,33,45,47')
     ap.add_argument('--path', default='sweep;fast')
     ap.add_argument('--every', type=int, default=90)
     ap.add_argument('--out', default=None)
     ap.add_argument('--keep', action='store_true', help='save the pictures of failed checks')
+    ap.add_argument('--model', action='store_true',
+                    help='compare the screenshots with the original game (mapmodel.py) at 0.4 too')
+    ap.add_argument('--lgr', default=os.environ.get('ELMA_LGR', names[1]))
     a = ap.parse_args()
     md = map_ref.MapData(a.gen)
     levs = elmadata.internal_levels(elmadata.Resource(a.res))
@@ -322,6 +336,11 @@ def main():
             print('parts (master clocks in all): region %d, work %d (decode %d in %d lines, '
                   '%d a line; make %d in %d calls), flush %d' % (
                       pr[0], pr[1], pr[3], pr[4], pr[3] // max(pr[4], 1), pr[5], pr[6], pr[2]))
+        elif line.startswith('LOADS '):
+            ln, lsum, lmax = [int(v) for v in line.split()[1:]]
+            if ln:
+                print('map_load: %d loads, master clocks mean %d (%.1f frames), max %d (%.1f frames)' % (
+                    ln, lsum // ln, lsum / ln / 357366.0, lmax, lmax / 357366.0))
         elif line.startswith('CHECK '):
             checks.append(line.split()[1:])
         elif line.strip() and 'Uninitialized memory' not in line:
@@ -341,6 +360,12 @@ def main():
         moving = st[keep & (st[:, 1] > 0)]
     nfail = 0
     nbad = 0
+    model_diffs = []
+    pcl = {}
+    if a.model:
+        import mapmodel
+        from lgr import Lgr
+        tex = mapmodel.Textures(Lgr(a.lgr))
     for ck in checks:
         name, mcx, mcy, jobs, s0, s1, resets, h1, v1, h2 = ck[0], *[int(v) for v in ck[1:]]
         if resets:
@@ -360,6 +385,16 @@ def main():
         if h1 != (mcx & 0x3FF) or v1 != ((mcy - 1) & 0x3FF):
             errs.append('PPU scroll %d,%d for camera %d,%d' % (h1, v1, mcx, mcy))
         nbad += bad
+        if a.model:
+            if level not in pcl:
+                pcl[level] = mapmodel.PcLevel(levs[level], tex)
+            pc, cov, front = mapmodel.pc_frame(pcl[level], mcx, mcy)
+            dd = np.abs(img - pc).max(axis=2)
+            model_diffs.append((np.abs(img - pc).mean(), (dd > 48).mean()))
+            from PIL import Image
+            both = np.concatenate([pc, np.zeros((SCREEN_H, 4, 3)), img], axis=1)
+            Image.fromarray(np.clip(np.round(both), 0, 255).astype(np.uint8)).save(
+                os.path.join(out, 'model_%s.png' % name))
         if errs or bad:
             nfail += 1 if errs else 0
             print('check %s at %d,%d: %d errors, %d pixels differ%s' % (
@@ -370,6 +405,11 @@ def main():
                 Image.fromarray(np.clip(both, 0, 255).astype(np.uint8)).save(
                     os.path.join(out, 'fail_%s.png' % name))
     print('%d checks, %d failed, %d pixels differed in all' % (len(checks), nfail, nbad))
+    if a.model and model_diffs:
+        md_ = np.array(model_diffs)
+        print('against the original game at 0.4: mean color difference %.1f (0-255), '
+              'pixels differing by more than 48: %.1f%% (worst check %.1f%%)' % (
+                  md_[:, 0].mean(), 100 * md_[:, 1].mean(), 100 * md_[:, 1].max()))
     if len(moving):
         cpu = moving[:, 1]
         print('map_set_camera: %d frames, master clocks median %d, mean %d, 99%% %d, max %d' % (

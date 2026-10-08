@@ -182,6 +182,8 @@ map_ncolbuf         dw          ; column buffers used, times 64
 map_wk_i            dw          ; place in map_jq of the job looked at, times 2
 map_wk_n            dw
 map_bytes0          dw
+map_qfirst          dw          ; our entries of the DMA queue of the next NMI (core_dmaq_n
+map_qend            dw          ; before and after map_flush)
 map_vx0             dw          ; first cell column on the screen
 map_vy0             dw          ; first cell row on the screen
 map_magic           dsw 2       ; MAP_MAGIC when a level is loaded (RAM is not cleared at the start)
@@ -2149,6 +2151,8 @@ map_copy:
 map_flush:
 	lda.l core_dmaq_bytes
 	sta map_bytes0
+	lda.l core_dmaq_n
+	sta map_qfirst
 	; Tiles:
 	ldy #0
 -	cpy map_nruns
@@ -2218,6 +2222,8 @@ map_flush:
 	bcs @dropped
 +	jsr map_tidy
 @dropped:
+	lda.l core_dmaq_n
+	sta map_qend
 	lda map_jn
 	sec
 	sbc map_ndone
@@ -2518,6 +2524,58 @@ map_dma_now:
 	rts
 
 ;---------------------------------------------------------------------------
+; Takes our transfers off the DMA queue if the NMI has not done them yet
+; (map_set_camera of the level before; the next level's are written now).
+map_unqueue:
+	lda map_magic
+	cmp #MAP_MAGIC0
+	bne @x
+	lda map_qend
+	cmp map_qfirst
+	beq @x
+	bcc @x
+	cmp.l core_dmaq_n
+	beq +
+	bcs @x                      ; done by the NMI already
++	; The bytes of ours:
+	ldx map_qfirst
+	lda.l core_dmaq_bytes
+	sta DT0
+-	cpx map_qend
+	bcs +
+	lda DT0
+	sec
+	sbc.l core_dmaq+4,x
+	sta DT0
+	txa
+	clc
+	adc #8
+	tax
+	bra -
++	lda DT0
+	sta.l core_dmaq_bytes
+	; The entries after ours come down:
+	ldx map_qend
+	ldy map_qfirst
+-	txa
+	cmp.l core_dmaq_n
+	bcs +
+	lda.l core_dmaq,x
+	phx
+	tyx
+	sta.l core_dmaq,x
+	plx
+	inx
+	inx
+	iny
+	iny
+	bra -
++	tya
+	sta.l core_dmaq_n
+@x:	stz map_qfirst
+	stz map_qend
+	rts
+
 ; void map_load(u16 level): in forced blank. The palettes, tiles and maps
 ; of the level's background for the camera set last, and the registers of
 ; BG1 and BG2.
@@ -2535,6 +2593,10 @@ map_load:
 	pha
 	plb
 	rep #$20
+	phy
+	jsr map_unqueue
+	ply
+	stz map_magic
 	lda #1
 	sta DNOW
 	; The record of the level:
@@ -2869,6 +2931,7 @@ map_load:
 	; (the minimum of free tiles counts from here)
 	lda map_freesp
 	sta map_stat_minfree
+map_load_end:
 	rep #$30
 	pld
 	plb
