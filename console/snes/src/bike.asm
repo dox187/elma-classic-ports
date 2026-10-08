@@ -131,6 +131,9 @@ bike_ta     dsw 11      ; its first tile | attributes << 8
 bike_toggle dw          ; which group of parts loads first
 bike_pend   dw          ; bit p: part p wants a picture not in the VRAM
 bike_ph     dw          ; P_H is set for this Z_TR ($FFFF: not set)
+bike_bn     dw          ; the sprites of the body (bk_bodyset)
+bike_bx     dw          ; their corners for its flips (from bike_desc_single)
+bike_bnl    dw          ; the sprites of the body in the last frame
 bike_key    dsb 10      ; the step of the angle and the mirroring of the
                         ; picture of each single part in the last frame
                         ; ($FF: none)
@@ -551,6 +554,8 @@ bike_reset:
 	sta bike_cur+2*FRAME        ; the body: no sprites
 	sta bike_toggle
 	sta bike_pend
+	sta bike_bn
+	sta bike_bnl
 	dec a
 	sta bike_key
 	sta bike_key+2
@@ -1603,6 +1608,9 @@ bk_check:
 	cmp bike_ta,y
 	beq +
 	sta bike_ta,y
+	cpy.w #2*FRAME
+	bne +
+	jmp bk_bodyset
 +	rts
 
 ; The squashed pictures: all at the angle of the bike as drawn. The parts
@@ -1865,6 +1873,7 @@ _group1:
 	ldx.w #2*FRAME
 	txy
 	jsr bk_take
+	jsr bk_bodyset
 	ldy.w #BK_FRAME_ROWS
 	lda [Z_PTR],y
 	sta.b Z_T0
@@ -2049,12 +2058,13 @@ bk_oam3:
 ; The sprites of the body in modes 0-3.
 bk_body0:
 	jsr bk_body
-	ldx.b Z_NS                  ; the places not used hidden
-	txa
+	cmp bike_bnl                ; (Z_NS) fewer sprites than in the last
+	sta bike_bnl                ; frame: the places not used hidden
+	bcs +
 	asl a
 	tax
 	jsr bk_hbody
-	ldx.b Z_NS                  ; the sprites from the last one
++	ldx.b Z_NS                  ; the sprites from the last one
 	txa
 	asl a
 	tax
@@ -2081,12 +2091,13 @@ _b00:
 
 bk_body1:
 	jsr bk_body
-	ldx.b Z_NS                  ; the places not used hidden
-	txa
+	cmp bike_bnl                ; (Z_NS) fewer sprites than in the last
+	sta bike_bnl                ; frame: the places not used hidden
+	bcs +
 	asl a
 	tax
 	jsr bk_hbody
-	ldx.b Z_NS                  ; the sprites from the last one
++	ldx.b Z_NS                  ; the sprites from the last one
 	txa
 	asl a
 	tax
@@ -2113,12 +2124,13 @@ _b10:
 
 bk_body2:
 	jsr bk_body
-	ldx.b Z_NS                  ; the places not used hidden
-	txa
+	cmp bike_bnl                ; (Z_NS) fewer sprites than in the last
+	sta bike_bnl                ; frame: the places not used hidden
+	bcs +
 	asl a
 	tax
 	jsr bk_hbody
-	ldx.b Z_NS                  ; the sprites from the last one
++	ldx.b Z_NS                  ; the sprites from the last one
 	txa
 	asl a
 	tax
@@ -2145,12 +2157,13 @@ _b20:
 
 bk_body3:
 	jsr bk_body
-	ldx.b Z_NS                  ; the places not used hidden
-	txa
+	cmp bike_bnl                ; (Z_NS) fewer sprites than in the last
+	sta bike_bnl                ; frame: the places not used hidden
+	bcs +
 	asl a
 	tax
 	jsr bk_hbody
-	ldx.b Z_NS                  ; the sprites from the last one
++	ldx.b Z_NS                  ; the sprites from the last one
 	txa
 	asl a
 	tax
@@ -2271,29 +2284,36 @@ _whide:
 
 ; Z_T4 = the corners of the sprites of the body for its flips (from
 ; bike_desc_single), Z_NS = their number (0: none), Z_TA = the first tile
-; with the attributes.
+; with the attributes (bike_bodyset).
 bk_body:
-	stz.b Z_NS
-	lda bike_cur+2*FRAME
-	bne +
-	rts
-+	sta.b Z_PTR
-	lda [Z_PTR]
-	and #$00FF
-	sta.b Z_NS
+	lda bike_bx
+	sta.b Z_T4
 	lda bike_ta+2*FRAME
 	sta.b Z_TA
+	lda bike_bn
+	sta.b Z_NS
+	rts
+
+; The body's picture or flips changed: bike_bn, bike_bx for bk_body.
+bk_bodyset:
+	lda bike_cur+2*FRAME
+	sta.b Z_PTR
+	beq +
+	lda [Z_PTR]
+	and #$00FF
++	sta bike_bn
+	lda bike_ta+2*FRAME
 	xba
 	and #$00C0                  ; the flips: 64 f
 	lsr a
 	lsr a
 	lsr a
-	sta.b Z_T2                  ; 8 f
+	sta.b Z_T3                  ; 8 f
 	asl a
-	adc.b Z_T2                  ; 24 f
+	adc.b Z_T3                  ; 24 f
 	adc.w #(1+3*BK_FRAME_SPRITES-bike_desc_single) & $FFFF
-	adc.b Z_PTR
-	sta.b Z_T4
+	adc bike_cur+2*FRAME
+	sta bike_bx
 	rts
 
 ; Hides the places of the body from 7 + X/2 on.
