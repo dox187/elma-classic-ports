@@ -7,8 +7,9 @@
 #define REG(a) (*(vuint8*)(a))
 
 // Bytes of the text uploaded in a frame (the vertical blank takes about
-// 5.5 KB with the OAM, the helmet and the balls):
-#define UI_TEXT_DMA 4096
+// 5.5 KB with the OAM, the helmet and the balls; each transfer of a
+// column costs the time of about 150 bytes more, 4096 loses some):
+#define UI_TEXT_DMA 3072
 
 char ui_items[UI_ITEMS][UI_ITEM_LEN];
 char ui_tabs[UI_ITEMS][UI_TAB_LEN];
@@ -19,7 +20,6 @@ u8 ui_ready;
 u8 ui_balls_on;
 u8 ui_pal;
 static u8 ui_blank;             // forced blank: the VRAM is written at once
-static u8 row_dirty[UI_ROWS];   // rows of the canvas to upload
 static s16 hel_x, hel_y;
 static s16 hel_px, hel_py, hel_sx, hel_sy;  // the place on the screen of hel_px, hel_py
 static u8 hel_on;
@@ -29,6 +29,9 @@ static u16 last_frame;
 static u16 rep_held, rep_start, rep_last;
 static u8 ui_anim;              // the next frame starts with kirajzolanim
 static u8 in_end;               // ui_end is uploading
+static u8 buf_col[2][UI_COLS];  // columns of tiles that hold text in the VRAM
+static u8 buf_lo[2], buf_end[2];  // rows of tiles that hold it: lo up to end - 1
+static u8 buf_new_lo, buf_new_end;
 
 // The balls: half of (0, 2, 0) and the background is about the darker
 // background of the original (szoveg2.pcx against szoveg1.pcx).
@@ -132,13 +135,15 @@ void ui_enter(void) {
 	REG(0x2116) = UIV_TEXT_MAP & 0xFF;
 	REG(0x2117) = UIV_TEXT_MAP >> 8;
 	for( i = 0; i < 1024; i++ ) {
-		u16 t = i < UI_ROWS * 32 ? i : 0;
+		u16 t = i < UI_ROWS * 32 ? (i & 31) * UI_ROWS + (i >> 5) : 0;
 		REG(0x2118) = (u8)t;
 		REG(0x2119) = (u8)((t >> 8) | 0x20);
 	}
 	ui_canvas_clear_all();
-	for( i = 0; i < UI_ROWS; i++ )
-		row_dirty[i] = 0;
+	for( i = 0; i < UI_COLS; i++ )
+		buf_col[0][i] = 0;
+	buf_lo[0] = UI_ROWS;
+	buf_end[0] = 0;
 	core_oam_clear();
 	hel_loaded = 0xFF;
 	hel_on = 0;
@@ -161,40 +166,54 @@ void ui_invalidate(void) {
 
 // A new picture of texts: the canvas is cleared.
 void ui_begin(void) {
-	u16 r;
-	for( r = 0; r < UI_ROWS; r++ )
-		if( ui_row_used[r] )
-			row_dirty[r] = 1;
 	ui_canvas_clear();
 }
 
-// The texts drawn since ui_begin go to the screen (over a few frames).
+// The texts drawn since ui_begin go to the screen (over a few frames). The
+// canvas is stored by columns of tiles, so a column is one transfer; only
+// the columns and the rows that hold text now or held it are sent.
 void ui_end(void) {
-	u16 r;
+	u16 c, lo = UI_ROWS, end = 0, r;
 	for( r = 0; r < UI_ROWS; r++ ) {
-		if( ui_row_used[r] )
-			row_dirty[r] = 1;
+		if( ui_row_used[r] ) {
+			if( r < lo )
+				lo = r;
+			end = r + 1;
+		}
 	}
+	buf_new_lo = lo;
+	buf_new_end = end;
+	if( buf_lo[0] < lo )
+		lo = buf_lo[0];
+	if( buf_end[0] > end )
+		end = buf_end[0];
 	in_end = 1;
-	r = 0;
-	while( r < UI_ROWS ) {
-		if( !row_dirty[r] ) {
-			r++;
+	for( c = 0; c < UI_COLS; c++ ) {
+		u16 off;
+		u16 size;
+		if( !ui_col_used[c] && !buf_col[0][c] )
 			continue;
-		}
-		if( ui_blank ) {
-			core_vram_now(UIV_TEXT_CHR + r * 256, ui_canvas + r * UI_CANVAS_STRIDE, 512);
-		}
-		else {
-			if( core_dmaq_bytes + 512 > UI_TEXT_DMA ) {
-				ui_frame();
-				continue;
+		off = c * UI_CANVAS_STRIDE + UI_CANVAS_PAD + lo * 16;
+		size = (end - lo) * 16;
+		if( size ) {
+			if( ui_blank ) {
+				core_vram_now(UIV_TEXT_CHR + c * (UI_ROWS * 8) + lo * 8, ui_canvas + off, size);
 			}
-			core_queue_vram(UIV_TEXT_CHR + r * 256, ui_canvas + r * UI_CANVAS_STRIDE, 512);
+			else {
+				while( 1 ) {
+					if( core_dmaq_bytes + size <= UI_TEXT_DMA ) {
+						if( core_queue_vram(UIV_TEXT_CHR + c * (UI_ROWS * 8) + lo * 8, ui_canvas + off, size) )
+							break;
+					}
+					ui_frame();
+				}
+			}
 		}
-		row_dirty[r] = 0;
-		r++;
 	}
+	for( c = 0; c < UI_COLS; c++ )
+		buf_col[0][c] = ui_col_used[c];
+	buf_lo[0] = buf_new_lo;
+	buf_end[0] = buf_new_end;
 	in_end = 0;
 }
 

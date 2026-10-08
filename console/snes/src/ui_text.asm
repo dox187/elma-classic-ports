@@ -7,43 +7,51 @@
 .include "core.inc"
 
 .DEFINE UI_CANVAS_ROWS   28
-.DEFINE UI_CANVAS_STRIDE 544        ; bytes of a row of tiles (34 tiles of 16)
+.DEFINE UI_CANVAS_COLS   34         ; columns of tiles: the screen's 32 and two more
+.DEFINE UI_CANVAS_STRIDE 512        ; bytes of a column of tiles
+.DEFINE UI_CANVAS_PAD    32         ; bytes above the first row and under the last one
+.DEFINE UI_HMAX          12         ; rows of the tallest letter (tools/gen_ui.py)
 
 .BASE $00
 .RAMSECTION ".ui_canvas" BANK $7F SLOT 3
-ui_canvas           dsb UI_CANVAS_ROWS*UI_CANVAS_STRIDE
+ui_canvas           dsb UI_CANVAS_COLS*UI_CANVAS_STRIDE
 ui_row_used         dsb 32          ; 1: a letter was drawn into the row of tiles
+ui_col_used         dsb UI_CANVAS_COLS  ; 1: a letter was drawn into the column of tiles
+ui_clr_lo           dw              ; while clearing: the first row, the bytes of the
+ui_clr_size         dw              ; rows to clear, their place in a column
+ui_clr_ofs          dw
 .ENDS
 .BASE $80
 
 ; The direct page while drawing:
 .RAMSECTION ".ui_text_dp" BANK 0 SLOT 1
-ui_tdp              dsb 40
+ui_tdp              dsb 44
 .ENDS
 
 .DEFINE T_SPTR   0                  ; the string (long)
-.DEFINE T_GPTR   4                  ; the rows of the letter (long)
+.DEFINE T_GPTR   4                  ; the data of the letter (long)
 .DEFINE T_XPC    8                  ; x in the original menus
 .DEFINE T_Y      10                 ; top of the line on the screen
 .DEFINE T_SIDX   12                 ; index in the string
 .DEFINE T_W      14                 ; width of the letter in the original
-.DEFINE T_COL    16                 ; first column of tiles, times 16
-.DEFINE T_YY     18                 ; screen row of the row of the letter
-.DEFINE T_ROWS   20                 ; rows left
-.DEFINE T_NM     22                 ; inverted mask, columns 0 and 1
-.DEFINE T_NML    24                 ; inverted mask, column 2 (low byte)
-.DEFINE T_P0     26
-.DEFINE T_P0L    28
-.DEFINE T_P1     30
-.DEFINE T_P1L    32
-.DEFINE T_SHIFT  34                 ; columns of the letter, times 2
-.DEFINE T_TMP    36
+.DEFINE T_COL    16                 ; place of its first column in the canvas
+.DEFINE T_YY2    18                 ; place of its first row in a column of the canvas
+.DEFINE T_NCOL   20                 ; columns of the letter
+.DEFINE T_TMP    22
+.DEFINE T_STEP   24                 ; bytes of a column of the letter's data
+.DEFINE T_ENTRY  26                 ; where the unrolled copy starts
+.DEFINE T_CODE   28                 ; the letter
+.DEFINE T_Y2     30                 ; twice the top of the line
+.DEFINE T_FAST   32                 ; the line is in the screen: no clipping
+.DEFINE T_CFIRST 34                 ; place of the first column drawn in the canvas ($FFFF: none)
+.DEFINE T_CLAST  36                 ; place of the last column drawn (the greatest)
 
 .SECTION ".ui_text_text" SUPERFREE
 
 ;---------------------------------------------------------------------------
-; void ui_canvas_clear(void): clears the rows of tiles used since the last
-; clear, with DMA channel 1 (the NMI uses channel 0) into WMDATA.
+; void ui_canvas_clear(void): clears the rows of tiles and the columns used
+; since the last clear (the rows from the first to the last one used), with
+; DMA channel 1 (the NMI uses channel 0) into WMDATA, and forgets them.
 ; void ui_canvas_clear_all(void): the whole canvas.
 ui_canvas_clear_all:
 	php
@@ -53,9 +61,10 @@ ui_canvas_clear_all:
 	pha
 	plb
 	rep #$30
-	ldx #UI_CANVAS_ROWS-1
+	ldx #(32+UI_CANVAS_COLS)-2
 	lda #$0101
--	sta ui_row_used,x           ; every row, two at a time
+-	sta ui_row_used,x           ; every row and column, two at a time
+	dex
 	dex
 	bpl -
 	bra _clear
@@ -66,8 +75,41 @@ ui_canvas_clear:
 	lda #$7F
 	pha
 	plb
-	rep #$30
 _clear:
+	rep #$10
+	sep #$20
+	ldx #0                      ; the first row used
+-	cpx #UI_CANVAS_ROWS
+	bcc +
+	brl _none
++	lda ui_row_used,x
+	bne +
+	inx
+	bra -
++	stx ui_clr_lo
+	ldx #UI_CANVAS_ROWS-1       ; the last one
+-	lda ui_row_used,x
+	bne +
+	dex
+	bra -
++	rep #$20
+	txa
+	sec
+	sbc ui_clr_lo
+	inc a
+	asl a
+	asl a
+	asl a
+	asl a
+	sta ui_clr_size             ; 16 bytes a row of tiles
+	lda ui_clr_lo
+	asl a
+	asl a
+	asl a
+	asl a
+	clc
+	adc #UI_CANVAS_PAD+ui_canvas
+	sta ui_clr_ofs
 	sep #$20
 	lda #$08                    ; fixed source, one register
 	sta.l $004310
@@ -78,35 +120,38 @@ _clear:
 	rep #$20
 	lda #_zero
 	sta.l $004312
-	ldx #0                      ; the row
-	ldy #ui_canvas              ; its place
-_row:
+	ldx #0                      ; the column
+_col:
 	sep #$20
-	lda ui_row_used,x
+	lda ui_col_used,x
 	beq _next
-	stz ui_row_used,x
 	rep #$20
-	tya
+	txa
+	xba
+	asl a                       ; times 512
+	clc
+	adc ui_clr_ofs
 	sta.l $002181
 	sep #$20
-	lda.b #:ui_canvas
-	and #$01
+	lda #$01                    ; bank $7F
 	sta.l $002183
 	rep #$20
-	lda #UI_CANVAS_STRIDE
+	lda ui_clr_size
 	sta.l $004315
 	sep #$20
 	lda #$02
 	sta.l $00420B
 _next:
-	rep #$20
-	tya
-	clc
-	adc #UI_CANVAS_STRIDE
-	tay
 	inx
-	cpx #UI_CANVAS_ROWS
-	bcc _row
+	cpx #UI_CANVAS_COLS
+	bcc _col
+_none:
+	rep #$30
+	ldx #(32+UI_CANVAS_COLS)-2  ; forget them
+-	stz ui_row_used,x
+	dex
+	dex
+	bpl -
 	plb
 	plp
 	rtl
@@ -116,7 +161,9 @@ _zero:
 ;---------------------------------------------------------------------------
 ; u16 ui_text_draw(u16 xpc, u16 y, const char* s): draws s from xpc of the
 ; original menus (640 wide), the top of its line at the screen row y, as
-; abc8::write does it. Returns xpc after the last letter.
+; abc8::write does it. Returns xpc after the last letter. The letters
+; reach from the row above the top of the line to 11 rows under it; the
+; rows and columns of tiles are marked as used for the whole line.
 ui_text_draw:
 	php
 	phb
@@ -128,16 +175,22 @@ ui_text_draw:
 	sta.b T_XPC
 	lda 10,s
 	sta.b T_Y
+	asl a
+	sta.b T_Y2
 	lda 12,s
 	sta.b T_SPTR
 	lda 14,s
 	sta.b T_SPTR+2
 	stz.b T_SIDX
-	sep #$20
-	lda #$7F
-	pha
-	plb
-	rep #$20
+	lda #$FFFF
+	sta.b T_CFIRST
+	stz.b T_CLAST
+	stz.b T_FAST
+	lda.b T_Y
+	dec a
+	cmp #UI_CANVAS_ROWS*8-13
+	bcs _char
+	inc.b T_FAST                ; the whole line is on the screen
 _char:
 	ldy.b T_SIDX
 	lda [T_SPTR],y
@@ -164,6 +217,58 @@ _char:
 	sta.b T_XPC
 	bra _char
 _done:
+	sep #$20
+	lda #$7F
+	pha
+	plb
+	rep #$20
+	lda.b T_CFIRST
+	bmi _nomark
+	lda.b T_Y                   ; the rows of tiles used
+	dec a
+	bpl +
+	lda #0
++	lsr a
+	lsr a
+	lsr a
+	tax
+	lda.b T_Y
+	clc
+	adc #11
+	cmp #UI_CANVAS_ROWS*8
+	bcc +
+	lda #UI_CANVAS_ROWS*8-1
++	lsr a
+	lsr a
+	lsr a
+	sta.b T_TMP
+	sep #$20
+	lda #1
+-	sta ui_row_used,x
+	inx
+	cpx.b T_TMP
+	bcc -
+	beq -
+	rep #$20
+	lda.b T_CLAST               ; the columns
+	xba
+	and #$00FF                  ; the column times 2
+	lsr a
+	sta.b T_TMP
+	lda.b T_CFIRST
+	xba
+	and #$00FF
+	lsr a
+	tax
+	sep #$20
+	lda #1
+-	sta ui_col_used,x
+	inx
+	cpx.b T_TMP
+	bcc -
+	beq -
+	rep #$20
+_nomark:
 	lda.b T_XPC
 	pld
 	plb
@@ -171,32 +276,27 @@ _done:
 	sta.b tcc__r0
 	rtl
 
-; Draws the letter X (16-bit A/X) at T_XPC, T_Y.
+; Draws the letter T_CODE at T_XPC, T_Y. Leaves the data bank at that of
+; the letter.
 _glyph:
+	stx.b T_CODE
 	lda.b T_XPC
 	cmp #1024
 	bcc +
 	rts                         ; off the screen
-+	tay
-	; The column of tiles and the place in it:
++	asl a
 	asl a
-	phx
 	tax
-	lda.l ui_xcol,x
-	cmp #32*16
+	lda.l ui_xinfo,x            ; the column of tiles and the place in it
+	cmp #32*UI_CANVAS_STRIDE
 	bcc +
-	plx
 	rts
 +	sta.b T_COL
-	tyx
-	lda.l ui_xplace,x
-	and #$00FF
+	lda.l ui_xinfo+2,x
 	sta.b T_TMP
-	; The letter (ui_font_ptr: 3 bytes each), then the place in it:
-	pla
-	sta.b T_GPTR
+	lda.b T_CODE                ; the letter (ui_font_ptr: 3 bytes each)
 	asl a
-	adc.b T_GPTR
+	adc.b T_CODE
 	tax
 	lda.l ui_font_ptr,x
 	sta.b T_GPTR
@@ -204,124 +304,96 @@ _glyph:
 	and #$00FF
 	sta.b T_GPTR+2
 	ldy.b T_TMP
-	lda [T_GPTR],y
+	lda [T_GPTR],y              ; its place
 	clc
 	adc.b T_GPTR
 	sta.b T_GPTR
-	; The first row, the number of rows and of columns:
-	lda [T_GPTR]
-	and #$00FF
-	cmp #$0080
-	bcc +
-	ora #$FF00                  ; above the top of the line
-+	clc
-	adc.b T_Y
-	sta.b T_YY
-	ldy #1
+	ldy #2                      ; the bytes of a column, 0: no rows
 	lda [T_GPTR],y
-	and #$00FF
-	bne +
-	rts                         ; no rows
-+	sta.b T_ROWS
-	iny
-	lda [T_GPTR],y
-	and #$00FF
 	bne +
 	rts
-+	asl a
-	sta.b T_SHIFT               ; columns times 2
-	; The rows of tiles used:
-	lda.b T_YY
-	bpl +
-	lda #0
-+	lsr a
-	lsr a
-	lsr a
-	tax
-	lda.b T_YY
++	sta.b T_STEP
+	ldy #4
+	lda [T_GPTR],y
+	sta.b T_NCOL
+	ldy #6
+	lda [T_GPTR],y
 	clc
-	adc.b T_ROWS
-	dec a
-	bmi _norows
-	lsr a
-	lsr a
-	lsr a
-	sta.b T_TMP
-	sep #$20
--	cpx #UI_CANVAS_ROWS
-	bcs +
-	lda #1
-	sta ui_row_used,x
-	inx
-	cpx.b T_TMP
-	bcc -
-	beq -
-+	rep #$20
-_norows:
-	ldy #3                      ; the first row of the letter
-	ldx.b T_SHIFT
-	jmp (_rowfn-2,x)
-
-_rowfn:
-	.dw _rows1, _rows2, _rows3
-
-; The rows of a letter of N columns: each word (both planes of a row of a
-; tile) is added to the canvas (letters do not overlap: the canvas is
-; cleared before a picture of texts).
-.MACRO GLYPH_ROWS ARGS N
-	lda.b T_YY
-	cmp #UI_CANVAS_ROWS*8
-	bcs _skip\@                 ; above or under the screen
-	asl a
-	tax
-	lda.l ui_rowofs,x
+	adc.b T_COL
+	cmp.b T_CLAST
+	bcc +
+	sta.b T_CLAST
++	lda [T_GPTR]
+	clc
+	adc.b T_Y2
+	sta.b T_YY2                 ; the first row, the place in a column
+	lda.b T_FAST
+	bne _visible
+	lda.b T_YY2                 ; above or under the screen
+	bmi +
+	cmp #UI_CANVAS_ROWS*16
+	bcs _out
+	bra _visible
++	clc
+	adc.b T_STEP
+	beq _out
+	bpl _visible
+_out:
+	rts
+_visible:
+	lda.b T_CFIRST
+	bpl +
+	lda.b T_COL
+	sta.b T_CFIRST
++	sep #$20                    ; the data are read from their bank, the canvas
+	lda.b T_GPTR+2              ; written with long addresses
+	pha
+	plb
+	rep #$20
+	ldx.b T_STEP
+	lda.l _entry,x
+	sta.b T_ENTRY
+	lda.b T_YY2
 	clc
 	adc.b T_COL
 	tax
-	lda ui_canvas,x
-	ora [T_GPTR],y
-	sta ui_canvas,x
-	iny
-	iny
-	.IF N > 1
-	lda ui_canvas+16,x
-	ora [T_GPTR],y
-	sta ui_canvas+16,x
-	iny
-	iny
-	.ENDIF
-	.IF N > 2
-	lda ui_canvas+32,x
-	ora [T_GPTR],y
-	sta ui_canvas+32,x
-	iny
-	iny
-	.ENDIF
-	bra _next\@
-_skip\@:
+	lda.b T_GPTR
+	clc
+	adc #8
+	tay
+_column:
+	pea _columndone-1
+	jmp (ui_tdp+T_ENTRY)
+_columndone:
+	txa
+	clc
+	adc #UI_CANVAS_STRIDE
+	tax
 	tya
 	clc
-	adc #2*N
+	adc.b T_STEP
 	tay
-_next\@:
-	inc.b T_YY
-	dec.b T_ROWS
-	bne _rows\1
+	dec.b T_NCOL
+	bne _column
 	rts
-.ENDM
 
-_rows1:
-	GLYPH_ROWS 1
-_rows2:
-	GLYPH_ROWS 2
-_rows3:
-	GLYPH_ROWS 3
+; The rows of a column of a letter: each word (both planes of a row of a
+; tile) is added to the canvas (letters do not overlap: the canvas is
+; cleared before a picture of texts). X is the place in the canvas, Y that
+; of the column in the data; the rows are done from the last one, starting
+; in the chain at the number of rows of the letter.
+_chain:
+.REPEAT UI_HMAX INDEX i
+	lda.w (UI_HMAX-1-i)*2,y
+	ora.l ui_canvas+(UI_HMAX-1-i)*2,x
+	sta.l ui_canvas+(UI_HMAX-1-i)*2,x
+.ENDR
+	rts
 
-; The place of each screen row in the canvas: the row of tiles times 544,
-; the row in the tile times 2.
-ui_rowofs:
-.REPEAT UI_CANVAS_ROWS*8 INDEX i
-	.dw (i >> 3)*UI_CANVAS_STRIDE + (i & 7)*2
+; Where the chain starts for 0 to UI_HMAX rows (11 bytes a row).
+_entry:
+.REPEAT UI_HMAX+1 INDEX i
+	.dw _chain+(UI_HMAX-i)*11
 .ENDR
 
 .ENDS

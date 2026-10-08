@@ -42,6 +42,9 @@ FONT_TAV = 2
 # original menus mod 20 (0.4 x mod 8), and the columns a letter may cover.
 FONT_POSITIONS = 20
 GLYPH_COLUMNS = 3
+FONT_MAX_ROWS = 12      # rows of the tallest letter (ui_text.asm draws up to this)
+CANVAS_STRIDE = 512     # bytes of a column of tiles in the canvas (ui_text.asm)
+CANVAS_PAD = 32         # bytes above its first row and under its last
 
 # Angles of the balls in half a turn (they look the same after it):
 BALL_ANGLES = 16
@@ -527,8 +530,10 @@ def main():
     glyphs, text_pal = gen_font(res)
     pcw = [0] * 256
     asm.lines.append('; The letters of menu.abc: offsets of the 20 places (from the label),')
-    asm.lines.append('; then at each: the first row under the top of the line (signed), the')
-    asm.lines.append('; rows, the columns; a row: a word of the two planes for each column.')
+    asm.lines.append('; then at each: the words (twice the first row under the top of the line,')
+    asm.lines.append('; signed; twice the rows; the columns; the bytes of the columns but one in')
+    asm.lines.append('; the canvas), then each column of tiles, top to bottom: a word of the')
+    asm.lines.append('; two planes for each row.')
     n = 0
     size = 0
     for code in sorted(glyphs):
@@ -538,9 +543,12 @@ def main():
         offsets = []
         for top, ncols, rows in places:
             offsets.append(2 * FONT_POSITIONS + len(data))
-            data += struct.pack('<bBB', top, len(rows), ncols)
-            for r in rows:
-                data += words(r)
+            if len(rows) > FONT_MAX_ROWS:
+                raise ValueError('a letter has too many rows')
+            data += struct.pack('<hHHH', 2 * top, 2 * len(rows), ncols,
+                                max(ncols - 1, 0) * CANVAS_STRIDE)
+            for c in range(ncols):
+                data += words([r[c] for r in rows])
         block = words(offsets) + bytes(data)
         if size + len(block) > 0x7000 or n == 0:
             if n:
@@ -561,9 +569,13 @@ def main():
     asm.section('ui_font_pcw', bytes(pcw), 'Widths of the letters in the original game.')
     asm.section('ui_text_pal', words(text_pal))
     # A letter at x of the original menus (640 wide) starts in the column of
-    # tiles x / 20 (times 16: bytes in the canvas), at place x mod 20 (times 2):
-    asm.section('ui_xcol', words([(x // 20) * 16 for x in range(1024)]))
-    asm.section('ui_xplace', bytes([(x % 20) * 2 for x in range(1024)]))
+    # tiles x / 20 (its place in the canvas: CANVAS_STRIDE bytes a column,
+    # CANVAS_PAD bytes above the first row), at place x mod 20 (times 2):
+    # two words for each x.
+    info = []
+    for x in range(1024):
+        info += [(x // 20) * CANVAS_STRIDE + CANVAS_PAD, (x % 20) * 2]
+    asm.section('ui_xinfo', words(info))
     h += ['// The font (menu.abc): the width of each letter in the original game',
           '// (0: none), the space between letters and the width of a space there.',
           '#define UI_FONT_TAV %d' % FONT_TAV,

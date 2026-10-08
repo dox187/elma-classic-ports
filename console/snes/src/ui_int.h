@@ -12,7 +12,7 @@
 #define UIV_TEXT_MAP  0x1C00    // text (BG3)
 #define UIV_INTRO_CHR 0x2000    // intro picture, 4 bits (BG1)
 #define UIV_INTRO_MAP 0x3C00
-#define UIV_TEXT_CHR  0x4000    // the canvas, 2 bits, 28 rows of 32 tiles
+#define UIV_TEXT_CHR  0x4000    // the canvas, 2 bits, 32 columns of 28 tiles
 #define UIV_BG_MAP    0x5C00
 #define UIV_OBJ       0x6000    // sprites: helmet, balls
 
@@ -20,7 +20,9 @@
 // 640x560, 40 pixels lower (Menueltolasy), scaled by 0.4.
 #define UI_SHIFT_Y    40
 #define UI_ROWS       28        // rows of tiles of the canvas
-#define UI_CANVAS_STRIDE 544    // bytes of a row of tiles in the canvas
+#define UI_COLS       32        // columns of tiles of the canvas (the screen)
+#define UI_CANVAS_STRIDE 512    // bytes of a column of tiles in the canvas
+#define UI_CANVAS_PAD 32        // bytes above its first row
 
 // Keys of the menus (ui_keys):
 #define K_UP     0x01
@@ -66,6 +68,7 @@ typedef struct {
 // ui_text.asm:
 extern u8 ui_canvas[];
 extern u8 ui_row_used[];
+extern u8 ui_col_used[];
 void ui_canvas_clear(void);
 void ui_canvas_clear_all(void);
 u16 ui_text_draw(u16 xpc, u16 y, const char* s);
