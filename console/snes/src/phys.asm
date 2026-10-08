@@ -488,7 +488,7 @@ g2_ellt:
 	.dw 12203, 11803, 11370, 10898, 10385, 9821, 9198, 8505, 7720, 6814
 	.dw 5727, 4327, 2056, 0
 
-; \2 = the angle of the circle \1 as 65536 a turn (as phys_angle16).
+; \2 = the angle of the circle \1 as 65536 a turn.
 .IF K_WVIEW_M != 20861 || K_WVIEW_SH != 14
 .FAIL "G2_ANG16: 4*K_WVIEW_M = 65536+70*256-12"
 .ENDIF
@@ -522,76 +522,6 @@ g2_ellt:
 	sbc #8
 	sta.w \2
 .ENDM
-
-; A = q15( the double word at X ) = it >> 7, within [-32767, 32767].
-phys_q15:
-	.ACCU 16
-	.INDEX 16
-	lda.b 0,x
-	xba
-	asl a                       ; C = bit 7
-	lda.b 1,x
-	rol a
-	ldy.b 2,x
-	bmi _q15neg
-	cmp #$8000
-	bcc _q15ok
-	lda #32767
-	rts
-_q15neg:
-	cmp #$8000
-	bne _q15ok
-	lda #$8001
-_q15ok:
-	rts
-
-; R = qsin( T1 ): sin of T1 (W, 0 to pi/2), Q22.
-phys_qsinf:
-	.ACCU 16
-	.INDEX 16
-	lda.b T1+2
-	lsr a
-	lsr a
-	lsr a
-	sta.b T2
-	asl a
-	clc
-	adc.b T2
-	pha                         ; 3i: the value
-	lda.b T2
-	asl a
-	tax                         ; 2i: the step to the next
-	lda.l phys_qsind,x
-	sta.b T2+2
-	lda.b T1
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sta.b T2
-	lda.b T1+1
-	and #$0700
-	asl a
-	asl a
-	asl a
-	asl a
-	ora.b T2
-	sta.b T2                    ; f = (b >> 4) & $7FFF
-	sep #$20
-	MB_DP T2
-	DIG16 T2+2
-	RSET16 MD0
-	RFIN 7, $808000
-	plx
-	lda.l phys_qsin,x
-	clc
-	adc.b R
-	sta.b R
-	lda.l phys_qsin+2,x
-	and #$00FF
-	adc.b R+2
-	sta.b R+2
-	rts
 
 ; \2 = qsin( \1 ) for the double word \1 in [0, pi/2] (W) (a double
 ; word of the direct page): the table value plus floor( (f*d+16384)/32768 ) = h+((W0+l+128
@@ -938,41 +868,6 @@ phys_head:
 
 ; The view of the bike (phys_view) from the state; the angles as 65536 a
 ; turn: rsh( mq24( a >> 15, K_WVIEW ), K_WVIEW_SH-8 ).
-phys_angle16:                   ; A = the angle of the circle at X
-	.ACCU 16
-	.INDEX 16
-	; v = a >> 15; 4*K_WVIEW_M = 65536+70*256-12, so the angle is
-	; v + V1 + ((W0 + l1 + 128 + 2048) >> 8) - 8 with W0 = mq16( v, -12 ),
-	; v*70 = 256*V1 + l1:
-	lda.b C_A,x
-	asl a
-	lda.b C_A+2,x
-	rol a
-	tay
-	G2_MA
-	lda #$00F4
-	sta.w MPYB
-	lda.w MPYM
-	clc
-	adc #2176
-	sta.b T0
-	lda #70
-	sta.w MPYB
-	lda.w MPYL
-	and #$00FF
-	clc
-	adc.b T0
-	xba
-	and #$00FF
-	clc
-	adc.w MPYM
-	sty.b T0
-	clc
-	adc.b T0
-	sec
-	sbc #8
-	rts
-
 phys_mkview:
 	.ACCU 16
 	.INDEX 16
