@@ -6,10 +6,12 @@
 
 #define REG(a) (*(vuint8*)(a))
 
-// Bytes of the text uploaded in a frame (the vertical blank takes about
-// 5.5 KB with the OAM, the helmet and the balls; each transfer of a
-// column costs the time of about 150 bytes more, 4096 loses some):
-#define UI_TEXT_DMA 3072
+// What the transfers of a frame may cost: the vertical blank takes about
+// 5.5 KB of DMA, and each transfer takes the time of about 100 bytes more
+// (measured: columns of 208 bytes each overran it at 4096 bytes in all).
+#define UI_TEXT_DMA 5200
+#define UI_DMA_ENTRY 100
+extern u16 core_dmaq_n;        // the entries of the queue, times 8
 
 char ui_items[UI_ITEMS][UI_ITEM_LEN];
 char ui_tabs[UI_ITEMS][UI_TAB_LEN];
@@ -222,7 +224,7 @@ void ui_end(void) {
 			}
 			else {
 				while( 1 ) {
-					if( core_dmaq_bytes + size <= UI_TEXT_DMA ) {
+					if( core_dmaq_bytes + (core_dmaq_n >> 3) * UI_DMA_ENTRY + UI_DMA_ENTRY + size <= UI_TEXT_DMA ) {
 						if( core_queue_vram(vaddr, ui_canvas + off, size) )
 							break;
 					}
