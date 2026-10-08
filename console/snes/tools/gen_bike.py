@@ -864,6 +864,16 @@ def main():
     a.append('bike_t_atan:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['atan'][i:i + 16])
           for i in range(0, 257, 16)]
+    # Squares (bk_d4).
+    a.append('bike_t_sq:')
+    a += ['\t.dw ' + ','.join(str(v * v) for v in range(i, i + 16)) for i in range(0, 128, 16)]
+    # The squash of the turn: c c, c s, s s of the bike's angle (bk_turn).
+    for nm, f in (('cc', lambda i: tb['sin'][i + 256] ** 2),
+                  ('cs', lambda i: tb['sin'][i + 256] * tb['sin'][i]),
+                  ('ss', lambda i: tb['sin'][i] ** 2)):
+        a.append('bike_t_%s:' % nm)
+        vals = [f(i) for i in range(1024)]
+        a += ['\t.dw ' + ','.join('%d & $FFFF' % v for v in vals[i:i + 16]) for i in range(0, 1024, 16)]
     # 2 * the lowest set bit of a byte (bk_load).
     a.append('bike_t_low2:')
     lows = [2 * ((v & -v).bit_length() - 1) if v else 0 for v in range(256)]

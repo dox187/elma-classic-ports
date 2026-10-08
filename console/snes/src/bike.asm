@@ -505,6 +505,31 @@ W_KF        dsw 11      ; its flips << 8
 	sta P_H+\1
 .ENDM
 
+; The center of the rod of part \6 (2 * part) from a = (\1, \2) to b =
+; (\3, \4): a + c * (b - a), c = \5 (times 128).
+.MACRO CENTER
+	lda.b \3
+	sec
+	sbc.b \1
+	asl a
+	MA
+	lda.b #\5
+	MB
+	clc
+	adc.b \1
+	sta P_CX+\6
+	lda.b \4
+	sec
+	sbc.b \2
+	asl a
+	MA
+	lda.b #\5
+	MB
+	clc
+	adc.b \2
+	sta P_CY+\6
+.ENDM
+
 .SECTION ".bike_text" SUPERFREE
 
 ; For each part: its bit, its first tile with its palette and priority.
@@ -655,10 +680,8 @@ bk_lpx16:
 
 ;---------------------------------------------------------------------------
 ; Z_IDX = the squared length of (Z_VX, Z_VY) in 1/4 pixels (each clamped
-; to -127..127) >> A (3 or 4), at most 1023. Keeps X and Y.
+; to -127..127) >> 3, at most 1023. Keeps Y.
 bk_d4:
-	rep #$20
-	sta.b Z_IDX
 	lda.b Z_VX
 	jsr _q
 	sta.b Z_T5
@@ -669,12 +692,7 @@ bk_d4:
 	lsr a
 	lsr a
 	lsr a
-	dec.b Z_IDX
-	dec.b Z_IDX
-	dec.b Z_IDX
-	beq +
-	lsr a
-+	cmp #1024
+	cmp #1024
 	bcc +
 	lda #1023
 +	sta.b Z_IDX
@@ -682,21 +700,15 @@ bk_d4:
 _q:
 	ASR
 	ASR
-	clc
-	adc #127
 	bpl +
-	lda #0
-+	cmp #255
+	eor #$FFFF
+	inc a
++	cmp #128
 	bcc +
-	lda #254
-+	sec
-	sbc #127
-	sta.b Z_AY
-	MA
-	lda.b Z_AY
-	sta.w $211C
-	rep #$20
-	lda.w $2134
+	lda #127
++	asl a
+	tax
+	lda.l bike_t_sq,x
 	rts
 
 ;---------------------------------------------------------------------------
@@ -755,31 +767,6 @@ _done:
 	rts
 
 ;---------------------------------------------------------------------------
-; The center of the rod of part Y/2 from a = (Z_T0, Z_T1) to b = (Z_T2,
-; Z_T3): a + c * (b - a), c in Z_B (times 128). Keeps Y.
-bk_center:
-	rep #$20
-	lda.b Z_T2
-	sec
-	sbc.b Z_T0
-	asl a
-	MA
-	lda.b Z_B
-	MB
-	clc
-	adc.b Z_T0
-	sta P_CX,y
-	lda.b Z_T3
-	sec
-	sbc.b Z_T1
-	asl a
-	MA
-	lda.b Z_B
-	MB
-	clc
-	adc.b Z_T1
-	sta P_CY,y
-	rts
 
 ;---------------------------------------------------------------------------
 ; Where the parts are (P_CX, P_CY), their angles and mirroring (P_AL, P_H).
@@ -1273,7 +1260,6 @@ bk_arm:
 	sec
 	sbc.b Z_SHY
 	sta.b Z_VY
-	lda #3
 	jsr bk_d4
 	ldx.b Z_IDX
 	sep #$20
@@ -1328,32 +1314,9 @@ bk_arm:
 	and #$00FF
 	xba
 	sta P_AL+2*3                ; forearm
-	lda.b Z_ELX
-	sta.b Z_T0
-	lda.b Z_ELY
-	sta.b Z_T1
-	lda.b Z_SHX
-	sta.b Z_T2
-	lda.b Z_SHY
-	sta.b Z_T3
-	sep #$20
-	lda.b #BK_C_UPARM
-	sta.b Z_B
-	ldy.w #2*2
-	jsr bk_center
-	lda.b Z_KX
-	sta.b Z_T0
-	lda.b Z_KY
-	sta.b Z_T1
-	lda.b Z_ELX
-	sta.b Z_T2
-	lda.b Z_ELY
-	sta.b Z_T3
-	sep #$20
-	lda.b #BK_C_FOREARM
-	sta.b Z_B
-	ldy.w #2*3
-	jmp bk_center
+	CENTER Z_ELX, Z_ELY, Z_SHX, Z_SHY, BK_C_UPARM, 2*2
+	CENTER Z_KX, Z_KY, Z_ELX, Z_ELY, BK_C_FOREARM, 2*3
+	rts
 
 ;---------------------------------------------------------------------------
 ; The suspensions, two pieces each: front from the front wheel to the
@@ -1464,43 +1427,18 @@ _front:
 ; The squash of the other parts: (f - 1) * (c c, c s, s s) >> 6.
 bk_turn:
 	rep #$30
-	lda.b Z_C
-	and #$00FF
-	cmp #$0080
-	bcc +
-	ora #$FF00
-+	MA                          ; c
-	lda.b Z_C
-	sta.w $211C
-	rep #$20
-	lda.w $2134
-	sta.b Z_T0                  ; c c
-	sep #$20
-	lda.b Z_S
-	sta.w $211C
-	rep #$20
-	lda.w $2134
-	sta.b Z_T1                  ; c s
-	lda.b Z_S
-	and #$00FF
-	cmp #$0080
-	bcc +
-	ora #$FF00
-+	MA                          ; s
-	lda.b Z_S
-	sta.w $211C
-	rep #$20
-	lda.w $2134
-	sta.b Z_T2                  ; s s
-	lda.b Z_T0
+	lda.b Z_TI                  ; c c, c s, s s (bike_t_cc ...)
+	asl a
+	tax
+	lda.l bike_t_cc,x
 	M6
 	sta.b Z_MA
 	rep #$20
-	lda.b Z_T1
+	lda.l bike_t_cs,x
 	M6
 	sta.b Z_MB
 	rep #$20
-	lda.b Z_T2
+	lda.l bike_t_ss,x
 	M6
 	sta.b Z_MD
 	rep #$20
