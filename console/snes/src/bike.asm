@@ -139,6 +139,7 @@ bike_toggle dw          ; which pair of rows goes first
 bike_rlo    dsw 2       ; ranges of slots loaded this frame ($FFFF: none)
 bike_rhi    dsw 2
 bike_oam_end dw         ; end of the sprites written in the last frame
+bike_stale  dw          ; bit p: part p is not in the copy of the rows
 P_CX        dsw 11      ; the parts: center
 P_CY        dsw 11
 P_AL        dsw 11      ; angle
@@ -355,6 +356,7 @@ bike_reset:
 	lda #0
 	sta bike_cur+2*FRAME        ; the body: no sprites
 	sta bike_toggle
+	sta bike_stale
 	lda.w #OAM_OBJ*4
 	sta bike_oam_end
 	; Zeros into bike_stage (DMA from a fixed 0 byte):
@@ -1534,9 +1536,9 @@ bk_load:
 	lda.b Z_PEND
 	bne +
 	rts
-+	; Room in the queue for 4 transfers:
++	; Room in the queue for 8 transfers:
 	lda core_dmaq_n
-	cmp.w #(DMAQ_MAX-4)*8+1
+	cmp.w #(DMAQ_MAX-8)*8+1
 	bcc +
 	rts
 +	; The ranges of slots of the parts that changed: pair 0 (parts 0-7,
@@ -1631,6 +1633,75 @@ _p1first:
 	ldx #0
 	jsr _fit
 _stage0:
+	; At most 4 sprites: straight from the ROM (8 transfers).
+	lda.b Z_ACC
+	and #$00FF
+	tax
+	lda.l bike_t_popcnt,x
+	and #$00FF
+	sta.b Z_T4
+	lda.b Z_ACC
+	xba
+	and #$0003
+	tax
+	lda.l bike_t_popcnt,x
+	and #$00FF
+	clc
+	adc.b Z_T4
+	sta.b Z_T4
+	lda.b Z_ACC
+	and #$0400
+	beq +
+	jsr bk_nframe
+	dec a
+	clc
+	adc.b Z_T4
+	sta.b Z_T4
++	lda.b Z_T4
+	cmp #5
+	bcs +
+	jmp bk_direct
++	; The parts loaded straight in earlier frames whose places are in the
+	; ranges: their copy in the rows is renewed too.
+	stz.b Z_T4
+	lda bike_rlo
+	bmi ++
+	asl a
+	tax
+	lda.l bike_t_fitmask,x
+	lsr a
+	eor #$FFFF
+	sta.b Z_T4                  ; slots from rlo
+	lda bike_rhi
+	asl a
+	tax
+	lda.l bike_t_fitmask,x
+	and.b Z_T4
+	sta.b Z_T4                  ; slots rlo..rhi of pair 0
+++	lda bike_rlo+2
+	bmi ++
+	bne +
+	lda.w #$0100                ; the head
+	tsb.b Z_T4
++	lda bike_rlo+2
+	cmp #2
+	bcs +
+	lda bike_rhi+2
+	beq +
+	lda.w #$0200                ; the torso
+	tsb.b Z_T4
++	lda bike_rhi+2
+	cmp #2
+	bcc ++
+	lda.w #$0400                ; the body
+	tsb.b Z_T4
+++	lda bike_stale
+	and.b Z_T4
+	ora.b Z_ACC
+	sta.b Z_T5                  ; the parts copied now
+	eor #$FFFF
+	and bike_stale
+	sta bike_stale
 	; Copy the pictures into the copy of the rows: DMA channel 7 into the
 	; WRAM.
 	sep #$20
@@ -1642,8 +1713,6 @@ _stage0:
 	lda.b #:bike_desc_single
 	sta.b Z_PTR+2
 	rep #$20
-	lda.b Z_ACC
-	sta.b Z_T5
 _stage:
 	lda.b Z_T5
 	bne +
@@ -1665,15 +1734,13 @@ _stage:
 	tay
 	lda.l bk_bit,x
 	trb.b Z_T5
-	lda W_DESC,y
-	sta bike_cur,y
+	and.b Z_ACC
+	bne +
+	lda bike_cur,y              ; renewed: the picture in the VRAM
 	sta.b Z_PTR
-	lda W_KF,y
-	and #$FF00
-	sta bike_curf,y
-	ora.l bk_ta0,x
-	sta bike_ta,y
-	lda.l bk_dst,x
+	bra ++
++	jsr bk_take
+++	lda.l bk_dst,x
 	clc
 	adc.w #bike_stage
 	sta.b Z_DST
@@ -1817,6 +1884,125 @@ _none0:
 _none:
 	lda #$FFFF
 	sta bike_rlo,x
+	rts
+
+; Part Y/2 (X = Y) gets its wanted picture: Z_PTR is its descriptor.
+bk_take:
+	lda W_DESC,y
+	sta bike_cur,y
+	sta.b Z_PTR
+	lda W_KF,y
+	and #$FF00
+	sta bike_curf,y
+	ora.l bk_ta0,x
+	sta bike_ta,y
+	rts
+
+; Loading at most 4 sprites: the transfers straight from the ROM (two a
+; sprite); their copy in the rows is out of date (bike_stale).
+bk_direct:
+	lda.b Z_ACC
+	tsb bike_stale
+	sep #$20
+	lda.b #:bike_desc_single
+	sta.b Z_PTR+2
+	rep #$20
+	lda.b Z_ACC
+	sta.b Z_T5
+-	lda.b Z_T5
+	bne +
+	rts
++	and #$00FF
+	beq +
+	tax
+	lda.l bike_t_lowbit,x
+	bra ++
++	lda.b Z_T5
+	xba
+	tax
+	lda.l bike_t_lowbit,x
+	clc
+	adc #8
+++	and #$00FF
+	asl a
+	tax
+	tay
+	lda.l bk_bit,x
+	trb.b Z_T5
+	jsr bk_take
+	lda.l bk_ta0,x
+	and #$00FF                  ; first tile
+	asl a
+	asl a
+	asl a
+	asl a
+	clc
+	adc.w #VRAM_OBJ
+	sta.b Z_DST
+	cpy.w #2*FRAME
+	beq +
+	ldy #0
+	jsr bk_queue_sprite
+	bra -
++	lda [Z_PTR]
+	and #$00FF
+	sta.b Z_NS
+	ldy #1
+--	jsr bk_queue_sprite
+	lda.b Z_DST
+	clc
+	adc #32
+	sta.b Z_DST
+	iny
+	iny
+	iny
+	dec.b Z_NS
+	bne --
+	bra -
+
+; The sprite whose pointer is at [Z_PTR],y to the VRAM at Z_DST (words):
+; two transfers of the queue (its top and bottom tiles).
+bk_queue_sprite:
+	phx
+	lda [Z_PTR],y
+	sta.b Z_SRC
+	iny
+	iny
+	lda [Z_PTR],y
+	dey
+	dey
+	sta.b Z_SRC+2
+	ldx core_dmaq_n
+	sep #$20
+	lda.b #DMAQ_VRAM
+	sta core_dmaq,x
+	sta core_dmaq+8,x
+	lda.b Z_SRC+2
+	sta core_dmaq+3,x
+	sta core_dmaq+8+3,x
+	rep #$20
+	lda.b Z_SRC
+	sta core_dmaq+1,x
+	clc
+	adc #64
+	sta core_dmaq+8+1,x
+	lda #64
+	sta core_dmaq+4,x
+	sta core_dmaq+8+4,x
+	lda.b Z_DST
+	sta core_dmaq+6,x
+	clc
+	adc #256
+	sta core_dmaq+8+6,x
+	lda core_dmaq_bytes
+	clc
+	adc #128
+	sta core_dmaq_bytes
+	txa
+	clc
+	adc #16
+	sta core_dmaq_n
+	plx
 	rts
 
 ; A = the last slot of the body's wanted picture (2 + sprites - 1).

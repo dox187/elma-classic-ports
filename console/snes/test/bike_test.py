@@ -91,19 +91,21 @@ def main():
     lines = p.stdout.splitlines()
     # The model, frame by frame:
     bike = bikefix.Bike(data)
-    objs_def = bike_poses.objects(org)
+    objs_def = bike_poses.objects(org, os.environ.get("ELMA_RES", "../../elma.res"))
     objs = bikefix.Objects(data, objs_def, org)
     active = [o[3] for o in objs_def]
     expect = {}
+    accs = {}
     t = 0
     for n, pose in enumerate(poses):
         for h in range(bike_poses.HOLD):
             oam, acc, dma = bike.frame(pose)
             ooam, kinds = objs.frame(pose.cam, t, active)
             expect[t] = (oam, ooam, dma, list(bike.cur), list(bike.cur_flip), list(objs.curf))
+            accs[t] = acc
             t += 1
     bad = 0
-    clocks, oclocks, dmas, kinds = [], [], [], []
+    clocks, oclocks, dmas, kinds, frames_csv = [], [], [], [], []
     states = {}
     for line in lines:
         if not line.startswith('FRAME '):
@@ -120,6 +122,7 @@ def main():
         qbytes = sum(int.from_bytes(q[i * 8 + 4:i * 8 + 6], 'little') for i in range(min(nq, 12)))
         dmas.append(qbytes)
         ex_oam, ex_ooam, ex_dma, cur, curf, ocur = expect[tt]
+        frames_csv.append('%d,%d,%d,%d,%s' % (tt, int(c1), int(c2), ex_dma, ' '.join(str(a) for a in accs[tt])))
         kinds.append(('turn' if poses[tt // bike_poses.HOLD].turn < bikefix.TURN_DONE else
                       'load' if ex_dma else 'calm', int(c1), ex_dma))
         states[tt] = (cur, curf, ocur)
@@ -153,6 +156,8 @@ def main():
             vbad += 1
             if vbad <= 10:
                 print('VRAM at frame %d: %s' % (tt, err))
+    with open(os.path.join(a.out, 'frames.csv'), 'w') as f:
+        f.write('frame,bike_clocks,objects_clocks,bike_bytes,parts_loaded\n' + '\n'.join(frames_csv) + '\n')
     print('frames checked: %d, OAM differences: %d, VRAM differences: %d' % (len(clocks), bad, vbad))
     if clocks:
         print('bike_draw: master clocks typical (median) %d, worst %d' % (sorted(clocks)[len(clocks) // 2], max(clocks)))

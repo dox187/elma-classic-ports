@@ -5,6 +5,7 @@
 #include <snes.h>
 #include "core.h"
 #include "bike.h"
+#include <string.h>
 #include "bike_poses.h"
 
 // The physics' output (phys.h), here from the poses:
@@ -34,22 +35,8 @@ u16 test_time;               // steps of the "physics"
 static const u16 Sky = 0x7E8C;
 
 static void set_pose(u16 n) {
-	const pose_t* p = &Poses[n];
-	phys_view.body_x = p->body_x;
-	phys_view.body_y = p->body_y;
-	phys_view.body_a = p->body_a;
-	phys_view.wheel_x[0] = p->w0x;
-	phys_view.wheel_y[0] = p->w0y;
-	phys_view.wheel_x[1] = p->w1x;
-	phys_view.wheel_y[1] = p->w1y;
-	phys_view.wheel_a[0] = p->w0a;
-	phys_view.wheel_a[1] = p->w1a;
-	phys_view.rider_x = p->rx;
-	phys_view.rider_y = p->ry;
-	phys_view.head_x = p->hx;
-	phys_view.head_y = p->hy;
-	phys_view.turned = (u8)p->turned;
-	phys_view.gravity = 1;
+	const pose_t* p = &test_poses[n];
+	memcpy(&phys_view, p->view, sizeof(bike_view_t));
 	bike_anim.turn = p->turn;
 	bike_anim.volt = p->volt;
 	bike_anim.volt1 = (u8)p->volt1;
@@ -63,14 +50,8 @@ int main(void) {
 	REG_BGMODE = 0x09;
 	REG_TM = 0x10;               // sprites only
 	core_cgram_now(0, &Sky, 2);
-	for( i = 0; i < POSE_OBJS; i++ ) {
-		phys_objs[i].type = (u8)Objs[i][0];
-		phys_objs[i].anim = (u8)Objs[i][1];
-		phys_objs[i].gravity = (u8)Objs[i][2];
-		phys_objs[i].active = (u8)Objs[i][3];
-		phys_objs[i].x = Objs[i][4];
-		phys_objs[i].y = Objs[i][5];
-	}
+	for( i = 0; i < POSE_OBJS; i++ )
+		memcpy(&phys_objs[i], &test_objs[i], sizeof(phys_obj_t));
 	phys_nobjs = POSE_OBJS;
 	bike_load();
 	objects_load(POSE_LEVEL);
@@ -80,8 +61,8 @@ int main(void) {
 		for( test_pose = 0; test_pose < POSE_COUNT; test_pose++ ) {
 			set_pose(test_pose);
 			for( f = 0; f < POSE_HOLD; f++ ) {
-				bike_draw(Poses[test_pose].cam_x, Poses[test_pose].cam_y);
-				objects_draw(Poses[test_pose].cam_x, Poses[test_pose].cam_y, test_time);
+				bike_draw(test_poses[test_pose].cam_x, test_poses[test_pose].cam_y);
+				objects_draw(test_poses[test_pose].cam_x, test_poses[test_pose].cam_y, test_time);
 				core_frame_done();
 				test_time++;
 			}

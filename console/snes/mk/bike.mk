@@ -12,7 +12,8 @@ $(GEN)/bike_data.asm $(GEN)/bike_data.h $(GEN)/bike_data.inc &: tools/gen_bike.p
 
 # The test ROM: poses of the bike and objects around it (test/bike_poses.py).
 $(OBJDIR)/test_bike.obj: $(GEN)/bike_poses.h
+$(BUILD)/test_bike.sfc: $(OBJDIR)/gen_bike_poses.obj
 
-$(GEN)/bike_poses.h: test/bike_poses.py tools/bikemodel.py tools/levgeom.py \
-		tools/elmadata.py $(GEN)/data_names
-	$(PYTHON) test/bike_poses.py $(ELMA_RES) $@
+$(GEN)/bike_poses.h $(GEN)/bike_poses.asm &: test/bike_poses.py test/bikefix.py \
+		tools/bikemodel.py tools/levgeom.py tools/elmadata.py $(GEN)/data_names
+	$(PYTHON) test/bike_poses.py $(ELMA_RES) $(GEN)/bike_poses

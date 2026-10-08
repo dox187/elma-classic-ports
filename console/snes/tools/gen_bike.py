@@ -794,6 +794,8 @@ def main():
     a += db([(v & -v).bit_length() - 1 if v else 0 for v in range(256)], 32)
     a.append('bike_t_highbit:')
     a += db([v.bit_length() - 1 if v else 0 for v in range(256)], 32)
+    a.append('bike_t_popcnt:')
+    a += db([bin(v).count('1') for v in range(256)], 32)
     a.append('bike_t_wheel:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['wheel'][i:i + 16]) for i in range(0, 64, 16)]
     for n in (32, 64, 128):
