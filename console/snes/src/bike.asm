@@ -701,18 +701,18 @@ _q:
 ; A = the angle of (Z_VX, Z_VY) in 256 steps (counterclockwise): the table
 ; by |y| >> 3 and |x| >> 3, both halved until they are below 512. Keeps Y.
 bk_atan2:
-	rep #$30
+	lda.b Z_VY
+bk_atan2a:                      ; (A = Z_VY, 16 bits)
+	bpl +
+	eor #$FFFF
+	inc a
++	sta.b Z_AY
 	lda.b Z_VX
 	bpl +
 	eor #$FFFF
 	inc a
 +	sta.b Z_AX
-	lda.b Z_VY
-	bpl +
-	eor #$FFFF
-	inc a
-+	sta.b Z_AY
-	ora.b Z_AX
+	ora.b Z_AY
 	cmp #512
 	bcc ++
 -	lsr.b Z_AX
@@ -1368,7 +1368,7 @@ bk_arm:
 	sec
 	sbc.b \2
 	sta.b Z_VY
-	jsr bk_atan2
+	jsr bk_atan2a
 	xba
 	sta P_AL+\5
 	sta P_AL+\5+2
