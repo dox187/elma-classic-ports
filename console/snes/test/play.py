@@ -4,10 +4,11 @@ the PC reference tool: W<n> frames without keys, KEY<n> keys held (UP gas,
 DOWN brake, LEFT and RIGHT volts, SPACE turn, ESC; joined with +), from the
 first frame of the level.
 
-  play.py ROM LEVEL "SPACE1 UP90 W78 ..." [--out DIR] [--shots N]
+  play.py ROM LEVEL "SPACE1 UP90 W78 ..." [--out DIR] [--shots N] [--lua FILE]
 
 Prints whether the level was finished and its time; --shots N saves a
-picture every N frames.
+picture every N frames; --lua FILE adds a script of its own (measurements,
+for example) and prints the other lines it prints.
 """
 
 import argparse
@@ -49,6 +50,7 @@ def main():
                     help='keep the random work RAM of Mesen (else cleared)')
     ap.add_argument('--after', type=int, default=120,
                     help='frames to wait for the end after the keys')
+    ap.add_argument('--lua', help='a Lua script added to the run')
     a = ap.parse_args()
     syms = mesen.read_symbols(a.rom)
     keys = frames(a.script)
@@ -117,6 +119,9 @@ emu.addEventCallback(function()
   if frame > 120 + total + 600 then print("RESULT 0 0 0 -1") emu.stop(1) end
 end, emu.eventType.endFrame)
 ''')
+    if a.lua:
+        with open(a.lua) as f:
+            lua.append(f.read())
     os.makedirs(a.out, exist_ok=True)
     path = os.path.join(a.out, '.play.lua')
     with open(path, 'w') as f:
@@ -142,6 +147,8 @@ end, emu.eventType.endFrame)
                 print('finished in %02d:%02d:%02d (frame %d)' % (time // 6000, time // 100 % 60, time % 100, n))
             else:
                 print('not finished (frame %d)' % n)
+        elif a.lua:
+            print(line)
 
 
 if __name__ == '__main__':
