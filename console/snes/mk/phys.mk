@@ -3,11 +3,13 @@
 #
 #   make PHYS_HZ=80           steps a second (80, or 60 for a test: the
 #                             original's physics is not stable at 60)
-#   make phys-check           the C description of the physics against the
+#   make phys-check [PHYS_CASES=FILE]
+#                             the C description of the physics against the
 #                             original's on the host (test/physcheck), and
 #                             the assembly against the C to the bit in Mesen
 
 PHYS_HZ ?= 80
+PHYS_CASES ?= test/physcases.txt
 PHYS_GEN = $(GEN)/phys_const.h $(GEN)/phys_const.inc $(GEN)/phys_hz.h \
 	$(GEN)/phys_tables.h $(GEN)/phys_tables.asm $(GEN)/phys_levels.asm
 GEN_ASM += $(GEN)/phys_tables.asm $(GEN)/phys_levels.asm
@@ -23,7 +25,11 @@ $(PHYS_GEN) &: tools/gen_phys.py tools/elmadata.py $(GEN)/data_names $(GEN)/phys
 	$(PYTHON) tools/gen_phys.py $(ELMA_RES) $(GEN) --hz $(PHYS_HZ)
 
 # The cases of the test ROM (test/snes_phys.c):
-$(GEN)/phys_testcases.h: test/physcases.txt test/physrom.py
+$(GEN)/phys_cases_name: FORCE
+	@mkdir -p $(GEN)
+	@echo '$(abspath $(PHYS_CASES))' | cmp -s - $@ || echo '$(abspath $(PHYS_CASES))' > $@
+
+$(GEN)/phys_testcases.h: $(PHYS_CASES) test/physrom.py $(GEN)/phys_cases_name
 	@mkdir -p $(GEN)
 	$(PYTHON) test/physrom.py gen $< $@
 
@@ -55,9 +61,9 @@ $(PHYS_TEST)/physdump: test/physdump.c $(PHYS_TEST)/phys_spec.o test/phys_spec.h
 	$(HOSTCC) -O2 -Wall -Itest -I$(GEN) -o $@ test/physdump.c $(PHYS_TEST)/phys_spec.o
 
 phys-check: $(PHYS_TEST)/physcheck $(PHYS_TEST)/levdump $(PHYS_TEST)/physdump $(BUILD)/test_phys.sfc
-	$(PHYS_TEST)/physcheck $(GEN) $(PHYS_TEST)/levdump -f test/physcases.txt > $(PHYS_TEST)/physcheck.txt
+	$(PHYS_TEST)/physcheck $(GEN) $(PHYS_TEST)/levdump -f $(PHYS_CASES) > $(PHYS_TEST)/physcheck.txt
 	$(PYTHON) test/physsum.py $(PHYS_TEST)/physcheck.txt
 	$(PYTHON) test/physrom.py run $(BUILD)/test_phys.sfc $(PHYS_TEST)/physdump $(GEN) \
-		test/physcases.txt --out $(PHYS_TEST)/rom
+		$(PHYS_CASES) --out $(PHYS_TEST)/rom
 
 .PHONY: phys-check

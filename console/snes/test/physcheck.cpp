@@ -25,14 +25,23 @@
 #include "phys_const.h"
 #include "pcphys/pcphys.h"
 
-struct item { int in, turn, n; };
+struct item { int in, turn, n, warp; };   // warp: -2 none, -1 out, else an object
 
 static std::vector<item> parse( const char* p ) {
 	std::vector<item> out;
 	while( *p ) {
 		while( *p == ' ' || *p == '\t' ) p++;
 		if( !*p || *p == '\n' ) break;
-		item it = { 0, 0, 0 };
+		item it = { 0, 0, 0, -2 };
+		if( *p == 'W' || *p == 'X' ) {
+			int leave = *p == 'X';
+			p++;
+			it.warp = (int)strtol( p, (char**)&p, 10 );
+			if( leave )
+				it.warp = -1;
+			out.push_back( it );
+			continue;
+		}
 		while( *p && strchr( "GBRLTN", *p ) ) {
 			switch( *p ) {
 				case 'G': it.in |= PH_GAS; break;
@@ -139,16 +148,57 @@ struct result {
 	double send, pend;          // end of the run (dead, finish) or -1
 };
 
+// A warp item: the front wheel (kor2) of both bikes onto object obj, or with
+// obj < 0 both 2000 m to the right (as test/physdump.c does it).
+static void warp( int obj ) {
+	int32_t dx = 0x07D00000, dy = 0;
+	if( obj >= 0 ) {
+		dx = PS_obj[obj].x-PS.c[1].rx;
+		dy = PS_obj[obj].y-PS.c[1].ry;
+	}
+	for( int i = 0; i < 3; i++ ) {
+		PS.c[i].rx += dx;
+		PS.c[i].ry += dy;
+	}
+	PS.rider_x += dx;
+	PS.rider_y += dy;
+	PS.head_x += dx;
+	PS.head_y += dy;
+	pc_state s;
+	pc_get( &s );
+	double px = 2000, py = 0;
+	if( obj >= 0 ) {
+		px = fp( PS_obj[obj].x )-s.c[1].r.x;
+		py = fp( PS_obj[obj].y )-s.c[1].r.y;
+	}
+	for( int i = 0; i < 3; i++ ) {
+		s.c[i].r.x += px;
+		s.c[i].r.y += py;
+	}
+	s.rider_r.x += px;
+	s.rider_r.y += py;
+	s.head.x += px;
+	s.head.y += py;
+	pc_set( &s );
+}
+
 // verbose: 0 summary only, 1 lines every 'every' steps, 2 every step.
 static result run( const std::vector<item>& script, double pcdt, int verbose, int every, int one ) {
 	double dt = 0.4368/PHYS_HZ;
-	std::vector<int> keys, turns;
-	for( const item& it : script )
+	std::vector<int> keys, turns, warps;
+	for( const item& it : script ) {
+		if( it.warp != -2 ) {
+			warps.resize( keys.size()+1, -2 );
+			warps[keys.size()] = it.warp;
+			continue;
+		}
 		for( int j = 0; j < it.n; j++ ) {
 			keys.push_back( it.in );
 			turns.push_back( it.turn && j == 0 );
 		}
+	}
 	int nsteps = (int)keys.size();
+	warps.resize( nsteps+1, -2 );
 	result r = { -1, -1, { 0, 0, 0 }, "", "", -1, -1 };
 	if( one >= 0 ) {
 		for( int i = 0; i < nsteps && i <= one; i++ ) {
@@ -169,6 +219,8 @@ static result run( const std::vector<item>& script, double pcdt, int verbose, in
 		printf( "  time   body x (snes/orig)      body y (snes/orig)    angle d   wheels d   pos d\n" );
 	for( int i = 0; i < nsteps; i++ ) {
 		double t = (i+1)*dt;
+		if( warps[i] != -2 )
+			warp( warps[i] );
 		if( !sstop ) {
 			int ev = ps_step( (uint16_t)keys[i] );
 			if( turns[i] ) ps_turn();

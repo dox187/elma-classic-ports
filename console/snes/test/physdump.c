@@ -64,6 +64,24 @@ static void outputs( uint8_t* view, uint8_t* rest ) {
 
 static uint8_t Blob[65536];
 
+// A warp item of a case: the front wheel (kor2) onto object obj, or with
+// obj < 0 the bike 2000 m to the right (as test/snes_phys.c does it).
+static void warp( int obj ) {
+	int32_t dx = 0x07D00000, dy = 0;
+	if( obj >= 0 ) {
+		dx = PS_obj[obj].x-PS.c[1].rx;
+		dy = PS_obj[obj].y-PS.c[1].ry;
+	}
+	for( int i = 0; i < 3; i++ ) {
+		PS.c[i].rx += dx;
+		PS.c[i].ry += dy;
+	}
+	PS.rider_x += dx;
+	PS.rider_y += dy;
+	PS.head_x += dx;
+	PS.head_y += dy;
+}
+
 int main( int argc, char** argv ) {
 	if( argc < 4 ) {
 		fprintf( stderr, "usage: physdump GEN_DIR CASES LOG [FULL_CASE FULL_OUT]\n" );
@@ -102,6 +120,13 @@ int main( int argc, char** argv ) {
 			while( *p == ' ' || *p == '\t' ) p++;
 			if( !*p || *p == '\n' )
 				break;
+			if( *p == 'W' || *p == 'X' ) {
+				int leave = *p == 'X';
+				p++;
+				int obj = (int)strtol( p, &p, 10 );
+				warp( leave ? -1 : obj );
+				continue;
+			}
 			int in = 0, turn = 0;
 			while( *p && strchr( "GBRLTN", *p ) ) {
 				switch( *p ) {

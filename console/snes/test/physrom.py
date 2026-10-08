@@ -23,6 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mesen  # noqa: E402
 
 KEYS = {'G': 1, 'B': 2, 'R': 4, 'L': 8}
+WARP = 64       # an item W<n>: the front wheel onto object n
+LEAVE = 32      # an item X: the bike 2000 m to the right
 
 
 def read_cases(path):
@@ -37,10 +39,20 @@ def read_cases(path):
         for it in parts[1:]:
             keys = it.rstrip('0123456789')
             n = int(it[len(keys):] or 1)
+            if keys == 'W':
+                items.append((WARP, n))
+                continue
+            if keys == 'X':
+                items.append((LEAVE, 0))
+                continue
             inp = sum(KEYS.get(k, 0) for k in keys) | (128 if 'T' in keys else 0)
             items.append((inp, max(n, 1)))
         cases.append((lev, items, line))
     return cases
+
+
+def nsteps(items):
+    return sum(k for i, k in items if not i & (WARP | LEAVE))
 
 
 def gen(cases_path, out):
@@ -63,7 +75,22 @@ def gen(cases_path, out):
 
 
 LUA = r'''
-local syms = { go = %d, full = %d, done = %d, step = %d, ret = %d }
+local syms = { go = %d, full = %d, done = %d, step = %d, ret = %d, steps = %d }
+local logt = {}
+local total = 0
+local last16 = 0
+local function pull()
+  local s16 = emu.read(syms.steps, emu.memType.snesMemory) + 256 * emu.read(syms.steps + 1, emu.memType.snesMemory)
+  local d = (s16 - last16) %% 65536
+  last16 = s16
+  for i = 1, d do
+    local a = 0x7F0000 + (total %% 10922) * 6
+    local b = {}
+    for j = 0, 5 do b[#b + 1] = string.char(emu.read(a + j, emu.memType.snesMemory)) end
+    logt[#logt + 1] = table.concat(b)
+    total = total + 1
+  end
+end
 local started = false
 local t0 = 0
 local stats = {}
@@ -98,11 +125,13 @@ emu.addEventCallback(function()
     emu.write(syms.full + 1, %d, emu.memType.snesMemory)
     emu.write(syms.go, 1, emu.memType.snesMemory)
   end
+  if started then pull() end
   if started and emu.read(syms.done, emu.memType.snesMemory) == 1 then
+    pull()
     local t = {}
     for i = 1, #stats do t[#t + 1] = tostring(stats[i]) end
     out("CLK", "clocks.txt", table.concat(t, " "))
-    dump("LOG", "log.bin", emu.memType.snesWorkRam, 0x10000, 0x10000)
+    out("LOG", "log.bin", table.concat(logt))
     out("FULL", "full.bin", table.concat(fullbytes))
     emu.stop(0)
   end
@@ -130,7 +159,7 @@ def run(args):
             ev = struct.unpack_from('<H', host, pos)[0]
             pos += 6
             n += 1
-            if ev & 3 or n >= sum(k for _, k in items):
+            if ev & 3 or n >= nsteps(items):
                 break
         counts.append(n)
     lua = os.path.join(args.out, 'physrom.lua')
@@ -138,7 +167,7 @@ def run(args):
     first = sum(counts[:args.full]) + args.full_from if args.full is not None else 1 << 30
     with open(lua, 'w') as f:
         f.write(LUA % (syms['phys_test_go'], syms['phys_test_full'], syms['phys_test_done'],
-                       syms['phys_step'], syms['phys_step_ret'], first,
+                       syms['phys_step'], syms['phys_step_ret'], syms['phys_test_steps'], first,
                        syms['phys_dpa'], syms['phys_view'], syms['phys_bump'], syms['phys_eaten'],
                        syms['phys_friction'], syms['phys_wheel_omega'], syms['phys_apples_left'],
                        syms['phys_volt_age'], syms['phys_volt1'], syms['tcc__r0'],
@@ -165,7 +194,7 @@ def run(args):
             pos += 6
             n += 1
             step_case.append(c)
-            if ev & 3 or n >= sum(k for _, k in items):
+            if ev & 3 or n >= nsteps(items):
                 break
     print('%d steps compared: %s' % (pos // 6, 'the same' if ok else 'DIFFERENT'))
     # The master clocks of phys_step, by case:

@@ -27,3 +27,14 @@
 # Upside Down: gravity apples; Haircut: many objects.
 19 G200 L1 G200
 38 G400
+# Warps (W<n>: the front wheel onto object n, X: out of the level): the
+# flower, apples, gravity apples, killers and the bounds of the level.
+9 N10 W0 N20
+0 N10 W1 N20 W0 N20 W1 N20
+2 N10 W3 N10 W2 N20 W4 N20
+2 G40 W1 N20
+12 N10 W0 N20
+10 N10 W3 N120 G60
+10 N10 W0 N120 G60
+10 N10 W4 N80 W2 N80 L1 G60
+0 G30 X N10
