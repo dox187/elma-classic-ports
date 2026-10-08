@@ -129,6 +129,7 @@ bike_cur    dsw 11      ; the descriptor of each part in the VRAM, 0: none
 bike_ta     dsw 11      ; its first tile | attributes << 8
 bike_toggle dw          ; which group of parts loads first
 bike_pend   dw          ; bit p: part p wants a picture not in the VRAM
+bike_ph     dw          ; P_H is set for this Z_TR ($FFFF: not set)
 bike_key    dsb 10      ; the step of the angle and the mirroring of the
                         ; picture of each single part in the last frame
                         ; ($FF: none)
@@ -547,6 +548,7 @@ bike_reset:
 	sta bike_key+8
 	sta bike_fkey
 	sta bike_tkey
+	sta bike_ph
 	ldx.w #OAM_BIKE*4           ; the sprites hidden
 	lda #$E000                  ; x 0, y 224
 -	sta core_oam,x
@@ -895,31 +897,50 @@ bk_geometry:
 	rep #$30
 	lda.b Z_TR
 	beq +
-	lda.w #64
-	sta P_H+2*9
-	sta P_H+2*8
-	asl a
-	sta P_H+2*FRAME
 	lda.b Z_TH
 	clc
 	adc.w #($8000-BK_TORSO_BETA) & $FFFF
 	sta P_AL+2*9
-	lda.b Z_TH
-	eor #$8000
+	lda.b Z_THM
 	bra ++
-+	stz P_H+2*9
-	stz P_H+2*8
-	stz P_H+2*FRAME
-	lda.b Z_TH
++	lda.b Z_TH
 	clc
 	adc.w #BK_TORSO_BETA
 	sta P_AL+2*9
 	lda.b Z_TH
 ++	sta P_AL+2*8
 	sta P_AL+2*FRAME
-	stz P_CX+2*FRAME
-	stz P_CY+2*FRAME
+	; The mirroring of the parts (P_H) when turned changed or after a
+	; mirrored turn.
+	lda.b Z_TR
+	cmp bike_ph
+	beq +
+	sta bike_ph
+	stz P_H+2*4
+	stz P_H+2*5
+	stz P_H+2*6
+	stz P_H+2*7
+	tax
+	beq ++
+	lda.w #64
+	sta P_H+2*0
+	sta P_H+2*1
+	stz P_H+2*2
+	sta P_H+2*3
+	sta P_H+2*8
+	sta P_H+2*9
+	asl a
+	sta P_H+2*FRAME
 	rts
+++	stz P_H+2*0
+	stz P_H+2*1
+	lda.w #64
+	sta P_H+2*2
+	stz P_H+2*3
+	stz P_H+2*8
+	stz P_H+2*9
+	stz P_H+2*FRAME
++	rts
 
 ;---------------------------------------------------------------------------
 ; The legs and the arms from the tables by the rider's place in the frame
@@ -1095,19 +1116,6 @@ _lnorm:
 _lnorm1:
 	LIMBS 0, 1
 _lmir:
-	lda.b Z_TR
-	beq +
-	lda.w #64
-	sta P_H+2*0
-	sta P_H+2*1
-	sta P_H+2*3
-	stz P_H+2*2
-	rts
-+	stz P_H+2*0
-	stz P_H+2*1
-	stz P_H+2*3
-	lda.w #64
-	sta P_H+2*2
 	rts
 
 ;---------------------------------------------------------------------------
@@ -1299,16 +1307,7 @@ bk_arm:
 	and #$00FF
 	xba
 	sta P_AL+2*3                ; forearm
-	lda.b Z_TR
-	beq +
-	lda.w #64
-	sta P_H+2*3
-	stz P_H+2*2
-	bra ++
-+	stz P_H+2*3
-	lda.w #64
-	sta P_H+2*2
-++	lda.b Z_ELX
+	lda.b Z_ELX
 	sta.b Z_T0
 	lda.b Z_ELY
 	sta.b Z_T1
@@ -1377,10 +1376,6 @@ bk_arm:
 
 bk_susp:
 	rep #$30
-	stz P_H+2*4
-	stz P_H+2*5
-	stz P_H+2*6
-	stz P_H+2*7
 	lda.b Z_TR
 	beq +
 	jmp _strn
@@ -1530,6 +1525,8 @@ _sq4:
 	MIR 2*8, 64
 	MIR 2*9, 64
 	MIR 2*FRAME, 128
+	lda #$FFFF                  ; P_H to be set again
+	sta bike_ph
 	rts
 
 ;---------------------------------------------------------------------------
