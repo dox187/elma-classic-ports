@@ -867,6 +867,12 @@ def main():
         a.append('bike_t_lk%d:' % n)
         a += ['\t.dw ' + ','.join(str(x) for x in tb['lk%d' % n][i:i + 16])
               for i in range(0, 2 * n, 16)]
+    # The descriptor of each single part by its key (bike_t_lk64's index).
+    a.append('bike_t_d64:')
+    ppart = N_PART // 2 + 4 * (N_TURN // 2)
+    for p in range(len(PARTS)):
+        ds = ['bike_desc_single+%d' % (4 * (ppart * p + (x & 255))) for x in tb['lk64']]
+        a += ['\t.dw ' + ','.join(ds[i:i + 8]) for i in range(0, len(ds), 8)]
     a += ['.ENDS', '']
     a += ['.SECTION ".bike_atan8" SUPERFREE', 'bike_t_atan8:']
     a += db(tb['atan8'], 32)

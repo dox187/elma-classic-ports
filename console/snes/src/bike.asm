@@ -190,9 +190,30 @@ W_KF        dsw 11      ; its flips << 8
 	sta.b \3
 .ENDM
 
+; Part \1 (2 * part) wants W_DESC (in A, W_KF): pending if it is not in
+; the VRAM, else its flips are taken.
+.MACRO CHK
+	cmp bike_cur+\1
+	beq +
+	lda.w #1<<(\1/2)
+	tsb bike_pend
+	bra ++
++	lda.w #1<<(\1/2)
+	trb bike_pend
+	lda W_KF+\1
+	and.w #$FF00
+	cmp bike_curf+\1
+	beq ++
+	sta bike_curf+\1
+	ora.l bk_ta0+\1
+	sta bike_ta+\1
+++
+.ENDM
+
 ; The step of the angle of a single part at 64 angles and its mirroring
-; (\1 = 2 * part, 8 bits): its picture when they changed since the last
-; frame (\2 = 1: the first piece of a suspension, the second one too).
+; (\1 = 2 * part, 8 bits): its picture (bike_t_lk64, bike_t_d64) when they
+; changed since the last frame (\2 = 1: the first piece of a suspension,
+; the second one too).
 .MACRO PIC64
 	lda P_AL+\1+1
 	clc
@@ -201,21 +222,38 @@ W_KF        dsw 11      ; its flips << 8
 	lsr a
 	ora P_H+\1
 	cmp bike_key+\1/2
-	beq +
+.IF \2 == 1
+	bne +
+	jmp +++
++
+.ELSE
+	beq +++
+.ENDIF
 	sta bike_key+\1/2
 .IF \2 == 1
 	sta bike_key+\1/2+1
 .ENDIF
 	rep #$20
 	and #$00FF
-	ldy.w #\1
+	asl a
+	tax
+	lda.l bike_t_lk64,x
+	sta W_KF+\1
 .IF \2 == 1
-	jsr bk_pic64s
-.ELSE
-	jsr bk_pic64
+	sta W_KF+\1+2
+.ENDIF
+	lda.l bike_t_d64+256*\1/2,x
+	sta W_DESC+\1
+	CHK \1
+.IF \2 == 1
+	lda W_DESC+\1
+	clc
+	adc.w #4*BK_PER_PART
+	sta W_DESC+\1+2
+	CHK \1+2
 .ENDIF
 	sep #$20
-+
++++
 .ENDM
 
 ; The OAM address of the sprite in place \1 of the bike (bk_oam).
@@ -449,16 +487,9 @@ W_KF        dsw 11      ; its flips << 8
 
 .SECTION ".bike_text" SUPERFREE
 
-; For each part: its bit, its first descriptor (of a single part), its
-; first tile with its palette and priority.
+; For each part: its bit, its first tile with its palette and priority.
 bk_bit:
 	.dw 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024
-bk_desc0:
-	.dw bike_desc_single, bike_desc_single+4*BK_PER_PART
-	.dw bike_desc_single+8*BK_PER_PART, bike_desc_single+12*BK_PER_PART
-	.dw bike_desc_single+16*BK_PER_PART, bike_desc_single+20*BK_PER_PART
-	.dw bike_desc_single+24*BK_PER_PART, bike_desc_single+28*BK_PER_PART
-	.dw bike_desc_single+32*BK_PER_PART, bike_desc_single+36*BK_PER_PART
 ; The VRAM address of each single part's sprite.
 bk_vram:
 	.dw VRAM_OBJ+128*16, VRAM_OBJ+130*16, VRAM_OBJ+132*16, VRAM_OBJ+134*16
@@ -1511,19 +1542,6 @@ bk_pictures:
 	ldy.w #2*FRAME
 	bra bk_check
 
-; Part Y/2 at the step and mirroring A (its key): its picture from
-; bike_t_lk64.
-bk_pic64:
-	asl a
-	tax
-	lda.l bike_t_lk64,x
-	sta W_KF,y
-	and.w #$00FF
-	asl a
-	asl a
-	tyx
-	adc.l bk_desc0,x            ; (C clear)
-	sta W_DESC,y
 ; Part Y/2 wants W_DESC (W_KF): pending if it is not in the VRAM, else its
 ; flips are taken.
 bk_check:
@@ -1544,19 +1562,6 @@ bk_check:
 	ora.l bk_ta0,x
 	sta bike_ta,y
 +	rts
-
-; The same for the first piece of a suspension (Y/2) and the second one.
-bk_pic64s:
-	jsr bk_pic64
-	lda W_KF,y
-	sta W_KF+2,y
-	lda W_DESC,y
-	clc
-	adc.w #4*BK_PER_PART
-	sta W_DESC+2,y
-	iny
-	iny
-	bra bk_check
 
 ; The squashed pictures: all at the angle of the bike as drawn. The parts
 ; 0-9 share their key (bike_tkey: (level + 1) << 8 | step).
