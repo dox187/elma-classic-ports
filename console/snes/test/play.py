@@ -43,6 +43,8 @@ def main():
     ap.add_argument('script')
     ap.add_argument('--out', default='.')
     ap.add_argument('--shots', type=int, default=0)
+    ap.add_argument('--trace', type=int, default=0,
+                    help='print the steps and the position of the bike every N frames')
     ap.add_argument('--random-ram', action='store_true',
                     help='keep the random work RAM of Mesen (else cleared)')
     ap.add_argument('--after', type=int, default=120,
@@ -59,6 +61,10 @@ def main():
                  'phys_step'):
         lua.append('local %s = %d' % (name, syms[name]))
     lua.append('local level = %d' % a.level)
+    lua.append('local trace = %d' % a.trace)
+    lua.append('local fc_at = %d' % syms['core_frame_count'])
+    lua.append('local steps_at = %d' % syms.get('tccs_build/obj/game.s_Steps', 0))
+    lua.append('local view_at = %d' % syms['phys_view'])
     lua.append('local CLEAR = %s' % ('false' if a.random_ram else 'true'))
     lua.append(r'''
 local mem = emu.memType.snesMemory
@@ -69,6 +75,12 @@ if CLEAR then
   for i = 0, emu.getMemorySize(emu.memType.snesWorkRam) - 1 do emu.write(i, 0, emu.memType.snesWorkRam) end
   for i = 0, emu.getMemorySize(emu.memType.spcRam) - 1 do emu.write(i, 0, emu.memType.spcRam) end
 end
+local itlog = {}
+emu.addMemoryCallback(function()
+  local fc = emu.read16(fc_at, mem)
+  local n = #itlog
+  if n > 0 and itlog[n][1] == fc then itlog[n][2] = itlog[n][2] + 1 else itlog[n + 1] = {fc, 1} end
+end, emu.callbackType.exec, phys_step, phys_step)
 emu.addMemoryCallback(function() if not start then start = frame end end,
   emu.callbackType.exec, phys_step, phys_step)
 emu.addEventCallback(function()
@@ -85,8 +97,17 @@ emu.addEventCallback(function()
   end
   if start then
     local i = frame - start
+    if trace > 0 and i % trace == 0 then
+      print(string.format("TRACE %d %d %d %d", emu.read16(fc_at, mem), emu.read16(steps_at, mem),
+        emu.read32(view_at, mem), emu.read32(view_at + 4, mem)))
+    end
     if shots > 0 and i % shots == 0 then shot(string.format("f%05d.png", i)) end
     if emu.read16(play_done, mem) == 1 or i >= total then
+      if trace > 0 then
+        local t = {}
+        for _, e in ipairs(itlog) do t[#t + 1] = e[1] .. ":" .. e[2] end
+        print("ITER " .. table.concat(t, " "))
+      end
       print(string.format("RESULT %d %d %d %d", emu.read16(play_done, mem),
         emu.read16(play_finished, mem), emu.read32(play_time, mem), i))
       shot("end.png")
@@ -107,6 +128,12 @@ end, emu.eventType.endFrame)
             _, name, data = line.split(' ', 2)
             with open(os.path.join(a.out, name), 'wb') as f:
                 f.write(bytes.fromhex(data.strip()))
+        elif line.startswith('TRACE '):
+            i, steps, x, y = (int(v) for v in line.split()[1:])
+            x, y = (v - (1 << 32) if v >= 1 << 31 else v for v in (x, y))
+            print('frame %d steps %d x %.2f y %.2f' % (i, steps, x / 65536, y / 65536))
+        elif line.startswith('ITER '):
+            print(line)
         elif line.startswith('RESULT '):
             done, fin, time, n = (int(v) for v in line.split()[1:])
             if not done:
