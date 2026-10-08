@@ -551,19 +551,24 @@ _rfin_f1\@:
 .ENDM
 
 ; R = the square of the 16-bit word \1 of the direct page (|\1| <= 32767),
-; the whole product (A 16-bit in and out; T3 is used).
+; the whole product (A 16-bit in and out; MD0..MDX are used): |x| times
+; the signed bytes of -|x|, negated.
 .MACRO SQUARE
 	lda.b \1
 	bpl _square_f1\@
 	eor #$FFFF
 	inc a
-_square_f1\@:	sta.b T3                    ; |x|
+_square_f1\@:	sta.b MD2                   ; |x|
 	eor #$FFFF
 	inc a
-	sta.b T3+2                  ; -|x|
+	sta.b MD0                   ; -|x|
 	sep #$20
-	MB_DP T3
-	DIG16 T3+2
+	MB_DP MD2
+	lda.b MD0
+	cmp #$80
+	lda.b MD1
+	adc #0
+	sta.b MD1
 	RFULL16 MD0
 	lda #0
 	sec

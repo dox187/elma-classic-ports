@@ -151,7 +151,8 @@ phys_q15:
 	.ACCU 16
 	.INDEX 16
 	lda.b 0,x
-	asl a
+	xba
+	asl a                       ; C = bit 7
 	lda.b 1,x
 	rol a
 	ldy.b 2,x
@@ -1776,7 +1777,7 @@ phys_ext32:
 +	sta.b T0+2
 	rts
 
-; R = rsh( R, A ) for A from 0 to 31 (A 16-bit; T3 is used).
+; R = rsh( R, A ) for A from 0 to 31 (A 16-bit).
 phys_rshr:
 	.ACCU 16
 	.INDEX 16
@@ -1784,23 +1785,15 @@ phys_rshr:
 	bne +
 	rts
 +	tay
-	dec a
+	asl a
+	asl a
 	tax
-	lda #1
-	sta.b T3
-	stz.b T3+2
--	cpx #0
-	beq +
-	asl.b T3
-	rol.b T3+2
-	dex
-	bra -
-+	lda.b R
+	lda.b R
 	clc
-	adc.b T3
+	adc.l phys_half-4,x
 	sta.b R
 	lda.b R+2
-	adc.b T3+2
+	adc.l phys_half-2,x
 -	cmp #$8000
 	ror a
 	ror.b R
@@ -1808,6 +1801,17 @@ phys_rshr:
 	bne -
 	sta.b R+2
 	rts
+
+; 1 << (n-1) for n from 1 to 31, the halves of rsh:
+phys_half:
+	.dw $0001, $0000, $0002, $0000, $0004, $0000, $0008, $0000
+	.dw $0010, $0000, $0020, $0000, $0040, $0000, $0080, $0000
+	.dw $0100, $0000, $0200, $0000, $0400, $0000, $0800, $0000
+	.dw $1000, $0000, $2000, $0000, $4000, $0000, $8000, $0000
+	.dw $0000, $0001, $0000, $0002, $0000, $0004, $0000, $0008
+	.dw $0000, $0010, $0000, $0020, $0000, $0040, $0000, $0080
+	.dw $0000, $0100, $0000, $0200, $0000, $0400, $0000, $0800
+	.dw $0000, $1000, $0000, $2000, $0000, $4000
 
 ;---------------------------------------------------------------------------
 ; The collisions, D = PHYS_DPB (A 16-bit).
