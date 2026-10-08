@@ -75,30 +75,23 @@ Z_VX        dw          ; a vector
 Z_VY        dw
 Z_AX        dw          ; atan2
 Z_AY        dw
-Z_W0X       dw          ; points: wheels (in this order), rider, head,
-Z_W0Y       dw          ; handlebar, rear suspension, foot, hip, shoulder,
-Z_W1X       dw          ; hand, knee, elbow
+Z_W0X       dw          ; points: wheels (in this order), rider,
+Z_W0Y       dw          ; handlebar, rear suspension, shoulder, hand,
+Z_W1X       dw          ; elbow
 Z_W1Y       dw
 Z_RX        dw
 Z_RY        dw
-Z_HDX       dw
-Z_HDY       dw
 Z_HAX       dw
 Z_HAY       dw
 Z_REX       dw
 Z_REY       dw
-Z_FOX       dw
-Z_FOY       dw
-Z_HIX       dw
-Z_HIY       dw
 Z_SHX       dw
 Z_SHY       dw
 Z_KX        dw
 Z_KY        dw
-Z_KNX       dw
-Z_KNY       dw
 Z_ELX       dw
 Z_ELY       dw
+Z_ROT       dw          ; index of the tables of the bike's angle
 Z_IDX       dw          ; index of the tables of a distance
 Z_A8        dw          ; an angle in 256 steps
 Z_LV        dw          ; level of the squashed pictures, 4: not turning
@@ -183,7 +176,7 @@ W_KF        dsw 11      ; its flips << 8
 	rep #$20
 	lda.l phys_view+\1+1
 	sec
-	sbc.l phys_view+\2+1
+	sbc.b \2
 	asl a
 	asl a
 	MA
@@ -732,12 +725,16 @@ bk_geometry:
 	lda #1
 +	sta.b Z_TR
 	; Points from the physics:
-	CONV PV_WHEEL_X, PV_BODY_X, Z_W0X
-	CONV PV_WHEEL_Y, PV_BODY_Y, Z_W0Y
-	CONV PV_WHEEL_X+4, PV_BODY_X, Z_W1X
-	CONV PV_WHEEL_Y+4, PV_BODY_Y, Z_W1Y
-	CONV PV_RIDER_X, PV_BODY_X, Z_RX
-	CONV PV_RIDER_Y, PV_BODY_Y, Z_RY
+	lda.l phys_view+PV_BODY_X+1
+	sta.b Z_T4
+	lda.l phys_view+PV_BODY_Y+1
+	sta.b Z_T5
+	CONV PV_WHEEL_X, Z_T4, Z_W0X
+	CONV PV_WHEEL_Y, Z_T5, Z_W0Y
+	CONV PV_WHEEL_X+4, Z_T4, Z_W1X
+	CONV PV_WHEEL_Y+4, Z_T5, Z_W1Y
+	CONV PV_RIDER_X, Z_T4, Z_RX
+	CONV PV_RIDER_Y, Z_T5, Z_RY
 	; Points fixed to the bike and to the rider: tables by the angle >> 6
 	; and turned.
 	rep #$30
@@ -751,6 +748,7 @@ bk_geometry:
 	beq +
 	ora #$1000
 +	tax
+	stx.b Z_ROT
 	lda.l bike_rot_handle,x
 	sta.b Z_HAX
 	lda.l bike_rot_handle+2,x
@@ -759,26 +757,6 @@ bk_geometry:
 	sta.b Z_REX
 	lda.l bike_rot_rear+2,x
 	sta.b Z_REY
-	lda.l bike_rot_foot,x
-	sta.b Z_FOX
-	lda.l bike_rot_foot+2,x
-	sta.b Z_FOY
-	lda.l bike_rot_hip,x
-	clc
-	adc.b Z_RX
-	sta.b Z_HIX
-	lda.l bike_rot_hip+2,x
-	clc
-	adc.b Z_RY
-	sta.b Z_HIY
-	lda.l bike_rot_shoulder,x
-	clc
-	adc.b Z_RX
-	sta.b Z_SHX
-	lda.l bike_rot_shoulder+2,x
-	clc
-	adc.b Z_RY
-	sta.b Z_SHY
 	lda.l bike_rot_torso_c,x
 	clc
 	adc.b Z_RX
@@ -799,6 +777,15 @@ bk_geometry:
 	lda.l bike_anim+BA_VOLT     ; volting: the arm swung
 	and #$FF00
 	beq +
+	ldx.b Z_ROT                 ; the shoulder
+	lda.l bike_rot_shoulder,x
+	clc
+	adc.b Z_RX
+	sta.b Z_SHX
+	lda.l bike_rot_shoulder+2,x
+	clc
+	adc.b Z_RY
+	sta.b Z_SHY
 	jsr bk_hand
 	jsr bk_arm
 +	jsr bk_susp
