@@ -29,7 +29,12 @@ static u16 last_frame;
 static u16 rep_held, rep_start, rep_last;
 static u8 ui_anim;              // the next frame starts with kirajzolanim
 static u8 in_end;               // ui_end is uploading
-static u8 buf_col[2][UI_COLS];  // columns of tiles that hold text in the VRAM
+// The text has two pictures in the VRAM: BG3 shows one and the next is
+// uploaded into the other (the area of the intro picture, free after the
+// intro scrolled away), then BG3 switches to it in the frame of the last
+// transfer, so a picture is never seen half uploaded.
+static u8 vis;                  // the picture BG3 shows: 0 at UIV_TEXT_CHR, 1 at UIV_INTRO_CHR
+static u8 buf_col[2][UI_COLS];  // columns of tiles that hold text in each picture
 static u8 buf_lo[2], buf_end[2];  // rows of tiles that hold it: lo up to end - 1
 static u8 buf_new_lo, buf_new_end;
 
@@ -88,6 +93,7 @@ static void ui_regs(void) {
 	REG(0x2109) = (UIV_TEXT_MAP >> 8) & 0xFC;
 	REG(0x210B) = ((UIV_BG_CHR >> 12) << 4) | (UIV_INTRO_CHR >> 12);
 	REG(0x210C) = UIV_TEXT_CHR >> 12;
+	vis = 0;
 	REG(0x2101) = 0xA0 | (UIV_OBJ >> 13);  // sprites of 32x32 and 64x64
 	for( i = 0x2123; i <= 0x212B; i++ )
 		REG(i) = 0;             // no windows
@@ -140,10 +146,14 @@ void ui_enter(void) {
 		REG(0x2119) = (u8)((t >> 8) | 0x20);
 	}
 	ui_canvas_clear_all();
-	for( i = 0; i < UI_COLS; i++ )
+	for( i = 0; i < UI_COLS; i++ ) {
 		buf_col[0][i] = 0;
+		buf_col[1][i] = 1;      // the intro picture is in the other one
+	}
 	buf_lo[0] = UI_ROWS;
 	buf_end[0] = 0;
+	buf_lo[1] = 0;
+	buf_end[1] = UI_ROWS;
 	core_oam_clear();
 	hel_loaded = 0xFF;
 	hel_on = 0;
@@ -174,6 +184,14 @@ void ui_begin(void) {
 // the columns and the rows that hold text now or held it are sent.
 void ui_end(void) {
 	u16 c, lo = UI_ROWS, end = 0, r;
+	u16 b = vis;                // the picture to upload
+	u16 base;
+	u8 sw = 0;                  // BG3 switches to it at the end
+	if( !ui_blank && !ui_anim ) {
+		b = vis ^ 1;
+		sw = 1;
+	}
+	base = b ? UIV_INTRO_CHR : UIV_TEXT_CHR;
 	for( r = 0; r < UI_ROWS; r++ ) {
 		if( ui_row_used[r] ) {
 			if( r < lo )
@@ -183,26 +201,26 @@ void ui_end(void) {
 	}
 	buf_new_lo = lo;
 	buf_new_end = end;
-	if( buf_lo[0] < lo )
-		lo = buf_lo[0];
-	if( buf_end[0] > end )
-		end = buf_end[0];
+	if( buf_lo[b] < lo )
+		lo = buf_lo[b];
+	if( buf_end[b] > end )
+		end = buf_end[b];
 	in_end = 1;
 	for( c = 0; c < UI_COLS; c++ ) {
 		u16 off;
 		u16 size;
-		if( !ui_col_used[c] && !buf_col[0][c] )
+		if( !ui_col_used[c] && !buf_col[b][c] )
 			continue;
 		off = c * UI_CANVAS_STRIDE + UI_CANVAS_PAD + lo * 16;
 		size = (end - lo) * 16;
 		if( size ) {
 			if( ui_blank ) {
-				core_vram_now(UIV_TEXT_CHR + c * (UI_ROWS * 8) + lo * 8, ui_canvas + off, size);
+				core_vram_now(base + c * (UI_ROWS * 8) + lo * 8, ui_canvas + off, size);
 			}
 			else {
 				while( 1 ) {
 					if( core_dmaq_bytes + size <= UI_TEXT_DMA ) {
-						if( core_queue_vram(UIV_TEXT_CHR + c * (UI_ROWS * 8) + lo * 8, ui_canvas + off, size) )
+						if( core_queue_vram(base + c * (UI_ROWS * 8) + lo * 8, ui_canvas + off, size) )
 							break;
 					}
 					ui_frame();
@@ -211,9 +229,13 @@ void ui_end(void) {
 		}
 	}
 	for( c = 0; c < UI_COLS; c++ )
-		buf_col[0][c] = ui_col_used[c];
-	buf_lo[0] = buf_new_lo;
-	buf_end[0] = buf_new_end;
+		buf_col[b][c] = ui_col_used[c];
+	buf_lo[b] = buf_new_lo;
+	buf_end[b] = buf_new_end;
+	if( sw ) {
+		core_queue_reg(0x210C, base >> 12);
+		vis = b;
+	}
 	in_end = 0;
 }
 
