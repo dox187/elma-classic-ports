@@ -215,12 +215,19 @@ class Bike:
             a8 = t['limb_%s_a' % name][idx]
             if tr:
                 bx, a8 = -bx, (128 - a8) & 255
-            bx2 = 2 * bx
             if turning:
                 # Squashed along the bike in its frame (the turn below).
-                bx2 = s16(bx2 + mul8(4 * bx2, gg))
-            P[name] = [(s16(mul8(bx2, c) - mul8(2 * by, sn)),
-                        s16(mul8(bx2, sn) + mul8(2 * by, c))), (th + (a8 << 8)) & 0xFFFF, h]
+                bx2 = s16(2 * bx + mul8(8 * bx, gg))
+                ctr = (s16(mul8(bx2, c) - mul8(2 * by, sn)), s16(mul8(bx2, sn) + mul8(2 * by, c)))
+            else:
+                # The distance and the angle of the center (1024 steps).
+                r2 = t['limb_%s_r2' % name][idx]
+                phi = t['limb_%s_phi' % name][idx]
+                if tr:
+                    phi = (512 - phi) & 1023
+                k = (phi + ti) & 1023
+                ctr = (mul8(r2, t['sin'][k + 256]), mul8(r2, t['sin'][k]))
+            P[name] = [ctr, (th + (a8 << 8)) & 0xFFFF, h]
         if vi:
             # Volting: the arm swung, computed (ketkormetszete).
             v = sub(hand, sh)

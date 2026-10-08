@@ -93,6 +93,8 @@ Z_ELX       dw
 Z_ELY       dw
 Z_ROT       dw          ; index of the tables of the bike's angle
 Z_IDX       dw          ; index of the tables of a distance
+Z_IDXT      dw          ; index of the tables of the limbs
+Z_TI        dw          ; the bike's angle in 1024 steps
 Z_A8        dw          ; an angle in 256 steps
 Z_LV        dw          ; level of the squashed pictures, 4: not turning
 Z_NEG       dw          ; the turn's squash is negative (mirrored)
@@ -788,6 +790,7 @@ bk_geometry:
 	lsr a
 	lsr a
 	lsr a
+	sta.b Z_TI
 	tax
 	sep #$20
 	lda.l bike_t_sin,x
@@ -902,8 +905,26 @@ bk_geometry:
 ; of the bike (gen_bike.py): their centers rotated with the bike, their
 ; angles added to its angle; mirrored when turned.
 .MACRO LIMB
+.IF \3 == 0
+	lda.l bike_limb_\1_r2,x     ; 2 r (cos, sin) of its angle + the bike's
+	MA
+	rep #$20
+	lda.l bike_limb_\1_phi,x
+	clc
+	adc.b Z_TI
+	and #$03FF
+	tax
+	sep #$20
+	lda.l bike_t_sin+256,x
+	MB
+	sta P_CX+\2
+	sep #$20
+	lda.l bike_t_sin,x
+	MB
+	sta P_CY+\2
+	ldx.b Z_IDXT
+.ELSE
 	lda.l bike_limb_\1_x2,x
-.IF \3 == 1
 	sta.b Z_T3                  ; turning: x squashed along the bike,
 	asl a                       ; x += x (f - 1)
 	asl a
@@ -912,7 +933,6 @@ bk_geometry:
 	MB
 	clc
 	adc.b Z_T3
-.ENDIF
 	MA
 	lda.b Z_C
 	MB
@@ -936,6 +956,7 @@ bk_geometry:
 	sec
 	sbc.b Z_T2
 	sta P_CX+\2
+.ENDIF
 	lda.l bike_limb_\1_a16,x
 	clc
 	adc.b Z_TH
@@ -1003,6 +1024,7 @@ bk_limbs:
 	clc
 	adc.w #BK_LIMB_TR
 +	tax
+	stx.b Z_IDXT
 	lda.b Z_LATE
 	bpl +
 	jmp _lnorm

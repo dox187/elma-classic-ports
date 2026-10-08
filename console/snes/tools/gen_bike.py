@@ -591,8 +591,10 @@ def tables(geo):
     # from (LIMB_X0, LIMB_Y0): the centers of the thigh, the leg, the upper
     # arm and the forearm (units, from the center of the bike) and their
     # angles (256 steps).
+    # Also as 2 * the distance and the angle (1024 steps) of the center.
     for name in LIMBS:
         t['limb_%s_x' % name], t['limb_%s_y' % name], t['limb_%s_a' % name] = [], [], []
+        t['limb_%s_r2' % name], t['limb_%s_phi' % name] = [], []
     for iy in range(LIMB_NY):
         for ix in range(LIMB_NX):
             rx = (LIMB_X0 + 4 * ix + 2) / U
@@ -607,6 +609,8 @@ def tables(geo):
                 c = (a - e * ta + b + e * tb) / 2 * U
                 t['limb_%s_x' % name].append(int(round(c[0])))
                 t['limb_%s_y' % name].append(int(round(c[1])))
+                t['limb_%s_r2' % name].append(int(round(2 * math.hypot(c[0], c[1]))))
+                t['limb_%s_phi' % name].append(int(round(math.atan2(c[1], c[0]) / (2 * math.pi) * 1024)) & 1023)
                 t['limb_%s_a' % name].append(int(round(math.atan2(e[1], e[0]) / (2 * math.pi) * 256)) & 255)
     # The angle (256 steps) of a vector by |y| >> 3 (rows) and |x| >> 3
     # (columns), 0..63 each:
@@ -863,12 +867,16 @@ def main():
     a += db(tb['atan8'], 32)
     a += ['.ENDS', '']
     # The limbs by the rider's place, not turned then turned (mirrored):
-    # 2 x, 2 y, the angle << 8.
+    # 2 x, 2 y, the angle << 8, 2 * the distance and the angle (1024
+    # steps) of the center.
     for name in LIMBS:
         lx, ly, la = (tb['limb_%s_%s' % (name, f)] for f in 'xya')
+        lr, lp = tb['limb_%s_r2' % name], tb['limb_%s_phi' % name]
         for f, tab in (('x2', [2 * x for x in lx] + [-2 * x for x in lx]),
                        ('y2', [2 * y for y in ly] * 2),
-                       ('a16', [x << 8 for x in la] + [((128 - x) & 255) << 8 for x in la])):
+                       ('a16', [x << 8 for x in la] + [((128 - x) & 255) << 8 for x in la]),
+                       ('r2', lr * 2),
+                       ('phi', lp + [(512 - x) & 1023 for x in lp])):
             a += ['.SECTION ".bike_limb_%s_%s" SUPERFREE' % (name, f),
                   'bike_limb_%s_%s:' % (name, f)]
             a += ['\t.dw ' + ','.join('%d & $FFFF' % x for x in tab[i:i + 16])
