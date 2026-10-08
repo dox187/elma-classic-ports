@@ -497,7 +497,9 @@ def write_levels(res, out):
             fh.write(data)
         # In the ROM the pointers are addresses in the bank of the level:
         ptrset = set(ptrs)
-        a.append('.SECTION ".phys_lev%02d" SUPERFREE' % n)
+        # In the banks $A0-$BF, where the I/O registers are too (the lower ones
+        # are left to the library and the code):
+        a.append('.SECTION ".phys_lev%02d" SEMISUPERFREE BANKS 32-63' % n)
         a.append('phys_lev%02d:' % n)
         j = 0
         row = []

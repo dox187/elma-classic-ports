@@ -125,7 +125,7 @@ static int16_t unit15( int32_t x ) {
 // The unit vector and length of d (P), for a contact:
 static void norm( int32_t dx, int32_t dy, contact_t* c ) {
 	int sh = 0;
-	while( dx > 32767 || dx < -32768 || dy > 32767 || dy < -32768 ) {
+	while( dx > 32767 || dx < -32767 || dy > 32767 || dy < -32767 ) {
 		dx >>= 1;
 		dy >>= 1;
 		sh++;
@@ -799,6 +799,18 @@ uint16_t ps_step( uint16_t input ) {
 	if( dead )
 		return ev | PH_DEAD;
 	return ev;
+}
+
+// For the tests: the trigonometry of the last step (CS22, SN22, CS, SN of
+// the direct page of the assembly).
+void ps_trig_dump( uint8_t* out ) {
+	uint32_t v[2] = { (uint32_t)Cs22, (uint32_t)Sn22 };
+	for( int j = 0; j < 8; j++ )
+		out[j] = (uint8_t)(v[j >> 2] >> 8*(j & 3));
+	out[8] = (uint8_t)Cs;
+	out[9] = (uint8_t)((uint16_t)Cs >> 8);
+	out[10] = (uint8_t)Sn;
+	out[11] = (uint8_t)((uint16_t)Sn >> 8);
 }
 
 // The state in the order of the direct page of the assembly:
