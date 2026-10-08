@@ -47,6 +47,7 @@ N_TURN = 32                  # parts while turning
 N_TURN_FRAME = 64
 TURN_LEVELS = (0.06, 0.25, 0.5, 0.75)   # squash of the pictures while turning
 ALPHA_MIN = 0.4              # coverage of a pixel to be drawn
+ALPHA_WHEEL = 0.5            # the same for the wheels (no lone tips of the tire)
 SS = 8                       # samples a pixel, both ways
 
 # The parts with sprites loaded while drawing: index, picture, palette.
@@ -391,19 +392,24 @@ def kmeans(colors, weights, k, iters=40, seed=1):
     return c / WEIGHT
 
 
-def make_palette(cols):
+def make_palette(cols, boost=3.0):
+    """15 colors for the colors of the pictures; saturated colors weigh
+    more (small colored details, like the hub of the wheel, keep a color)."""
     cols = np.concatenate(cols)
     q = np.round(cols / 4).astype(int)
     u, cnt = np.unique(q, axis=0, return_counts=True)
-    pal = kmeans(u * 4.0, cnt.astype(float), 15)
+    c = u * 4.0
+    mx, mn = c.max(1), c.min(1)
+    sat = (mx - mn) / np.maximum(mx, 1)
+    pal = kmeans(c, cnt * (1 + boost * sat), 15)
     return snes_rgb(pal)
 
 
-def quantize(col, alpha, pal):
+def quantize(col, alpha, pal, thr=ALPHA_MIN):
     """Color indices 1..15 of the palette, 0 where not drawn."""
     d = (((col[..., None, :] - pal[None, None]) * WEIGHT) ** 2).sum(-1)
     idx = d.argmin(-1) + 1
-    idx[alpha < ALPHA_MIN] = 0
+    idx[alpha < thr] = 0
     return idx
 
 
@@ -678,7 +684,7 @@ def main():
     # Wheels: their 32 pictures as tiles 0-127 of the VRAM.
     wheel_vram = bytearray(128 * 32)
     for k, im in enumerate(sets['wheel']):
-        t = tiles16(quantize(im[0][2], im[0][3], pals[0]))
+        t = tiles16(quantize(im[0][2], im[0][3], pals[0], ALPHA_WHEEL))
         base = (k >> 3) * 32 + (k & 7) * 2
         for half in range(2):
             o = (base + half * 16) * 32
@@ -708,7 +714,7 @@ def main():
                 frame_idx.append(q.astype(np.uint8))
                 spr.append((dx, dy, blob.add(tiles16(q))))
             frame.append(spr)
-    wheel_idx = [quantize(im[0][2], im[0][3], pals[0]).astype(np.uint8)
+    wheel_idx = [quantize(im[0][2], im[0][3], pals[0], ALPHA_WHEEL).astype(np.uint8)
                  for im in sets['wheel']]
     # Objects:
     obj_blob = Blob('obj_tiles_')
