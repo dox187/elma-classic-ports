@@ -507,9 +507,6 @@ W_KF        dsw 11      ; its flips << 8
 ; For each part: its bit, its first tile with its palette and priority.
 bk_bit:
 	.dw 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024
-; The parts below part X/2: (1 << X/2) - 1.
-bk_below:
-	.dw 0, 1, 3, 7, 15, 31, 63, 127, 255
 ; The VRAM address of each single part's sprite.
 bk_vram:
 	.dw VRAM_OBJ+128*16, VRAM_OBJ+130*16, VRAM_OBJ+132*16, VRAM_OBJ+134*16
@@ -1798,22 +1795,27 @@ _group0:
 	sta.b Z_DST
 	jmp bk_qrows
 _single0:
-	ldy #0                      ; 2 * part
--	lsr.b Z_T5
-	bcc +
+-	lda.b Z_T5                  ; the lowest part left
+	beq ++
+	asl a
+	tax
+	lda.l bike_t_low2,x
+	tay
+	tax
+	lda.l bk_bit,x
+	trb.b Z_T5
 	lda.b Z_LEFT
 	sec
 	sbc.w #128+2*ENTRY_COST
-	bcc ++
+	bcc +
 	sta.b Z_LEFT
 	jsr bk_load1
-+	iny
-	iny
-	lda.b Z_T5
-	bne -
-++	tyx                         ; the parts before Y/2 are loaded
-	lda.l bk_below,x
-	and.b Z_PEND
+	bra -
++	lda.l bk_bit,x              ; not loaded: it and the ones left
+	tsb.b Z_T5
+++	lda.b Z_PEND
+	and #$00FF
+	eor.b Z_T5
 	trb bike_pend
 _r0:
 	rts

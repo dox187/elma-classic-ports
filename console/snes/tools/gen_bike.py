@@ -864,6 +864,10 @@ def main():
     a.append('bike_t_atan:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['atan'][i:i + 16])
           for i in range(0, 257, 16)]
+    # 2 * the lowest set bit of a byte (bk_load).
+    a.append('bike_t_low2:')
+    lows = [2 * ((v & -v).bit_length() - 1) if v else 0 for v in range(256)]
+    a += ['\t.dw ' + ','.join(str(x) for x in lows[i:i + 16]) for i in range(0, 256, 16)]
     a.append('bike_t_wheel:')
     a += ['\t.dw ' + ','.join(str(x) for x in tb['wheel'][i:i + 16]) for i in range(0, 64, 16)]
     # The same by the high byte of the angle (bk_oam).
