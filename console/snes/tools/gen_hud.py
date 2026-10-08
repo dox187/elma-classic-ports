@@ -21,7 +21,9 @@ wide, one word a row in the format of a row of a 2-bit tile (plane 0, plane
 Killers are pixels of ground: the original draws them black, the colors of
 a BG3 palette are taken by ground, sky and apples, and the dark ground is
 the closest. A row range of a column is copied by DMA. The apples are also
-listed with the color under them, for the ones eaten (hud.asm).
+listed with the color under them, for the ones eaten (hud.asm). A column
+is reached through its address only: the same column is stored once, and
+a column may begin inside the end of the one stored before it.
 """
 
 import math
@@ -486,35 +488,41 @@ def main():
     a.append('.ENDS')
 
     # The maps, packed into sections of at most a bank, a column never
-    # crossing one:
-    sec = []
-    sec_size = 0
-    nsec = 0
+    # crossing one. A column only needs its rows one after the other where
+    # its address points: the same column is stored once, and a column
+    # starts within the end of the one before it where they are the same
+    # (mostly the ground below and above the level).
+    secs = [bytearray()]
     level_cols = []
     total = 0
-
-    def flush():
-        nonlocal sec, sec_size, nsec
-        if sec:
-            a.extend(['', '.SECTION ".hud_map%d" SUPERFREE' % nsec, 'hud_map%d:' % nsec] + sec +
-                     ['.ENDS'])
-            nsec += 1
-        sec, sec_size = [], 0
-
     for li, lev in enumerate(levels):
         m = LevelMap(lev)
         cols = []
         for x in range(m.xmin, m.xmin + m.ncols):
             data = m.column(x)
-            if sec_size + len(data) > BANK_SIZE:
-                flush()
-            cols.append('hud_map%d+%d' % (nsec, sec_size))
-            for i in range(0, len(data), 64):
-                sec.append('\t.db ' + ', '.join(str(b) for b in data[i:i + 64]))
-            sec_size += len(data)
             total += len(data)
+            for n, blob in enumerate(secs):
+                at = blob.find(data)
+                if at >= 0:
+                    cols.append('hud_map%d+%d' % (n, at))
+                    break
+            else:
+                blob = secs[-1]
+                k = min(len(blob), len(data) - 1)
+                while k > 0 and not blob.endswith(data[:k]):
+                    k -= 1
+                if len(blob) - k + len(data) > BANK_SIZE:
+                    secs.append(bytearray())
+                    blob, k = secs[-1], 0
+                cols.append('hud_map%d+%d' % (len(secs) - 1, len(blob) - k))
+                blob += data[k:]
         level_cols.append((m, cols))
-    flush()
+    for n, blob in enumerate(secs):
+        a.extend(['', '.SECTION ".hud_map%d" SUPERFREE' % n, 'hud_map%d:' % n])
+        for i in range(0, len(blob), 64):
+            a.append('\t.db ' + ', '.join(str(b) for b in blob[i:i + 64]))
+        a.append('.ENDS')
+    stored = sum(len(b) for b in secs)
 
     # A level (16 bytes): first column, columns, first row, rows, the table
     # of its columns (24-bit addresses and a byte of padding), the table of
@@ -540,7 +548,8 @@ def main():
         f.write('\n'.join(a) + '\n')
     with open(os.path.join(out, 'hud.inc'), 'w') as f:
         f.write('\n'.join(inc) + '\n')
-    sys.stderr.write('gen_hud: maps of %d levels, %d bytes\n' % (len(levels), total))
+    sys.stderr.write('gen_hud: maps of %d levels, %d bytes, stored in %d\n' % (
+        len(levels), total, stored))
     if '--test' in sys.argv[4:]:
         write_test(levels, out)
 
