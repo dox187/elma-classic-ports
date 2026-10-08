@@ -96,11 +96,39 @@ class Resource:
         return name.lower() in self.files
 
 
+# Clipping of a picture (TOPOL.H HATAROL_*): drawn everywhere, only over
+# ground, only over sky.
+CLIP_NONE, CLIP_GROUND, CLIP_SKY = 0, 1, 2
+
+
+class Picture:
+    """A picture of a level (TOPOL.CPP sprite): a picture of the LGR, or a
+    texture drawn through a mask. x, y is its top left corner (y up)."""
+
+    def __init__(self, name, texture, mask, x, y, distance, clipping):
+        self.name = name            # picture name, or "" for a texture
+        self.texture = texture
+        self.mask = mask
+        self.x = x
+        self.y = y
+        self.distance = distance    # nearer than 500: in front of the bike
+        self.clipping = clipping    # CLIP_*
+
+    def __repr__(self):
+        return "Picture(%r, %r, %r, %.3f, %.3f, %d, %d)" % (
+            self.name, self.texture, self.mask, self.x, self.y,
+            self.distance, self.clipping)
+
+
 class Level:
     def __init__(self):
         self.name = ""
         self.polygons = []   # list of (is_grass, [(x, y), ...])
         self.objects = []    # list of (type, x, y, gravity, animation)
+        self.pictures = []   # list of Picture, in the order of the file
+        self.lgr = "default"
+        self.foreground = "ground"  # texture of the ground
+        self.background = "sky"     # texture of the sky
 
     def start(self):
         for t, x, y, _, _ in self.objects:
@@ -164,10 +192,13 @@ def parse_level(data, internal=False):
     r.skip(4 + 8 * 4)
     namelen = 50 if version >= 14 else 14
     lev.name = r.take("%ds" % (namelen + 1)).split(b"\0")[0].decode("latin-1")
+    def text(n):
+        return r.take("%ds" % n).split(b"\0")[0].decode("latin-1")
     if version > 6:
-        r.skip(16)
+        lev.lgr = text(16) or "default"
     if version >= 8:
-        r.skip(20)
+        lev.foreground = text(10).lower() or "ground"
+        lev.background = text(10).lower() or "sky"
     if version < 14:
         r.pos = 100
     npoly = int(r.take("d"))
@@ -178,6 +209,13 @@ def parse_level(data, internal=False):
         lev.polygons = [_read_polygon(r, version) for _ in range(npoly)]
         nobj = int(r.take("d"))
     lev.objects = [_read_object(r, version) for _ in range(nobj)]
+    if version > 6 and r.pos + 8 <= len(data):
+        npic = int(r.take("d"))
+        for _ in range(npic):
+            name, texture, mask = text(10), text(10), text(10)
+            x, y, distance, clipping = r.take("ddii")
+            lev.pictures.append(Picture(name.lower(), texture.lower(), mask.lower(),
+                                        x, -y, distance, clipping))
     return lev
 
 
