@@ -75,6 +75,9 @@ uint16_t ps_step( uint16_t input );
 void ps_turn( void );
 // The angle of the view: 65536 a turn.
 uint16_t ps_angle16( int32_t a );
+// The state as the direct page of the assembly has it (PS_DUMP_SIZE bytes):
+#define PS_DUMP_SIZE 142
+void ps_dump( uint8_t* out );
 
 #ifdef __cplusplus
 }

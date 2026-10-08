@@ -12,7 +12,7 @@ OUT_DIR/phys/levNN.bin                 the same data of each level, for the
 
 Units (see docs/physics.md): positions P = 1/65536 m, velocities V =
 1/2^24 m a step, angles and angular velocities 1/2^28 rad (a step), torques
-1/16 Nm, unit vectors 16384 = 1 (Q14).
+1/16 Nm, unit vectors 32768 = 1 (Q15).
 """
 
 import argparse
@@ -115,7 +115,8 @@ def constants(hz):
     i('RIDER_RIGHT', round(0.26 * 32768), '')
     i('RIDER_ELL', round(0.48 / 0.26 * 16384), 'the ellipse front up (Q14)')
     i('RIDER_TOP_SQ', round(0.48 * 32768) ** 2, '')
-    i('FRIC_K', round(1.0 / dt), 'friction for the sound, (m * m/s) * 65536')
+    i('SEAT_C8', round((round(-0.35 * 32768) * round(nx / ln * 32768) +
+                        round(0.13 * 32768) * round(ny / ln * 32768)) / 256), 'SEAT * SEAT_N / 256')
 
     f('K_SPRING', K_SPRING / M_WHEEL * dt * dt * V / P, 'wheel spring: gumi (P) to V')
     f('K_DAMP', S_DAMP / M_WHEEL * dt, 'wheel damping: relv (V) to V')
@@ -133,6 +134,7 @@ def constants(hz):
     f('K_REGI', T * M_WHEEL / (dt * dt * V) * 2.0 ** -16 * 2.0 ** 16, 'biztostalppont_regi: hossz*F (P*V >> 16) to T')
     f('K_WVIEW', 65536.0 / (2 * math.pi) * 2.0 ** -13, 'angle (W >> 15) to 65536 a turn')
     f('K_OMEGA', 256.0 / (dt * W) * 2 ** 8, '|omega| (W >> 8) to 1/256 rad/s')
+    f('K_FRIC', 2.0 ** -8 / dt, 'friction for the sound: (2^-24 m^2 a step) to 65536 m^2/s')
     return c, k
 
 
@@ -151,6 +153,8 @@ def write_constants(out, hz):
     a += ['', '; Multipliers: x * NAME_M >> NAME_SH, rounded:']
     for name, v, com in k:
         m, sh = factor(v, name)
+        if sh < 8 and name != 'K_FREE':
+            raise ValueError('%s: shift %d' % (name, sh))
         if com:
             h.append('// %s (%.6g):' % (com, v))
             a.append('; %s (%.6g):' % (com, v))
@@ -326,11 +330,13 @@ def seg_box_dist(ax, ay, bx, by, x0, y0, x1, y1):
                seg_pt(x0, y1), seg_pt(x1, y1))
 
 
-def unit_q14(ux, uy):
-    """A unit vector as Q14 and the rest of it in 2^-22 (signed bytes)."""
-    ex, ey = round(ux * 16384), round(uy * 16384)
-    lx = round((ux * 16384 - ex) * 256)
-    ly = round((uy * 16384 - ey) * 256)
+def unit_q15(ux, uy):
+    """A unit vector as Q15 (at most 32767) and the rest of it in 2^-23
+    (signed bytes)."""
+    ex = max(-32767, min(32767, round(ux * 32768)))
+    ey = max(-32767, min(32767, round(uy * 32768)))
+    lx = round((ux * 32768 - ex) * 256)
+    ly = round((uy * 32768 - ey) * 256)
     return ex, ey, max(-128, min(127, lx)), max(-128, min(127, ly))
 
 
@@ -369,11 +375,14 @@ def level_blob(lev):
     for (ax, ay), (bx, by) in lines:
         dx, dy = bx - ax, by - ay
         ln = math.hypot(dx, dy)
-        ex, ey, lx, ly = unit_q14(dx / ln, dy / ln)
+        ex, ey, lx, ly = unit_q15(dx / ln, dy / ln)
         box = [math.floor((min(ax, bx) - REACH - gx) * 256), math.ceil((max(ax, bx) + REACH - gx) * 256),
                math.floor((min(ay, by) - REACH - gy) * 256), math.ceil((max(ay, by) + REACH - gy) * 256)]
         box = [max(0, min(65535, v)) for v in box]
-        dn = (1 << 28) - (ex * ex + ey * ey)
+        # How far the length of e is from 1, as (2^30 - |e|^2)/2:
+        dn = ((1 << 30) - (ex * ex + ey * ey)) >> 1
+        if not -32768 <= dn <= 32767:
+            raise ValueError('dn %d' % dn)
         # Points from the corner of the grid, as 24 bits:
         pa = [fx(ax) - fx(gx), fx(ay) - fx(gy)]
         pb = [fx(bx) - fx(gx), fx(by) - fx(gy)]
