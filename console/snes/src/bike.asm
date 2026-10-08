@@ -766,6 +766,12 @@ bk_center:
 bk_geometry:
 	; The center of the bike on the screen:
 	rep #$30
+	lda.b Z_CAMX
+	asl a
+	asl a
+	asl a
+	asl a
+	sta.b Z_T3
 	lda.l phys_view+PV_BODY_X
 	sec
 	sbc.l bike_org_x
@@ -774,17 +780,15 @@ bk_geometry:
 	sbc.l bike_org_x+2
 	sta.b Z_T1
 	jsr bk_lpx16
-	sta.b Z_T0
-	lda.b Z_CAMX
-	asl a
-	asl a
-	asl a
-	asl a
-	sta.b Z_T1
-	lda.b Z_T0
 	sec
-	sbc.b Z_T1
+	sbc.b Z_T3
 	sta.b Z_BSX
+	lda.b Z_CAMY
+	asl a
+	asl a
+	asl a
+	asl a
+	sta.b Z_T3
 	lda.l bike_org_y
 	sec
 	sbc.l phys_view+PV_BODY_Y
@@ -793,16 +797,8 @@ bk_geometry:
 	sbc.l phys_view+PV_BODY_Y+2
 	sta.b Z_T1
 	jsr bk_lpx16
-	sta.b Z_T0
-	lda.b Z_CAMY
-	asl a
-	asl a
-	asl a
-	asl a
-	sta.b Z_T1
-	lda.b Z_T0
 	sec
-	sbc.b Z_T1
+	sbc.b Z_T3
 	sta.b Z_BSY
 	; The angle:
 	lda.l phys_view+PV_BODY_A
@@ -826,8 +822,17 @@ bk_geometry:
 	beq +
 	lda #1
 +	sta.b Z_TR
+	lda.l bike_anim+BA_TURN     ; turning?
+	cmp.w #TURN_DONE
+	bcs +
 	jsr bk_turn0
 	rep #$30
+	bra ++
++	lda #4
+	sta.b Z_LV
+	lda #$FFFF
+	sta.b Z_LATE
+++
 	; Points from the physics:
 	lda.l phys_view+PV_BODY_X+1
 	sta.b Z_T4
