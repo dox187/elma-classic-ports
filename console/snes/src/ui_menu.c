@@ -145,7 +145,11 @@ void ui_enter(void) {
 		REG(0x2118) = (u8)t;
 		REG(0x2119) = (u8)((t >> 8) | 0x20);
 	}
+	ui_cbase = 0;
 	ui_canvas_clear_all();
+	ui_canvas_swap();
+	ui_canvas_clear_all();
+	ui_canvas_swap();
 	for( i = 0; i < UI_COLS; i++ ) {
 		buf_col[0][i] = 0;
 		buf_col[1][i] = 1;      // the intro picture is in the other one
@@ -176,6 +180,7 @@ void ui_invalidate(void) {
 
 // A new picture of texts: the canvas is cleared.
 void ui_begin(void) {
+	ui_canvas_swap();
 	ui_canvas_clear();
 }
 
@@ -184,6 +189,7 @@ void ui_begin(void) {
 // the columns and the rows that hold text now or held it are sent.
 void ui_end(void) {
 	u16 c, lo = UI_ROWS, end = 0, r;
+	u16 off, vaddr, size;
 	u16 b = vis;                // the picture to upload
 	u16 base;
 	u8 sw = 0;                  // BG3 switches to it at the end
@@ -206,27 +212,26 @@ void ui_end(void) {
 	if( buf_end[b] > end )
 		end = buf_end[b];
 	in_end = 1;
+	off = ui_cbase + UI_CANVAS_PAD + lo * 16;
+	vaddr = base + lo * 8;
+	size = (end - lo) * 16;
 	for( c = 0; c < UI_COLS; c++ ) {
-		u16 off;
-		u16 size;
-		if( !ui_col_used[c] && !buf_col[b][c] )
-			continue;
-		off = c * UI_CANVAS_STRIDE + UI_CANVAS_PAD + lo * 16;
-		size = (end - lo) * 16;
-		if( size ) {
+		if( size && (ui_col_used[c] || buf_col[b][c]) ) {
 			if( ui_blank ) {
-				core_vram_now(base + c * (UI_ROWS * 8) + lo * 8, ui_canvas + off, size);
+				core_vram_now(vaddr, ui_canvas + off, size);
 			}
 			else {
 				while( 1 ) {
 					if( core_dmaq_bytes + size <= UI_TEXT_DMA ) {
-						if( core_queue_vram(base + c * (UI_ROWS * 8) + lo * 8, ui_canvas + off, size) )
+						if( core_queue_vram(vaddr, ui_canvas + off, size) )
 							break;
 					}
 					ui_frame();
 				}
 			}
 		}
+		off += UI_CANVAS_STRIDE;
+		vaddr += UI_ROWS * 8;
 	}
 	for( c = 0; c < UI_COLS; c++ )
 		buf_col[b][c] = ui_col_used[c];
@@ -237,11 +242,6 @@ void ui_end(void) {
 		vis = b;
 	}
 	in_end = 0;
-}
-
-// y of the 640x480 menus on the screen.
-s16 ui_y(s16 y) {
-	return (2 * (y + UI_SHIFT_Y) + 2) / 5;
 }
 
 void ui_text(s16 x, s16 y, const char* s) {
@@ -511,6 +511,17 @@ void ui_list_init(ui_list_t* l, const char* title, s16 x0, s16 y0, s16 dy, u8 eg
 	ui_nextra = 0;
 }
 
+// The lines of a list on the screen, of the page drawn last and the one
+// before: the row of the top of the line, the columns of tiles its text and
+// its tab reached ($FFFF: nothing). 16 bytes each, for the indexes.
+#define UI_PAGE_MAX 32
+typedef struct {
+	u16 y;
+	u16 c0, c1, t0, t1;
+	u16 pad[3];
+} ui_line_t;
+static ui_line_t lines[2][UI_PAGE_MAX];
+
 // valaszt2::valassz: the title, the rows from ui_items (and ui_tabs) and
 // the texts of ui_extra; returns the row chosen, -1 for Esc.
 s16 ui_choose(ui_list_t* l) {
@@ -521,8 +532,11 @@ s16 ui_choose(ui_list_t* l) {
 	s16 lathato = egykepen < n ? egykepen : n;
 	s16 fel = (lathato - lathato0) * l->dy / 2;
 	s16 kur = l->kur;
-	s16 felso, i;
+	s16 felso, i, j;
 	u8 redraw = 1;
+	u8 cur = 0;                 // the lines of the page drawn last: lines[cur ^ 1]
+	u8 have_prev = 0;
+	s16 felso_old = 0, cnt_old = 0, cnt;
 	u16 k;
 	if( kur > n - 1 )
 		kur = n - 1;
@@ -538,6 +552,7 @@ s16 ui_choose(ui_list_t* l) {
 	core_pad_take();            // mk_emptychar
 	while( 1 ) {
 		if( redraw ) {
+			u8 can;
 			redraw = 0;
 			ui_begin();
 			for( i = 0; i < ui_nextra; i++ ) {
@@ -547,12 +562,80 @@ s16 ui_choose(ui_list_t* l) {
 					ui_text(ui_extra[i].x, ui_extra[i].y - fel, ui_extra[i].text);
 			}
 			ui_text_center(320, l->cimy - fel, l->title);
-			for( i = 0; i < egykepen && i < n - felso; i++ ) {
-				ui_text(l->x0, l->y0 - fel + i * l->dy, ui_items[felso + i]);
-				if( l->tabs )
-					ui_text(l->x0_tab, l->y0 - fel + i * l->dy, ui_tabs[felso + i]);
+			cnt = egykepen < n - felso ? egykepen : n - felso;
+			// A line that was on the previous page is moved, not drawn again,
+			// if no other text is near it (its rows are the same as drawn).
+			can = have_prev && l->dy >= 33 && cnt <= UI_PAGE_MAX && cnt_old <= UI_PAGE_MAX;
+			if( can ) {
+				s16 y = l->y0 - fel;
+				ui_line_t* ln = lines[cur];
+				ui_line_t* lo = lines[cur ^ 1];
+				for( i = 0; i < cnt; i++ ) {
+					ln->y = ui_y(y);
+					ln++;
+					y += l->dy;
+				}
+				for( j = 0; can && j <= ui_nextra; j++ ) {
+					s16 ey = j < ui_nextra ? ui_extra[j].y : l->cimy;
+					ey = ui_y(ey - fel);
+					// The lines are in rows, from the first to the last:
+					if( ey + 12 < (s16)lines[cur][0].y && ey + 12 < (s16)lines[cur ^ 1][0].y )
+						continue;
+					if( ey - 12 > (s16)lines[cur][cnt - 1].y && ey - 12 > (s16)lines[cur ^ 1][cnt_old - 1].y )
+						continue;
+					ln = lines[cur];
+					for( i = 0; i < cnt; i++ ) {
+						if( (u16)(ey - (s16)ln->y + 12) < 25 )
+							can = 0;
+						ln++;
+					}
+					for( i = 0; i < cnt_old; i++ ) {
+						if( (u16)(ey - (s16)lo->y + 12) < 25 )
+							can = 0;
+						lo++;
+					}
+					lo = lines[cur ^ 1];
+				}
+			}
+			{
+				ui_line_t* ln = lines[cur];
+				ui_line_t* lo = lines[cur ^ 1] + (felso - felso_old);
+				s16 y = l->y0 - fel;
+				for( i = 0; i < cnt; i++ ) {
+					j = felso + i - felso_old;
+					if( can && (u16)j < (u16)cnt_old && (u16)(ln->y - 1) < 211 && (u16)(lo->y - 1) < 211 ) {
+						ln->c0 = lo->c0;
+						ln->c1 = lo->c1;
+						ln->t0 = lo->t0;
+						ln->t1 = lo->t1;
+						if( lo->c0 != 0xFFFF )
+							ui_text_copy(lo->y, ln->y, lo->c0, lo->c1);
+						if( lo->t0 != 0xFFFF )
+							ui_text_copy(lo->y, ln->y, lo->t0, lo->t1);
+					}
+					else {
+						ui_text(l->x0, y, ui_items[felso + i]);
+						ln->c0 = ui_str_c0;
+						ln->c1 = ui_str_c1;
+						ln->t0 = 0xFFFF;
+						ln->t1 = 0xFFFF;
+						if( l->tabs ) {
+							ui_text(l->x0_tab, y, ui_tabs[felso + i]);
+							ln->t0 = ui_str_c0;
+							ln->t1 = ui_str_c1;
+						}
+						ln->y = ui_y(y);
+					}
+					ln++;
+					lo++;
+					y += l->dy;
+				}
 			}
 			ui_end();
+			cur ^= 1;
+			felso_old = felso;
+			cnt_old = cnt;
+			have_prev = 1;
 		}
 		ui_helmet(l->x0 - 30, l->y0 - fel + (kur - felso) * l->dy);
 		ui_frame();

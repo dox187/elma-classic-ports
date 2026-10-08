@@ -69,6 +69,10 @@ typedef struct {
 extern u8 ui_canvas[];
 extern u8 ui_row_used[];
 extern u8 ui_col_used[];
+extern u16 ui_cbase;            // the canvas being drawn into, in ui_canvas
+extern u16 ui_str_c0, ui_str_c1;  // the columns of the last string ($FFFF: none)
+void ui_canvas_swap(void);
+void ui_text_copy(u16 yold, u16 ynew, u16 c0, u16 c1);
 void ui_canvas_clear(void);
 void ui_canvas_clear_all(void);
 u16 ui_text_draw(u16 xpc, u16 y, const char* s);
