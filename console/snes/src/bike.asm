@@ -106,7 +106,6 @@ Z_NEG       dw          ; the turn's squash is negative (mirrored)
 Z_TEFF      dw          ; turned as drawn
 Z_LATE      dw          ; the wheel drawn over the bike, $FFFF: none
 Z_LEFT      dw          ; the time of the vertical blank left (bytes)
-Z_ENT       dw          ; entries of the queue left
 Z_PEND      dw          ; bit p: part p wants another picture
 Z_PTR       dsb 4       ; a long pointer
 Z_DST       dw
@@ -396,6 +395,15 @@ bk_desc0:
 	.dw bike_desc_single+16*BK_PER_PART, bike_desc_single+20*BK_PER_PART
 	.dw bike_desc_single+24*BK_PER_PART, bike_desc_single+28*BK_PER_PART
 	.dw bike_desc_single+32*BK_PER_PART, bike_desc_single+36*BK_PER_PART
+; The VRAM address of each single part's sprite.
+bk_vram:
+	.dw VRAM_OBJ+128*16, VRAM_OBJ+130*16, VRAM_OBJ+132*16, VRAM_OBJ+134*16
+	.dw VRAM_OBJ+136*16, VRAM_OBJ+138*16, VRAM_OBJ+140*16, VRAM_OBJ+142*16
+	.dw VRAM_OBJ+160*16, VRAM_OBJ+162*16
+; The time of the vertical blank for 0-5 loads of a single sprite:
+bk_lcap:
+	.dw 0, 128+2*ENTRY_COST, 2*(128+2*ENTRY_COST), 3*(128+2*ENTRY_COST)
+	.dw 4*(128+2*ENTRY_COST), 5*(128+2*ENTRY_COST)
 bk_ta0:
 	.dw 128|(BK_PAL_THIGH*2|PRIO)<<8, 130|(BK_PAL_LEG*2|PRIO)<<8
 	.dw 132|(BK_PAL_UPARM*2|PRIO)<<8, 134|(BK_PAL_FOREARM*2|PRIO)<<8
@@ -1615,17 +1623,26 @@ bk_load:
 +	lda bike_toggle
 	eor #1
 	sta bike_toggle
+	; Each load takes at least 128 + 2 * ENTRY_COST: no more of them than
+	; the queue has room for.
 	lda.w #(DMAQ_MAX-OBJ_ROOM)*8
 	sec
 	sbc core_dmaq_n
 	bcs +
 	rts
-+	lsr a
-	lsr a
-	lsr a
-	sta.b Z_ENT                 ; entries of the queue left
++	cmp.w #2*8*(LOAD_COST/(128+2*ENTRY_COST))
 	lda.w #LOAD_COST
-	sta.b Z_LEFT
+	bcs +
+	lda.w #(DMAQ_MAX-OBJ_ROOM)*8
+	sec
+	sbc core_dmaq_n
+	lsr a
+	lsr a
+	lsr a
+	and #$FFFE                  ; 2 * loads
+	tax
+	lda.l bk_lcap,x
++	sta.b Z_LEFT
 	sep #$20
 	lda.b #:bike_desc_single    ; (the body's descriptors too)
 	sta.b Z_PTR+2
@@ -1645,9 +1662,11 @@ _group0:
 	lda.b Z_LV
 	cmp #4
 	beq _single0
-	lda.w #8*128+2*ENTRY_COST
-	jsr bk_cost
+	lda.b Z_LEFT
+	sec
+	sbc.w #8*128+2*ENTRY_COST
 	bcc _r0
+	sta.b Z_LEFT
 	ldy #0
 -	tyx
 	jsr bk_take
@@ -1673,9 +1692,11 @@ _single0:
 	ldy #0                      ; 2 * part
 -	lsr.b Z_T5
 	bcc +
-	lda.w #128+2*ENTRY_COST
-	jsr bk_cost
+	lda.b Z_LEFT
+	sec
+	sbc.w #128+2*ENTRY_COST
 	bcc _r0
+	sta.b Z_LEFT
 	jsr bk_load1
 +	iny
 	iny
@@ -1689,17 +1710,21 @@ _group1:
 	lda.b Z_PEND
 	and #$0100
 	beq +
-	lda.w #128+2*ENTRY_COST
-	jsr bk_cost
+	lda.b Z_LEFT
+	sec
+	sbc.w #128+2*ENTRY_COST
 	bcc _r0
+	sta.b Z_LEFT
 	ldy.w #2*8
 	jsr bk_load1
 +	lda.b Z_PEND
 	and #$0200
 	beq +
-	lda.w #128+2*ENTRY_COST
-	jsr bk_cost
+	lda.b Z_LEFT
+	sec
+	sbc.w #128+2*ENTRY_COST
 	bcc _r0
+	sta.b Z_LEFT
 	ldy.w #2*9
 	jsr bk_load1
 +	lda.b Z_PEND
@@ -1710,10 +1735,13 @@ _group1:
 	xba
 	lsr a
 	sta.b Z_T2                  ; * 128
-	clc
-	adc.w #2*ENTRY_COST
-	jsr bk_cost
+	adc.w #2*ENTRY_COST         ; (C clear)
+	sta.b Z_T3
+	lda.b Z_LEFT
+	sec
+	sbc.b Z_T3
 	bcc _r0
+	sta.b Z_LEFT
 	lsr.b Z_T2                  ; the bytes of a row
 	ldx.w #2*FRAME
 	txy
@@ -1730,53 +1758,52 @@ _group1:
 	sta.b Z_DST
 	jmp bk_qrows
 
-; A load that takes A of the vertical blank and two entries of the queue:
-; C set if it fits (and they are taken), else C clear. Keeps Y.
-bk_cost:
-	ldx.b Z_ENT
-	cpx #2
-	bcc +
-	sta.b Z_T3
-	lda.b Z_LEFT
-	sec
-	sbc.b Z_T3
-	bcc +
-	sta.b Z_LEFT
-	dex
-	dex
-	stx.b Z_ENT
-+	rts
-
-; Part Y/2 (a single sprite) gets its wanted picture and loads it. Keeps Y.
+; Part Y/2 (a single sprite) gets its wanted picture and loads it: two
+; transfers of 64 bytes, the bottom ones 16 tiles further. Keeps Y.
 bk_load1:
 	tyx
-	jsr bk_take
-	lda.l bk_ta0,x
-	and #$00FF                  ; its first tile
-	asl a
-	asl a
-	asl a
-	asl a
-	adc.w #VRAM_OBJ
+	lda.l bk_vram,x
 	sta.b Z_DST
+	jsr bk_take
+	ldx core_dmaq_n
 	lda [Z_PTR]
-	sta.b Z_T0
+	sta core_dmaq+1,x           ; type +0, source +1, bank +3, size +4,
+	clc                         ; VRAM address +6
+	adc #64
+	sta core_dmaq+8+1,x
 	phy
 	ldy #2
 	lda [Z_PTR],y
 	ply
-	and #$00FF
-	sta.b Z_T1
+	sep #$20
+	sta core_dmaq+3,x
+	sta core_dmaq+8+3,x
+	stz core_dmaq,x             ; (DMAQ_VRAM)
+	stz core_dmaq+8,x
+	rep #$20
 	lda #64
-	sta.b Z_T2
+	sta core_dmaq+4,x
+	sta core_dmaq+8+4,x
+	lda.b Z_DST
+	sta core_dmaq+6,x
+	clc
+	adc #256
+	sta core_dmaq+8+6,x
+	txa
+	adc #16
+	sta core_dmaq_n
+	lda core_dmaq_bytes
+	adc #128
+	sta core_dmaq_bytes
+	rts
 
 ; Two transfers of the queue: Z_T2 bytes from Z_T1:Z_T0 to the VRAM at
-; Z_DST (words), the next Z_T2 bytes 16 tiles further. Keeps Y.
+; Z_DST (words), the next Z_T2 bytes 16 tiles further.
 bk_qrows:
 	ldx core_dmaq_n
 	lda.b Z_T0
-	sta core_dmaq+1,x           ; type +0, source +1, bank +3, size +4,
-	clc                         ; VRAM address +6
+	sta core_dmaq+1,x
+	clc
 	adc.b Z_T2
 	sta core_dmaq+8+1,x
 	lda.b Z_T2
@@ -1795,9 +1822,8 @@ bk_qrows:
 	lda.b Z_T1
 	sta core_dmaq+3,x
 	sta core_dmaq+8+3,x
-	lda.b #DMAQ_VRAM
-	sta core_dmaq,x
-	sta core_dmaq+8,x
+	stz core_dmaq,x             ; (DMAQ_VRAM)
+	stz core_dmaq+8,x
 	rep #$20
 	txa
 	clc
