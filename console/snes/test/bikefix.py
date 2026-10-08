@@ -208,13 +208,19 @@ class Bike:
         ix = min(max((rbx - g['BK_LIMB_X0']) >> 2, 0), 63)
         iy = min(max((rby - g['BK_LIMB_Y0']) >> 2, 0), g['BK_LIMB_NY'] - 1)
         idx = iy * 64 + ix
+        turning = s.turn < TURN_DONE
+        gg = t['turn_g'][s.turn >> 8]
         for name, h in (('thigh', tr), ('leg', tr), ('uparm', 1 - tr), ('forearm', tr)):
             bx, by = t['limb_%s_x' % name][idx], t['limb_%s_y' % name][idx]
             a8 = t['limb_%s_a' % name][idx]
             if tr:
                 bx, a8 = -bx, (128 - a8) & 255
-            P[name] = [(s16(mul8(2 * bx, c) - mul8(2 * by, sn)),
-                        s16(mul8(2 * bx, sn) + mul8(2 * by, c))), (th + (a8 << 8)) & 0xFFFF, h]
+            bx2 = 2 * bx
+            if turning:
+                # Squashed along the bike in its frame (the turn below).
+                bx2 = s16(bx2 + mul8(4 * bx2, gg))
+            P[name] = [(s16(mul8(bx2, c) - mul8(2 * by, sn)),
+                        s16(mul8(bx2, sn) + mul8(2 * by, c))), (th + (a8 << 8)) & 0xFFFF, h]
         if vi:
             # Volting: the arm swung, computed (ketkormetszete).
             v = sub(hand, sh)
@@ -260,7 +266,8 @@ class Bike:
             mb = mul8(c * sn, gg) >> 6
             md = mul8(sn * sn, gg) >> 6
             for name, p in P.items():
-                if name == 'frame':
+                if name == 'frame' or name in ('thigh', 'leg') or (
+                        name in ('uparm', 'forearm') and not vi):
                     continue
                 px, py = p[0]
                 p[0] = (s16(px + mul8(4 * px, ma) + mul8(4 * py, mb)),

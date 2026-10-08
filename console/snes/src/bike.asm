@@ -800,6 +800,8 @@ bk_geometry:
 	beq +
 	lda #1
 +	sta.b Z_TR
+	jsr bk_turn0
+	rep #$30
 	; Points from the physics:
 	lda.l phys_view+PV_BODY_X+1
 	sta.b Z_T4
@@ -901,6 +903,16 @@ bk_geometry:
 ; angles added to its angle; mirrored when turned.
 .MACRO LIMB
 	lda.l bike_limb_\1_x2,x
+.IF \3 == 1
+	sta.b Z_T3                  ; turning: x squashed along the bike,
+	asl a                       ; x += x (f - 1)
+	asl a
+	MA
+	lda.b Z_G
+	MB
+	clc
+	adc.b Z_T3
+.ENDIF
 	MA
 	lda.b Z_C
 	MB
@@ -991,10 +1003,20 @@ bk_limbs:
 	clc
 	adc.w #BK_LIMB_TR
 +	tax
-	LIMB thigh, 2*0
-	LIMB leg, 2*1
-	LIMB uparm, 2*2
-	LIMB forearm, 2*3
+	lda.b Z_LATE
+	bpl +
+	jmp _lnorm
++	LIMB thigh, 2*0, 1
+	LIMB leg, 2*1, 1
+	LIMB uparm, 2*2, 1
+	LIMB forearm, 2*3, 1
+	jmp _lmir
+_lnorm:
+	LIMB thigh, 2*0, 0
+	LIMB leg, 2*1, 0
+	LIMB uparm, 2*2, 0
+	LIMB forearm, 2*3, 0
+_lmir:
 	lda.b Z_TR
 	beq +
 	lda.w #64
@@ -1295,7 +1317,8 @@ _strn:
 ;---------------------------------------------------------------------------
 ; The turn: everything but the wheels squashed along the bike around its
 ; center (setaffinitas), the squashed pictures, the wheel drawn over it.
-bk_turn:
+; Its factors (before the limbs, squashed in the frame of the bike).
+bk_turn0:
 	rep #$30
 	lda #4
 	sta.b Z_LV
@@ -1343,8 +1366,15 @@ _rear:
 _front:
 	lda #0
 +	sta.b Z_LATE
-	; The squash matrix: (f - 1) * (c c, c s, s s) >> 6.
-	lda.b Z_C
+	rts
+
+; The squash of the other parts: (f - 1) * (c c, c s, s s) >> 6.
+bk_turn:
+	rep #$30
+	lda.b Z_LATE
+	bpl +
+	rts
++	lda.b Z_C
 	and #$00FF
 	cmp #$0080
 	bcc +
@@ -1384,12 +1414,15 @@ _front:
 	M6
 	sta.b Z_MD
 	rep #$20
-	; Squash the centers of the parts 0-9 (around the center of the bike):
-	; x += x a + y b, y += x b + y d.
-	SQ 2*0
-	SQ 2*1
-	SQ 2*2
+	; Squash the centers of the parts 4-9 and the arms while volting
+	; (around the center of the bike): x += x a + y b, y += x b + y d.
+	lda.l bike_anim+BA_VOLT
+	and #$FF00
+	bne +
+	jmp _sq4
++	SQ 2*2
 	SQ 2*3
+_sq4:
 	SQ 2*4
 	SQ 2*5
 	SQ 2*6
