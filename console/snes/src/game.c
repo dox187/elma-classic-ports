@@ -141,7 +141,8 @@ static void draw( u16 level ) {
 	map_set_camera( Cam_x, Cam_y );
 	hud_draw( Cam_x, Cam_y, baljobb, Hs, Best );
 	bike_draw( Cam_x, Cam_y );
-	objects_draw( Cam_x, Cam_y, (u16)Steps );
+	// Animated Objects: No shows their first frame, standing still:
+	objects_draw( Cam_x, Cam_y, save.anim_objects ? (u16)Steps : 0 );
 }
 
 static void sound( u8 gas ) {
