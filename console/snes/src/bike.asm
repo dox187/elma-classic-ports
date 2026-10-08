@@ -865,12 +865,9 @@ bk_geometry:
 	; Points fixed to the bike and to the rider: tables by the angle >> 6
 	; and turned.
 	rep #$30
-	lda.b Z_TH
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	and #$0FFC
+	lda.b Z_TI                  ; 4 * (the angle >> 6)
+	asl a
+	asl a
 	ldx.b Z_TR
 	beq +
 	ora #$1000
@@ -940,9 +937,7 @@ bk_geometry:
 	beq +
 	sta bike_ph
 	stz P_H+2*4
-	stz P_H+2*5
 	stz P_H+2*6
-	stz P_H+2*7
 	tax
 	beq ++
 	lda.w #64
@@ -1370,8 +1365,7 @@ bk_arm:
 	sta.b Z_VY
 	jsr bk_atan2a
 	xba
-	sta P_AL+\5
-	sta P_AL+\5+2
+	sta P_AL+\5                ; (the second piece takes its picture)
 	xba
 	asl a
 	asl a
@@ -1536,9 +1530,7 @@ _sq4:
 	MIR 2*2, 64
 	MIR 2*3, 64
 	MIR 2*4, 64
-	MIR 2*5, 64
 	MIR 2*6, 64
-	MIR 2*7, 64
 	MIR 2*8, 64
 	MIR 2*9, 64
 	MIR 2*FRAME, 128
@@ -1558,9 +1550,11 @@ bk_pictures:
 	cmp #4
 	beq +
 	jmp bk_tpictures
-+	lda #$FFFF                  ; not turning
++	lda bike_tkey               ; not turning
+	bmi +
+	lda #$FFFF
 	sta bike_tkey
-	sep #$20
++	sep #$20
 	PIC64 2*0, 0
 	PIC64 2*1, 0
 	PIC64 2*2, 0
