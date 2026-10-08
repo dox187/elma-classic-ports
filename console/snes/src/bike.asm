@@ -1412,10 +1412,20 @@ bk_pictures:
 	PIC64 2*1
 	PIC64 2*2
 	PIC64 2*3
-	PIC64 2*4
-	PIC64 2*5
+	PIC64 2*4                   ; the pieces of a suspension: the same angle
+	lda W_KF+2*4
+	sta W_KF+2*5
+	lda W_DESC+2*4
+	clc
+	adc.w #4*BK_PER_PART
+	sta W_DESC+2*5
 	PIC64 2*6
-	PIC64 2*7
+	lda W_KF+2*6
+	sta W_KF+2*7
+	lda W_DESC+2*6
+	clc
+	adc.w #4*BK_PER_PART
+	sta W_DESC+2*7
 	PIC64 2*8
 	PIC64 2*9
 	lda P_AL+2*FRAME            ; the body: 128 steps
