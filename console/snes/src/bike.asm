@@ -388,6 +388,63 @@ W_KF        dsw 11      ; its flips << 8
 	rts
 .ENDM
 
+; A (8 bits) = (A * Z_G >> 8) >> 6 (bits 6-13 of the product >> 8).
+.MACRO M6
+	MA
+	lda.b Z_G
+	MB
+	asl a
+	asl a
+	xba
+	sep #$20
+.ENDM
+
+; The squash of the center of part \1 (2 * part): x += x a + y b,
+; y += x b + y d.
+.MACRO SQ
+	lda P_CX+\1
+	asl a
+	asl a
+	MA
+	lda.b Z_MA
+	MB
+	sta.b Z_T0                  ; x a
+	sep #$20
+	lda.b Z_MB
+	MB
+	sta.b Z_T1                  ; x b
+	lda P_CY+\1
+	asl a
+	asl a
+	MA
+	lda.b Z_MB
+	MB
+	clc
+	adc.b Z_T0
+	clc
+	adc P_CX+\1
+	sta P_CX+\1
+	sep #$20
+	lda.b Z_MD
+	MB
+	clc
+	adc.b Z_T1
+	clc
+	adc P_CY+\1
+	sta P_CY+\1
+.ENDM
+
+; The angle of part \1 mirrored: Z_T0 - alpha, the mirroring \2 flipped.
+.MACRO MIR
+	lda.b Z_T0
+	sec
+	sbc P_AL+\1
+	sta P_AL+\1
+	lda P_H+\1
+	eor.w #\2
+	sta P_H+\1
+.ENDM
+
 .SECTION ".bike_text" SUPERFREE
 
 ; For each part: its bit, its first descriptor (of a single part), its
@@ -1316,99 +1373,52 @@ _front:
 	lda.w $2134
 	sta.b Z_T2                  ; s s
 	lda.b Z_T0
-	jsr _m6
+	M6
 	sta.b Z_MA
 	rep #$20
 	lda.b Z_T1
-	jsr _m6
+	M6
 	sta.b Z_MB
 	rep #$20
 	lda.b Z_T2
-	jsr _m6
+	M6
 	sta.b Z_MD
+	rep #$20
 	; Squash the centers of the parts 0-9 (around the center of the bike):
 	; x += x a + y b, y += x b + y d.
-	ldy #0
-_sq:
-	rep #$20
-	lda P_CX,y
-	asl a
-	asl a
-	MA
-	lda.b Z_MA
-	MB
-	sta.b Z_T0                  ; x a
-	sep #$20
-	lda.b Z_MB
-	MB
-	sta.b Z_T1                  ; x b
-	lda P_CY,y
-	asl a
-	asl a
-	MA
-	lda.b Z_MB
-	MB
-	clc
-	adc.b Z_T0
-	clc
-	adc P_CX,y
-	sta P_CX,y
-	sep #$20
-	lda.b Z_MD
-	MB
-	clc
-	adc.b Z_T1
-	clc
-	adc P_CY,y
-	sta P_CY,y
-	iny
-	iny
-	cpy.w #2*FRAME
-	bcc _sq
+	SQ 2*0
+	SQ 2*1
+	SQ 2*2
+	SQ 2*3
+	SQ 2*4
+	SQ 2*5
+	SQ 2*6
+	SQ 2*7
+	SQ 2*8
+	SQ 2*9
 	; Not squashed pictures, mirrored if f < 0: alpha = 2 th + 1/2 - alpha.
 	lda.b Z_LV
 	cmp #4
-	bne +++
+	bne +
 	lda.b Z_NEG
-	beq +++
-	ldy #0
--	lda.b Z_TH
+	bne ++
++	rts
+++	lda.b Z_TH
 	asl a
 	clc
 	adc #$8000
-	sec
-	sbc P_AL,y
-	sta P_AL,y
-	lda P_H,y
-	eor.w #64
-	sta P_H,y
-	iny
-	iny
-	cpy.w #2*FRAME
-	bcc -
-	lda.b Z_TH
-	asl a
-	clc
-	adc #$8000
-	sec
-	sbc P_AL+2*FRAME
-	sta P_AL+2*FRAME
-	lda P_H+2*FRAME
-	eor.w #128
-	sta P_H+2*FRAME
-+++	rts
-; A (8 bits) = (A * Z_G >> 8) >> 6.
-_m6:
-	MA
-	lda.b Z_G
-	MB
-	ASR
-	ASR
-	ASR
-	ASR
-	ASR
-	ASR
-	sep #$20
+	sta.b Z_T0
+	MIR 2*0, 64
+	MIR 2*1, 64
+	MIR 2*2, 64
+	MIR 2*3, 64
+	MIR 2*4, 64
+	MIR 2*5, 64
+	MIR 2*6, 64
+	MIR 2*7, 64
+	MIR 2*8, 64
+	MIR 2*9, 64
+	MIR 2*FRAME, 128
 	rts
 
 ;---------------------------------------------------------------------------
