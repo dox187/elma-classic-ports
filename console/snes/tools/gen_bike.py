@@ -777,8 +777,8 @@ def main():
     for ref in single:
         a.append('\t.dl %s\n\t.db 0' % ref)
     # The body: the number of sprites, their pointers (6), then for each
-    # flip (none, H, V, both) the corners of the 6 from the pivot + 128,
-    # then the pointer of its rows.
+    # flip (none, H, V, both) the corners of the 6 from the pivot (x, y
+    # words), then the pointer of its rows.
     a.append('bike_desc_frame:')
     for spr, rref in zip(frame, frame_rows):
         a.append('\t.db %d' % len(spr))
@@ -790,11 +790,11 @@ def main():
             for dx, dy, ref in spr:
                 fx = -dx - 16 if fl & 1 else dx
                 fy = -dy - 16 if fl & 2 else dy
-                offs += [fx + 128, fy + 128]
+                offs += [fx, fy]
             offs += [0] * (2 * (FRAME_SPRITES - len(spr)))
-            a.append('\t.db ' + ','.join(str(x) for x in offs))
+            a.append('\t.dw ' + ','.join('%d & $FFFF' % x for x in offs))
         a.append('\t.dl %s' % rref)
-        a.append('\t.dsb %d, 0' % (FRAME_DESC - 1 - 3 * FRAME_SPRITES - 8 * FRAME_SPRITES - 3))
+        a.append('\t.dsb %d, 0' % (FRAME_DESC - 1 - 3 * FRAME_SPRITES - 16 * FRAME_SPRITES - 3))
     # The rows of the parts 0-7 while turning (4 bytes each):
     a.append('bike_turn_rows:')
     for ref in turn_rows:
@@ -889,7 +889,7 @@ def main():
     d('BK_N_TURN_FRAME_HALF', N_TURN_FRAME // 2)
     d('BK_FRAME_SPRITES', FRAME_SPRITES)
     d('BK_FRAME_DESC', FRAME_DESC)
-    d('BK_FRAME_ROWS', 1 + 3 * FRAME_SPRITES + 8 * FRAME_SPRITES)
+    d('BK_FRAME_ROWS', 1 + 3 * FRAME_SPRITES + 16 * FRAME_SPRITES)
     # The pieces of the suspensions: their centers from the ends of the rod
     # along it (units).
     for r in ('s1', 's2'):

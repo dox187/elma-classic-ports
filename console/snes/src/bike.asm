@@ -111,15 +111,12 @@ Z_PEND      dw          ; bit p: part p wants another picture
 Z_PTR       dsb 4       ; a long pointer
 Z_DST       dw
 Z_NS        dw
-Z_BXB       dw          ; the center of the bike on the screen, biased
-Z_BYB       dw          ; (bk_oam)
-Z_BXS       dw          ; the same for the corner of a single sprite
-Z_BYS       dw
+Z_BXS       dw          ; the center of the bike on the screen, biased,
+Z_BYS       dw          ; for the corner of a single sprite (bk_oam)
 Z_TA        dw          ; tile | attributes << 8
 Z_FL        dw          ; flips of a part
 Z_PX        dw
 Z_PY        dw
-Z_FAST      dw          ; $FFFF: the bike far from the edges of the screen
 .ENDE
 
 .BASE $00
@@ -133,7 +130,6 @@ bike_cur    dsw 11      ; the descriptor of each part in the VRAM, 0: none
 bike_curf   dsw 11      ; flips of its sprites << 8
 bike_ta     dsw 11      ; its first tile | attributes << 8
 bike_toggle dw          ; which group of parts loads first
-bike_oam_end dw         ; end of the sprites written in the last frame
 bike_pend   dw          ; bit p: part p wants a picture not in the VRAM
 bike_key    dsw 11      ; the step of the angle and the mirroring of the
                         ; picture of each part in the last frame
@@ -213,9 +209,42 @@ W_KF        dsw 11      ; its flips << 8
 +
 .ENDM
 
-; The sprite of a single part (\1 = 2 * part) into core_oam at X, when
-; the bike may be near the edges of the screen.
-.MACRO PUT1
+; The OAM address of the sprite in place \1 of the bike (bk_oam).
+.DEFINE BK_OAM      core_oam+4*OAM_BIKE
+.DEFINE BK_HB       core_oam+512+OAM_BIKE/4
+
+; A coordinate on the screen (A, biased by 256) to the OAM at \1 (x: \2 =
+; 256, the bit of x >= 256 at \3 with mask \4; y: \2 = 224): hidden (y 224)
+; when off the screen (jumps to the next ++).
+.MACRO EDGEX
+	sec
+	sbc.w #256
+	cmp.w #256
+	bcc +
+	cmp.w #-15 & $FFFF
+	bcc ++
+	tax
+	sep #$20
+	lda.b #\3
+	tsb.w \2
+	rep #$20
+	txa
++	sta.w \1
+.ENDM
+
+.MACRO EDGEY
+	sec
+	sbc.w #256
+	cmp.w #224
+	bcc +
+	cmp.w #-15 & $FFFF
+	bcc ++
++	sta.w \1
+.ENDM
+
+; The sprite of single part \1 (2 * part) in place \2 when the bike may be
+; near the edges of the screen.
+.MACRO PUTE
 	lda.b Z_BXS
 	clc
 	adc P_CX+\1
@@ -223,12 +252,7 @@ W_KF        dsw 11      ; its flips << 8
 	lsr a
 	lsr a
 	lsr a
-	cmp.w #512
-	bcs +++
-	cmp.w #241
-	bcc +++
-	sta core_oam,x
-	sta.b Z_T0
+	EDGEX BK_OAM+4*\2, BK_HB+\2/4, 1<<(2*(\2&3))
 	lda.b Z_BYS
 	sec
 	sbc P_CY+\1
@@ -236,26 +260,17 @@ W_KF        dsw 11      ; its flips << 8
 	lsr a
 	lsr a
 	lsr a
-	cmp.w #480
-	bcs +++
-	cmp.w #241
-	bcc +++
-	sta core_oam+1,x
+	EDGEY BK_OAM+4*\2+1
 	lda bike_ta+\1
-	sta core_oam+2,x
-	lda.b Z_T0
-	cmp.w #256
-	bcs +
-	jsr bk_x8
-+	inx
-	inx
-	inx
-	inx
+	sta.w BK_OAM+4*\2+2
+	bra +++
+++	lda #$E000                  ; x 0, y 224
+	sta.w BK_OAM+4*\2
 +++
 .ENDM
 
-; The same when the whole bike is on the screen (bk_oam).
-.MACRO PUT1F
+; The same when the whole bike is on the screen.
+.MACRO PUTF
 	lda.b Z_BXS
 	clc
 	adc P_CX+\1
@@ -263,7 +278,7 @@ W_KF        dsw 11      ; its flips << 8
 	lsr a
 	lsr a
 	lsr a
-	sta core_oam,x
+	sta.w BK_OAM+4*\2
 	lda.b Z_BYS
 	sec
 	sbc P_CY+\1
@@ -271,13 +286,59 @@ W_KF        dsw 11      ; its flips << 8
 	lsr a
 	lsr a
 	lsr a
-	sta core_oam+1,x
+	sta.w BK_OAM+4*\2+1
 	lda bike_ta+\1
-	sta core_oam+2,x
-	inx
-	inx
-	inx
-	inx
+	sta.w BK_OAM+4*\2+2
+.ENDM
+
+; Sprite \1 (0-5) of the body in its place (7 + \1): its corner from the
+; pivot at [Z_PTR] + 4 * \1. Hides the rest when the body has no more.
+.MACRO BODYE
+	lda.b Z_NS
+	cmp.w #\1+1
+	bcs +
+	ldx.w #4*(7+\1)
+	jmp bk_hbody
++	ldy.w #4*\1
+	lda [Z_PTR],y
+	clc
+	adc.b Z_PX
+	EDGEX BK_OAM+4*(7+\1), BK_HB+(7+\1)/4, 1<<(2*((7+\1)&3))
+	ldy.w #4*\1+2
+	lda [Z_PTR],y
+	clc
+	adc.b Z_PY
+	EDGEY BK_OAM+4*(7+\1)+1
+	lda.b Z_TA
+	clc
+	adc.w #2*\1
+	sta.w BK_OAM+4*(7+\1)+2
+	bra +++
+++	lda #$E000
+	sta.w BK_OAM+4*(7+\1)
++++
+.ENDM
+
+.MACRO BODYF
+	lda.b Z_NS
+	cmp.w #\1+1
+	bcs +
+	ldx.w #4*(7+\1)
+	jmp bk_hbody
++	ldy.w #4*\1
+	lda [Z_PTR],y
+	clc
+	adc.b Z_PX
+	sta.w BK_OAM+4*(7+\1)
+	ldy.w #4*\1+2
+	lda [Z_PTR],y
+	clc
+	adc.b Z_PY
+	sta.w BK_OAM+4*(7+\1)+1
+	lda.b Z_TA
+	clc
+	adc.w #2*\1
+	sta.w BK_OAM+4*(7+\1)+2
 .ENDM
 
 .SECTION ".bike_text" SUPERFREE
@@ -331,7 +392,6 @@ bike_reset:
 	sta bike_toggle
 	sta bike_pend
 	ldx.w #OAM_BIKE*4           ; the sprites hidden
-	stx bike_oam_end
 	lda #$E000                  ; x 0, y 224
 -	sta core_oam,x
 	inx
@@ -1790,34 +1850,46 @@ bk_nframe:
 	rts
 
 ;---------------------------------------------------------------------------
-; The sprites of the bike: OAM 32-63, the first on top (the reverse of the
-; order the PC draws). Pivots are biased by 256 pixels: a sprite is on the
-; screen when its x is 241..511 and y 241..479 (the low byte is what the
-; OAM gets, x < 256 sets the bit of x >= 256).
+; The sprites of the bike, each in its own place of the OAM (from 32), the
+; first on top (the reverse of the order the PC draws): 0 the wheel drawn
+; over the bike while turning, 1-6 the parts 3, 2, 9, 1, 0, 8, 7-12 the
+; body, 13-16 the parts 7, 6, 5, 4, 17-18 the wheels. A sprite that is off
+; the screen or not used is hidden (y 224). Positions are biased by 256
+; pixels: a sprite is on the screen when x is 241..511 and y 241..479 (the
+; low byte is what the OAM gets, x < 256 sets the bit of x >= 256).
 bk_oam:
 	rep #$30
 	lda.b Z_BSX
 	clc
-	adc.w #8+4096
-	sta.b Z_BXB
-	sec
-	sbc #128
+	adc.w #8+4096-128
 	sta.b Z_BXS
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc #8
+	sta.b Z_PX                  ; the pivot of the body
 	lda.b Z_BSY
 	clc
-	adc.w #8+4096
-	sta.b Z_BYB
-	sec
-	sbc #128
+	adc.w #8+4096-128
 	sta.b Z_BYS
-	stz core_oam+512+OAM_BIKE/4
-	stz core_oam+512+OAM_BIKE/4+2
-	stz core_oam+512+OAM_BIKE/4+4
-	stz core_oam+512+OAM_BIKE/4+6
-	ldx.w #OAM_BIKE*4
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc #8
+	sta.b Z_PY
+	stz.w BK_HB
+	stz.w BK_HB+2
+	stz.w BK_HB+4
+	sep #$20
+	lda.b #:bike_desc_frame
+	sta.b Z_PTR+2
+	rep #$20
 	; The parts are within 48 pixels of the center: with the center at
-	; 56..199, 56..167 they are all on the screen (Z_FAST).
-	stz.b Z_FAST
+	; 56..199, 56..167 they are all on the screen.
 	lda.b Z_BSX
 	sec
 	sbc.w #56*16
@@ -1827,69 +1899,63 @@ bk_oam:
 	sec
 	sbc.w #56*16
 	cmp.w #112*16
-	bcs +
-	dec.b Z_FAST
-+	lda.b Z_LATE
-	bmi +
+	bcc ++
++	jmp _edge
+++	ldx.w #4*0                  ; the wheel over the bike
+	lda.b Z_LATE
 	jsr bk_wheel
-+	bit.b Z_FAST
-	bmi +
-	jmp _edge
-+	PUT1F 2*3
-	PUT1F 2*2
-	PUT1F 2*9
-	PUT1F 2*1
-	PUT1F 2*0
-	PUT1F 2*8
-	jsr bk_frame
-	PUT1F 2*7
-	PUT1F 2*6
-	PUT1F 2*5
-	PUT1F 2*4
+	PUTF 2*3, 1
+	PUTF 2*2, 2
+	PUTF 2*9, 3
+	PUTF 2*1, 4
+	PUTF 2*0, 5
+	PUTF 2*8, 6
+	jsr bk_bodyf
+	PUTF 2*7, 13
+	PUTF 2*6, 14
+	PUTF 2*5, 15
+	PUTF 2*4, 16
 	jmp _wheels
 _edge:
-	PUT1 2*3
-	PUT1 2*2
-	PUT1 2*9
-	PUT1 2*1
-	PUT1 2*0
-	PUT1 2*8
-	jsr bk_frame
-	PUT1 2*7
-	PUT1 2*6
-	PUT1 2*5
-	PUT1 2*4
+	ldx.w #4*0
+	lda.b Z_LATE
+	jsr bk_wheel
+	PUTE 2*3, 1
+	PUTE 2*2, 2
+	PUTE 2*9, 3
+	PUTE 2*1, 4
+	PUTE 2*0, 5
+	PUTE 2*8, 6
+	jsr bk_bodye
+	PUTE 2*7, 13
+	PUTE 2*6, 14
+	PUTE 2*5, 15
+	PUTE 2*4, 16
 _wheels:
+	; Not turning: the wheels 1 and 0, else the one not drawn first.
+	ldx.w #4*17
 	lda.b Z_LATE
 	bpl +
 	lda #1
 	jsr bk_wheel
+	ldx.w #4*18
 	lda #0
-	jsr bk_wheel
-	bra ++
+	jmp bk_wheel
 +	eor #1
 	jsr bk_wheel
-++	; Hide the sprite after the last and the ones used in the last frame.
-	stx.b Z_T5
-	lda #$E000                  ; y 224
--	cpx.w #OAM_OBJ*4
-	bcs +
-	sta core_oam,x
-	inx
-	inx
-	inx
-	inx
-	cpx bike_oam_end
-	bcc -
-+	lda.b Z_T5
-	sta bike_oam_end
-	rts
+	ldx.w #4*18
+	lda #$FFFF
 
-; A wheel (A = 0, 1). X = offset in core_oam.
+; Wheel A (0, 1; $FFFF: none, hidden) in place X/4.
 bk_wheel:
-	phx
+	cmp #2
+	bcc +
+	lda #$E000
+	sta.w BK_OAM,x
+	rts
++	stx.b Z_T5
 	asl a
-	tay
+	tay                         ; 2 * wheel
 	asl a
 	tax
 	lda.b Z_BXS
@@ -1913,124 +1979,100 @@ bk_wheel:
 	clc
 	adc #512
 	xba
-	and #$00FF
-	and #$00FC
-	lsr a                       ; 64 steps * 2
+	and #$00FC                  ; 64 steps * 4
+	lsr a
 	tax
 	lda.l bike_t_wheel,x
 	sta.b Z_TA
-	plx
-	jmp bk_put
+	ldx.b Z_T5
+	lda.b Z_T0
+	sec
+	sbc.w #256
+	cmp.w #256
+	bcc +
+	cmp.w #-15 & $FFFF
+	bcc _whide
+	jsr bk_x8
++	sta.w BK_OAM,x
+	lda.b Z_T1
+	sec
+	sbc.w #256
+	cmp.w #224
+	bcc +
+	cmp.w #-15 & $FFFF
+	bcc _whide
++	sta.w BK_OAM+1,x
+	lda.b Z_TA
+	sta.w BK_OAM+2,x
+	rts
+_whide:
+	lda #$E000
+	sta.w BK_OAM,x
+	rts
 
-; The sprites of the body of the bike. X = offset in core_oam.
-bk_frame:
+; The sprites of the body (places 7-12).
+bk_bodyf:
+	jsr bk_body
+	BODYF 0
+	BODYF 1
+	BODYF 2
+	BODYF 3
+	BODYF 4
+	BODYF 5
+	rts
+
+bk_bodye:
+	jsr bk_body
+	BODYE 0
+	BODYE 1
+	BODYE 2
+	BODYE 3
+	BODYE 4
+	BODYE 5
+	rts
+
+; Z_PTR = the corners of the sprites of the body for its flips, Z_NS =
+; their number (0: none), Z_TA = the first tile with the attributes.
+bk_body:
+	stz.b Z_NS
 	lda bike_cur+2*FRAME
 	bne +
 	rts
 +	sta.b Z_PTR
-	lda bike_ta+2*FRAME
-	sta.b Z_TA
-	lda.b Z_BXB
-	clc
-	adc P_CX+2*FRAME
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sec
-	sbc #128
-	sta.b Z_PX
-	lda.b Z_BYB
-	sec
-	sbc P_CY+2*FRAME
-	lsr a
-	lsr a
-	lsr a
-	lsr a
-	sec
-	sbc #128
-	sta.b Z_PY
 	lda [Z_PTR]
 	and #$00FF
 	sta.b Z_NS
-	; The corners for the flips: 1 + 3 * 6 + 12 * (flips >> 6).
 	lda bike_curf+2*FRAME
 	xba
-	and #$00C0
+	and #$00C0                  ; the flips: 64 f
 	lsr a
 	lsr a
 	lsr a
 	sta.b Z_T2                  ; 8 f
-	lsr a
-	clc
-	adc.b Z_T2                  ; 12 f
-	clc
+	asl a
+	adc.b Z_T2                  ; 24 f
 	adc.w #1+3*BK_FRAME_SPRITES
-	tay
--	lda [Z_PTR],y               ; dx + 128, dy + 128
-	sta.b Z_T4
-	and #$00FF
-	clc
-	adc.b Z_PX
-	sta.b Z_T0
-	lda.b Z_T4
-	xba
-	and #$00FF
-	clc
-	adc.b Z_PY
-	sta.b Z_T1
-	jsr bk_put
-	inc.b Z_TA
-	inc.b Z_TA
-	iny
-	iny
-	dec.b Z_NS
-	bne -
+	adc.b Z_PTR
+	sta.b Z_PTR
+	lda bike_ta+2*FRAME
+	sta.b Z_TA
 	rts
 
-; A 16x16 sprite at (Z_T0, Z_T1) (biased), Z_TA = tile | attributes << 8,
-; into core_oam at X if on the screen; X goes to the next sprite. Keeps Y.
-bk_put:
-	bit.b Z_FAST
-	bpl +
-	lda.b Z_T0
-	sta core_oam,x
-	lda.b Z_T1
-	sta core_oam+1,x
-	lda.b Z_TA
-	sta core_oam+2,x
+; Hides the places of the body from X/4 on.
+bk_hbody:
+	lda #$E000
+-	sta.w BK_OAM,x
 	inx
 	inx
 	inx
 	inx
-	rts
-+	lda.b Z_T0
-	cmp #241
-	bcc _off
-	cmp #512
-	bcs _off
-	sta core_oam,x
-	lda.b Z_T1
-	cmp #241
-	bcc _off
-	cmp #480
-	bcs _off
-	sta core_oam+1,x
-	lda.b Z_TA
-	sta core_oam+2,x
-	lda.b Z_T0
-	cmp #256
-	bcs +
-	jsr bk_x8
-+	inx
-	inx
-	inx
-	inx
-_off:
+	cpx.w #4*13
+	bcc -
 	rts
 
-; Sets the bit of x >= 256 of the sprite at X in core_oam.
+; Sets the bit of x >= 256 of the sprite in place X/4. Keeps A, X.
 bk_x8:
+	pha
 	phx
 	txa
 	lsr a
@@ -2039,7 +2081,7 @@ bk_x8:
 	tax
 	sep #$20
 	lda.l bk_hb,x
-	sta.b Z_T1
+	sta.b Z_T2
 	rep #$20
 	lda 1,s
 	lsr a
@@ -2048,11 +2090,12 @@ bk_x8:
 	lsr a
 	tax
 	sep #$20
-	lda.b Z_T1
-	ora core_oam+512,x
-	sta core_oam+512,x
+	lda.b Z_T2
+	ora.w BK_HB,x
+	sta.w BK_HB,x
 	rep #$20
 	plx
+	pla
 	rts
 
 .ENDS

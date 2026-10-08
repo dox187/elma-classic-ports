@@ -330,10 +330,14 @@ class Bike:
         for i in accepted:
             self.cur[i] = want[i]
             self.cur_flip[i] = flip[i]
-        # OAM:
+        # OAM: each sprite in its own place (hidden: off the screen or not
+        # used).
         oam = []
 
-        def put(i, ctr, desc_sprites, tiles, fl, pal, imgs):
+        def hidden(i):
+            oam.append((0, 224, None, None, i, ('hidden', 0)))
+
+        def put(i, ctr, desc_sprites, tiles, fl, pal, imgs, places=1):
             px = s16(bsx + ctr[0] + 8) >> 4
             py = s16(bsy - ctr[1] + 8) >> 4
             for (dx, dy), tile, im in zip(desc_sprites, tiles, imgs):
@@ -344,6 +348,10 @@ class Bike:
                 x, y = px + dx, py + dy
                 if -15 <= x <= 255 and -15 <= y <= 223:
                     oam.append((x, y, tile, fl | pal << 1 | PRIO, i, im))
+                else:
+                    hidden(i)
+            for n in range(len(desc_sprites), places):
+                hidden(i)
 
         def wheel(n):
             ctr = (w0, w1)[n]
@@ -360,6 +368,8 @@ class Bike:
                     pal = g['BK_PAL_%s' % name.upper()]
                     put(i, P[name][0], [(-8, -8)], [PAIR_TILE[pair] + 2 * slot], 0, pal,
                         [('empty', 0)])
+                else:
+                    put(i, P[name][0], [], [], 0, 0, [], 6)
                 return
             pal = g['BK_PAL_%s' % name.upper()]
             pair, slot = SLOT[i]
@@ -372,9 +382,11 @@ class Bike:
                 spr = [(-8, -8)]
                 tiles = [PAIR_TILE[pair] + 2 * slot]
                 imgs = [('single', self.cur[i])]
-            put(i, P[name][0], spr, tiles, self.cur_flip[i], pal, imgs)
+            put(i, P[name][0], spr, tiles, self.cur_flip[i], pal, imgs, 6 if i == FRAME else 1)
         if late is not None:
             wheel(late)
+        else:
+            hidden(11)
         for i in (3, 2, 9, 1, 0, 8, FRAME, 7, 6, 5, 4):
             part(i)
         if late is None:
@@ -382,6 +394,7 @@ class Bike:
             wheel(0)
         else:
             wheel(1 - late)
+            hidden(11)
         return oam, accepted, dma
 
 
@@ -391,7 +404,7 @@ def preview(data, oam, size=(256, 224)):
     img = np.zeros((size[1], size[0], 4), np.uint8)
     pals = [np.array(p) for p in data.pals]
     for x, y, tile, attr, part, (kind, idx) in reversed(oam):
-        if kind == 'empty':
+        if kind in ('empty', 'hidden'):
             continue
         q = data.images[kind][idx]
         if attr & FLIP_H:
