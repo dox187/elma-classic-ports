@@ -1,4 +1,4 @@
-# Elasto Mania SNES remake
+# Elasto Mania SNES demake
 
 Current version: **0.1 alpha** (kept in [`VERSION`](VERSION)).
 

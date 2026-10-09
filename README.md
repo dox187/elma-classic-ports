@@ -39,7 +39,7 @@ emulators only.
 
 [Requirements, build and controls →](console/nes/README.md)
 
-### SNES remake
+### SNES demake
 
 A separate SNES program made to look and play like the PC original: the
 internal levels with their ground, grass, sky and pictures, the bike and the
@@ -50,8 +50,8 @@ the game, the shareware, the registered or the Steam release. Tested in
 emulators only.
 
 <p>
-  <img src="console/snes/docs/title.gif" width="256" alt="SNES remake title screen and main menu">
-  <img src="console/snes/docs/gameplay.gif" width="256" alt="SNES remake gameplay on Warm Up">
+  <img src="console/snes/docs/title.gif" width="256" alt="SNES demake title screen and main menu">
+  <img src="console/snes/docs/gameplay.gif" width="256" alt="SNES demake gameplay on Warm Up">
 </p>
 
 [Requirements, build and controls →](console/snes/README.md)
@@ -104,7 +104,7 @@ The level editor is omitted.
 | [`desktop/F_WIN`](desktop/F_WIN) | Original Windows DirectX layer, not built |
 | [`handheld`](handheld/README.md) | Toolchains, launchers and package build script |
 | [`console/nes`](console/nes/README.md) | NES demake, a separate program |
-| [`console/snes`](console/snes/README.md) | SNES remake, a separate program |
+| [`console/snes`](console/snes/README.md) | SNES demake, a separate program |
 | [`third_party/hqx`](third_party/hqx/README.md) | Pixel art scalers and their license |
 
 [`CMakeLists.txt`](CMakeLists.txt) in the root builds the code in `src` with a
