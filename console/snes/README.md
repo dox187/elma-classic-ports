@@ -93,7 +93,8 @@ with the ROMs and everything generated from the game.
 
 A ROM is written for each TV system, `build/elma_ntsc.sfc` and
 `build/elma_pal.sfc`, or `build/elma_sw_ntsc.sfc` and `build/elma_sw_pal.sfc`
-from the shareware game (its first 10 levels). The program is the same, only
+from the shareware game (its 18 levels and Please Register, the level after
+them). The program is the same, only
 the region in the header differs; on a PAL console the game keeps its speed.
 Options:
 
@@ -130,7 +131,7 @@ window); the physics checks also need a C and a C++ compiler for the host.
 
 | Command | What it checks |
 |---------|----------------|
-| `make phys-check` | the physics in C against the original's, and the assembly against the C to the bit, with its time a step |
+| `make phys-check` | the physics in C against the original's, and the assembly against the C to the bit, with its time a step (its cases need the levels of the registered game) |
 | `make tests` | builds the test ROMs of the parts below |
 | `test/play.py` | plays a level with the keys of the original from its first frame, or with the keys of each step of the physics (`--steps`) |
 | `test/finish_test.py` | finishes Warm Up with the keys of the steps found by `test/finish_search.py` (on the host, with the physics in C; `make build/host/physplay.so`), to the hundredth of the time it predicts |
