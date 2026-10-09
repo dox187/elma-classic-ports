@@ -19,8 +19,9 @@ https://elastomania.com
 
 # Elma Ports
 
-Ports of the original game for desktops and Linux handhelds, plus a separate
-NES demake. Each platform's README covers requirements, building and use.
+Ports of the original game for desktops and Linux handhelds, plus separate
+NES and SNES versions. Each platform's README covers requirements, building
+and use.
 
 ## Console ports
 
@@ -37,6 +38,23 @@ emulators only.
 </p>
 
 [Requirements, build and controls →](console/nes/README.md)
+
+### SNES remake
+
+A separate SNES program made to look and play like the PC original: the
+internal levels with their ground, grass, sky and pictures, the bike and the
+objects drawn from the pictures of the game's LGR file, and the menus, best
+times and sounds of the original. The physics is rewritten in fixed point
+and 65816 assembly. Every ROM is built from the files of your own copy of
+the game, the shareware, the registered or the Steam release. Tested in
+emulators only.
+
+<p>
+  <img src="console/snes/docs/title.gif" width="256" alt="SNES remake title screen and main menu">
+  <img src="console/snes/docs/gameplay.gif" width="256" alt="SNES remake gameplay on Warm Up">
+</p>
+
+[Requirements, build and controls →](console/snes/README.md)
 
 ## Handheld Linux devices
 
@@ -86,10 +104,12 @@ The level editor is omitted.
 | [`desktop/F_WIN`](desktop/F_WIN) | Original Windows DirectX layer, not built |
 | [`handheld`](handheld/README.md) | Toolchains, launchers and package build script |
 | [`console/nes`](console/nes/README.md) | NES demake, a separate program |
+| [`console/snes`](console/snes/README.md) | SNES remake, a separate program |
 | [`third_party/hqx`](third_party/hqx/README.md) | Pixel art scalers and their license |
 
 [`CMakeLists.txt`](CMakeLists.txt) in the root builds the code in `src` with a
-platform layer from `desktop`. The NES demake has its own Makefile.
+platform layer from `desktop`. The NES and SNES versions have their own
+Makefiles.
 
 ## Credits
 

@@ -24,6 +24,16 @@ assembly.
 - Not included: the level editor, external levels, replays, the demo and
   two players.
 
+<p>
+  <img src="docs/title.gif" width="256" alt="The intro, choosing the player and the main menu">
+  <img src="docs/levels.gif" width="256" alt="The list of the levels">
+  <img src="docs/gameplay.gif" width="256" alt="Warm Up: the bike climbs to the apple and turns around">
+</p>
+
+The intro and the main menu, the list of the levels and a part of a ride on
+Warm Up (the apple, and a turn), recorded from the NTSC ROM in an emulator,
+built from the `elma.res` of the Steam release and the LGR file of 1.11a.
+
 The ROM is a LoROM cartridge with FastROM, 4 MB of ROM and 8 KB of
 battery-backed RAM. It has been tested in emulators only (Mesen 2 and
 snes9x).
