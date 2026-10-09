@@ -24,8 +24,6 @@ import bikefix
 import bike_poses
 import mesen
 
-ROM = 'build/test_bike.sfc'
-GEN = 'build/gen'
 
 LUA = r'''
 local A = { __SYMS__ }
@@ -76,7 +74,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--frames', type=int, default=0)
     ap.add_argument('--out', default=os.path.join('build', 'bike_test'))
+    ap.add_argument('--build', default='build')
     a = ap.parse_args()
+    ROM = os.path.join(a.build, 'test_bike.sfc')
+    GEN = os.path.join(a.build, 'gen')
     data = bikefix.Data(GEN)
     syms = mesen.read_symbols(ROM)
     org = bike_poses.origin(os.environ.get('ELMA_RES', '../../elma.res'))
