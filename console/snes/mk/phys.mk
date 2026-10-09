@@ -60,6 +60,13 @@ $(PHYS_TEST)/levdump: test/levdump.py tools/elmadata.py $(GEN)/data_names
 $(PHYS_TEST)/physdump: test/physdump.c $(PHYS_TEST)/phys_spec.o test/phys_spec.h
 	$(HOSTCC) -O2 -Wall -Itest -I$(GEN) -o $@ test/physdump.c $(PHYS_TEST)/phys_spec.o
 
+# The C description as a library for the scripts of the tests
+# (test/finish_search.py):
+$(PHYS_TEST)/physplay.so: test/physplay.c test/phys_spec.c test/phys_spec.h $(GEN)/phys_const.h \
+		$(GEN)/phys_tables.h
+	@mkdir -p $(PHYS_TEST)
+	$(HOSTCC) -O2 -Wall -shared -fPIC -Itest -I$(GEN) -o $@ test/physplay.c test/phys_spec.c
+
 phys-check: $(PHYS_TEST)/physcheck $(PHYS_TEST)/levdump $(PHYS_TEST)/physdump $(BUILD)/test_phys.sfc
 	$(PHYS_TEST)/physcheck $(GEN) $(PHYS_TEST)/levdump -f $(PHYS_CASES) > $(PHYS_TEST)/physcheck.txt
 	$(PYTHON) test/physsum.py $(PHYS_TEST)/physcheck.txt

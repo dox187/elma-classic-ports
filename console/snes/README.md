@@ -122,7 +122,8 @@ window); the physics checks also need a C and a C++ compiler for the host.
 |---------|----------------|
 | `make phys-check` | the physics in C against the original's, and the assembly against the C to the bit, with its time a step |
 | `make tests` | builds the test ROMs of the parts below |
-| `test/play.py` | plays a level with the keys of the original from its first frame |
+| `test/play.py` | plays a level with the keys of the original from its first frame, or with the keys of each step of the physics (`--steps`) |
+| `test/finish_test.py` | finishes Warm Up with the keys of the steps found by `test/finish_search.py` (on the host, with the physics in C; `make build/host/physplay.so`), to the hundredth of the time it predicts |
 | `test/map_check.py` | the background of the levels in the video memory against the converted data |
 | `test/bike_test.py` | the sprites of the bike against a model of the original's drawing |
 | `test/hud_check.py` | the time and the view box against a model of the original's |
