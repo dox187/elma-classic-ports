@@ -30,6 +30,9 @@ phys_dpb            dsb 256     ; the direct page of the collisions
 g1_ram              dsb 32      ; the springs (torques ... gravity)
 g2_ram              dsb 32      ; the body, the rider, the view
 g3_ram              dsb 32      ; the collisions and the objects
+g1x_ram             dsb 32      ; more of each part
+g2x_ram             dsb 32
+g3x_ram             dsb 32
 .ENDS
 
 .RAMSECTION ".phys_vars" BANK 0 SLOT 1
@@ -986,9 +989,10 @@ phys_level:
 	lda.w LH_ROWS,x
 	sta.w lev_rows
 	lda #$FFFF                  ; no cell of the circles yet
-	sta.w g3_ram+4
-	sta.w g3_ram+12
-	sta.w g3_ram+28
+	sta.w g3_ram+2
+	sta.w g3_ram+10
+	sta.w g3_ram+26
+	sta.w g3x_ram+8             ; no candidates of the objects kept (OC_N)
 	lda.w LH_NEED,x
 	sta.w lev_need
 	lda.w LH_NOBJS,x
@@ -2699,7 +2703,7 @@ _gv_up:
 	rts
 
 ; frsqrt: for d2 in T1 (> 0): A = Y, T2 = k, T1 = d2 << 2k with 1/sqrt( d2 )
-; = Y * 2^(k-30).
+; = Y * 2^(k-30) (X is changed).
 phys_frsqrt:
 	.ACCU 16
 	.INDEX 16
@@ -2721,29 +2725,25 @@ phys_frsqrt:
 	sec
 	sbc #64
 	asl a
-	tax
+	tax                         ; 2 m
 	lda.l phys_rsqd,x
-	sta.b T2+2
-	lda.l phys_rsq,x
-	pha
+	xba
+	sta.w MPYA                  ; (the 16-bit stores: see G3_MA)
+	sta.w MPYA
 	lda.b T1+2
 	lsr a
 	and #$007F
-	sep #$20
-	pha
-	MB_DP T2+2
-	pla
-	sta.w MPYB
-	rep #$21
-	lda.w MPYL
-	adc #64
-	.REPT 7
-	cmp #$8000
-	ror a
-	.ENDR
+	sta.w MPYB                  ; f
+	lda.w MPYL                  ; (|rsqd f| < 2^15)
 	clc
-	adc 1,s
-	plx
+	adc #64
+	asl a                       ; (rsqd f+64) >> 7:
+	xba
+	and #$00FF
+	bcc +
+	ora #$FF00
++	clc
+	adc.l phys_rsq,x
 	rts
 
 ; Signed 16-bit A = -A:
@@ -3430,8 +3430,6 @@ phys_half:
 .DEFINE G3_RE3 $A8              ; and the last
 .DEFINE G3_SLOT $AA             ; the circle in g3_ram
 .DEFINE G3_H $AC                ; 64 half (4)
-.DEFINE G3_ON $AA               ; objects: the number of candidates
-.DEFINE G3_OL $AC               ; and their offsets / 4 (up to 52)
 
 ; \2 = the multiplicand times the signed digits at \1 (3 bytes) >> 8, plus
 ; $808000, the top digit skipped when zero (A 8-bit in and out; Y is
@@ -3579,6 +3577,67 @@ _g3s24k\@:
 .DEFINE G3_S $C4                ; nx vx + ny vy (4)
 .DEFINE G3_REM $C8              ; remove (2)
 .DEFINE G3_PX $D0               ; holds: S >> 16 roughly (2)
+.DEFINE G3_W $D2                ; scratch (6)
+.DEFINE G3_VX $D8               ; contacts: the last end point (d), its
+.DEFINE G3_VY $DA               ; d2 within the radius (G3_VF 1), not (2)
+.DEFINE G3_VF $DC               ; or none (0)
+; contacts: two points within G3_MS on both axes are near (2 G3_MS^2 <
+; MERGE_SQ).
+.DEFINE G3_MS 4633
+.IF 2*G3_MS*G3_MS >= MERGE_SQ
+.FAIL
+.ENDIF
+
+; The multiplicand of the multiplier = A (A 16-bit, A is kept): the 16-bit
+; stores to $211B write $211C too (a useless product, and its byte in the
+; shared latch of the Mode 7 registers that the second store uses).
+.MACRO G3_MA
+	xba
+	sta.w MPYA
+	sta.w MPYA
+	xba
+.ENDM
+
+; \2 = \1^2 + 2^23 (\1 a word of the direct page within [-32768, 32639],
+; \2 a double word, \2+4 is changed; A 16-bit, X and Y are used): with the
+; signed digits d0, d1 of v = \1, v^2 = 256 (v d1+F)+(v d0 & 255), F =
+; floor( v d0/256 ) and v d1 >= 0; F+32768 gives the 2^23.
+.MACRO G3_SQ1
+	lda.b \1
+	G3_MA
+	clc
+	adc #$0080
+	eor #$0080
+	sta.w MPYB                  ; v d0
+	xba
+	ldy.w MPYM                  ; F
+	ldx.w MPYL
+	sta.w MPYB                  ; v d1
+	stx.b \2                    ; byte 0: the low byte of v d0
+	tya
+	eor #$8000
+	clc
+	adc.w MPYL
+	sta.b \2+1
+	lda.w MPYM
+	xba
+	and #$00FF
+	adc #0
+	sta.b \2+3
+.ENDM
+
+; \3 = \1^2 + \2^2 + 2^24 (the same, \3+4 is changed; G3_W is used):
+.MACRO G3_SQ2
+	G3_SQ1 \1, \3
+	G3_SQ1 \2, G3_W
+	lda.b \3
+	clc
+	adc.b G3_W
+	sta.b \3
+	lda.b \3+2
+	adc.b G3_W+2
+	sta.b \3+2
+.ENDM
 
 ; holds: nv = rsh( S, 7 ) > -ELSZ_V for S >= G3_KEL; |nv| > BUMP_MIN_V
 ; for S >= G3_KB1 or S < G3_KB2.
@@ -3737,6 +3796,11 @@ _g3dv_e\@:
 .DEFINE G3_U $CA                ; (4)
 .DEFINE G3_NT $CE               ; need_t: the contact
 .DEFINE G3_K $A2                ; contacts: the margin of a middle contact
+.DEFINE G3_KW ((R_WHEEL_P+255) >> 8)+112 ; (of a wheel, of the head)
+.DEFINE G3_KH ((R_HEAD_P+255) >> 8)+112
+; The dominant axis of a line is x for |ex| >= G3_DOM (cos 45 degrees, Q15),
+; else y.
+.DEFINE G3_DOM 23170
 
 ; Objects: within A of a circle's center in both coordinates (halved)
 ; with 2 A^2 below the square limit is a hit for sure.
@@ -3984,46 +4048,36 @@ _ct_none:
 _ct_in:
 	; The list of the cell: the one of the last time when the circle is
 	; still in the same cell (g3_ram: 8 bytes for each circle, WK = S_K2,
-	; S_K4 or 32 for the head: the hint, 2 cx, 2 cy and the list), else
-	; from the runs of the row.
-	and #$FFFE                  ; 2 cy
-	sta.b G3_RS
+	; S_K4 or 32 for the head: the hint, a byte not used, 2 cx and 2 cy
+	; (bytes), the list after its count (0: none) and its end), else from
+	; the runs of the row.
 	ldx.b WK
-	lda.b QHEAD
+	ldy.b QHEAD
 	beq +
 	ldx #32                     ; the head
-+	stx.b G3_SLOT
-	lda.b G3_RS
-	cmp.w g3_ram-24+4,x
-	bne _ct_miss
-	lda.b QX+2
-	and #$FFFE
++	lda.b QY+1
+	and #$FE00
+	ora.b QX+2
+	and #$FEFE                  ; 2 cy, 2 cx (the grid is within 250 m)
 	cmp.w g3_ram-24+2,x
 	bne _ct_miss
-	lda.w g3_ram-24+6,x
-	bne _ct_list
-	rts
-_ct_list:
-	tay
-	lda.w 0,y
-	asl a
-	sta.b G3_LEND
+	ldy.w g3_ram-24+4,x
+	bne +
 	tya
-	clc
-	adc #2
-	adc.b G3_LEND
-	sta.b G3_LEND               ; the end of the list
-	iny
-	iny
+	rts
++	lda.w g3_ram-24+6,x
+	sta.b G3_LEND
+_ct_list:
+	stz.b G3_VF
+	lda.b QX+1
 	jmp _ct_line
 _ct_miss:
 	; The run of the row of the cell: from the one of the last time (the
 	; hint: the number of the run in its row).
-	sta.w g3_ram-24+4,x
-	lda.b QX+2
-	and #$FFFE
 	sta.w g3_ram-24+2,x
-	lda.b G3_RS
+	stx.b G3_SLOT
+	lda.b QY+2
+	and #$FFFE                  ; 2 cy
 	clc
 	adc.w lev_rows
 	tay
@@ -4080,40 +4134,55 @@ _ct_run:
 	sta.w g3_ram-24,x
 	rep #$20
 	lda.w 1,y
+	beq _ct_none16
+	tay
+	lda.w 0,y
+	asl a
+	sta.b G3_LEND
+	tya
+	clc
+	adc #2
+	sta.w g3_ram-24+4,x
+	adc.b G3_LEND
+	sta.b G3_LEND               ; the end of the list
 	sta.w g3_ram-24+6,x
-	beq +
+	ldy.w g3_ram-24+4,x
 	jmp _ct_list
-+	rts
+_ct_ret:
+	lda.b QN
+	rts
 _ct_none8:
 	rep #$20
 	ldx.b G3_SLOT
-	stz.w g3_ram-24+6,x
+_ct_none16:
+	stz.w g3_ram-24+4,x
 	lda #0
 	rts
 _ct_next:
 	ldy.b QLIST
-_ct_line:
+_ct_nexty:
+	lda.b QX+1
+_ct_line:                       ; (A = QX >> 8)
 	cpy.b G3_LEND
-	bcc +
-	lda.b QN
-	rts
-+	ldx.w 0,y                   ; the line
+	bcs _ct_ret
+	ldx.w 0,y                   ; the line
 	iny
 	iny
 	; The box of the line (QX >> 8, QY >> 8 in it):
-	lda.b QX+1
 	cmp.w 0,x
 	bcc _ct_line
-	lda.w 2,x
-	cmp.b QX+1
-	bcc _ct_line
-	lda.b QY+1
+	beq +
+	cmp.w 2,x
+	beq +
+	bcs _ct_line
++	lda.b QY+1
 	cmp.w 4,x
-	bcc _ct_line
-	lda.w 6,x
-	cmp.b QY+1
-	bcc _ct_line
-	sty.b QLIST
+	bcc _ct_nexty
+	beq +
+	cmp.w 6,x
+	beq +
+	bcs _ct_nexty
++	sty.b QLIST
 	; From the middle of the line, in 2^-15 m: rx15 = (qx - M.x) >> 1, its
 	; signed digits (|rx15| < 2^22: the level is within 250 m).
 	lda.b QX
@@ -4134,11 +4203,9 @@ _ct_line:
 	adc #$8080
 	eor #$8080
 	sta.b G3_DX
-	sep #$20
-	lda.b RX15+2
+	lda.b RX15+2                ; (RX15+3, G3_DX+3: no matter)
 	adc #0
 	sta.b G3_DX+2
-	rep #$20
 	lda.b QY
 	sec
 	sbc.w 11,x
@@ -4187,12 +4254,10 @@ _ct_line:
 	sta.b G3_E                  ; + $8000
 	lda.w 22,x
 	NEGA
-	sta.b T0
+	xba
+	sta.w MPYA
+	sta.w MPYA                  ; -ey (see G3_MA)
 	sep #$20
-	lda.b T0
-	sta.w MPYA
-	lda.b T0+1
-	sta.w MPYA
 	G3_SET24A G3_DX, R, G3_E    ; (|the low part| < 2^15)
 	lda.w 20,x
 	sta.w MPYA
@@ -4239,22 +4304,12 @@ _ct_line:
 	; extent of the line on its dominant axis: its box is that extent and
 	; REACH = 0.41 m more (tools/gen_phys.py), and pos differs from the
 	; projection by less than 0.007 m. In 1/256 m (QX >> 8 and the box):
-	; G3_K = ceil( R/256 )+112.
-	lda.b QR
-	clc
-	adc #255+112*256
-	xba
-	and #$00FF
-	sta.b G3_K
+	; G3_K = ceil( R/256 )+112 (set with QR).
 	lda.w 20,x
 	bpl +
 	NEGA
-+	sta.b T0                    ; |ex|
-	lda.w 22,x
-	bpl +
-	NEGA
-+	cmp.b T0
-	bcs _ct_ky
++	cmp #G3_DOM
+	bcc _ct_ky
 	lda.w 0,x                   ; x dominant: bx0+K <= QX >> 8 <= bx1-K
 	clc
 	adc.b G3_K
@@ -4303,6 +4358,26 @@ _ct_pos:
 	clc
 	adc #$FEFF
 	sta.b G3_T+2                ; T = the sum + 32
+	; The whole words of T and 64 half (HH = half >> 10) decide unless T
+	; >> 16 is HH or -HH-1: middle for -HH <= T >> 16 < HH.
+	tay
+	lda.w 29,x
+	lsr a
+	lsr a
+	sta.b G3_H                  ; HH
+	tya
+	bmi +
+	cmp.b G3_H
+	bcc _ct_mid
+	beq _ct_pex
+	bra _ct_b                   ; pos > half
++	clc
+	adc.b G3_H
+	bpl _ct_mid
+	inc a
+	bpl _ct_pex
+	jmp _ct_a                   ; pos < -half
+_ct_pex:
 	lda.w 27,x
 	and #$FF00
 	sta.b G3_H
@@ -4326,10 +4401,11 @@ _ct_pos:
 	lda.b G3_T+2
 	sbc.b G3_H+2
 	bmi _ct_mid                 ; pos > half: T >= H + 64
-	bne +
+	bne _ct_b
 	cpy #64
 	bcc _ct_mid
-+	; The end B:
+_ct_b:
+	; The end B:
 	lda.w 16,x
 	and #$00FF
 	sta.b T0
@@ -4441,19 +4517,38 @@ _ct_end:
 	jsr phys_within
 	bcs ++
 +	jmp _ct_next
-++	SQUARE DDX
-	MOV32 T1, R
-	SQUARE DDY
-	ADD32 T1, T1, R
-	lda.b T1+2
-	cmp.b QRSQ+2
-	bcc +
-	bne ++
+++	; The end point of the line before (the vertex of both): its d2.
+	lda.b DDX
+	cmp.b G3_VX
+	bne +
+	lda.b DDY
+	cmp.b G3_VY
+	bne +
+	lda.b G3_VF
+	beq +
+	lsr a
+	bcc _ct_endout              ; 2: not within
+	jmp _ct_endin               ; 1: within
+_ct_endout:
+	jmp _ct_next
++	G3_SQ2 DDX, DDY, T1         ; d2 + 2^24
+	lda.b DDX
+	sta.b G3_VX
+	lda.b DDY
+	sta.b G3_VY
 	lda.b T1
 	cmp.b QRSQ
-	bcc +
-++	jmp _ct_next
-+	lda.b QHEAD
+	lda.b T1+2
+	sbc.b QRSQ+2
+	cmp #$0100                  ; (signed: d2-QRSQ within +-2^30)
+	bmi +
+	lda #2
+	sta.b G3_VF
+	jmp _ct_next
++	lda #1
+	sta.b G3_VF
+_ct_endin:
+	lda.b QHEAD
 	beq +
 	lda #1
 	rts
@@ -4501,24 +4596,38 @@ _far8:
 	bcs _far9
 	jmp _ct_two
 _far9:
-	SQUARE T0
-	MOV32 T2, R
-	SQUARE T1
-	ADD32 T2, T2, R
-	lda.b T2+2
-	cmp #MERGE_SQ >> 16
-	bcc +
-	bne _ct_two
+	; Within G3_MS on both axes: near for sure (no squares).
+	lda.b T0
+	clc
+	adc #G3_MS
+	cmp #2*G3_MS+1
+	bcs ++
+	lda.b T1
+	clc
+	adc #G3_MS
+	cmp #2*G3_MS+1
+	bcs ++
+	lda.b T0
+	ora.b T1
+	beq +
+	jmp _ct_mrg
++	jmp _ct_same                ; the same point
+++	G3_SQ2 T0, T1, T2           ; d2 + 2^24
 	lda.b T2
 	cmp #MERGE_SQ & $FFFF
-	bcs _ct_two
-+	; (t0 + tn) >> 1:
+	lda.b T2+2
+	sbc #(MERGE_SQ >> 16)+$0100
+	bcc _ct_mrg
+	jmp _ct_two
+_ct_mrg:
+	; (t0 + tn) >> 1:
 	ADD32 T0, CT0+CT_TX, CTN+CT_TX
 	ASR32 T0, 1
 	MOV32 CT0+CT_TX, T0
 	ADD32 T0, CT0+CT_TY, CTN+CT_TY
 	ASR32 T0, 1
 	MOV32 CT0+CT_TY, T0
+_ct_same:
 	sep #$20
 	stz.b CT0+CT_HN
 	rep #$20
@@ -4635,13 +4744,101 @@ phys_unit15:
 +	lda #-32767
 	rts
 
-; norm: n and h of the contact at NSH+2... the contact at X (offset in page
-; B) from d = DDX, DDY (P).
+; A = unit15( rsh( v*MB, 14 ) ) for v = A within [-32640, 32639], MB > 0
+; (A 16-bit; X, G3_W are used): with the signed digits d0, d1 of v, U =
+; MB d1+F+32+32768 (F = floor( MB d0/256 )) = q 65536+L, the result is
+; (U >> 6)-512 = (q+32) 1024+(L >> 6)-33280.
+.MACRO G3_NQ
+	clc
+	adc #$0080
+	eor #$0080
+	sta.w MPYB                  ; MB d0
+	xba
+	ldx.w MPYM                  ; F (within +-16384)
+	sta.w MPYB                  ; MB d1
+	txa
+	clc
+	adc #32800
+	clc
+	adc.w MPYL
+	tax                         ; L
+	lda.w MPYM
+	xba
+	and #$00FF
+	eor #$0080
+	adc #$FFA0                  ; q+32
+	cmp #64
+	bcs _nq_e\@
+	asl a
+	asl a
+	xba
+	sta.b G3_W
+	txa
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc.b G3_W
+	sec
+	sbc #513
+	bcc _nq_lo\@                ; below -32767
+	adc #$8000                  ; (C set: - 32767)
+	bra _nq_d\@
+_nq_e\@:
+	cmp #$8000
+	bcs _nq_lo\@                ; q < -32
+	cmp #64
+	bne _nq_hi\@                ; q > 32
+	txa
+	bmi _nq_hi\@
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc #32256
+	bra _nq_d\@
+_nq_hi\@:
+	lda #32767
+	bra _nq_d\@
+_nq_lo\@:
+	lda #-32767
+_nq_d\@:
+.ENDM
+
+; norm: n and h of the contact at X (offset in page B) from d = DDX, DDY
+; (P). The usual case is fast: d within 16 bits and k = 1 (|d| from 0.25
+; to 0.5 m); the rest the slow way.
 phys_norm:
 	.ACCU 16
 	.INDEX 16
 	stx.b NCT
 	stz.b NSH
+	lda.b DDX                   ; d within [-32640, 32639]?
+	clc
+	adc #32640
+	tay
+	lda.b DDX+2
+	adc #0
+	bne _no_sh
+	cpy #65280
+	bcs _no_sh
+	lda.b DDY
+	clc
+	adc #32640
+	tay
+	lda.b DDY+2
+	adc #0
+	bne _no_sh
+	cpy #65280
+	bcs _no_sh
+	jmp _no_sq
+_no_sh:
 -	ldx #DDX
 	jsr phys_fits16
 	bcc +
@@ -4656,6 +4853,14 @@ phys_norm:
 	MOV32 T1, R
 	SQUARE DDY
 	ADD32 T1, T1, R
+	jmp _no_d2
+_no_sq:
+	G3_SQ2 DDX, DDY, T1
+	lda.b T1+2
+	sec
+	sbc #$0100
+	sta.b T1+2                  ; d2
+_no_d2:
 	ldx.b NCT
 	stz.b CT_DN,x
 	sep #$20
@@ -4672,6 +4877,37 @@ phys_norm:
 	rts
 +	jsr phys_frsqrt             ; A = Y, T2 = k, T1 = d2 << 2k
 	sta.b T0
+	ldy.b T2
+	cpy #1
+	bne +
+	ldy.b NSH
+	beq ++
++	jmp _no_slow
+++
+	; The fast case: n = unit15( rsh( d Y, 14 ) ), h = clamp16( rsh( (X
+	; >> 17) Y, 14 ) ):
+	G3_MA
+	lda.b DDX
+	G3_NQ
+	ldx.b NCT
+	sta.b CT_NX,x
+	lda.b DDY
+	G3_NQ
+	ldx.b NCT
+	sta.b CT_NY,x
+	lda.b T1+2
+	lsr a
+	cmp #32640
+	bcc +
+	jmp _no_h
++	G3_NQ
+	cmp #32640
+	bcc +
+	lda #32639
++	ldx.b NCT
+	sta.b CT_H,x
+	rts
+_no_slow:
 	sep #$20
 	MB_DP T0
 	rep #$20
@@ -4693,6 +4929,7 @@ phys_norm:
 	jsr phys_unit15
 	ldx.b NCT
 	sta.b CT_NY,x
+_no_h:
 	; h = clamp16( rsh( mf16( X >> 17, Y ), 13+k ) << sh ):
 	lda.b T1+2
 	lsr a
@@ -4736,6 +4973,29 @@ phys_need_n:
 	sta.b DDY+2
 	jmp phys_norm
 
+; \1 = rsh( \1 - \2, 7 ) (a double word of the direct page; RFIN 7, \2 of
+; R) by one shift: 2 \1 >> 8, the carry of the shift its sign (A 16-bit, Y
+; is used, \1+4 is read):
+.MACRO G3_FIN7
+	lda.b \1
+	clc
+	adc #(64-(\2)) & $FFFF
+	sta.b \1
+	lda.b \1+2
+	adc #((64-(\2)) >> 16) & $FFFF
+	asl.b \1
+	rol a
+	sta.b \1+2
+	ldy.b \1+1
+	lda.b \1+3
+	and #$00FF
+	bcc _g3f7\@
+	ora #$FF00
+_g3f7\@:
+	sta.b \1+2
+	sty.b \1
+.ENDM
+
 ; helyigazitas for the contact at X: the wheel (WK) out to the band; C set
 ; if it moved. QRX, QRY follow it.
 phys_push:
@@ -4757,7 +5017,7 @@ phys_push:
 	DIG16 T0
 	MB_ABSX phys_dpb+CT_NX
 	RSET16 MD0
-	RFIN 7, $808000
+	G3_FIN7 R, $808000
 	ldx.b WK
 	lda.w phys_dpa+C_RX,x
 	clc
@@ -4772,7 +5032,7 @@ phys_push:
 	sep #$20
 	MB_ABSX phys_dpb+CT_NY
 	RSET16 MD0
-	RFIN 7, $808000
+	G3_FIN7 R, $808000
 	ldx.b WK
 	lda.w phys_dpa+C_RY,x
 	clc
@@ -4959,7 +5219,7 @@ _ho_s:
 	rts
 _ho_nv:
 	MOV32 NV, G3_S
-	RSH32 NV, 7
+	G3_FIN7 NV, 0
 	lda.b G3_REM
 	bne _far12
 	jmp _ho_bump
@@ -4971,7 +5231,7 @@ _far12:
 	MB_ABSX phys_dpb+CT_NX
 	RSET24 MD0
 	rep #$20
-	RFIN 7, $808000
+	G3_FIN7 R, $808000
 	ldx.b WK
 	lda.w phys_dpa+C_VX,x
 	sec
@@ -4985,7 +5245,7 @@ _far12:
 	MB_ABSX phys_dpb+CT_NY
 	RSET24 MD0
 	rep #$20
-	RFIN 7, $808000
+	G3_FIN7 R, $808000
 	ldx.b WK
 	lda.w phys_dpa+C_VY,x
 	sec
@@ -5030,6 +5290,30 @@ _ho_end:
 	sec
 	rts
 
+; A = clamp16( the double word \1 of the direct page ), [-32640, 32639]
+; (X is changed):
+.MACRO G3_CL16
+	lda.b \1+2
+	beq _g3cl_p\@
+	inc a
+	bne _g3cl_s\@
+	lda.b \1
+	cmp #-32640
+	bcs _g3cl_d\@
+	lda #-32640
+	bra _g3cl_d\@
+_g3cl_s\@:
+	ldx #\1
+	jsr phys_clamp16
+	bra _g3cl_d\@
+_g3cl_p\@:
+	lda.b \1
+	cmp #32640
+	bcc _g3cl_d\@
+	lda #32639
+_g3cl_d\@:
+.ENDM
+
 ; side: R = (t1-t2)*n90 of t2 (sign), the contacts at SC1 = T2, SC2 = T2+2.
 phys_side:
 	.ACCU 16
@@ -5044,7 +5328,7 @@ phys_side:
 	sbc.w phys_dpb+CT_TX+2,y
 	sta.b T0+2
 	ASR32 T0, 1
-	CLAMP16 T0
+	G3_CL16 T0
 	sta.b T1                    ; dx
 	ldx.b T2
 	ldy.b T2+2
@@ -5056,7 +5340,7 @@ phys_side:
 	sbc.w phys_dpb+CT_TY+2,y
 	sta.b T0+2
 	ASR32 T0, 1
-	CLAMP16 T0
+	G3_CL16 T0
 	sta.b T1+2                  ; dy
 	ldx.b T2+2
 	lda.b CT_NY,x
@@ -5106,9 +5390,9 @@ phys_sure_new:
 	MOV32WX T1, phys_dpa+C_VY
 	RSH32 T0, 8
 	RSH32 T1, 8
-	CLAMP16 T0
+	G3_CL16 T0
 	sta.b T0
-	CLAMP16 T1
+	G3_CL16 T1
 	sta.b T1
 	; nv = clamp16( rsh( mq16( -ny, vx )+mq16( nx, vy ), 7 ) ):
 	ldx.b T2+2
@@ -5124,8 +5408,8 @@ phys_sure_new:
 	MB_ABSX phys_dpb+CT_NX
 	DIG16 T1
 	RADD16 MD0
-	RFIN 7, 2*$808000
-	CLAMP16 R
+	G3_FIN7 R, 2*$808000
+	G3_CL16 R
 	sta.b T0                    ; nv
 	; m = w + rsh( mf16( nv, h ), 4 ):
 	sep #$20
@@ -5153,23 +5437,19 @@ phys_sure_new:
 phys_sure_old:
 	.ACCU 16
 	.INDEX 16
-	; fn = rsh( mq24( Fx, -ny )+mq24( Fy, nx ), 7 ):
+	; fn = rsh( mq24( Fx, -ny )+mq24( Fy, nx ), 7 ) (the digits of Fx, Fy
+	; from phys_wheel):
 	ldx.b T2+2
 	lda.b CT_NY,x
 	NEGA
 	sta.b T0
-	MOV32W phys_dpb+T3, phys_dpa+FX
-	DIGT3
+	sep #$20
 	MB_DP T0
-	RSET24 MD0
-	rep #$20
-	MOV32W phys_dpb+T3, phys_dpa+FY
-	DIGT3
-	ldx.b T2+2
+	RSET24 G3_FXD
 	MB_ABSX phys_dpb+CT_NX
-	RADD24 MD0
+	RADD24 G3_FYD
 	rep #$20
-	RFIN 7, 2*$808000
+	G3_FIN7 R, 2*$808000
 	; x = rsh( mq24( fn, h ), 8 ); m = Mk + MULK( x, K_REGI ):
 	MOV32 T3, R
 	DIGT3
@@ -5269,17 +5549,11 @@ phys_move:
 	rts
 
 ; beallit for the wheel WK with the force FX, FY and the torque MK of page
-; A: R = the change of its angle. D = PHYS_DPB.
+; A; the change of its angle is its new w. D = PHYS_DPB; QR, QRSQ, G3_K,
+; QHEAD are those of a wheel (phys_step).
 phys_wheel:
 	.ACCU 16
 	.INDEX 16
-	lda #R_WHEEL_P
-	sta.b QR
-	lda #R_WHEEL_SQ & $FFFF
-	sta.b QRSQ
-	lda #R_WHEEL_SQ >> 16
-	sta.b QRSQ+2
-	stz.b QHEAD
 	stz.b QN
 	; phys_contacts with the center and its place in the grid from here:
 	ldx.b WK
@@ -5293,27 +5567,35 @@ phys_wheel:
 	sbc.w lev_gx+2
 	sta.b QX+2
 	cmp.w lev_gw+2
+	bcs ++
 	lda.w phys_dpa+C_RY,x
 	sta.b QRY
-	lda.w phys_dpa+C_RY+2,x
-	sta.b QRY+2
-	bcs ++
-	lda.b QRY
 	sec
 	sbc.w lev_gy
 	sta.b QY
-	lda.b QRY+2
+	lda.w phys_dpa+C_RY+2,x
+	sta.b QRY+2
 	sbc.w lev_gy+2
 	sta.b QY+2
 	cmp.w lev_gh+2
-	bcs ++
+	bcs +++
 	jsr _ct_in
-	bra +++
-++	jsr _ct_out
-+++	sta.b WN
+	bra ++++
+++	lda.w phys_dpa+C_RY,x
+	sta.b QRY
+	lda.w phys_dpa+C_RY+2,x
+	sta.b QRY+2
++++	jsr _ct_out
+++++	sta.b WN
 	bne +
 	jmp _wh_free
-+	lda.b CT0+CT_HN             ; (need_n, push: their quick cases here)
++	; The signed digits of clamp24( Fx ), clamp24( Fy ) (biztostalppont_regi,
+	; holds and the rolling use them):
+	G3_DIGCW phys_dpa+FX, G3_FXD
+	rep #$20
+	G3_DIGCW phys_dpa+FY, G3_FYD
+	rep #$20
+	lda.b CT0+CT_HN             ; (need_n, push: their quick cases here)
 	and #$00FF
 	bne +
 	ldx #CT0
@@ -5348,16 +5630,13 @@ phys_wheel:
 	MOV32WX T1, phys_dpa+C_VY
 	RSH32 T0, 8
 	RSH32 T1, 8
-	CLAMP16 T0
+	G3_CL16 T0
 	sta.b T0
-	CLAMP16 T1
+	G3_CL16 T1
 	sta.b T0+2
-	SQUARE T0
-	MOV32 T1, R
-	SQUARE T0+2
-	ADD32 T1, T1, R             ; v2
+	G3_SQ2 T0, T0+2, T1         ; v2 + 2^24
 	lda.b T1+2
-	cmp #(V1MS_16*V1MS_16) >> 16
+	cmp #((V1MS_16*V1MS_16) >> 16)+$0100
 	bne +
 	lda.b T1
 	cmp #(V1MS_16*V1MS_16) & $FFFF
@@ -5403,12 +5682,6 @@ _wh_old:
 	lda #1
 	sta.b WN
 _wh_holds:
-	; The signed digits of clamp24( Fx ), clamp24( Fy ) (holds and the
-	; rolling use them):
-	G3_DIGCW phys_dpa+FX, G3_FXD
-	rep #$20
-	G3_DIGCW phys_dpa+FY, G3_FYD
-	rep #$20
 	; talppontigazitas: the second, then the first.
 	lda.b WN
 	cmp #2
@@ -5543,8 +5816,6 @@ _wh_held:
 	stz.w phys_dpa+C_VY+2,x
 	stz.w phys_dpa+C_W,x
 	stz.w phys_dpa+C_W+2,x
-	stz.b R
-	stz.b R+2
 	rts
 
 _wh_roll:
@@ -5583,7 +5854,7 @@ _wh_proj:
 	MB_DP N90Y
 	RADD24 MD0
 	rep #$20
-	RFIN 7, 2*$808000
+	G3_FIN7 R, 2*$808000
 	MOV32 SP, R
 	MOV32 T3, SP
 	DIGT3
@@ -5647,25 +5918,20 @@ _wh_fnd:
 	bcc +
 	lda #26367
 +	tay
-	and #$007F
-	sta.b T0                    ; f
-	tya
 	asl a
 	xba
 	and #$00FF
 	asl a
 	tax                         ; 2i
-	lda.l phys_rho,x
-	sta.b HRHO
-	sep #$20
 	lda.l phys_rhod,x
+	xba
+	sta.w MPYA                  ; (the 16-bit stores: see G3_MA)
 	sta.w MPYA
-	lda.l phys_rhod+1,x
-	sta.w MPYA
-	lda.b T0
-	sta.w MPYB
-	rep #$21
+	tya
+	and #$007F
+	sta.w MPYB                  ; f
 	lda.w MPYL
+	clc
 	adc #64
 	asl a
 	xba
@@ -5673,7 +5939,7 @@ _wh_fnd:
 	bcc +
 	ora #$FF00                  ; (rhod f+64) >> 7
 +	clc
-	adc.b HRHO
+	adc.l phys_rho,x
 	sta.b HRHO
 	; b = MULK( fn, K_FN )+MULK( Mk, K_MR ):
 	sep #$20
@@ -5802,46 +6068,112 @@ _wh_sp:
 	sta.w phys_dpa+R_ON,x
 	rep #$20
 _wh_move:
-	; a += w, r += rsh( v, 8 ) in page A; R = w:
+	; a += w, r += rsh( v, 8 ) in page A:
 	ldx.b WK
 	pea PHYS_DPA
 	pld
-	jsr phys_move
-	lda.b C_W,x
-	sta.w phys_dpb+R
-	lda.b C_W+2,x
-	sta.w phys_dpb+R+2
+	G3_MOVE
 	pea PHYS_DPB
 	pld
 	rts
 
 ;---------------------------------------------------------------------------
-; Objects (D = PHYS_DPA).
+; Objects (D = PHYS_DPB; the circles are read in page A).
+
+; The candidates of the objects, kept for the next steps (g3x_ram): the
+; active objects within OC_M+1 whole meters of the box of the circles of a
+; step (whole meters: the high words of the positions). They hold all the
+; objects that can touch a circle while each circle stays within OC_M m of
+; that box (an object touches one within 1 m only: their whole meters
+; differ by 1 at most). phys_level clears OC_N.
+.DEFINE OC_X0 g3x_ram+0         ; the box of the circles, OC_M more: its
+.DEFINE OC_XW g3x_ram+2         ; lowest whole meter and width (x, y)
+.DEFINE OC_Y0 g3x_ram+4
+.DEFINE OC_YW g3x_ram+6
+.DEFINE OC_N g3x_ram+8          ; the number of candidates, $FFFF: none kept
+.DEFINE OC_L g3x_ram+10         ; 3 times their numbers, from the last one
+.DEFINE OC_MAX 22
+.DEFINE OC_M 0                  ; the margin of the box (m)
+; Page B bytes of the objects (G3_OL: the candidates of a step when there
+; are more than OC_MAX, up to 52):
+.DEFINE G3_LP $94               ; the candidates: their list
+.DEFINE G3_LN $96               ; and number
+.DEFINE G3_LM $98               ; the room of the list
+.DEFINE G3_BX $9A               ; the whole meters of the circles ($8000
+.DEFINE G3_BX1 $9C              ; added): the lowest and highest x
+.DEFINE G3_BY $9E               ; and y
+.DEFINE G3_BY1 $A0
+.DEFINE G3_CX0 $A2              ; the candidates: their lowest whole meter
+.DEFINE G3_CXW $A4              ; and the width (x, y)
+.DEFINE G3_CY0 $A6
+.DEFINE G3_CYW $A8
+.DEFINE G3_OC $AA               ; the circle: its position in page A
+.DEFINE G3_OL $AC
 
 ; sprite (utkozikesprite): A = the offset (12 times the number) of the
-; first active object within the circle at T0, T1 (P) of lim T2 (P) and
-; square limit T3 (2^-30 m^2), or $FFFF. Only the candidates that
-; phys_objects found (G3_OL, G3_ON) are tested: they hold all the objects
-; that can touch a circle, in the order of the objects from the end of the
-; list.
+; first active object within the circle at G3_OC of page A (a wheel or the
+; head: lim T2 (P) and square limit T3 (2^-30 m^2)), or $FFFF; T0+2, T1+2
+; hold the high words of its position. Only the candidates of phys_objects
+; are tested (G3_LP, G3_LN): they hold all the objects that can touch a
+; circle, in the order of the objects from the end of the list.
 phys_sprite:
 	.ACCU 16
 	.INDEX 16
-	ldy.w phys_dpb+G3_ON
+	ldy.b G3_LN
 _sp_loop:
 	dey
 	bpl +
 	lda #$FFFF
 	rts
-+	lda.w phys_dpb+G3_OL,y
++	lda (G3_LP),y
 	and #$00FF
 	asl a
 	asl a
 	tax                         ; 12 o
+	; Within 1 m only when the whole meters differ by 1 at most:
+	lda.l phys_objs+6,x
+	sec
+	sbc.b T0+2
+	inc a
+	cmp #3
+	bcs _sp_loop
+	lda.l phys_objs+10,x
+	sec
+	sbc.b T1+2
+	inc a
+	cmp #3
+	bcs _sp_loop
 	lda.l phys_objs+2,x
 	and #$FF00                  ; active
 	beq _sp_loop
-	lda.b T0
+	; The rest of the circle:
+	phy
+	ldy.b G3_OC
+	lda.w phys_dpa,y
+	sta.b T0
+	lda.w phys_dpa+4,y
+	sta.b T1
+	ply
+	lda #OBJ_HEAD_P
+	sta.b T2
+	lda #G3_AH
+	sta.b T2+2
+	lda #OBJ_HEAD_SQ & $FFFF
+	sta.b T3
+	lda #OBJ_HEAD_SQ >> 16
+	sta.b T3+2
+	lda.b G3_OC
+	cmp #S_HEADX
+	beq +
+	lda #OBJ_WHEEL_P & $FFFF
+	sta.b T2
+	lda #G3_AW
+	sta.b T2+2
+	lda #OBJ_WHEEL_SQ & $FFFF
+	sta.b T3
+	lda #OBJ_WHEEL_SQ >> 16
+	sta.b T3+2
++	lda.b T0
 	sec
 	sbc.l phys_objs+4,x
 	sta.b R
@@ -5849,8 +6181,9 @@ _sp_loop:
 	sbc.l phys_objs+6,x
 	sta.b R+2
 	jsr _sp_within
-	bcc _sp_loop
-	lda.b T1
+	bcs +
+	jmp _sp_loop
++	lda.b T1
 	sec
 	sbc.l phys_objs+8,x
 	sta.b R
@@ -5858,8 +6191,9 @@ _sp_loop:
 	sbc.l phys_objs+10,x
 	sta.b R+2
 	jsr _sp_within
-	bcc _sp_loop
-	; (dx >> 1)^2 + (dy >> 1)^2 < sq:
+	bcs +
+	jmp _sp_loop
++	; (dx >> 1)^2 + (dy >> 1)^2 < sq:
 	lda.b R+2
 	cmp #$8000
 	ror a
@@ -5940,149 +6274,87 @@ _sp_within:
 ++	clc
 	rts
 
-; The box of the circles in whole meters on one axis: \1, \2, \3 the high
-; words of the three, out: \4 = the lowest less 1, \4+2 = the width + 1
-; (the highest plus 1 is \4 + the width).
-.MACRO G3_OBOX
-	lda.b \1
+; The lowest and highest whole meters \4, \5 ($8000 added) of the three
+; at \1, \2, \3 (absolute):
+.MACRO G3_OMM
+	lda.w \1
 	eor #$8000
 	sta.b \4
-	sta.b \4+2
-	lda.b \2
-	eor #$8000
-	cmp.b \4
-	bcs +
-	sta.b \4
-	bra ++
-+	cmp.b \4+2
-	bcc ++
-	sta.b \4+2
-++	lda.b \3
+	sta.b \5
+	lda.w \2
 	eor #$8000
 	cmp.b \4
 	bcs +
 	sta.b \4
 	bra ++
-+	cmp.b \4+2
++	cmp.b \5
 	bcc ++
-	sta.b \4+2
-++	lda.b \4+2
-	sec
-	sbc.b \4
-	clc
-	adc #3
-	sta.b \4+2
-	lda.b \4
+	sta.b \5
+++	lda.w \3
 	eor #$8000
-	dec a
+	cmp.b \4
+	bcs +
 	sta.b \4
+	bra ++
++	cmp.b \5
+	bcc ++
+	sta.b \5
+++
 .ENDM
 
-; vizsgalat's objects: eats, kills, finishes (EV). Only the objects in the
-; box of whole meters around the three circles (one more on each side,
-; their limits are below 1 m) can touch them: those are the candidates of
-; phys_sprite.
+; To _ob_new unless the whole meter at \1 is within the box from \2 of
+; width \3:
+.MACRO G3_OIN
+	lda.w \1
+	sec
+	sbc.w \2
+	cmp.w \3
+	bcs _ob_new
+.ENDM
+
+; vizsgalat's objects: eats, kills, finishes (EV). D = PHYS_DPA here. The
+; candidates of phys_sprite: the kept ones (or new ones) within 1 m of the
+; box of the circles (in whole meters).
 phys_objects:
 	.ACCU 16
 	.INDEX 16
-	G3_OBOX S_K2+C_RX+2, S_K4+C_RX+2, S_HEADX+2, T0
-	stz.b T1+2                  ; (the y box: when needed)
-	lda.w phys_nobjs
-	bne +
-	rts
-+	asl a
-	adc.w phys_nobjs
-	asl a
-	asl a
-	sec
-	sbc #12
-	tax                         ; 12 (n-1)
-	ldy #0
-	sec
-_ob_scan:
-	lda.l phys_objs+6,x
-	sbc.b T0
-	cmp.b T0+2
-	bcc _ob_cx
-_ob_snext:
-	txa
-	sbc #12
-	tax
-	bcs _ob_scan
-	sty.w phys_dpb+G3_ON
-	tya
+	pea PHYS_DPB
+	pld
+	lda.w OC_N
+	bmi _ob_new
+	G3_OIN phys_dpa+S_K2+C_RX+2, OC_X0, OC_XW
+	G3_OIN phys_dpa+S_K4+C_RX+2, OC_X0, OC_XW
+	G3_OIN phys_dpa+S_HEADX+2, OC_X0, OC_XW
+	G3_OIN phys_dpa+S_K2+C_RY+2, OC_Y0, OC_YW
+	G3_OIN phys_dpa+S_K4+C_RY+2, OC_Y0, OC_YW
+	G3_OIN phys_dpa+S_HEADY+2, OC_Y0, OC_YW
+	lda #OC_L
+	sta.b G3_LP
+	lda.w OC_N
+	sta.b G3_LN
 	bne _ob_some
-	rts
-_ob_cx:
-	lda.b T1+2
-	bne _ob_cy
-	G3_OBOX S_K2+C_RY+2, S_K4+C_RY+2, S_HEADY+2, T1
-_ob_cy:
-	lda.l phys_objs+10,x
-	sec
-	sbc.b T1
-	cmp.b T1+2
-	bcs _ob_snext
-	lda.l phys_objs+2,x
-	and #$FF00                  ; active
-	cmp #$0100                  ; (C set if so)
-	bcc _ob_sinact
-	txa
-	lsr a
-	lsr a
-	sep #$20
-	sta.w phys_dpb+G3_OL,y
-	rep #$20
-	iny
-_ob_sinact:
-	sec
-	bra _ob_snext
+	jmp _ob_ret
+_ob_new:
+	jsr _ob_scan
+	lda.b G3_LN
+	bne _ob_some
+	jmp _ob_ret
 _ob_some:
 	stz.w pt_tmp+6              ; dead
 	stz.w pt_tmp+8              ; finished
 _ob_again:
 	stz.w pt_tmp+10             ; again
-	stz.w pt_tmp+12             ; the circle: 0 kor2, 1 kor4, 2 the head
+	stz.w pt_tmp+12             ; the circle: 0 kor2, 2 kor4, 4 the head
 _ob_circle:
-	lda.w pt_tmp+12
-	cmp #2
-	beq +
-	asl a
-	asl a
-	asl a
-	sta.b T0
-	asl a
-	clc
-	adc.b T0                    ; 24 k
+	ldx.w pt_tmp+12
+	lda.l _ob_cof,x
+	sta.b G3_OC
 	tax
-	lda.b S_K2+C_RX,x
-	sta.b T0
-	lda.b S_K2+C_RX+2,x
+	lda.w phys_dpa+2,x
 	sta.b T0+2
-	lda.b S_K2+C_RY,x
-	sta.b T1
-	lda.b S_K2+C_RY+2,x
+	lda.w phys_dpa+6,x
 	sta.b T1+2
-	lda #OBJ_WHEEL_P & $FFFF
-	sta.b T2
-	lda #G3_AW
-	sta.b T2+2
-	lda #OBJ_WHEEL_SQ & $FFFF
-	sta.b T3
-	lda #OBJ_WHEEL_SQ >> 16
-	sta.b T3+2
-	bra ++
-+	MOV32 T0, S_HEADX
-	MOV32 T1, S_HEADY
-	lda #OBJ_HEAD_P
-	sta.b T2
-	lda #G3_AH
-	sta.b T2+2
-	lda #OBJ_HEAD_SQ & $FFFF
-	sta.b T3
-	lda #OBJ_HEAD_SQ >> 16
-	sta.b T3+2
-++	jsr phys_sprite
+	jsr phys_sprite
 	cmp #$FFFF
 	beq _ob_next
 	tax                         ; 12 o
@@ -6098,11 +6370,11 @@ _ob_circle:
 	sep #$20
 	lda #0
 	sta.l phys_objs+3,x
-	inc.b S_APPLES
+	inc.w phys_dpa+S_APPLES
 	lda.l phys_objs+2,x
 	beq +
 	dec a
-	sta.b S_GRAVITY
+	sta.w phys_dpa+S_GRAVITY
 +	rep #$20
 	inc.w pt_tmp+10
 	txa
@@ -6113,21 +6385,23 @@ _ob_circle:
 	inx
 	bra -
 +	stx.w phys_eaten
-	lda.b EV
+	lda.w phys_dpa+EV
 	ora #PH_EAT
-	sta.b EV
+	sta.w phys_dpa+EV
 	bra _ob_next
 ++	cmp #1
 	bne _ob_next
-	lda.b S_APPLES              ; the flower, with all the apples
+	lda.w phys_dpa+S_APPLES     ; the flower, with all the apples
 	and #$00FF
 	cmp.w lev_need
 	bcc _ob_next
 	inc.w pt_tmp+8
 _ob_next:
-	inc.w pt_tmp+12
 	lda.w pt_tmp+12
-	cmp #3
+	inc a
+	inc a
+	sta.w pt_tmp+12
+	cmp #6
 	bcs +
 	jmp _ob_circle
 +	lda.w pt_tmp+10
@@ -6135,16 +6409,145 @@ _ob_next:
 	jmp _ob_again
 +	lda.w pt_tmp+8
 	beq +
-	lda.b EV
+	lda.w phys_dpa+EV
 	ora #PH_FINISH
-	sta.b EV
-	rts
+	sta.w phys_dpa+EV
+	bra _ob_ret
 +	lda.w pt_tmp+6
-	beq +
-	lda.b EV
+	beq _ob_ret
+	lda.w phys_dpa+EV
 	ora #PH_DEAD
-	sta.b EV
-+	rts
+	sta.w phys_dpa+EV
+_ob_ret:
+	pea PHYS_DPA
+	pld
+	rts
+_ob_cof:
+	.dw S_K2+C_RX, S_K4+C_RX, S_HEADX
+
+; New candidates (G3_LP, G3_LN): kept (OC_*) when they are OC_MAX at most,
+; else the ones of this step (within 1 m of the box of the circles) in
+; G3_OL.
+_ob_scan:
+	G3_OMM phys_dpa+S_K2+C_RX+2, phys_dpa+S_K4+C_RX+2, phys_dpa+S_HEADX+2, G3_BX, G3_BX1
+	G3_OMM phys_dpa+S_K2+C_RY+2, phys_dpa+S_K4+C_RY+2, phys_dpa+S_HEADY+2, G3_BY, G3_BY1
+	lda.b G3_BX
+	eor #$8000
+	sec
+	sbc #OC_M
+	sta.w OC_X0                 ; the lowest - OC_M
+	dec a
+	sta.b G3_CX0                ; - 1 more
+	lda.b G3_BX1
+	sec
+	sbc.b G3_BX
+	clc
+	adc #1+2*OC_M
+	sta.w OC_XW                 ; to the highest + OC_M
+	inc a
+	inc a
+	sta.b G3_CXW                ; + 1 more
+	lda.b G3_BY
+	eor #$8000
+	sec
+	sbc #OC_M
+	sta.w OC_Y0
+	dec a
+	sta.b G3_CY0
+	lda.b G3_BY1
+	sec
+	sbc.b G3_BY
+	clc
+	adc #1+2*OC_M
+	sta.w OC_YW
+	inc a
+	inc a
+	sta.b G3_CYW
+	lda #OC_L
+	sta.b G3_LP
+	lda #OC_MAX
+	sta.b G3_LM
+	jsr _ob_list
+	bcs +
+	sty.w OC_N
+	sty.b G3_LN
+	rts
++	lda #$FFFF                  ; too many: none kept
+	sta.w OC_N
+	lda.w OC_X0
+	clc
+	adc #OC_M-1
+	sta.b G3_CX0                ; the lowest - 1
+	lda.w OC_XW
+	sec
+	sbc #2*OC_M-2
+	sta.b G3_CXW                ; to the highest + 1
+	lda.w OC_Y0
+	clc
+	adc #OC_M-1
+	sta.b G3_CY0
+	lda.w OC_YW
+	sec
+	sbc #2*OC_M-2
+	sta.b G3_CYW
+	lda #phys_dpb+G3_OL
+	sta.b G3_LP
+	lda #52
+	sta.b G3_LM
+	jsr _ob_list
+	sty.b G3_LN
+	rts
+
+; The active objects with their whole meters within G3_CX0 (G3_CXW of
+; them) and G3_CY0 (G3_CYW) into the list at G3_LP, from the last one: Y =
+; their number; C set if there are more than G3_LM.
+_ob_list:
+	ldy #0
+	lda.w phys_nobjs
+	bne +
+	clc
+	rts
++	asl a
+	adc.w phys_nobjs
+	asl a
+	asl a
+	sec
+	sbc #12
+	tax                         ; 12 (n-1)
+_ob_l1:
+	lda.l phys_objs+6,x
+	sec
+	sbc.b G3_CX0
+	cmp.b G3_CXW
+	bcs _ob_l2
+	lda.l phys_objs+10,x
+	sec
+	sbc.b G3_CY0
+	cmp.b G3_CYW
+	bcs _ob_l2
+	lda.l phys_objs+2,x
+	and #$FF00                  ; active
+	beq _ob_l2
+	cpy.b G3_LM
+	bcs _ob_lfull
+	txa
+	lsr a
+	lsr a
+	sep #$20
+	sta (G3_LP),y
+	rep #$20
+	iny
+_ob_l2:
+	txa
+	sec
+	sbc #12
+	tax
+	bcs _ob_l1
+	clc
+	rts
+_ob_lfull:
+	sec
+	rts
 
 ;---------------------------------------------------------------------------
 ; u16 phys_step(u16 input)
@@ -6393,6 +6796,15 @@ _g2st_td2:
 	sta.b MK
 	lda.w pt_m+2
 	sta.b MK+2
+	lda #R_WHEEL_P              ; the circle of contacts: a wheel
+	sta.w phys_dpb+QR
+	lda #R_WHEEL_SQ & $FFFF
+	sta.w phys_dpb+QRSQ
+	lda #R_WHEEL_SQ >> 16
+	sta.w phys_dpb+QRSQ+2
+	lda #G3_KW
+	sta.w phys_dpb+G3_K
+	stz.w phys_dpb+QHEAD
 	lda #S_K2
 	sta.w phys_dpb+WK
 	lda #S_ROLL
@@ -6402,11 +6814,11 @@ _g2st_td2:
 	jsr phys_wheel
 	pea PHYS_DPA
 	pld
-	lda.w phys_dpb+R
+	lda.b S_K2+C_W
 	sec
 	sbc.w pt_da
 	sta.b T0
-	lda.w phys_dpb+R+2
+	lda.b S_K2+C_W+2
 	sbc.w pt_da+2
 	sta.b T0+2
 	G2_ADDRSH8 S_DEFL, T0, 1
@@ -6437,11 +6849,11 @@ _g2st_td2:
 	jsr phys_wheel
 	pea PHYS_DPA
 	pld
-	lda.w phys_dpb+R
+	lda.b S_K4+C_W
 	sec
 	sbc.w pt_da
 	sta.b T0
-	lda.w phys_dpb+R+2
+	lda.b S_K4+C_W+2
 	sbc.w pt_da+2
 	sta.b T0+2
 	G2_ADDRSH8 S_DEFL+4, T0, 1
@@ -6524,6 +6936,8 @@ _st_head:
 	sta.w phys_dpb+QRSQ
 	lda #R_HEAD_SQ >> 16
 	sta.w phys_dpb+QRSQ+2
+	lda #G3_KH
+	sta.w phys_dpb+G3_K
 	lda #1
 	sta.w phys_dpb+QHEAD
 	pea PHYS_DPB
