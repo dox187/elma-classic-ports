@@ -912,13 +912,12 @@ def main():
     a += ['.SECTION ".bike_atan8" SUPERFREE', 'bike_t_atan8:']
     a += db(tb['atan8'], 32)
     a += ['.ENDS', '']
-    # The limbs by the rider's place (not turned): 2 x, 2 y, the angle << 8,
-    # 2 * the distance and the angle (1024 steps) of the center.
+    # The limbs by the rider's place (not turned): the angle << 8, 2 * the
+    # distance and the angle (1024 steps) of the center.
     for name in LIMBS:
         lx, ly, la = (tb['limb_%s_%s' % (name, f)] for f in 'xya')
         lr, lp = tb['limb_%s_r2' % name], tb['limb_%s_phi' % name]
-        for f, tab in (('x2', [2 * x for x in lx]), ('y2', [2 * y for y in ly]),
-                       ('a16', [x << 8 for x in la]), ('r2', lr), ('phi', lp)):
+        for f, tab in (('a16', [x << 8 for x in la]), ('r2', lr), ('phi', lp)):
             a += ['.SECTION ".bike_limb_%s_%s" SUPERFREE' % (name, f),
                   'bike_limb_%s_%s:' % (name, f)]
             a += ['\t.dw ' + ','.join('%d & $FFFF' % x for x in tab[i:i + 16])
@@ -937,6 +936,8 @@ def main():
                   for i in range(0, len(vals), 16)]
     a += ['.ENDS', '']
     for name in geo.points:
+        if name in ('foot', 'hip'):         # not drawn (bike.asm)
+            continue
         a += ['.SECTION ".bike_rot_%s" SUPERFREE' % name, 'bike_rot_%s:' % name]
         tab = tb['rot_' + name]
         for i in range(0, len(tab), 8):

@@ -966,21 +966,34 @@ bk_geometry:
 	ldx.b Z_IDXT
 .ELSE
 .IF \4 == 0
-	lda.l bike_limb_\1_x2,x
+	lda.l bike_limb_\1_phi,x    ; turning: in the frame of the bike
 .ELSE
-	lda #0                      ; mirrored
+	lda.w #512+1024             ; mirrored: 512 - its angle
 	sec
-	sbc.l bike_limb_\1_x2,x
+	sbc.l bike_limb_\1_phi,x
 .ENDIF
-	sta.b Z_T3                  ; turning: x squashed along the bike,
-	asl a                       ; x += x (f - 1)
+	tay
+	lda.l bike_limb_\1_r2,x
+	asl a
+	MA
+	tyx
+	lda.l bike_t_sin+256,x
+	MB
+	sta.b Z_T3                  ; 2 x
+	sep #$20
+	lda.l bike_t_sin,x
+	MB
+	sta.b Z_T4                  ; 2 y
+	ldx.b Z_IDXT
+	lda.b Z_T3                  ; x squashed along the bike, x += x (f - 1)
+	asl a
 	asl a
 	MA
 	lda.b Z_G
 	MB
 	clc
 	adc.b Z_T3
-	MA
+	MA                          ; then turned with it
 	lda.b Z_C
 	MB
 	sta.b Z_T0                  ; x c
@@ -988,7 +1001,7 @@ bk_geometry:
 	lda.b Z_S
 	MB
 	sta.b Z_T1                  ; x s
-	lda.l bike_limb_\1_y2,x
+	lda.b Z_T4
 	MA
 	lda.b Z_S
 	MB
