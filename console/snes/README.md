@@ -38,6 +38,18 @@ The ROM is a LoROM cartridge with FastROM, 4 MB of ROM and 8 KB of
 battery-backed RAM. It has been tested in emulators only (Mesen 2 and
 snes9x).
 
+## Known issues
+
+This version does not give the experience of playing the original game, and
+it may have bugs.
+
+- When the bike moves fast, the edges of the level that come onto the
+  screen (the ground against the air, the grass and the pictures) are drawn
+  late: for a moment they show the plain texture of the ground or the air,
+  until the console catches up. The console makes these parts of the
+  picture while the level scrolls, in the time that the physics leaves of a
+  frame.
+
 ## Physics
 
 The physics runs 80 steps a second, as close to the original's 0.0055 game

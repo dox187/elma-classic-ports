@@ -47,7 +47,8 @@ objects drawn from the pictures of the game's LGR file, and the menus, best
 times and sounds of the original. The physics is rewritten in fixed point
 and 65816 assembly. Every ROM is built from the files of your own copy of
 the game, the shareware, the registered or the Steam release. Tested in
-emulators only.
+emulators only. It does not give the experience of playing the original
+game and may have bugs.
 
 <p>
   <img src="console/snes/docs/title.gif" width="256" alt="SNES demake title screen and main menu">
