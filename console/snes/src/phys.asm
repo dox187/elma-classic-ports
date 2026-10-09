@@ -168,17 +168,31 @@ _c16ok:
 	sta.w MPYA
 .ENDM
 
-; Kept from the head of a step for the rider of the next one (low RAM):
-.DEFINE g2_ofxb g2_ram+0        ; rsh( mq16( Sn, K44_15 ), 6 )+32768
-.DEFINE g2_ofyb g2_ram+2        ; rsh( mq16( Cs, K44_15 ), 6 )+32768
+; The multiplicand = the constant \1 (A is changed).
+.MACRO G2_MAK
+	lda #(((\1) >> 8) & $FF) | (((\1) & $FF) << 8)
+	sta.w MPYA
+	sta.w MPYA
+.ENDM
 
-; The rider (phys_rider): page A bytes of the fast case, low RAM.
-.DEFINE G2_DX $DA               ; rider_x-body_x (P)
-.DEFINE G2_DY $DC               ; rider_y-body_y (P)
+; Kept from the head of a step for the rider of the next one (low RAM):
+
+.DEFINE g2_ofxb g2_ram+0        ; rsh( mq16( Sn, K44_15 ), 6 )+32768-1
+.DEFINE g2_ofyb g2_ram+2        ; rsh( mq16( Cs, K44_15 ), 6 )+32768+1
+
+; The rider (phys_rider): page A bytes, low RAM.
+.DEFINE G2_DX $DA               ; dx, dy (2^-15 m) for the exact x, y
+.DEFINE G2_DY $DC
 .DEFINE G2_FLAG $DE             ; 0: the fast case
-.DEFINE G2_DIRX $FC             ; dirx, diry of the spring
-.DEFINE G2_DIRY $FE
+.DEFINE G2_IX $FC               ; 2*(dirx+4079), 2*(diry+4079) of the spring
+.DEFINE G2_IY $FE
 .DEFINE g2_w g2_ram+4           ; body.w at the start of the step
+.DEFINE g2_sxr g2_ram+8         ; the box of phys_rider: 2*(s-G2_RB+4079)
+.DEFINE g2_syr g2_ram+10        ; with s = (-Sn, Cs)*G2_SK/256
+.DEFINE G2_SK 12
+.DEFINE G2_RB 2000
+.DEFINE G2_OA 2610              ; the octagon after the box: a vertex
+.DEFINE G2_OB 3690              ; (2610, 1080) within 2825
 
 ; A = (A+64) >> 7, signed (A+64 within 16 bits).
 .MACRO G2_SHR7
@@ -190,24 +204,6 @@ _c16ok:
 	bcc _g2s7\@
 	ora #$FF00
 _g2s7\@:
-.ENDM
-
-; The double word \1 += A (signed 16-bit); Y is used.
-.MACRO G2_ADDS16
-	tay
-	clc
-	adc.b \1
-	sta.b \1
-	tya
-	bmi _g2as_n\@
-	lda.b \1+2
-	adc #0
-	bra _g2as_e\@
-_g2as_n\@:
-	lda.b \1+2
-	adc #$FFFF
-_g2as_e\@:
-	sta.b \1+2
 .ENDM
 
 ; The double word \1 += rsh( \2, 8 ) = (\2 >> 8)+bit 7 of \2; X is used.
@@ -234,63 +230,6 @@ _g2ar_e\@:
 	txa
 	adc.b \1+2
 	sta.b \1+2
-.ENDM
-
-; Y:X = R+$808080 for \2 = 0, -R+$808080 for \2 = 1, with R = rsh( mq24(
-; wb, \1 ), 7 ) (|\1| <= 16384, WD the signed bytes of wb, MD0 = 2*w2 and
-; MD1 = -2*w2 in [-126, 126]): 2*P2+2*V1+((W0+l1+64) >> 7) of the products
-; \1*w0 = 256*W0+.., \1*w1 = 256*V1+l1, \1*w2 = P2; T0 is used.
-.MACRO G2_WBMUL
-	lda.b \1
-	G2_MA
-	lda.b WD
-	sta.w MPYB                  ; *w0
-	lda.w MPYM
-	clc
-	adc #64+8192
-	sta.b T0
-	lda.b WD+1
-	sta.w MPYB                  ; *w1
-	lda.w MPYL
-	and #$00FF
-	clc
-	adc.b T0
-	asl a
-	xba
-	and #$00FF                  ; ((W0+l1+64) >> 7)+64
-	clc
-	adc.w MPYM
-	clc
-	adc.w MPYM                  ; 2*V1+..+64
-	.IF \2 == 0
-	clc
-	adc #$8080-64
-	tax
-	lda.b MD0
-	.ELSE
-	eor #$FFFF
-	sec
-	adc #$8080+64
-	tax
-	lda.b MD0+1
-	.ENDIF
-	and #$00FF
-	beq _g2wb_z\@
-	sta.w MPYB                  ; *(+-2*w2)
-	txa
-	clc
-	adc.w MPYL
-	tax
-	lda.w MPYM
-	xba
-	and #$00FF
-	eor #$0080
-	adc #0
-	tay
-	bra _g2wb_e\@
-_g2wb_z\@:
-	ldy #$0080
-_g2wb_e\@:
 .ENDM
 
 ; Y = G of G2_MULKS for \1 = x+$808080 (in range), s = \2; \1 is used.
@@ -399,78 +338,159 @@ _g2md_3\@:
 _g2md_e\@:
 .ENDM
 
-; \4 += MULK( \1, K_RIDER_S )-\2+\3, \5 += rsh( \4, 8 ): |\1| < 4080 from
-; the table g2_mst (else K_RIDER_S_M is the multiplicand of MULK).
-.MACRO G2_RIDV
+; A = V1+floor( (W0+l1+128)/256 )+64 for the products 2d*w0 = 256*W0+..
+; and 2d*w1 = 256*V1+l1 of the multiplicand 2d (in [-32768, 32766]) and
+; the signed bytes WD; T0 is used.
+.MACRO G2_WQ
+	lda.b WD
+	sta.w MPYB                  ; *w0
+	lda.w MPYM
+	clc
+	adc #128+16384
+	sta.b T0
+	lda.b WD+1
+	sta.w MPYB                  ; *w1
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b T0
+	xba
+	and #$00FF
+	clc
+	adc.w MPYM
+.ENDM
+
+; A = MULK( x, K_RIDER_D )+32 for \1 = x+$808080 of two signed bytes (\1+2
+; = $0080) and the multiplicand K_RIDER_D_M/2: (G+64) >> 1 with G of
+; G2_MKG (s = 1); Y and \1 are used.
+.MACRO G2_DMP
 	lda.b \1
+	eor #$8080
+	sta.w MPYB                  ; *e0
+	xba
+	tay
+	lda.w MPYM
 	clc
-	adc #4079
-	cmp #2*4079+1
-	bcc _g2rv_f\@
-	jmp _g2rv_s\@
-_g2rv_f\@:
-	asl a
-	tax
-	lda.l g2_mst,x
+	adc #16384+256
+	sta.b \1
+	sty.w MPYB                  ; *e1
+	lda.w MPYL
+	and #$00FF
 	clc
-	adc.b \3                    ; MULK+gv (16 bits)
-	ldx.b \2+2
-	cpx #$8000
-	bne _g2rv_32\@
-	sec
-	sbc.b \2                    ; -MULK of two bytes
-	G2_ADDS16 \4
-	jmp _g2rv_p\@
-_g2rv_32\@:
-	tax
-	lda.b \4
-	sec
-	sbc.b \2
-	sta.b \4
-	lda.b \4+2
-	sbc.b \2+2
-	sta.b \4+2
-	txa
-	G2_ADDS16 \4
-	jmp _g2rv_p\@
-_g2rv_s\@:
-	lda.b \2+2
+	adc.b \1
+	xba
+	and #$00FF
+	clc
+	adc.w MPYM
 	cmp #$8000
-	bne _g2rv_s32\@
+	ror a
+.ENDM
+
+; \2 -= MULK( x, K_RIDER_D ) for \1 = x+$808080 (any, clamped here) and the
+; multiplicand K_RIDER_D_M/2: (G+P) >> 1 with G of G2_DMP (G2_MKG, s = 1)
+; and P = M*e2 (the third signed byte), as (G+32768+P+$800000) >> 1 =
+; MULK+$404000. T0, Y and \1 are used.
+.MACRO G2_DMP3
+	lda.b \1+2
+	cmp #$0100
+	bcc _g2d3_in\@
+	bmi _g2d3_lo\@
+	lda #$FFFF
+	sta.b \1
+	lda #$00FF
+	sta.b \1+2
+	bra _g2d3_in\@
+_g2d3_lo\@:
+	stz.b \1
+	stz.b \1+2
+_g2d3_in\@:
+	lda.b \1
+	eor #$8080
+	sta.w MPYB                  ; *e0
+	xba
+	tay
+	lda.w MPYM
+	clc
+	adc #16384+256
+	sta.b T0
+	sty.w MPYB                  ; *e1
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b T0
+	xba
+	and #$00FF
+	clc
+	adc.w MPYM
+	clc
+	adc #32768-64
+	sta.b T0                    ; G+32768
+	lda.b \1+2
+	eor #$0080
+	sta.w MPYB                  ; *e2
+	lda.w MPYL
+	clc
+	adc.b T0
+	sta.b T0
+	lda.w MPYM
+	xba
+	and #$00FF
+	eor #$0080
+	adc #0
+	lsr a
+	ror.b T0
+	sta.b T0+2                  ; MULK+$404000
 	lda.b \2
-	cmp #$8000
-	lda #0
-	bcc _g2rv_sp\@
-	dec a
-_g2rv_sp\@:
-	sta.b \2+2
-_g2rv_s32\@:
-	lda.b \1
-	jsr phys_ext32
-	MULK T0, K_RIDER_S
-	lda.b \4
 	sec
-	sbc.b \2
+	sbc.b T0
 	tax
-	lda.b \4+2
-	sbc.b \2+2
+	lda.b \2+2
+	sbc.b T0+2
 	tay
 	txa
 	clc
-	adc.b R
-	tax
+	adc #$4000
+	sta.b \2
 	tya
-	adc.b R+2
-	tay
-	txa
+	adc #$0040
+	sta.b \2+2
+.ENDM
+
+; The double word \1 += A (signed 16-bit, N its sign), then the double word
+; \2 += rsh( \1, 8 ); X is used.
+.MACRO G2_VPOS
+	bmi _g2vp_n\@
 	clc
-	adc.b \3
-	sta.b \4
-	tya
-	adc.b \3+2
-	sta.b \4+2
-_g2rv_p\@:
-	G2_ADDRSH8 \5, \4, 1
+	adc.b \1
+	sta.b \1
+	lda.b \1+2
+	adc #0
+	bra _g2vp_s\@
+_g2vp_n\@:
+	clc
+	adc.b \1
+	sta.b \1
+	lda.b \1+2
+	adc #$FFFF
+_g2vp_s\@:
+	sta.b \1+2
+	bmi _g2vp_m\@
+	xba
+	and #$00FF
+	bra _g2vp_x\@
+_g2vp_m\@:
+	xba
+	ora #$FF00
+_g2vp_x\@:
+	tax
+	lda.b \1-1                  ; bit 15: bit 7 of \1
+	asl a
+	lda.b \1+1
+	adc.b \2
+	sta.b \2
+	txa
+	adc.b \2+2
+	sta.b \2+2
 .ENDM
 
 .IF SEAT_NX != -13923 || SEAT_NY != 29663 || SEAT_C8 != 1117372
@@ -491,55 +511,53 @@ g2_ellt:
 	.dw 12203, 11803, 11370, 10898, 10385, 9821, 9198, 8505, 7720, 6814
 	.dw 5727, 4327, 2056, 0
 
-; \2 = the angle of the circle \1 as 65536 a turn.
+; \2 = the angle of the circle \1 as 65536 a turn, for the multiplicand
+; 4*K_WVIEW_M-65536 = 17908: with x = a >> 15 it is x+floor( (17908*x
+; +2^15)/2^16 ) = x+V+((W0+l+128) >> 8) for 17908*x0 = 256*W0+.., 17908*x1
+; = 256*V+l (x0, x1 the signed bytes of x); T0, T1 and X are used.
 .IF K_WVIEW_M != 20861 || K_WVIEW_SH != 14
-.FAIL "G2_ANG16: 4*K_WVIEW_M = 65536+70*256-12"
+.FAIL "G2_ANG16: 4*K_WVIEW_M = 65536+17908"
 .ENDIF
 .MACRO G2_ANG16
 	lda.b \1+C_A
 	asl a
 	lda.b \1+C_A+2
-	rol a
-	tay
-	G2_MA
-	lda #$00F4
-	sta.w MPYB
+	rol a                       ; x
+	sta.b T0
+	sta.w MPYB                  ; *x0
+	clc
+	adc #$0080
+	xba
+	tax                         ; x1
 	lda.w MPYM
 	clc
-	adc #2176
-	sta.b T0
-	lda #70
-	sta.w MPYB
+	adc #16384+128
+	sta.b T1
+	stx.w MPYB                  ; *x1
 	lda.w MPYL
 	and #$00FF
 	clc
-	adc.b T0
+	adc.b T1
 	xba
 	and #$00FF
 	clc
 	adc.w MPYM
-	sty.b T0
 	clc
 	adc.b T0
 	sec
-	sbc #8
+	sbc #64
 	sta.w \2
 .ENDM
 
-; \2 = qsin( \1 ) for the double word \1 in [0, pi/2] (W) (a double
-; word of the direct page): the table value plus floor( (f*d+16384)/32768 ) = h+((W0+l+128
-; +16384) >> 8)-64, with f the multiplicand and e = 2d in signed bytes
-; (f*e0 = 256*W0+.., f*e1 = 256*h+l). T2, X and Y are used.
+; \2 = qsin( \1 ) for the double word \1 in [0, pi/2] (W) of the direct
+; page, -qsin( \1 ) for \3 = 1: the table value t plus v = floor( (f*d
+; +16384)/32768 ) = h+((W0+l+128+16384) >> 8)-64, with f the multiplicand
+; and e = 2d in signed bytes (f*e0 = 256*W0+.., f*e1 = 256*h+l), from
+; g2_qs at 8i (i = b >> 19); -(t+v) = ~(t+v-1). T2 and X are used.
 .MACRO G2_QSIN
 	lda.b \1+2
-	lsr a
-	lsr a
-	lsr a                       ; i = b >> 19
-	sta.b T2
-	asl a
-	tax
-	adc.b T2
-	tay                         ; 3i
+	and #$FFF8
+	tax                         ; 8i
 	lda.b \1
 	asl a
 	asl a
@@ -553,54 +571,55 @@ g2_ellt:
 	lsr a
 	and #$007F                  ; the high byte of f
 	sta.w MPYA
-	lda.l phys_qsind,x
-	asl a                       ; e = 2d
+	lda.l g2_qs+4,x
 	sta.w MPYB                  ; f*e0
-	tax
 	lda.w MPYM
 	clc
 	adc #16512
-	sta.b T2+2
-	txa
-	clc
-	adc #$0080
-	xba
+	sta.b T2
+	lda.l g2_qs+6,x
 	sta.w MPYB                  ; f*e1
 	lda.w MPYL
 	and #$00FF
 	clc
-	adc.b T2+2
+	adc.b T2
 	xba
 	and #$00FF
 	clc
 	adc.w MPYM
-	tyx
 	sec
-	sbc #64
+	sbc #64+\3                  ; v (v-1)
 	bmi _g2qs_neg\@
 	clc
-	adc.l phys_qsin,x
+	adc.l g2_qs,x
+	.IF \3 != 0
+	eor #$FFFF
+	.ENDIF
 	sta.b \2
-	lda.l phys_qsin+2,x
-	and #$00FF
+	lda.l g2_qs+2,x
 	adc #0
 	bra _g2qs_end\@
 _g2qs_neg\@:
 	clc
-	adc.l phys_qsin,x
+	adc.l g2_qs,x
+	.IF \3 != 0
+	eor #$FFFF
+	.ENDIF
 	sta.b \2
-	lda.l phys_qsin+2,x
-	and #$00FF
+	lda.l g2_qs+2,x
 	adc #$FFFF
 _g2qs_end\@:
+	.IF \3 != 0
+	eor #$FFFF
+	.ENDIF
 	sta.b \2+2
 .ENDM
 
-; A = q15( \1 ) for \1 in [0, 2^22]: \1 >> 7, at most 32767.
+; A = q15( \1 ) for \1 in [0, 2^22] (a double word of the direct page): \1
+; >> 7, at most 32767.
 .MACRO G2_Q15P
-	lda.b \1
-	xba
-	asl a
+	lda.b \1-1
+	asl a                       ; bit 7 of \1
 	lda.b \1+1
 	rol a
 	bpl _g2qp\@
@@ -608,10 +627,9 @@ _g2qs_end\@:
 _g2qp\@:
 .ENDM
 
-; A = q15( \1 ) for \1 in [-2^22, 0] (a double word of the direct page).
+; A = q15( \1 ) for \1 in [-2^22, 0].
 .MACRO G2_Q15N
-	lda.b \1
-	xba
+	lda.b \1-1
 	asl a
 	lda.b \1+1
 	rol a
@@ -621,145 +639,53 @@ _g2qp\@:
 _g2qn\@:
 .ENDM
 
-; trig: CS22, SN22, CS, SN of the angle of the body.
-phys_trig:
-	.ACCU 16
-	.INDEX 16
-	lda.b S_BODY+C_A+2
-	bpl +
-	lda #0
-	sec
-	sbc.b S_BODY+C_A
-	sta.b T0
-	lda #0
-	sbc.b S_BODY+C_A+2
-	sta.b T0+2
-	bra ++
-+	sta.b T0+2
-	lda.b S_BODY+C_A
-	sta.b T0
-++	; b = |a|: b > pi/2: sin( pi-b ), -sin( b-pi/2 ), else sin( b ),
-	; sin( pi/2-b ); T1 = the argument of the sin, T0 of the cos:
-	lda #HALFPI_W & $FFFF
-	cmp.b T0
-	lda #HALFPI_W >> 16
-	sbc.b T0+2
-	bcs _g2tr_le
-	lda #PI_W & $FFFF
-	sec
-	sbc.b T0
-	sta.b T1
-	lda #PI_W >> 16
-	sbc.b T0+2
-	sta.b T1+2
-	lda.b T0
-	sec
-	sbc #HALFPI_W & $FFFF
-	sta.b T0
-	lda.b T0+2
-	sbc #HALFPI_W >> 16
-	sta.b T0+2
-	lda #$8000
-	bra _g2tr_s
-_g2tr_le:
-	lda.b T0
-	sta.b T1
-	lda.b T0+2
-	sta.b T1+2
-	lda #HALFPI_W & $FFFF
-	sec
-	sbc.b T0
-	sta.b T0
-	lda #HALFPI_W >> 16
-	sbc.b T0+2
-	sta.b T0+2
-	lda #0
-_g2tr_s:
-	sta.b T3                    ; bit 15: the cos is negative
-	G2_QSIN T1, SN22
-	lda.b S_BODY+C_A+2
-	bmi _g2tr_sneg
-	G2_Q15P SN22
-	sta.b SN
-	bra _g2tr_c
-_g2tr_sneg:
-	lda #0
-	sec
-	sbc.b SN22
-	sta.b SN22
-	lda #0
-	sbc.b SN22+2
-	sta.b SN22+2
-	G2_Q15N SN22
-	sta.b SN
-_g2tr_c:
-	G2_QSIN T0, CS22
-	lda.b T3
-	bmi _g2tr_cneg
-	G2_Q15P CS22
-	sta.b CS
-	rts
-_g2tr_cneg:
-	lda #0
-	sec
-	sbc.b CS22
-	sta.b CS22
-	lda #0
-	sbc.b CS22+2
-	sta.b CS22+2
-	G2_Q15N CS22
-	sta.b CS
-	rts
-
-; \3 = \2 + rsh( 256*HV+E, 6 ) for E = \1, HV = \1+2 (words of the direct
-; page, E+32+32768 in [0, 65535], |HV| < 16000): with U = E+32+32768,
+; \3 = \2 + rsh( 256*HV+E, 6 ) for A = E+\4 (E+32+32768 in [0, 65535]) and
+; HV = \1 (a word of the direct page, |HV| < 16000): with U = E+32+32768,
 ; G = HV+(U >> 8)-128 and r = (U >> 6) & 3 it is 4G+r, whose sign is G's.
+; T2 and Y are used.
 .MACRO G2_HEADADD
-	lda.b \1
 	clc
-	adc #32+32768
+	adc #(32+32768-\4) & $FFFF
 	tay
 	and #$00C0
 	asl a
 	asl a
 	xba
-	sta.b \1                    ; r
+	sta.b T2                    ; r
 	tya
 	xba
 	and #$00FF
 	clc
-	adc.b \1+2
+	adc.b \1
 	sec
 	sbc #128                    ; G
 	bmi _g2ha_neg\@
 	asl a
 	asl a
-	ora.b \1
+	ora.b T2
 	clc
 	adc.b \2
 	sta.b \3
 	lda.b \2+2
 	adc #0
-	sta.b \3+2
 	bra _g2ha_end\@
 _g2ha_neg\@:
 	asl a
 	asl a
-	ora.b \1
+	ora.b T2
 	clc
 	adc.b \2
 	sta.b \3
 	lda.b \2+2
 	adc #$FFFF
-	sta.b \3+2
 _g2ha_end\@:
+	sta.b \3+2
 .ENDM
 
-; The offsets of the rider's rest over the body, for phys_rider (g2_ofxb,
-; g2_ofyb): rsh( mq16( Sn, K44_15 ), 6 ) and rsh( mq16( Cs, K44_15 ), 6 ),
-; plus 32768. The multiplicand is X = \2 (Cs or Sn): it is floor( (4*K44_15
-; *X+2^15)/2^16 ) with 4*K44_15 = 65536-31*256+72: X+V1+((W0+l1+128+16384)
-; >> 8)-64 (X*72 = 256*W0+.., -31*X = 256*V1+l1).
+; The offsets of the rider's rest over the body, for phys_rider (g2_ofxb):
+; rsh( mq16( \2, K44_15 ), 6 ), plus \3. The multiplicand is X = \2: it is
+; floor( (4*K44_15*X+2^15)/2^16 ) with 4*K44_15 = 65536-31*256+72: X+V1
+; +((W0+l1+128+16384) >> 8)-64 (X*72 = 256*W0+.., -31*X = 256*V1+l1).
 .MACRO G2_OFF44
 	lda #72
 	sta.w MPYB
@@ -780,33 +706,127 @@ _g2ha_end\@:
 	clc
 	adc.b \2
 	clc
-	adc #32768-64
+	adc #\3-64
 	sta.w \1
 .ENDM
 
-; szamitfejr: the head from the rider and the angle (CS, SN): head = rider
-; + rsh( mq16( Cs, hx )+mq16( Sn, -K63_15 ), 6 ), ..., each product as
-; W0+256*V+l (the signed bytes of the constants); also g2_ofxb, g2_ofyb.
-.IF K09_15 != $0B85 || K63_15 != $50A4 || K44_15 != $3852
-.FAIL "phys_head: the signed bytes of the constants"
-.ENDIF
-phys_head:
+; trig: CS22, SN22, CS, SN of the angle a of the body, then phys_head. With
+; b = |a|: sin( b ), cos( b ) = qsin( b ), qsin( HALFPI_W-b ) for b <=
+; HALFPI_W, else qsin( PI_W-b ), -qsin( b-HALFPI_W ).
+phys_trig:
 	.ACCU 16
 	.INDEX 16
-	ldx #$F47B                  ; -K09_15: 123, -12
-	lda.b S_TURNED
-	and #$00FF
-	beq +
-	ldx #$0C85                  ; K09_15: -123, 12
-+	stx.b T3
-	lda.b CS
-	G2_MA
+	lda.b S_BODY+C_A+2
+	bpl _g2tr_p
+	lda.b S_BODY+C_A
+	clc
+	adc #HALFPI_W & $FFFF
+	sta.b T0
+	lda.b S_BODY+C_A+2
+	adc #HALFPI_W >> 16
+	sta.b T0+2                  ; HALFPI_W-b
+	bmi _g2tr_n2
+	lda #0
+	sec
+	sbc.b S_BODY+C_A
+	sta.b T1
+	lda #0
+	sbc.b S_BODY+C_A+2
+	sta.b T1+2                  ; b
+	jmp _g2tr_n
+_g2tr_p2:
+	; b > HALFPI_W: PI_W-b and b-HALFPI_W, T3 bit 15: the sin is negative.
+	lda #PI_W & $FFFF
+	sec
+	sbc.b S_BODY+C_A
+	sta.b T1
+	lda #PI_W >> 16
+	sbc.b S_BODY+C_A+2
+	sta.b T1+2
+	lda #0
+	bra _g2tr_b2
+_g2tr_n2:
+	lda.b S_BODY+C_A
+	clc
+	adc #PI_W & $FFFF
+	sta.b T1
+	lda.b S_BODY+C_A+2
+	adc #PI_W >> 16
+	sta.b T1+2
+	lda #$8000
+_g2tr_b2:
+	sta.b T3
+	lda #0
+	sec
+	sbc.b T0
+	sta.b T0
+	lda #0
+	sbc.b T0+2
+	sta.b T0+2                  ; b-HALFPI_W
+	jmp _g2tr_b
+_g2tr_p:
+	lda #HALFPI_W & $FFFF
+	sec
+	sbc.b S_BODY+C_A
+	sta.b T0
+	lda #HALFPI_W >> 16
+	sbc.b S_BODY+C_A+2
+	sta.b T0+2                  ; HALFPI_W-b
+	bmi _g2tr_p2
+	G2_QSIN S_BODY+C_A, SN22, 0
+	G2_Q15P SN22
+	sta.b SN
+	G2_QSIN T0, CS22, 0
+	G2_Q15P CS22
+	sta.b CS
+	jmp _g2hd_cs
+_g2tr_n:
+	G2_QSIN T1, SN22, 1
+	G2_Q15N SN22
+	sta.b SN
+	G2_QSIN T0, CS22, 0
+	G2_Q15P CS22
+	sta.b CS
+	jmp _g2hd_cs
+_g2tr_b:
+	G2_QSIN T0, CS22, 1
+	G2_Q15N CS22
+	sta.b CS
+	G2_QSIN T1, SN22, 0
 	lda.b T3
-	sta.w MPYB                  ; Cs*hx0
+	bmi +
+	G2_Q15P SN22
+	sta.b SN
+	jmp phys_head
++	lda #0
+	sec
+	sbc.b SN22
+	sta.b SN22
+	lda #0
+	sbc.b SN22+2
+	sta.b SN22+2
+	G2_Q15N SN22
+	sta.b SN
+
+
+; szamitfejr for hx = K09_15 (\1 = 1, turned) or -K09_15 (\1 = 0), after
+; the multiplicand Cs: head = rider + rsh( mq16( Cs, hx )+mq16( Sn, -K63_15
+; ), 6 ), ..., each product as W0+256*V+l (the signed bytes of the
+; constants); also g2_ofxb, g2_ofyb (OFY with Cs*2*K44_15 = Cs*(256*113
+; -92): the low byte is K63_15's) and the box of phys_rider, s = (-Sn,
+; Cs)*12/256 from V of Cs*hx1, Sn*hx1 (hx1 = 12 or -12).
+.MACRO G2_HEAD
+	.IF \1 == 0
+	ldx #$F47B                  ; -K09_15: 123, -12
+	ldy #$00F4
+	.ELSE
+	ldx #$0C85                  ; K09_15: -123, 12
+	ldy #$000C
+	.ENDIF
+	stx.w MPYB                  ; Cs*hx0
 	lda.w MPYM
 	sta.b T0                    ; Ex
-	lda.b T3+1
-	sta.w MPYB                  ; Cs*hx1
+	sty.w MPYB                  ; Cs*hx1
 	lda.w MPYL
 	and #$00FF
 	clc
@@ -814,10 +834,39 @@ phys_head:
 	sta.b T0
 	lda.w MPYM
 	sta.b T0+2                  ; HVx
+	asl a
+	.IF \1 == 0
+	eor #$FFFF
+	sec
+	.ELSE
+	clc
+	.ENDIF
+	adc #2*(4079-G2_RB)
+	sta.w g2_syr
 	lda #$00A4
 	sta.w MPYB                  ; Cs*(-92)
 	lda.w MPYM
-	sta.b T1                    ; Ey
+	clc
+	adc #16384+64
+	sta.b T1                    ; Ey+16448
+	lda #113
+	sta.w MPYB                  ; Cs*113
+	; OFY = rsh( mq16( Cs, K44_15 ), 6 ) = floor( (Cs*2*K44_15+2^14)/2^15 )
+	; = 2*V+((W0+l+64) >> 7) for Cs*(-92) = 256*W0+.., Cs*113 = 256*V+l:
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b T1
+	asl a
+	xba
+	and #$00FF                  ; ((W0+l+64) >> 7)+128
+	clc
+	adc.w MPYM
+	clc
+	adc.w MPYM
+	clc
+	adc #32768+1-128
+	sta.w g2_ofyb
 	lda #81
 	sta.w MPYB                  ; Cs*81
 	lda.w MPYL
@@ -827,7 +876,6 @@ phys_head:
 	sta.b T1
 	lda.w MPYM
 	sta.b T1+2                  ; HVy
-	G2_OFF44 g2_ofyb, CS
 	lda.b SN
 	G2_MA
 	lda #92
@@ -836,44 +884,69 @@ phys_head:
 	clc
 	adc.b T0
 	sta.b T0
-	lda #$00AF
-	sta.w MPYB                  ; Sn*(-81)
+	stx.w MPYB                  ; Sn*hx0
+	lda.w MPYM
+	clc
+	adc.b T1
+	sta.b T1
+	sty.w MPYB                  ; Sn*hx1
+	lda.w MPYM
+	tax
+	clc
+	adc.b T1+2
+	sta.b T1+2
+	txa
+	asl a
+	.IF \1 == 0
+	clc
+	.ELSE
+	eor #$FFFF
+	sec
+	.ENDIF
+	adc #2*(4079-G2_RB)
+	sta.w g2_sxr
 	lda.w MPYL
 	and #$00FF
 	clc
-	adc.b T0
-	sta.b T0
+	adc.b T1
+	G2_HEADADD T1+2, S_RIDY, S_HEADY, 16448
+	lda #$00AF
+	sta.w MPYB                  ; Sn*(-81)
 	lda.w MPYM
 	clc
 	adc.b T0+2
 	sta.b T0+2
-	lda.b T3
-	sta.w MPYB                  ; Sn*hx0
-	lda.w MPYM
-	clc
-	adc.b T1
-	sta.b T1
-	lda.b T3+1
-	sta.w MPYB                  ; Sn*hx1
 	lda.w MPYL
 	and #$00FF
 	clc
-	adc.b T1
-	sta.b T1
-	lda.w MPYM
-	clc
-	adc.b T1+2
-	sta.b T1+2
-	G2_OFF44 g2_ofxb, SN
-	G2_HEADADD T0, S_RIDX, S_HEADX
-	G2_HEADADD T1, S_RIDY, S_HEADY
-	rts
+	adc.b T0
+	G2_HEADADD T0+2, S_RIDX, S_HEADX, 0
+	G2_OFF44 g2_ofxb, SN, 32768-1
+.ENDM
 
-; The view of the bike (phys_view) from the state; the angles as 65536 a
-; turn: rsh( mq24( a >> 15, K_WVIEW ), K_WVIEW_SH-8 ).
-phys_mkview:
+; szamitfejr: the head from the rider and the angle (CS, SN), G2_HEAD.
+.IF K09_15 != $0B85 || K63_15 != $50A4 || 2*K44_15 != 113*256-92
+.FAIL "phys_head: the signed bytes of the constants"
+.ENDIF
+phys_head:
 	.ACCU 16
 	.INDEX 16
+	lda.b CS
+_g2hd_cs:
+	G2_MA
+	lda.b S_TURNED
+	and #$00FF
+	beq +
+	jmp _g2hd_t
++	G2_HEAD 0
+	rts
+_g2hd_t:
+	G2_HEAD 1
+	rts
+
+; phys_view from the state; the angles as 65536 a turn: rsh( mq24( a >> 15,
+; K_WVIEW ), K_WVIEW_SH-8 ).
+.MACRO G2_VIEW
 	lda.b S_BODY+C_RX
 	sta.w phys_view+0
 	lda.b S_BODY+C_RX+2
@@ -914,13 +987,20 @@ phys_mkview:
 	sta.w phys_view+44
 	lda.b S_HEADY+2
 	sta.w phys_view+46
+	lda.b S_TURNED              ; turned, gravity
+	sta.w phys_view+48
+	G2_MAK 17908
 	G2_ANG16 S_BODY, phys_view+8
 	G2_ANG16 S_K2, phys_view+28
 	G2_ANG16 S_K4, phys_view+30
-	lda.b S_TURNED              ; turned, gravity
-	sta.w phys_view+48
-; The other outputs (also after a quick step):
-phys_mkout:
+.ENDM
+
+; The view of the bike (phys_view) and the other outputs from the state
+; (phys_step makes them itself).
+phys_mkview:
+	.ACCU 16
+	.INDEX 16
+	jsr _g2_view
 	sep #$20
 	lda.b S_LASTVOLT
 	sta.w phys_volt_age
@@ -934,6 +1014,9 @@ phys_mkout:
 	sec
 	sbc.b T0
 	sta.w phys_apples_left
+	rts
+_g2_view:
+	G2_VIEW
 	rts
 
 ; Our D and data bank, after php, phb, phd: the level's bank.
@@ -1097,8 +1180,7 @@ phys_level:
 	stz.w phys_wheel_omega
 	stz.b S_BODY+C_A            ; trig( 0 ), head
 	stz.b S_BODY+C_A+2
-	jsr phys_trig
-	jsr phys_head
+	jsr phys_trig               ; and phys_head
 	jsr phys_mkview
 	pld
 	plb
@@ -2752,141 +2834,164 @@ phys_frsqrt:
 	inc a
 .ENDM
 
-; beallitvezeto: the rider (vezeto_hatarolas keeps him over the seat). The
-; usual case is fast: rider-body within 16 bits (P), the seat, the clamps
-; and the ellipse not moving him, the angular velocity of the body the one
-; of the start of the step; the rest is done the slow way.
-phys_rider:
-	.ACCU 16
-	.INDEX 16
-	; d = rider-body; fast if in [-32768, 32767]: dx = rsh( d, 1 ) in
-	; [-16384, 16384], its high signed byte in [-64, 64] (no clamp):
+; One axis of phys_rider (\1 = 0: x, 1: y): D = rider-body+1, to \3 if it
+; is not in [-32768, 32767]; T2 (+2) = 2*rsh( rider-body, 1 ) = D & ~1 and
+; G2_IX (G2_IY) = 2*(dir+4079), dirx = -((D-1+OFX) >> 1) (g2_ofxb = OFX-1
+; +32768), diry = rsh( OFY-(D-1), 1 ) (g2_ofyb = OFY+1+32768); with \2 = 1
+; C = 0 for the rider in the box of the axis (g2_sxr, g2_syr).
+.MACRO G2_RDAX
+	.IF \1 == 0
 	lda.b S_RIDX
 	sec
 	sbc.b S_BODY+C_RX
 	tax
 	lda.b S_RIDX+2
 	sbc.b S_BODY+C_RX+2
-	beq +
-	inc a
-	bne _g2rd_sl1
-	txa
-	bpl _g2rd_sl1
-	bra ++
-+	txa
-	bmi _g2rd_sl1
-++	sta.b G2_DX
-	cmp #$8000
-	ror a
-	adc #0
-	sta.b T2                    ; dx (2^-15 m)
-	clc
-	adc #$0080
-	xba
-	sta.b MD0                   ; its high signed byte
+	.ELSE
 	lda.b S_RIDY
 	sec
 	sbc.b S_BODY+C_RY
 	tax
 	lda.b S_RIDY+2
 	sbc.b S_BODY+C_RY+2
-	beq +
+	.ENDIF
+	inx
+	bne _g2ra_i\@
 	inc a
-	bne _g2rd_sl1
+_g2ra_i\@:
+	cpx #$8000
+	adc #0
+	bne \3
 	txa
-	bpl _g2rd_sl1
-	bra ++
-+	txa
-	bmi _g2rd_sl1
-++	sta.b G2_DY
+	.IF \1 == 0
+	eor #$8000
+	clc
+	adc.w g2_ofxb
+	ror a                       ; ((D-1+OFX) >> 1)+32768
+	eor #$FFFF
+	.ELSE
+	eor #$7FFF
+	clc
+	adc.w g2_ofyb
+	ror a                       ; ((OFY-D) >> 1)+32768
+	.ENDIF
+	clc
+	adc #32768+4079+1
+	asl a
+	.IF \1 == 0
+	sta.b G2_IX
+	.IF \2 != 0
+	sec
+	sbc.w g2_sxr                ; 2*(dirx-sx+G2_RB)
+	cmp #4*G2_RB+1
+	.ENDIF
+	.ELSE
+	sta.b G2_IY
+	.IF \2 != 0
+	sec
+	sbc.w g2_syr
+	cmp #4*G2_RB+1
+	.ENDIF
+	.ENDIF
+	txa
+	and #$FFFE
+	.IF \1 == 0
+	sta.b T2
+	.ELSE
+	sta.b T2+2
+	.ENDIF
+.ENDM
+
+; beallitvezeto: the rider (vezeto_hatarolas keeps him over the seat). The
+; usual case is fast: rider-body within 16 bits (P), the rider in a box
+; around a point under his rest where neither the seat, the clamps nor the
+; ellipse move him, the angular velocity of the body the one of the start
+; of the step; the rest is done the slow way.
+;
+; The box: with s = (-Sn, Cs)*G2_SK/256 (g2_sxr, g2_syr, +-1), |dir-s| <=
+; G2_RB in both axes puts the rider (in the frame of the body) within
+; G2_RB*sqrt(2) (+8 for the roundings) of (0, K44_15-128*G2_SK), inside the
+; region where nothing moves him: y <= RIDER_TOP and the ellipse 2847 away,
+; the seat 2931.
+.IF K44_15 != 14418 || G2_SK != 12 || G2_RB > 2000 || G2_OA > 2610 || G2_OB > 3690
+
+
+.FAIL "phys_rider: the box"
+.ENDIF
+phys_rider:
+	.ACCU 16
+	.INDEX 16
+	G2_RDAX 0, 1, _g2rd_sl1
+	bcs _g2rd_bx
+	G2_RDAX 1, 1, _g2rd_sl1
+	bcs _g2rd_by
+	jmp _g2rd_fast
+_g2rd_sl1:
+	jmp _g2rd_slow
+_g2rd_bx:
+	; (outside the box in x: y without its test)
+	G2_RDAX 1, 0, _g2rd_sl1
+
+_g2rd_by:
+	; Outside the box: the octagon |u| <= G2_OA, |ux|+|uy| <= G2_OB of u =
+	; dir-s is within G2_RB*sqrt(2) of the same point too (2*u as G2_IX
+	; -g2_sxr-2*G2_RB, of 16 bits only up to 32767 but then not small).
+	lda.b G2_IX
+	sec
+	sbc.w g2_sxr
+	sec
+	sbc #2*G2_RB
+	bpl +
+	eor #$FFFF
+	inc a
++	cmp #2*G2_OA+1
+	bcs _g2rd_ex
+	sta.b T0
+	lda.b G2_IY
+	sec
+	sbc.w g2_syr
+	sec
+	sbc #2*G2_RB
+	bpl +
+	eor #$FFFF
+	inc a
++	cmp #2*G2_OA+1
+	bcs _g2rd_ex
+	clc
+	adc.b T0
+	cmp #2*G2_OB+1
+	bcs _g2rd_ex
+	jmp _g2rd_fast
+_g2rd_ex:
+	; x, y exactly. G2_DX, G2_DY = dx, dy, MD0, MD2 their high signed
+	; bytes:
+	stz.b G2_FLAG
+	lda.b T2
 	cmp #$8000
 	ror a
-	adc #0
-	sta.b T2+2                  ; dy
+	sta.b G2_DX
+	clc
+	adc #$0080
+	xba
+	sta.b MD0
+	lda.b T2+2
+	cmp #$8000
+	ror a
+	sta.b G2_DY
 	clc
 	adc #$0080
 	xba
 	sta.b MD2
-	stz.b G2_FLAG
-	bra _g2rd_rot
-_g2rd_sl1:
-	jmp _g2rd_slow
-_g2rd_rot:
-	; Usually x, y are needed only to know that the rider is not moved:
-	; x~ = 2*(Va+Vb) of the high bytes' products (below) is x-185 to x+181,
-	; y~ (with -(Sn*dx1 >> 8)) y-185 to y+183. Sure if y~ in [10800+192,
-	; RIDER_TOP-192], x~ in [RIDER_LEFT+192, 2048-192] (the seat and the
-	; clamps, see below) and x~+192 <= 0 or y~+192 <= g2_ellt[(x~+192) >> 8].
-	lda.b CS
-	G2_MA
-	lda.b MD0
-	sta.w MPYB                  ; Cs*dx1
-	ldx.w MPYM
-	lda.b MD2
-	sta.w MPYB                  ; Cs*dy1
-	ldy.w MPYM
-	lda.b SN
-	G2_MA
-	lda.b MD2
-	sta.w MPYB                  ; Sn*dy1
-	txa
-	clc
-	adc.w MPYM
-	asl a
-	sta.b T3                    ; x~
-	lda.b MD0
-	sta.w MPYB                  ; Sn*dx1
-	tya
-	sec
-	sbc.w MPYM
-	asl a
-	sta.b T3+2                  ; y~
-	lda.b S_TURNED
-	and #$00FF
-	beq +
-	lda #0
-	sec
-	sbc.b T3
-	sta.b T3
-+	lda.b T3+2
-	sec
-	sbc #10800+192
-	cmp #RIDER_TOP-10800-2*192+1
-	bcs _g2rd_exact
-	lda.b T3
-	clc
-	adc #-RIDER_LEFT-192
-	cmp #2048-RIDER_LEFT-2*192+1
-	bcs _g2rd_exact
-	lda.b T3
-	clc
-	adc #192
-	beq _g2rd_sure
-	bmi _g2rd_sure
-	xba
-	and #$00FF
-	asl a
-	tax
-	lda.b T3+2
-	clc
-	adc #192
-	cmp.l g2_ellt,x
-	bcc _g2rd_sure
-	beq _g2rd_sure
-	bra _g2rd_exact
-_g2rd_sure:
-	jmp _g2rd_fast
-_g2rd_exact:
 	; x = rsh( mq16( Cs, dx )+mq16( Sn, dy ), 7 ): with the products as
 	; 256*W0+.. (low bytes) and 256*V+l (high bytes), it is 2*(Va+Vb)
 	; +((W0a+la+W0b+lb+64) >> 7) (|Cs|+|Sn| < 46400: no overflow, no clamp):
 	lda.b CS
 	G2_MA
-	lda.b T2
+	lda.b G2_DX
 	sta.w MPYB                  ; Cs*dx0
 	lda.w MPYM
 	sta.b R
-	lda.b T2+2
+	lda.b G2_DY
 	sta.w MPYB                  ; Cs*dy0
 	lda.w MPYM
 	sta.b R2
@@ -2910,7 +3015,7 @@ _g2rd_exact:
 	sta.b R2+2
 	lda.b SN
 	G2_MA
-	lda.b T2+2
+	lda.b G2_DY
 	sta.w MPYB                  ; Sn*dy0
 	lda.w MPYM
 	clc
@@ -2936,7 +3041,7 @@ _g2rd_exact:
 	sec
 	sbc.b SN
 	G2_MA
-	lda.b T2
+	lda.b G2_DX
 	sta.w MPYB                  ; -Sn*dx0
 	lda.w MPYM
 	clc
@@ -3185,43 +3290,130 @@ _rd_back:
 	lda.b T3
 	NEGA
 	sta.b T3
-+	; rider = body + rsh( mq16( Cs, x )+mq16( -Sn, y ), 6 ), ...
++	; rider = body + rsh( mq16( Cs, x )+mq16( Sn, -y ), 6 ), body + rsh(
+	; mq16( Sn, x )+mq16( Cs, y ), 6 ) as in phys_head (x in [RIDER_LEFT,
+	; RIDER_RIGHT], y in [-3100, RIDER_TOP] here, after the seat: the sums
+	; within 16 bits): MD0, MD2 the high signed bytes of x, y, T1 = -y and
+	; its high signed byte:
+
+	lda.b T3
+	clc
+	adc #$0080
+	xba
+	sta.b MD0
+	lda.b T3+2
+	clc
+	adc #$0080
+	xba
+	sta.b MD2
 	lda #0
 	sec
-	sbc.b SN
+	sbc.b T3+2
+	sta.b T1
+	clc
+	adc #$0080
+	xba
+	sta.b T1+2
+	lda.b CS
+	G2_MA
+	lda.b T3
+	sta.w MPYB                  ; Cs*x0
+	lda.w MPYM
+	sta.b T0                    ; Ex
+	lda.b MD0
+	sta.w MPYB                  ; Cs*x1
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b T0
 	sta.b T0
-	sep #$20
-	DIG16 T3, R2
-	DIG16 T3+2, R2+2
-	MB_DP CS
-	RSET16 R2
-	sep #$20
-	MB_DP T0
-	RADD16 R2+2
-	RFIN 6, 2*$808000
-	ADD32 S_RIDX, S_BODY+C_RX, R
-	sep #$20
-	MB_DP SN
-	RSET16 R2
-	sep #$20
-	MB_DP CS
-	RADD16 R2+2
-	RFIN 6, 2*$808000
-	ADD32 S_RIDY, S_BODY+C_RY, R
+	lda.w MPYM
+	sta.b T0+2                  ; HVx
+	lda.b T3+2
+	sta.w MPYB                  ; Cs*y0
+	lda.w MPYM
+	sta.b R                     ; Ey
+	lda.b MD2
+	sta.w MPYB                  ; Cs*y1
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b R
+	sta.b R
+	lda.w MPYM
+	sta.b R+2                   ; HVy
+	lda.b SN
+	G2_MA
+	lda.b T1
+	sta.w MPYB                  ; Sn*(-y)0
+	lda.w MPYM
+	clc
+	adc.b T0
+	sta.b T0
+	lda.b T1+2
+	sta.w MPYB                  ; Sn*(-y)1
+	lda.w MPYM
+	clc
+	adc.b T0+2
+	sta.b T0+2
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b T0
+	G2_HEADADD T0+2, S_BODY+C_RX, S_RIDX, 0
+	lda.b T3
+	sta.w MPYB                  ; Sn*x0
+	lda.w MPYM
+	clc
+	adc.b R
+	sta.b R
+	lda.b MD0
+	sta.w MPYB                  ; Sn*x1
+	lda.w MPYM
+	clc
+	adc.b R+2
+	sta.b R+2
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b R
+	G2_HEADADD R+2, S_BODY+C_RY, S_RIDY, 0
+	; dx, dy, dirx, diry again, and the fast products:
+	G2_RDAX 0, 0, _g2rd_sl2
+	G2_RDAX 1, 0, _g2rd_sl2
+	jmp _g2rd_fast
+_g2rd_sl2:
+	jmp _g2rd_sslow
+
 _g2rd_sslow:
-	; The spring the slow way: dirx, diry, dx, dy, then mvx, mvy:
+	; The spring the slow way: dirx, diry (G2_IX, G2_IY: $FFFE outside the
+	; table), dx, dy, then mvx, mvy:
 	lda.w g2_ofxb
 	eor #$8000
+	inc a                       ; OFX
 	jsr phys_ext32
 	SUB32 T1, S_BODY+C_RX, T0   ; rgx
 	HALFDIFF T1, S_RIDX
-	sta.b G2_DIRX
+	clc
+	adc #4079
+	cmp #2*4079+1
+	bcc +
+	lda #$7FFF
++	asl a
+	sta.b G2_IX
 	lda.w g2_ofyb
 	eor #$8000
+	dec a                       ; OFY
 	jsr phys_ext32
 	ADD32 T1, S_BODY+C_RY, T0   ; rgy
 	HALFDIFF T1, S_RIDY
-	sta.b G2_DIRY
+	clc
+	adc #4079
+	cmp #2*4079+1
+	bcc +
+	lda #$7FFF
++	asl a
+	sta.b G2_IY
 	HALFDIFF S_RIDX, S_BODY+C_RX
 	sta.b T2                    ; dx
 	HALFDIFF S_RIDY, S_BODY+C_RY
@@ -3284,51 +3476,54 @@ _g2rd_wslow:
 	adc #$0080
 	sta.b T3+2
 	jmp _g2rd_mulk
+_g2rd_ws:
+	; (body.w changed, or w2 = -128: dx, dy for the slow way)
+	lda.b T2
+	cmp #$8000
+	ror a
+	sta.b T2
+	lda.b T2+2
+	cmp #$8000
+	ror a
+	sta.b T2+2
+	jmp _g2rd_wslow
 _g2rd_fast:
-	; dirx = rsh( rgx-rider_x, 1 ) = -((d_x+OFX) >> 1), diry = rsh( OFY
-	; -d_y, 1 ) (17-bit sums with the biases, no clamp):
-	lda.b G2_DX
-	eor #$8000
-	clc
-	adc.w g2_ofxb
-	ror a
-	eor #$7FFF
-	inc a
-	sta.b G2_DIRX
-	lda.b G2_DY
-	eor #$7FFF
-	clc
-	adc.w g2_ofyb
-	ror a
-	eor #$8000
-	inc a
-	sta.b G2_DIRY
-	; WD = the signed bytes of wb if body.w is the one of the start of the
-	; step; its top one in [-63, 63]: MD0 = 2*w2, MD1 = -2*w2.
+	; mvx = body.vx-rsh( mq24( wb, dy ), 7 ), mvy = body.vy+rsh( mq24( wb,
+	; dx ), 7 ) with wb = rsh( body.w, 4 ) of the start of the step (its
+	; signed bytes WD; w2 not -128 for mvy): R2 = rider_vx-mvx+$808080, T3 =
+
+	; rider_vy-mvy+$808080.
 	lda.b S_BODY+C_W
 	cmp.w g2_w
 	bne _g2rd_ws
 	lda.b S_BODY+C_W+2
 	cmp.w g2_w+2
 	bne _g2rd_ws
-	lda.b WD+2
+	; rsh( mq24( wb, dy ), 7 ) = floor( (2*dy*wb+2^15)/2^16 ) = P2+V1+floor(
+	; (W0+l1+128)/256 ) with 2*dy*w0 = 256*W0+.., 2*dy*w1 = 256*V1+l1 and
+	; 2*dy*w2 = P2:
+	lda.b T2+2
+	G2_MA
+	G2_WQ
 	clc
-	adc #63
-	and #$00FF
-	cmp #127
-	bcc +
-_g2rd_ws:
-	jmp _g2rd_wslow
-+	sec
-	sbc #63
-	asl a
-	and #$00FF
-	sta.b MD0
-	eor #$00FF
-	inc a
-	sta.b MD0+1
-	G2_WBMUL T2+2, 0
+	adc #$8080-64
+	tax
+	lda.b WD+2
+	beq +
+	sta.w MPYB                  ; *w2
 	txa
+	clc
+	adc.w MPYL
+	tax
+	lda.w MPYM
+	xba
+	and #$00FF
+	eor #$0080
+	adc #0
+	tay
+	bra ++
++	ldy #$0080
+++	txa
 	clc
 	adc.b S_RIDVX
 	tax
@@ -3342,8 +3537,35 @@ _g2rd_ws:
 	tya
 	sbc.b S_BODY+C_VX+2
 	sta.b R2+2
-	G2_WBMUL T2, 1
+	; -rsh( mq24( wb, dx ), 7 ) the same way, -(V1+..) and -w2:
+	lda.b T2
+	G2_MA
+	G2_WQ
+	eor #$FFFF
+	sec
+	adc #$8080+64
+	tax
+	lda #0
+	sec
+	sbc.b WD+2
+	beq +
+	cmp #$FF80
+	bne ++
+	jmp _g2rd_ws
+++	sta.w MPYB                  ; *(-w2)
 	txa
+	clc
+	adc.w MPYL
+	tax
+	lda.w MPYM
+	xba
+	and #$00FF
+	eor #$0080
+	adc #0
+	tay
+	bra ++
++	ldy #$0080
+++	txa
 	clc
 	adc.b S_RIDVY
 	tax
@@ -3359,14 +3581,109 @@ _g2rd_ws:
 	sta.b T3+2
 _g2rd_mulk:
 	; v += MULK( dir, K_RIDER_S )-MULK( v-mv, K_RIDER_D )+gv, the position
-	; += rsh( v, 8 ):
-	lda #K_RIDER_D_M/2
-	G2_MA
-	G2_MULKS R2, 1, 1
-	G2_MULKS T3, 1, 1
-	G2_RIDV G2_DIRX, R2, GVX, S_RIDVX, S_RIDX
-	G2_RIDV G2_DIRY, T3, GVY, S_RIDVY, S_RIDY
+	; += rsh( v, 8 ). The dampers first: R2, A = MULK( v-mv, K_RIDER_D )+32
+	; (16 bits; a larger one is taken from v at once, and 32 is left):
+	G2_MAK K_RIDER_D_M/2
+	lda.b R2+2
+	cmp #$0080
+	beq +
+	jmp _g2rd_dsx
++	G2_DMP R2
+
+	sta.b R2
+_g2rd_dy:
+	lda.b T3+2
+	cmp #$0080
+	beq +
+	jmp _g2rd_dsy
++	G2_DMP T3
+
+_g2rd_spy:
+	; the springs: g2_mst has MULK( dir, K_RIDER_S )+32:
+	eor #$FFFF
+	ldx.b G2_IY
+	cpx #4*4079+1
+	bcc +
+	jmp _g2rd_ssy
++	sec
+	adc.l g2_mst,x
+	clc
+	adc.b GVY
+_g2rd_vy:
+	G2_VPOS S_RIDVY, S_RIDY
+	lda.b R2
+	eor #$FFFF
+	ldx.b G2_IX
+	cpx #4*4079+1
+	bcc +
+	jmp _g2rd_ssx
++	sec
+
+	adc.l g2_mst,x
+	clc
+	adc.b GVX
+_g2rd_vx:
+	G2_VPOS S_RIDVX, S_RIDX
 	rts
+_g2rd_dsx:
+	; a damper of more than two bytes, taken from v at once:
+	G2_DMP3 R2, S_RIDVX
+	lda #32
+	sta.b R2
+	jmp _g2rd_dy
+_g2rd_dsy:
+	G2_DMP3 T3, S_RIDVY
+	lda #32
+	jmp _g2rd_spy
+
+_g2rd_ssy:
+	; a spring outside the table: v += MULK( dir, K_RIDER_S ), then gv
+	; -MULK( v-mv, K_RIDER_D ) (dir again from the position):
+	eor #$FFFF
+	sta.b T3
+	lda.w g2_ofyb
+	eor #$8000
+	dec a                       ; OFY
+	jsr phys_ext32
+	ADD32 T1, S_BODY+C_RY, T0   ; rgy
+	HALFDIFF T1, S_RIDY
+	jsr phys_ext32
+	MULK T0, K_RIDER_S
+	lda.b S_RIDVY
+	clc
+	adc.b R
+	sta.b S_RIDVY
+	lda.b S_RIDVY+2
+	adc.b R+2
+	sta.b S_RIDVY+2
+	lda #32
+	sec
+	sbc.b T3
+	clc
+	adc.b GVY
+	jmp _g2rd_vy
+_g2rd_ssx:
+	lda.w g2_ofxb
+	eor #$8000
+	inc a                       ; OFX
+	jsr phys_ext32
+	SUB32 T1, S_BODY+C_RX, T0   ; rgx
+	HALFDIFF T1, S_RIDX
+	jsr phys_ext32
+	MULK T0, K_RIDER_S
+	lda.b S_RIDVX
+	clc
+	adc.b R
+	sta.b S_RIDVX
+	lda.b S_RIDVX+2
+	adc.b R+2
+	sta.b S_RIDVX+2
+	lda #32
+	sec
+	sbc.b R2
+	clc
+	adc.b GVX
+	jmp _g2rd_vx
 
 ; T0 = A sign-extended to 32 bits.
 phys_ext32:
@@ -6560,7 +6877,13 @@ phys_step:
 	rep #$30
 	lda 8,s
 	tax
-	PHYS_ENTER
+	pea PHYS_DPA                ; PHYS_ENTER
+	pld
+	sep #$20
+	lda.l lev_bank
+	pha
+	plb
+	rep #$20
 	stx.b IN
 	stz.b EV
 	stz.b RACS
@@ -6857,24 +7180,32 @@ _g2st_td2:
 	sbc.w pt_da+2
 	sta.b T0+2
 	G2_ADDRSH8 S_DEFL+4, T0, 1
-	jsr phys_trig
-	jsr phys_head
-	; The counters of the volts:
+	jsr phys_trig               ; and phys_head
+	; The counters of the volts, and phys_volt_age, phys_volt1 (nothing
+	; changes when the three counters are 255):
+	lda.b S_VOLTT
+	and.b S_VOLTT+1             ; (volt_t[1], last_volt)
+	cmp #$FFFF
+	beq +
 	sep #$20
 	lda.b S_LASTVOLT
 	inc a
-	beq +
+	beq ++
 	sta.b S_LASTVOLT
-+	lda.b S_VOLTT
+++	lda.b S_VOLTT
 	inc a
-	beq +
+	beq ++
 	sta.b S_VOLTT
-+	lda.b S_VOLTT+1
+++	lda.b S_VOLTT+1
 	inc a
-	beq +
+	beq ++
 	sta.b S_VOLTT+1
-+	rep #$20
-	; The sounds: friction, the driven wheel's omega (not in a quick step).
+++	lda.b S_LASTVOLT
+	sta.w phys_volt_age
+	lda.b S_VOLT1
+	sta.w phys_volt1
+	rep #$20
++	; The sounds: friction, the driven wheel's omega (not in a quick step).
 	lda.b IN
 	bit #PH_QUICK
 	beq +
@@ -6891,7 +7222,7 @@ _g2st_td2:
 	beq +
 	ldx #S_K2+C_W
 +	lda.b 2,x
-	bpl +
+	bpl ++
 	lda #0
 	sec
 	sbc.b 0,x
@@ -6899,27 +7230,65 @@ _g2st_td2:
 	lda #0
 	sbc.b 2,x
 	sta.b T0+2
-	bra ++
-+	sta.b T0+2
-	lda.b 0,x
-	sta.b T0
-++	lda.b T0+1                  ; >> 8 (|w| < 2^31: fits after), +$808080
+	ldx #T0                     ; X: |w|, A = |w| >> 16
+	; MULK( x, K_OMEGA ) = floor( (x*M+2^18)/2^19 ) for x = |w| >> 8 below
+	; 1465600 (e2 < 23 in the signed bytes e0, e1, e2 of x): with M*e0 =
+	; 256*W0+.., M*e1 = 256*V+l, M*e2 = 256*H+h it is (T+256*H+h) >> 3 =
+	; 32*H+((T+h) >> 3), T = V+4+((W0+l) >> 8):
+++	cmp #5725                   ; x >> 8
+	bcc +
+	jmp _g2st_om
++	lda.b 1,x
 	clc
 	adc #$8080
-	sta.b T1
-	lda.b T0+3
+	tay                         ; x+$8080
+	lda.b 3,x
 	and #$00FF
-	adc #$0080
-	sta.b T1+2
-	lda #K_OMEGA_M
-	G2_MA
-	G2_MULKS T1, 3
-	lda.b T1+2
-	beq +
-	lda #$FFFF
-	bra ++
-+	lda.b T1
-++	sta.w phys_wheel_omega
+	adc #0
+	sta.b T1                    ; e2
+	G2_MAK K_OMEGA_M
+	tya
+	eor #$8080
+	sta.w MPYB                  ; M*e0
+	xba
+	tay
+	lda.w MPYM
+	clc
+	adc #16384
+	sta.b T2
+	sty.w MPYB                  ; M*e1
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b T2
+	xba
+	and #$00FF                  ; ((W0+l) >> 8)+64
+	clc
+	adc.w MPYM
+	clc
+	adc #4-64+8*1536
+	sta.b T2                    ; T+8*1536
+	lda.b T1
+	sta.w MPYB                  ; M*e2
+	lda.w MPYL
+	and #$00FF
+	clc
+	adc.b T2
+	lsr a
+	lsr a
+	lsr a
+	sta.b T2                    ; ((T+h) >> 3)+1536
+	lda.w MPYM
+	sec
+	sbc #48
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a
+	clc
+	adc.b T2
+	sta.w phys_wheel_omega
 _st_head:
 	; vizsgalat: the head against the lines.
 	lda.b S_HEADX
@@ -6985,13 +7354,24 @@ _st_dead:
 	ora #PH_DEAD
 	sta.b EV
 _st_end:
-	lda.b IN
+	; The outputs: phys_apples_left if an apple was eaten, the view (not in
+	; a quick step).
+	lda.b EV
+	bit #PH_EAT
+	beq +
+	lda.b S_APPLES
+	and #$00FF
+	sta.b T0
+	lda.w lev_need
+	sec
+	sbc.b T0
+	sta.w phys_apples_left
++	lda.b IN
 	bit #PH_QUICK
 	bne +
-	jsr phys_mkview
-	bra ++
-+	jsr phys_mkout
-++	ldx.b EV
+	jsr _g2_view
++	ldx.b EV
+
 	pld
 	plb
 	stx.b tcc__r0
@@ -6999,7 +7379,35 @@ _st_end:
 phys_step_ret:                  ; (for measuring the time of a step)
 	rtl
 
+; The omega of a fast wheel: x >= 1465600, 65533 or more.
+_g2st_om:
+	cmp #5726
+	bcc +
+	lda #$FFFF
+	sta.w phys_wheel_omega
+	jmp _st_head
++	lda.b 1,x
+	clc
+	adc #$8080
+	sta.b T1
+	lda.b 3,x
+
+	and #$00FF
+	adc #$0080
+	sta.b T1+2
+	lda #K_OMEGA_M
+	G2_MA
+	G2_MULKS T1, 3
+	lda.b T1+2
+	beq +
+	lda #$FFFF
+	bra ++
++	lda.b T1
+++	sta.w phys_wheel_omega
+	jmp _st_head
+
 ; The rare cases of the MULKs of phys_step:
+
 _g2st_tss:
 	MOV32W phys_dpa+T0, pt_crs
 	RSH32 T0, 2
@@ -7021,11 +7429,28 @@ _g2st_tds:
 
 .ENDS
 
-; MULK( d, K_RIDER_S ) = floor( (d*K_RIDER_S_M+4096)/8192 ) for d from -4079
-; to 4079 (phys_rider):
+; phys_trig: for i from 0 to 805 the sin table value t = round( 2^22*sin(
+; i/512 ) ) of phys_qsin (32 bits), e = 2*(the next one-t) and the high
+; signed byte of e (its low byte is e's).
+.IF round( 4194304*sin( 1/512 ) ) != 8192 || round( 4194304*sin( 400/512 ) ) != 2953493 || round( 4194304*sin( 805/512 ) ) != 4194299
+.FAIL "g2_qs: the sin of phys_qsin"
+.ENDIF
+.SECTION ".g2_qs" SUPERFREE
+g2_qs:
+.REPT 806 INDEX G2_J
+	.dw round( 4194304*sin( G2_J/512 ) ) & $FFFF
+	.dw round( 4194304*sin( G2_J/512 ) ) >> 16
+	.dw (2*round( 4194304*sin( (G2_J+1)/512 ) )-2*round( 4194304*sin( G2_J/512 ) )) & $FFFF
+	.dw ((2*round( 4194304*sin( (G2_J+1)/512 ) )-2*round( 4194304*sin( G2_J/512 ) )+128) >> 8) & $FF
+.ENDR
+.ENDS
+
+; MULK( d, K_RIDER_S )+32 = floor( (d*K_RIDER_S_M+4096)/8192 )+32 for d from
+
+; -4079 to 4079 (phys_rider):
 .SECTION ".g2_mst" SUPERFREE
 g2_mst:
 .REPT 2*4079+1 INDEX G2_I
-	.dw floor( ((G2_I-4079)*K_RIDER_S_M+4096)/8192 )
+	.dw floor( ((G2_I-4079)*K_RIDER_S_M+4096)/8192 )+32
 .ENDR
 .ENDS
