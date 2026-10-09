@@ -9,4 +9,13 @@
 // *finished if the flower was reached; leaves the screen on.
 u32 game_play(u16 level, u8* finished);
 
+// A hook for the tests (test/snes_play.c): while game_keys_n is not 0, the
+// keys of step i of the physics are game_keys[i] (the PH_* bits, and
+// GAME_TURN to turn after the step, as T in test/physcases.txt) instead of
+// the joypad's, so that a ride repeats whatever the frames take. The game
+// sets game_keys_n to 0.
+#define GAME_TURN 0x10
+extern u8* game_keys;
+extern u16 game_keys_n;
+
 #endif

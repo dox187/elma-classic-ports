@@ -6,6 +6,11 @@ first frame of the level.
 
   play.py ROM LEVEL "SPACE1 UP90 W78 ..." [--out DIR] [--shots N] [--lua FILE]
 
+With --steps the script has the keys of the steps of the physics instead,
+in the syntax of test/physcases.txt (G gas, B brake, R and L volts, N
+nothing, T a turn after the first step of the item; the number is steps of
+1/80 s): the ride is then the same however long the frames take.
+
 Prints whether the level was finished and its time; --shots N saves a
 picture every N frames; --lua FILE adds a script of its own (measurements,
 for example) and prints the other lines it prints.
@@ -22,6 +27,9 @@ import mesen  # noqa: E402
 
 KEYS = {'UP': 'b', 'DOWN': 'a', 'LEFT': 'left', 'RIGHT': 'right',
         'SPACE': 'x', 'ESC': 'start'}
+# The keys of a step (PH_* of src/phys.h, GAME_TURN of src/game.h):
+STEP_KEYS = {'G': 1, 'B': 2, 'R': 4, 'L': 8, 'N': 0}
+STEP_TURN = 0x10
 
 
 def frames(script):
@@ -34,6 +42,23 @@ def frames(script):
             if k not in KEYS:
                 raise SystemExit('unknown key: %s' % k)
         out += [keys] * n
+    return out
+
+
+def step_keys(script):
+    """The keys of each step of a script of --steps."""
+    out = []
+    for tok in script.split():
+        name = tok.rstrip('0123456789')
+        n = max(1, int(tok[len(name):] or 1))
+        k = 0
+        for c in name:
+            if c == 'T':
+                continue
+            if c not in STEP_KEYS:
+                raise SystemExit('unknown key: %s' % c)
+            k |= STEP_KEYS[c]
+        out += [k | (STEP_TURN if 'T' in name else 0)] + [k] * (n - 1)
     return out
 
 
@@ -51,16 +76,28 @@ def main():
     ap.add_argument('--after', type=int, default=120,
                     help='frames to wait for the end after the keys')
     ap.add_argument('--lua', help='a Lua script added to the run')
+    ap.add_argument('--steps', action='store_true',
+                    help='the script has the keys of the steps of the physics')
     a = ap.parse_args()
     syms = mesen.read_symbols(a.rom)
-    keys = frames(a.script)
     lua = ['local frame, start = 0, nil', 'local lev = {}']
-    for i, k in enumerate(keys):
-        if k:
-            lua.append('lev[%d] = {%s}' % (i, ', '.join('%s = true' % KEYS[x] for x in k)))
-    lua.append('local total, shots = %d, %d' % (len(keys) + a.after, a.shots))
+    if a.steps:
+        skeys = step_keys(a.script)
+        if len(skeys) > 16384:
+            raise SystemExit('too many steps for play_keys of test/snes_play.c')
+        # the frames of the ride, with time for slow ones:
+        nframes = len(skeys) * 60 // 80 * 2
+        lua.append('local skeys = {%s}' % ','.join(str(k) for k in skeys))
+    else:
+        keys = frames(a.script)
+        nframes = len(keys)
+        for i, k in enumerate(keys):
+            if k:
+                lua.append('lev[%d] = {%s}' % (i, ', '.join('%s = true' % KEYS[x] for x in k)))
+        lua.append('local skeys = {}')
+    lua.append('local total, shots = %d, %d' % (nframes + a.after, a.shots))
     for name in ('play_go', 'play_level', 'play_done', 'play_finished', 'play_time',
-                 'phys_step'):
+                 'play_keys', 'play_keys_n', 'phys_step'):
         lua.append('local %s = %d' % (name, syms[name]))
     lua.append('local level = %d' % a.level)
     lua.append('local trace = %d' % a.trace)
@@ -94,6 +131,8 @@ end, emu.eventType.inputPolled)
 emu.addEventCallback(function()
   frame = frame + 1
   if frame == 120 then
+    for i, k in ipairs(skeys) do emu.write(play_keys + i - 1, k, mem) end
+    emu.write16(play_keys_n, #skeys, mem)
     emu.write16(play_level, level, mem)
     emu.write16(play_go, 0x5AA5, mem)
   end

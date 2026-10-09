@@ -32,6 +32,9 @@ typedef struct {
 	u8 hatra;
 } side_t;
 
+u8* game_keys;
+u16 game_keys_n;
+
 static side_t Side_f, Side_h;
 static s16 Steps;
 static u32 Best;
@@ -152,7 +155,7 @@ static void effect( u16 id, u16 volume ) {
 
 u32 game_play( u16 level, u8* finished ) {
 	u16 fps, frame_at, now, acc, n, ev, pad, edges, input;
-	u8 over = 0, gas = 0;
+	u8 over = 0, gas = 0, k = 0;
 	u32 time = 0;
 
 	*finished = 0;
@@ -220,6 +223,13 @@ u32 game_play( u16 level, u8* finished ) {
 				break;
 			}
 			n++;
+			if( game_keys_n ) {
+				k = 0;
+				if( (u16)Steps < game_keys_n )
+					k = game_keys[Steps];
+				input = k & (PH_GAS | PH_BRAKE | PH_VOLT_R | PH_VOLT_L);
+				gas = k & PH_GAS;
+			}
 			ev = phys_step( input );
 			if( ev & PH_EAT )
 				effect( SND_EAT, SND_VOL_EFFECT );
@@ -237,6 +247,8 @@ u32 game_play( u16 level, u8* finished ) {
 				over = 1;
 				break;
 			}
+			if( k & GAME_TURN )
+				phys_turn();
 			Steps++;
 			Hs_frac += 100;
 			while( Hs_frac >= PHYS_HZ ) {

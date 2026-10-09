@@ -15,6 +15,7 @@ int main(void) {
 	consoleInit();
 	core_init();
 	snd_init();
+	game_keys_n = 0;
 	ui_intro();
 	while( 1 ) {
 		ui_main_menu();
