@@ -52,7 +52,7 @@ game and may have bugs.
 
 <p>
   <img src="console/snes/docs/title.gif" width="256" alt="SNES demake title screen and main menu">
-  <img src="console/snes/docs/gameplay.gif" width="256" alt="SNES demake gameplay on Warm Up">
+  <img src="console/snes/docs/gameplay.gif" width="256" alt="SNES demake gameplay on Warm Up at native 256 by 224 resolution">
 </p>
 
 [Requirements, build and controls →](console/snes/README.md)

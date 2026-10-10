@@ -29,12 +29,13 @@ assembly.
 <p>
   <img src="docs/title.gif" width="256" alt="The intro, choosing the player and the main menu">
   <img src="docs/levels.gif" width="256" alt="The list of the levels">
-  <img src="docs/gameplay.gif" width="256" alt="Warm Up: the bike climbs to the apple and turns around">
+  <img src="docs/gameplay.gif" width="256" alt="Native 256 by 224 Warm Up gameplay: apple pickup, jumps and finish">
 </p>
 
-The intro and the main menu, the list of the levels and a part of a ride on
-Warm Up (the apple, and a turn), recorded from an earlier NTSC ROM in an emulator,
-built from the `elma.res` of the Steam release and the LGR file of 1.11a.
+The title, menu and level-list images above are from an earlier NTSC build.
+The gameplay GIF is a fresh 256 by 224 capture of the current NTSC gameplay
+in MesenCE 2.2.1. It shows the Warm Up route, collecting the apple, jumps
+and reaching the finish.
 
 The ROM is a LoROM cartridge with FastROM, 4 MB of ROM and 8 KB of
 battery-backed RAM. It has been tested in emulators only (Mesen 2 and
