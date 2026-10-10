@@ -472,7 +472,9 @@ int szoveglista::kirajzolanim( double ido ) {
 
 	ido -= Animkezdete;
 
-	int frame = ido*2.3;
+	// Travel the full menu height in the original 480-row duration, even
+	// when the menu fills a high-resolution display.
+	int frame = ido*2.3*(Menuysize/480.0);
 	//int framex = ido*2.3*(640.0/480.0);
 
 	/*if( frame < 480 ) {

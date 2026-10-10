@@ -189,6 +189,13 @@ the textures at their original size.
 
 ## Fixed bugs
 
+- **Slow splash animation at high resolution:** the transition moved at a
+  fixed pixel speed over a taller menu image. Its speed now follows the
+  image height, keeping the original animation duration at every resolution.
+- **Wheels flickering at high resolution or zoom:** near horizontal sprite
+  edges, distant scanline intersections overflowed a signed 16-bit
+  coordinate and made the wheel disappear at certain rotation angles. The
+  renderer now keeps these boundaries in 64-bit fixed-point coordinates.
 - **No sound in the SDL port:** the SDL port was silent. The original mixer of
   the Windows version now plays through SDL on every platform.
 - **File names on case-sensitive file systems:** an original installation

@@ -1,4 +1,5 @@
 #include	"all.h"
+#include <stdint.h>
 
 // Affinitassal kapcsolatos dolgok:
 int Affinitas = 0;
@@ -352,9 +353,12 @@ void dobozki( pic8* ppic8, kiskep* pkiskep, vekt2 u, vekt2 v, vekt2 r ) {
 	double szint = ybal;
 
 	// Kiszamolja hatarolo egyenesek parametereit:
-	long hatbal1, hatjobb1;
+	// Near horizontal edges, the intersections can be far outside the
+	// screen. Keep the full fixed-point value: reading only its signed
+	// 16-bit integer part wraps at 32768 and makes enlarged wheels vanish.
+	int64_t hatbal1, hatjobb1;
 	double m1d = u.x/u.y;
-	long hatbal2, hatjobb2;
+	int64_t hatbal2, hatjobb2;
 	double m2d = v.x/v.y;
 	if( Affinitas ) {
 		// u es v nem biztos, hogy merolegesek egymasra, ezert szamitas
@@ -408,8 +412,8 @@ void dobozki( pic8* ppic8, kiskep* pkiskep, vekt2 u, vekt2 v, vekt2 r ) {
 		}
 	}
 
-	long m1 = m1d*65536.0;
-	long m2 = m2d*65536.0;
+	int64_t m1 = m1d*65536.0;
+	int64_t m2 = m2d*65536.0;
 
 	// Most kiszamoljuk kis kepen futok elejet:
 	vekt2 diff = vekt2( xbal, ybal ) - r;
@@ -422,27 +426,18 @@ void dobozki( pic8* ppic8, kiskep* pkiskep, vekt2 u, vekt2 v, vekt2 r ) {
 	long invjx = invj.x*65536.0;
 	long invjy = invj.y*65536.0;
 
-	short* pf_hatbal1 = (short*)(&hatbal1);
-	pf_hatbal1++;
-	short* pf_hatjobb1 = (short*)(&hatjobb1);
-	pf_hatjobb1++;
-	short* pf_hatbal2 = (short*)(&hatbal2);
-	pf_hatbal2++;
-	short* pf_hatjobb2 = (short*)(&hatjobb2);
-	pf_hatjobb2++;
-
 	if( kilog ) {
 		//Voltkilogas = 1; //Csak teszteleshez
 		// Nagy ciklus kezdetet veszi:
 		while( 1 ) {
 			// Kiszamoljuk bal es jobb hatarokat ebben a sorban!
-			int x1 = *pf_hatbal1;
-			int xb = *pf_hatbal2;
+			int x1 = int(hatbal1 >> 16);
+			int xb = int(hatbal2 >> 16);
 			if( xb > x1 )
 				x1 = xb;
 			x1++;
-			int x2 = *pf_hatjobb1;
-			xb = *pf_hatjobb2;
+			int x2 = int(hatjobb1 >> 16);
+			xb = int(hatjobb2 >> 16);
 			if( xb < x2 )
 				x2 = xb;
 			// x1 elso, x2 utolso hely, amit meg ki kell rakni!
@@ -484,13 +479,13 @@ void dobozki( pic8* ppic8, kiskep* pkiskep, vekt2 u, vekt2 v, vekt2 r ) {
 		// Nagy ciklus kezdetet veszi:
 		while( 1 ) {
 			// Kiszamoljuk bal es jobb hatarokat ebben a sorban!
-			int x1 = *pf_hatbal1;
-			int xb = *pf_hatbal2;
+			int x1 = int(hatbal1 >> 16);
+			int xb = int(hatbal2 >> 16);
 			if( xb > x1 )
 				x1 = xb;
 			x1++;
-			int x2 = *pf_hatjobb1;
-			xb = *pf_hatjobb2;
+			int x2 = int(hatjobb1 >> 16);
+			xb = int(hatjobb2 >> 16);
 			if( xb < x2 )
 				x2 = xb;
 			// x1 elso, x2 utolso hely, amit meg ki kell rakni!
