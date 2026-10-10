@@ -189,6 +189,9 @@ the textures at their original size.
 
 ## Fixed bugs
 
+- **Slow splash animation at high resolution:** the transition moved at a
+  fixed pixel speed over a taller menu image. Its speed now follows the
+  image height, keeping the original animation duration at every resolution.
 - **Wheels flickering at high resolution or zoom:** near horizontal sprite
   edges, distant scanline intersections overflowed a signed 16-bit
   coordinate and made the wheel disappear at certain rotation angles. The
