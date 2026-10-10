@@ -6,6 +6,13 @@
 and physics code as `elma`; only the display, keyboard and timing layer is
 different.
 
+<p>
+  <a href="docs/menu.svg"><img src="docs/menu.svg" width="360" alt="elma-cli main menu in the terminal"></a>
+  <a href="docs/gameplay.svg"><img src="docs/gameplay.svg" width="360" alt="elma-cli gameplay on Warm Up in the terminal"></a>
+</p>
+
+Screenshots captured with the Half Blocks renderer.
+
 - Menus, best times and the in-game timers are shown as terminal text. The
   bouncing balls of the original menus move behind the text.
 - The picture of the game is drawn with half blocks, Braille dots or ASCII

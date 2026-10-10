@@ -93,6 +93,13 @@ with text menus and optional SDL2 sound. Requires a terminal supporting the
 kitty keyboard protocol. Tested on Linux in Ghostty; macOS is untested.
 The level editor is omitted.
 
+<p>
+  <a href="desktop/F_CLI/docs/menu.svg"><img src="desktop/F_CLI/docs/menu.svg" width="360" alt="elma-cli main menu in the terminal"></a>
+  <a href="desktop/F_CLI/docs/gameplay.svg"><img src="desktop/F_CLI/docs/gameplay.svg" width="360" alt="elma-cli gameplay on Warm Up in the terminal"></a>
+</p>
+
+Screenshots captured with the Half Blocks renderer.
+
 [Requirements, build and use →](desktop/F_CLI/README.md)
 
 ## Source layout
