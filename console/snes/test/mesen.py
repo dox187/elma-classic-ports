@@ -26,6 +26,12 @@ As a module: run(rom, script, ...) returns the printed values as a list of
 
 import argparse
 import binascii
+import hashlib
+import json
+import math
+from pathlib import Path
+import shutil
+import tempfile
 import os
 import subprocess
 import sys
@@ -81,6 +87,39 @@ def find_mesen():
         if p and os.path.isfile(p) and os.access(p, os.X_OK):
             return p
     raise SystemExit('Mesen 2 not found: set MESEN')
+
+
+def testrunner_command(rom, lua):
+    """Use a deterministic portable profile, independent of desktop settings.
+
+    A default MesenCE installation can have no SNES controller configured:
+    inputPolled then never fires and scripted buttons silently do nothing.
+    An isolated profile also avoids editing the user's emulator preferences.
+    The executable is hardlinked (copied only across filesystems); Mesen
+    extracts its bundled native libraries alongside it on first execution.
+    """
+    source = Path(find_mesen()).resolve()
+    stat = source.stat()
+    signature = hashlib.sha256(('%s:%d:%d' % (source, stat.st_mtime_ns, stat.st_size)).encode()).hexdigest()[:16]
+    folder = Path(tempfile.gettempdir()) / ('elma-mesen-test-' + signature)
+    folder.mkdir(exist_ok=True)
+    runner = folder / source.name
+    if not runner.exists():
+        try:
+            os.link(source, runner)
+        except FileExistsError:
+            pass
+        except OSError:
+            shutil.copy2(source, runner)
+    settings = folder / 'settings.json'
+    if not settings.exists():
+        config = {'Snes': {'Port1': {'Type': 'SnesController'},
+                           'RamPowerOnState': 'AllZeros'},
+                  'Nes': {'RamPowerOnState': 'AllZeros'}}
+        temporary = folder / ('settings-%d.json' % os.getpid())
+        temporary.write_text(json.dumps(config))
+        os.replace(temporary, settings)
+    return [str(runner), '--testrunner', os.path.abspath(rom), os.path.abspath(lua)]
 
 
 def read_symbols(rom):
@@ -183,9 +222,12 @@ def run(rom, script, out_dir='.', sram=None, keep_sram=False, lua=None,
     os.makedirs(out_dir, exist_ok=True)
     with open(lua_path, 'w') as f:
         f.write(lua_src)
-    p = subprocess.run([find_mesen(), '--testrunner', os.path.abspath(rom),
-                        os.path.abspath(lua_path)], capture_output=True,
-                       text=True, timeout=timeout)
+    # The emulator has its own100-second default timeout. Forward the requested
+    # duration and leave time for it to return/flush diagnostics before Python kills it.
+    runner_timeout = max(1, math.ceil(timeout))
+    command = testrunner_command(rom, lua_path) + ['--timeout=%d' % runner_timeout]
+    p = subprocess.run(command, capture_output=True,
+                       text=True, timeout=runner_timeout + 5)
     results = []
     for line in p.stdout.splitlines():
         if line.startswith('OUT '):

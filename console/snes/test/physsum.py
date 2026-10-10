@@ -8,11 +8,15 @@ apples come at the same times.
 import re
 import sys
 
+# physcheck reports the original engine clock, which advances 0.4368
+# units per wall second. Keep its canonical dt and convert only the report.
+GAME_UNITS_PER_SECOND = 0.4368
+
 
 def events(s):
     out = []
     for name, t in re.findall(r'(dead|finish|eat)[a-z ]* ?([0-9.]+)', s):
-        out.append((name, float(t)))
+        out.append((name, float(t) / GAME_UNITS_PER_SECOND))
     return out
 
 
@@ -26,7 +30,8 @@ def main():
             continue
         snes = lines[i + 1].split(':', 1)[1]
         orig = lines[i + 2].split(':', 1)[1]
-        cases.append((int(m.group(1)), m.group(2), float(m.group(3)), float(m.group(4)),
+        cases.append((int(m.group(1)), m.group(2), float(m.group(3)) / GAME_UNITS_PER_SECOND,
+                      float(m.group(4)) / GAME_UNITS_PER_SECOND,
                       [float(m.group(k)) for k in (5, 6, 7)], events(snes), events(orig)))
     n = len(cases)
 

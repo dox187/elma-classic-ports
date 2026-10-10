@@ -76,11 +76,13 @@ def main():
     ap.add_argument('--after', type=int, default=120,
                     help='frames to wait for the end after the keys')
     ap.add_argument('--lua', help='a Lua script added to the run')
+    ap.add_argument('--stop-after-steps', type=int, default=0,
+                    help='stop after at least N physics steps (the current frame completes)')
     ap.add_argument('--steps', action='store_true',
                     help='the script has the keys of the steps of the physics')
     a = ap.parse_args()
     syms = mesen.read_symbols(a.rom)
-    lua = ['local frame, start = 0, nil', 'local lev = {}']
+    lua = ['local frame, start, step_count, terminal = 0, nil, 0, false', 'local lev = {}']
     if a.steps:
         skeys = step_keys(a.script)
         if len(skeys) > 16384:
@@ -100,11 +102,16 @@ def main():
                  'play_keys', 'play_keys_n', 'phys_step'):
         lua.append('local %s = %d' % (name, syms[name]))
     lua.append('local level = %d' % a.level)
+    lua.append('local stop_steps = %d' % a.stop_after_steps)
     lua.append('local trace = %d' % a.trace)
     lua.append('local fc_at = %d' % syms['core_frame_count'])
     lua.append('local steps_at = %d' % syms.get('tccs_build/obj/game.s_Steps', 0))
     lua.append('local view_at = %d' % syms['phys_view'])
     lua.append('local CLEAR = %s' % ('false' if a.random_ram else 'true'))
+    if a.stop_after_steps and 'phys_step_ret' in syms and 'tcc__r0' in syms:
+        # Let game_play return its finish time after the end animation.
+        lua.append('emu.addMemoryCallback(function() if emu.read16(%d, emu.memType.snesMemory) %% 4 ~= 0 then terminal = true end end, emu.callbackType.exec, %d, %d)' %
+                   (syms['tcc__r0'], syms['phys_step_ret'], syms['phys_step_ret']))
     lua.append(r'''
 local mem = emu.memType.snesMemory
 local function hex(s) return (s:gsub(".", function(c) return string.format("%02x", string.byte(c)) end)) end
@@ -116,6 +123,7 @@ if CLEAR then
 end
 local itlog = {}
 emu.addMemoryCallback(function()
+  step_count = step_count + 1
   local fc = emu.read16(fc_at, mem)
   local n = #itlog
   if n > 0 and itlog[n][1] == fc then itlog[n][2] = itlog[n][2] + 1 else itlog[n + 1] = {fc, 1} end
@@ -143,7 +151,7 @@ emu.addEventCallback(function()
         emu.read32(view_at, mem), emu.read32(view_at + 4, mem)))
     end
     if shots > 0 and i % shots == 0 then shot(string.format("f%05d.png", i)) end
-    if emu.read16(play_done, mem) == 1 or i >= total then
+    if emu.read16(play_done, mem) == 1 or i >= total or (stop_steps > 0 and step_count >= stop_steps and not terminal) then
       if trace > 0 then
         local t = {}
         for _, e in ipairs(itlog) do t[#t + 1] = e[1] .. ":" .. e[2] end
@@ -165,8 +173,8 @@ end, emu.eventType.endFrame)
     path = os.path.join(a.out, '.play.lua')
     with open(path, 'w') as f:
         f.write('\n'.join(lua))
-    p = subprocess.run([mesen.find_mesen(), '--testrunner', os.path.abspath(a.rom),
-                        os.path.abspath(path)], capture_output=True, text=True)
+    p = subprocess.run(mesen.testrunner_command(a.rom, path), capture_output=True, text=True)
+    result_seen = False
     for line in p.stdout.splitlines():
         if line.startswith('SHOT '):
             _, name, data = line.split(' ', 2)
@@ -179,6 +187,7 @@ end, emu.eventType.endFrame)
         elif line.startswith('ITER '):
             print(line)
         elif line.startswith('RESULT '):
+            result_seen = True
             done, fin, time, n = (int(v) for v in line.split()[1:])
             if not done:
                 print('the level did not end (%d frames)' % n)
@@ -189,6 +198,16 @@ end, emu.eventType.endFrame)
         elif a.lua:
             print(line)
 
+    if p.returncode:
+        print(p.stderr or 'Mesen test runner failed', file=sys.stderr)
+        return p.returncode
+    if not result_seen:
+        print('Mesen produced no RESULT; run failed', file=sys.stderr)
+        if p.stderr:
+            print(p.stderr, file=sys.stderr)
+        return 1
+    return 0
+
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

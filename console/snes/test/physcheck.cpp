@@ -143,7 +143,7 @@ static int load( const char* gen, const char* levdump, int lev ) {
 
 struct result {
 	double t1cm, t10cm;         // when the bodies got 0.01 and 0.1 m apart (-1: never)
-	double maxd[3];             // the largest distance in the first 1, 2 and 5 s
+	double maxd[3];             // largest distance in first1,2,5 original engine-time units
 	std::string sev, pev;       // events with times
 	double send, pend;          // end of the run (dead, finish) or -1
 };
@@ -216,7 +216,7 @@ static result run( const std::vector<item>& script, double pcdt, int verbose, in
 	double tpc = 0;
 	char buf[128];
 	if( verbose )
-		printf( "  time   body x (snes/orig)      body y (snes/orig)    angle d   wheels d   pos d\n" );
+		printf( "game time body x (snes/orig)      body y (snes/orig)    angle d   wheels d   pos d\n" );
 	for( int i = 0; i < nsteps; i++ ) {
 		double t = (i+1)*dt;
 		if( warps[i] != -2 )
@@ -228,7 +228,7 @@ static result run( const std::vector<item>& script, double pcdt, int verbose, in
 				snprintf( buf, sizeof buf, "%s%.3f ", evname( ev & ~PH_BUMP ).c_str(), t );
 				r.sev += buf;
 				if( verbose )
-					printf( "  snes  %7.3f s step %5d: %s\n", t, i, evname( ev ).c_str() );
+					printf( "  snes  %7.3f game units step %5d: %s\n", t, i, evname( ev ).c_str() );
 			}
 			if( ev & (PH_DEAD | PH_FINISH) ) {
 				sstop = 1;
@@ -245,7 +245,7 @@ static result run( const std::vector<item>& script, double pcdt, int verbose, in
 				snprintf( buf, sizeof buf, "%s%.3f ", evname( ev & ~PH_BUMP ).c_str(), tpc );
 				r.pev += buf;
 				if( verbose )
-					printf( "  orig  %7.3f s step %5d: %s\n", tpc, pdone-1, evname( ev ).c_str() );
+					printf( "  orig  %7.3f game units step %5d: %s\n", tpc, pdone-1, evname( ev ).c_str() );
 			}
 			if( ev & (PH_DEAD | PH_FINISH) ) {
 				pstop = 1;
@@ -283,6 +283,87 @@ static void summary( int lev, const char* script, const result& r ) {
 			r.pev.empty() ? "-" : r.pev.c_str() );
 }
 
+// Full matched-time evidence, intended for test/fidelity_check.py. This path
+// changes neither solver: cap each PC substep at the original loop's target,
+// apply turns after a nonterminal sample, and retain a stopped engine's state
+// while the other continues so terminal disagreement cannot disappear.
+static void trace_state( int step, int key, int turn, int sev, int pev,
+                         int sstop, int pstop, double dt, double tpc ) {
+    pc_state pc;
+    pc_get( &pc );
+    double sn[24], original[24];
+    int n = 0;
+    for( int k = 0; k < 3; k++ ) {
+        sn[n] = fp( PS.c[k].rx ); original[n++] = pc.c[k].r.x;
+        sn[n] = fp( PS.c[k].ry ); original[n++] = pc.c[k].r.y;
+        sn[n] = PS.c[k].vx / (16777216.0 * dt) * 0.4368; original[n++] = pc.c[k].v.x * 0.4368;
+        sn[n] = PS.c[k].vy / (16777216.0 * dt) * 0.4368; original[n++] = pc.c[k].v.y * 0.4368;
+        sn[n] = fa( PS.c[k].a ); original[n++] = pc.c[k].alfa;
+        sn[n] = PS.c[k].w / (268435456.0 * dt) * 0.4368; original[n++] = pc.c[k].omega * 0.4368;
+    }
+    sn[n] = fp( PS.rider_x ); original[n++] = pc.rider_r.x;
+    sn[n] = fp( PS.rider_y ); original[n++] = pc.rider_r.y;
+    sn[n] = PS.rider_vx / (16777216.0 * dt) * 0.4368; original[n++] = pc.rider_v.x * 0.4368;
+    sn[n] = PS.rider_vy / (16777216.0 * dt) * 0.4368; original[n++] = pc.rider_v.y * 0.4368;
+    sn[n] = fp( PS.head_x ); original[n++] = pc.head.x;
+    sn[n] = fp( PS.head_y ); original[n++] = pc.head.y;
+    printf("{\"step\":%d,\"key\":%d,\"turn\":%d,\"pc_time_game\":%.17g,\"snes_event\":%d,\"pc_event\":%d,\"snes_stopped\":%d,\"pc_stopped\":%d,\"snes\":[",
+           step, key, turn, tpc, sev, pev, sstop, pstop);
+    for( int i = 0; i < n; i++ ) printf("%s%.17g", i ? "," : "", sn[i]);
+    printf("],\"pc\":[");
+    for( int i = 0; i < n; i++ ) printf("%s%.17g", i ? "," : "", original[i]);
+    printf("],\"snes_discrete\":[%d,%d,%d],\"pc_discrete\":[%d,%d,%d],\"snes_objects\":[", PS.turned, PS.gravity, PS.apples, pc.turned, pc.gravity, pc.apples);
+    for( int i = 0; i < PS_nobjs; i++ ) printf("%s%d", i ? "," : "", PS_obj[i].active);
+    printf("],\"pc_objects\":[");
+    for( int i = 0; i < pc_nobjs; i++ ) printf("%s%d", i ? "," : "", pc_obj_active[i]);
+    uint8_t raw[PS_DUMP_SIZE]; ps_dump(raw);
+    printf("],\"snes_raw\":\"");
+    for( int i = 0; i < PS_DUMP_SIZE; i++ ) printf("%02x", raw[i]);
+    printf("\",\"snes_apple_object\":%d,\"pc_apple_object\":%d}\n", (sev & PH_EAT) ? PS_eaten : -1, (pev & PH_EAT) ? pc_eaten : -1);
+}
+
+static void trace_run( const std::vector<item>& script, double cap ) {
+    const double dt = 0.4368 / PHYS_HZ;
+    std::vector<int> keys, turns, warps;
+    for( const item& it : script ) {
+        if( it.warp != -2 ) {
+            warps.resize(keys.size() + 1, -2); warps[keys.size()] = it.warp;
+        } else for( int j = 0; j < it.n; j++ ) {
+            keys.push_back(it.in); turns.push_back(it.turn && j == 0);
+        }
+    }
+    warps.resize(keys.size() + 1, -2);
+    int sstop = 0, pstop = 0;
+    double tpc = 0;
+    trace_state(0, 0, 0, 0, 0, 0, 0, dt, 0);
+    for( size_t i = 0; i < keys.size(); i++ ) {
+        const double target = (i + 1) * dt;
+        if( warps[i] != -2 ) warp(warps[i]);
+        int sev = 0, pev = 0;
+        if( !sstop ) {
+            sev = ps_step((uint16_t)keys[i]);
+            sstop = (sev & (PH_DEAD | PH_FINISH)) != 0;
+            if( turns[i] && !sstop ) ps_turn();
+        }
+        const bool matched = fabs(cap - dt) < 1e-15;
+        bool matched_pending = matched;
+        while( !pstop && (matched ? matched_pending : tpc < target - 1e-12) ) {
+            // One PC step per input sample in matched mode. Comparing the
+            // accumulated double clock with i*dt eventually adds an extra
+            // whole step (first seen at sample3187), despite the tiny epsilon.
+            double pc_dt = matched ? dt : fmin(cap, target - tpc);
+            matched_pending = false;
+            int ev = pc_step(keys[i], pc_dt);
+            tpc = pc_time;
+            pev |= ev;
+            pstop = (ev & (PH_DEAD | PH_FINISH)) != 0;
+        }
+        if( turns[i] && !pstop ) pc_turn();
+        trace_state((int)i + 1, keys[i], turns[i], sev, pev, sstop, pstop, dt, tpc);
+        if( sstop && pstop ) break;
+    }
+}
+
 int main( int argc, char** argv ) {
 	if( argc < 5 ) {
 		fprintf( stderr, "usage: physcheck GEN_DIR LEVDUMP_DIR LEVEL SCRIPT [-t DT] [-v] [-s N] [-1 N]\n"
@@ -291,8 +372,10 @@ int main( int argc, char** argv ) {
 	}
 	double pcdt = 0.4368/PHYS_HZ;
 	int verbose = 1, every = PHYS_HZ/4, one = -1;
+	bool trace_json = false;
 	for( int i = 5; i < argc; i++ ) {
-		if( !strcmp( argv[i], "-t" ) && i+1 < argc ) pcdt = atof( argv[++i] );
+		if( !strcmp( argv[i], "--trace-json" ) ) trace_json = true;
+		else if( !strcmp( argv[i], "-t" ) && i+1 < argc ) pcdt = atof( argv[++i] );
 		else if( !strcmp( argv[i], "-v" ) ) verbose = 2;
 		else if( !strcmp( argv[i], "-s" ) && i+1 < argc ) every = atoi( argv[++i] );
 		else if( !strcmp( argv[i], "-1" ) && i+1 < argc ) one = atoi( argv[++i] );
@@ -317,6 +400,11 @@ int main( int argc, char** argv ) {
 	}
 	int lev = atoi( argv[3] );
 	if( !load( argv[1], argv[2], lev ) ) return 2;
+	if( trace_json ) {
+		if( pcdt <= 0 ) return 2;
+		trace_run(parse(argv[4]), pcdt);
+		return 0;
+	}
 	result r = run( parse( argv[4] ), pcdt, verbose, every, one );
 	if( one < 0 )
 		summary( lev, argv[4], r );
