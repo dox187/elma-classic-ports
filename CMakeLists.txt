@@ -132,3 +132,14 @@ if(ELMA_BUILD_CLI)
     elma_target(elma-cli)
     target_compile_definitions(elma-cli PRIVATE ELMA_CLI)
 endif()
+
+if(ELMA_PLATFORM STREQUAL "desktop")
+    include(CTest)
+    if(BUILD_TESTING)
+        # Exercise the software sprite renderer without SDL or game data.
+        add_executable(sprite-rotation-test tests/sprite_rotation.cpp
+            src/DOBOZ.CPP src/VEKT2.CPP src/KISKEP.CPP)
+        elma_target(sprite-rotation-test)
+        add_test(NAME sprite-rotation COMMAND sprite-rotation-test)
+    endif()
+endif()

@@ -189,6 +189,10 @@ the textures at their original size.
 
 ## Fixed bugs
 
+- **Wheels flickering at high resolution or zoom:** near horizontal sprite
+  edges, distant scanline intersections overflowed a signed 16-bit
+  coordinate and made the wheel disappear at certain rotation angles. The
+  renderer now keeps these boundaries in 64-bit fixed-point coordinates.
 - **No sound in the SDL port:** the SDL port was silent. The original mixer of
   the Windows version now plays through SDL on every platform.
 - **File names on case-sensitive file systems:** an original installation
