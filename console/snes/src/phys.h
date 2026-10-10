@@ -59,6 +59,9 @@ void phys_level(u16 level);
 u16  phys_step(u16 input);
 // The turn key (hatra_f toggle + szamitfejr), on the press, not when dead.
 void phys_turn(void);
+// Drawing snapshot of the current state, including after a PH_QUICK step.
+// Does not change the physical state, events, objects or sound outputs.
+void phys_read_view(void);
 
 extern bike_view_t phys_view;    // the bike after the last step
 extern phys_obj_t phys_objs[];   // objects of the level

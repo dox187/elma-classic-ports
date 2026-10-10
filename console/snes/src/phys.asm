@@ -164,6 +164,7 @@ _c16ok:
 ; too, which leaves its byte in the shared latch of the Mode 7 registers.
 .MACRO G2_MA
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 .ENDM
@@ -171,6 +172,7 @@ _c16ok:
 ; The multiplicand = the constant \1 (A is changed).
 .MACRO G2_MAK
 	lda #(((\1) >> 8) & $FF) | (((\1) & $FF) << 8)
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 .ENDM
@@ -563,6 +565,7 @@ g2_ellt:
 	asl a
 	asl a
 	asl a                       ; the low byte of f, in the high byte
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	lda.b \1+1
 	lsr a
@@ -1032,6 +1035,19 @@ _g2_view:
 .ENDM
 
 ;---------------------------------------------------------------------------
+; Refresh only the drawing view, without advancing or changing the solver.
+; The renderer uses it to capture the step before the last full step.
+phys_read_view:
+	php
+	phb
+	phd
+	PHYS_ENTER
+	jsr _g2_view
+	pld
+	plb
+	plp
+	rtl
+
 ; void phys_level(u16 level)
 phys_level:
 	.ACCU 16
@@ -1270,6 +1286,7 @@ phys_turn:
 ; The multiplicand from A (A byte-swapped after).
 .MACRO G1_LDMA
 	sep #$20
+	sta.w core_m7_latch+1 ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	xba
 	sta.w MPYA
@@ -1280,6 +1297,7 @@ phys_turn:
 .MACRO G1_LDMD
 	sep #$20
 	lda.b \1
+	sta.w core_m7_latch+1 ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	lda.b \1+1
 	sta.w MPYA
@@ -1528,6 +1546,8 @@ _gr_ws\@:
 _gr_e\@:
 .ENDM
 
+; The common balanced-byte rel range uses the exact generated lookup.
+; General 24-bit rel retains Mode7 multiplication.
 ; \2 = MULK( rel, K_DAMP ) + 70 (16-bit) from the signed digits of rel at
 ; \1 when rel is 16-bit (\3+2 = 0, \3 = rel + $8080), else the MULK +
 ; $1010046 (32-bit); the multiplicand
@@ -1538,6 +1558,37 @@ _gr_e\@:
 .FAIL
 .ENDIF
 .MACRO G1_DAMPR
+	ldx.b \3+2
+	bne _gd_slow\@
+	lda.b \3
+	asl a
+	bcs _gd_high\@
+	bmi _gd_q1\@
+	tax
+	lda.l phys_damp0,x
+	bra _gd_fastdone\@
+_gd_q1\@:
+	and #$7FFF
+	tax
+	lda.l phys_damp1,x
+	bra _gd_fastdone\@
+_gd_high\@:
+	bmi _gd_q3\@
+	tax
+	lda.l phys_damp2,x
+	bra _gd_fastdone\@
+_gd_q3\@:
+	and #$7FFF
+	tax
+	lda.l phys_damp3,x
+_gd_fastdone\@:
+	sta.b \2
+	bra _gd_e\@
+_gd_slow\@:
+	lda #((K_DAMP_M & $FF) << 8) | (K_DAMP_M >> 8)
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
+	sta.w MPYA
+	sta.w MPYA
 	lda.b \1
 	sta.w MPYB
 	lda.w MPYM
@@ -1553,14 +1604,6 @@ _gr_e\@:
 	asl a
 	xba
 	and #$00FF                      ; ((u0 + l1 + 64) >> 7) + 70
-	ldx.b \3+2
-	bne _gd_3\@
-	adc.w MPYM
-	clc
-	adc.w MPYM
-	sta.b \2
-	bra _gd_e\@
-_gd_3\@:
 	sta.b G1_T
 	lda.w MPYM
 	eor #$8000
@@ -1588,6 +1631,8 @@ _gd_3\@:
 _gd_e\@:
 .ENDM
 
+; The common 16-bit spring uses exact quotient and residue tables.
+; The general damper range retains the original multiplication.
 ; \1 = MULK( g, K_SPRING ) + the damper \3 for the multiplicand g (\2: rel
 ; + $8080, \2+2 = 0: \3 is 16-bit): with the products of g and the
 ; signed digits -64, -94, 8 of 16 K_SPRING_M, MULK = P2 + ((P0 + 256 P1 +
@@ -1597,6 +1642,42 @@ _gd_e\@:
 .FAIL
 .ENDIF
 .MACRO G1_SPRG
+	ldx.b \2+2
+	beq _gsl_fast\@
+	jmp _gsl_slow\@
+_gsl_fast\@:
+	tya
+	and #$03FF
+	asl a
+	tax
+	lda.l phys_springcorr,x
+	clc
+	adc.b \3
+	sec
+	sbc #70
+	sta.b G1_T
+	bmi _gsl_neg\@
+	ldx #0
+	bra _gsl_sign\@
+_gsl_neg\@:
+	ldx #$FFFF
+_gsl_sign\@:
+	stx.w \1+2
+	tya
+	xba
+	and #$00FF
+	asl a
+	asl a
+	tax
+	lda.b G1_T
+	clc
+	adc.l phys_springhi,x
+	sta.w \1
+	lda.w \1+2
+	adc.l phys_springhi+2,x
+	sta.w \1+2
+	jmp _gs_e\@
+_gsl_slow\@:
 	lda #$FFC0
 	sta.w MPYB
 	lda.w MPYM
@@ -1612,42 +1693,6 @@ _gd_e\@:
 	xba
 	and #$00FF
 	adc.w MPYM                      ; V + 32
-	ldx.b \2+2
-	bne _gs_3\@
-	clc
-	adc.b \3
-	sec
-	sbc #102
-	sta.b G1_T                      ; V + damper
-	bmi _gs_n\@
-	lda #$0008
-	sta.w MPYB
-	lda.w MPYL
-	clc
-	adc.b G1_T
-	sta.w \1+0
-	lda.w MPYM
-	xba
-	and #$00FF
-	eor #$0080
-	adc #$FF80
-	sta.w \1+2
-	bra _gs_e\@
-_gs_n\@:
-	lda #$0008
-	sta.w MPYB
-	lda.w MPYL
-	clc
-	adc.b G1_T
-	sta.w \1+0
-	lda.w MPYM
-	xba
-	and #$00FF
-	eor #$0080
-	adc #$FF7F
-	sta.w \1+2
-	bra _gs_e\@
-_gs_3\@:
 	eor #$8000
 	sta.b G1_T
 	lda #$0008
@@ -1796,19 +1841,18 @@ _gt_e\@:
 	eor #$FFFF
 	inc a
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	; korongrelv = rot90( koto ) * w1 + body.v - wheel.v, and cross_d:
 	G1_REL \1+C_VX, S_BODY+C_VX, RLX, G1_RX, G1_NKY, C_VX, 1
 	lda.b KX
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	G1_REL \1+C_VY, S_BODY+C_VY, RLY, G1_RY, KX, C_VY, 0
 	; the dampers:
-	lda #((K_DAMP_M & $FF) << 8) | (K_DAMP_M >> 8)
-	sta.w MPYA
-	sta.w MPYA
 	G1_DAMPR G1_RX, G1_DMX, RLX
 	G1_DAMPR G1_RY, G1_DMY, RLY
 	; gumi = gs - (wheel - body), the springs unless both are within 0.0001
@@ -1835,6 +1879,7 @@ _ge_x16\@:
 _ge_xf\@:
 	tya
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	G1_SPRG pt_dx+4*\2, RLX, G1_DMX
@@ -1855,6 +1900,7 @@ _ge_y\@:
 _ge_y16\@:
 	tya
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	G1_SPRG pt_dy+4*\2, RLY, G1_DMY
@@ -2389,6 +2435,7 @@ phys_anchors:
 	.ACCU 16
 	.INDEX 16
 	lda #((K60_15 & $FF) << 8) | (K60_15 >> 8)
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	G1_ANC2 T3, CS22, T1, T0, 0, 1  ; d+$40402, a
@@ -2462,6 +2509,7 @@ phys_ftn:
 	; in the high word for each lowest one), at least 65536:
 	lda.b KX
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda.b KX
@@ -2485,6 +2533,7 @@ phys_ftn:
 	sta.b T1+2
 	lda.b KY
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda.b KY
@@ -2529,6 +2578,7 @@ phys_ftn:
 	lda.l phys_rcpd,x
 	asl a
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda.b T1+2
@@ -2561,6 +2611,7 @@ phys_ftn:
 	sta.b T3                    ; 2^(n-1) (0 for n = 0)
 	lda.w pt_m,y
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda.b T0
@@ -2585,6 +2636,7 @@ phys_ftn:
 	sbc #64                     ; B
 	; Dx += rsh( mq24( B, ky ), n ), Dy -= rsh( mq24( B, kx ), n ):
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	G1_MQB KY, G1_T
@@ -2695,6 +2747,7 @@ phys_fric:
 	sta.b G1_T                  ; c8 = (-Cs) >> 8 (the low byte)
 	G1_G16 GX
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda.b SN+1                  ; s8 = Sn >> 8
@@ -2702,6 +2755,7 @@ phys_fric:
 	ldy.w MPYM
 	G1_G16 GY
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda.b G1_T
@@ -2717,6 +2771,7 @@ _fr_fg:
 	sta.b T3                    ; fg
 	G1_RV16B RLX
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda.b SN+1
@@ -2724,6 +2779,7 @@ _fr_fg:
 	ldy.w MPYM
 	G1_RV16B RLY
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda.b G1_T
@@ -2747,6 +2803,7 @@ _fr_e:
 	bcc +
 	lda #32639
 +	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA                  ; fg
 	stx.w MPYB
@@ -3051,6 +3108,7 @@ phys_frsqrt:
 	tax                         ; 2 m
 	lda.l phys_rsqd,x
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA                  ; (the 16-bit stores: see G3_MA)
 	sta.w MPYA
 	lda.b T1+2
@@ -4151,6 +4209,7 @@ _g3s24k\@:
 ; shared latch of the Mode 7 registers that the second store uses).
 .MACRO G3_MA
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	xba
@@ -4463,12 +4522,10 @@ _g3ub\@:
 
 ; Copies a contact (\1 to \2) of the direct page B.
 .MACRO CTCOPY
-	ldx #CT_SIZE-2
-_ctcopy_b1\@:	lda.b \1,x
-	sta.b \2,x
-	dex
-	dex
-	bpl _ctcopy_b1\@
+.REPT CT_SIZE/2 INDEX cti
+	lda.b \1+CT_SIZE-2-cti*2
+	sta.b \2+CT_SIZE-2-cti*2
+.ENDR
 .ENDM
 
 ; R = rsh( R, A ) for A from 0 to 31 (A 16-bit): by whole bytes for 8
@@ -4790,6 +4847,7 @@ _ct_line:                       ; (A = QX >> 8)
 	;            +mq16( rx15 >> 8, -ely ), 6 ); the last two are below
 	; 2^13 each.
 	lda.b RY15+1
+	sta.w core_m7_latch+1 ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	lda.b RY15+2
 	sta.w MPYA
@@ -4797,6 +4855,7 @@ _ct_line:                       ; (A = QX >> 8)
 	sta.w MPYB
 	ldy.w MPYM
 	lda.b RX15+1
+	sta.w core_m7_latch+1 ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	lda.b RX15+2
 	sta.w MPYA
@@ -4813,11 +4872,13 @@ _ct_line:                       ; (A = QX >> 8)
 	lda.w 22,x
 	NEGA
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA                  ; -ey (see G3_MA)
 	sep #$20
 	G3_SET24A G3_DX, R, G3_E    ; (|the low part| < 2^15)
 	lda.w 20,x
+	sta.w core_m7_latch+1 ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	lda.w 21,x
 	sta.w MPYA
@@ -4903,6 +4964,7 @@ _ct_pos:
 	sep #$20
 	G3_SET24K G3_DX, R, $8020
 	lda.w 22,x
+	sta.w core_m7_latch+1 ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	lda.w 23,x
 	sta.w MPYA
@@ -6467,37 +6529,24 @@ _wh_fnc:
 +	sta.b G3_D1
 	sta.b G3_D1+2
 _wh_fnd:
-	; rho = 1/(theta + m h^2) from the table, h within 0..26367 (rhod f
-	; fits 16 bits):
+	; Exact expansion of the original rho/rhod interpolation, h in
+	; 0..26367, split at the LoROM bank boundary:
 	lda.b CT0+CT_H
 	bpl +
 	lda #0
 +	cmp #26368
 	bcc +
 	lda #26367
-+	tay
-	asl a
-	xba
-	and #$00FF
-	asl a
-	tax                         ; 2i
-	lda.l phys_rhod,x
-	xba
-	sta.w MPYA                  ; (the 16-bit stores: see G3_MA)
-	sta.w MPYA
-	tya
-	and #$007F
-	sta.w MPYB                  ; f
-	lda.w MPYL
-	clc
-	adc #64
-	asl a
-	xba
-	and #$00FF
-	bcc +
-	ora #$FF00                  ; (rhod f+64) >> 7
-+	clc
-	adc.l phys_rho,x
++	asl a
+	bmi _wh_rhohi
+	tax
+	lda.l phys_rho0,x
+	bra _wh_rhodone
+_wh_rhohi:
+	and #$7FFF
+	tax
+	lda.l phys_rho1,x
+_wh_rhodone:
 	sta.b HRHO
 	; b = MULK( fn, K_FN )+MULK( Mk, K_MR ):
 	sep #$20
@@ -7265,6 +7314,7 @@ _g1st_tq:
 	and #$FFFC
 	sta.b G1_CRS
 	lda #((K_TS_M & $FF) << 8) | (K_TS_M >> 8)
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	G1_MULKS G1_CRS, 0
@@ -7281,6 +7331,7 @@ _g1st_ts2:
 	jmp _g1st_tds
 +	lda.b G1_CRD+1
 	xba
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	lda #64
@@ -7407,6 +7458,7 @@ _g1st_v:
 .FAIL "phys_step: the shifts of the constants"
 .ENDIF
 	lda #(((K_20_M/2) & $FF) << 8) | ((K_20_M/2) >> 8)
+	sta.w core_m7_latch ; preserve first-write latch across NMI scroll
 	sta.w MPYA
 	sta.w MPYA
 	G1_BODYV pt_dx, S_BODY+C_VX, GVX, S_BODY+C_RX

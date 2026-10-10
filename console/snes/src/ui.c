@@ -24,7 +24,7 @@ static const char* const help_keys[] = {
 };
 static const char* const help_what[] = {
 	"- Accelerate", "- Block Wheels", "- Rotate AntiClockwise",
-	"- Rotate Clockwise", "- Turn Around", "- View Box Toggle",
+	"- Rotate Clockwise", "- Turn Around", "- Apple Counter Toggle",
 	"- Time Display Toggle"
 };
 #define HELP_ROWS 7
@@ -32,7 +32,7 @@ static const char* const help_what[] = {
 // The rows of Customize controls (CUSTOM.CPP bejegyez12), save.keys:
 static const char* const key_rows[SAVE_KEYS] = {
 	"Throttle", "Brake", "Rotate left", "Rotate right", "Change direction",
-	"Toggle Navigator", "Toggle Time"
+	"Toggle Apples", "Toggle Time"
 };
 static const u16 button_bits[] = {
 	JOY_B, JOY_Y, JOY_A, JOY_X, JOY_L, JOY_R, JOY_SELECT,

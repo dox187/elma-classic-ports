@@ -1,10 +1,4 @@
-// Test ROM of the time digits and the view box (src/hud.asm): a fake bike
-// rides through a few levels (tools/gen_hud.py --test) while the time
-// counts, with a best time or none, and both toggles switched off for a
-// while. Every TEST_HOLD-th frame stays on the screen for a few frames with
-// the same values; test_hold is its number + 1 while it is shown (for the
-// screenshots of test/hud_check.py). Nothing but BG3 and the sprites is on,
-// over a gray backdrop.
+// Compact sprite HUD test: collection, zero/max counter, time limits and toggles.
 #include <snes.h>
 #include "core.h"
 #include "hud.h"
@@ -53,7 +47,7 @@ extern const test_step_t* const hud_test_path[];
 
 u16 test_level, test_frame, test_hold;
 
-static const u16 Backdrop = 0x4210;     // gray
+static const u16 Backdrops[4] = {0x4210, 0x7FFF, 0, 0x7E44};
 
 static void load(u16 k) {
 	const test_obj_t* o = hud_test_objs[k];
@@ -73,8 +67,8 @@ static void load(u16 k) {
 	}
 	phys_nobjs = n;
 	hud_load(hud_test_levels[k]);
-	core_cgram_now(0, &Backdrop, 2);
-	*(vuint8*)0x212C = 0x14;            // TM: BG3 and sprites
+	core_cgram_now(0, &Backdrops[k], 2);
+	*(vuint8*)0x212C = 0x10;            // TM: sprites only
 	core_screen_on(15);
 }
 
@@ -90,7 +84,7 @@ static u32 best_of(u16 k) {
 }
 
 int main(void) {
-	u16 k = 0, f, h;
+	u16 k = 0, f, h, i;
 	u32 best, t;
 	const test_step_t* p;
 	test_hold = 0;
@@ -106,12 +100,25 @@ int main(void) {
 			p = &hud_test_path[k][f];
 			if( p->eaten != 255 ) {
 				phys_objs[p->eaten].active = 0;
-				phys_apples_left--;
+
 				phys_eaten = p->eaten;
 			}
 			phys_view.body_x = p->x;
 			phys_view.body_y = p->y;
-			// Level 1: no view box, then no time, then both for a while.
+			// Derive fixture count independently from the actual collected objects.
+            phys_apples_left = 0;
+            for( i = 0; i < phys_nobjs; i++ )
+                if( phys_objs[i].type == 2 && phys_objs[i].active )
+                    phys_apples_left++;
+            // Exercise physics maximum, empty and defensive count saturation.
+            if( k == 0 && f < 100 ) phys_apples_left = 64;
+            if( k == 0 && f >= 100 && f < 200 ) phys_apples_left = 0;
+            if( k == 0 && f >= 200 && f < 300 ) phys_apples_left = 99;
+            if( k == 0 && f >= 300 && f < 400 ) phys_apples_left = 65535;
+            // Level 1: counter/time toggles and absent/changed best time.
+            best = best_of(k);
+            if( k == 1 && f >= 600 && f < 700 ) best = 0xFFFFFFFF;
+            if( k == 1 && f >= 700 ) best = 400;
 			hud_show_map = !(k == 1 && f >= 200 && f < 300) &&
 				!(k == 1 && f >= 400 && f < 500);
 			hud_show_time = !(k == 1 && f >= 300 && f < 500);

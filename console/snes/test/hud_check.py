@@ -1,5 +1,5 @@
 """Plays build/test_hud.sfc in Mesen 2 and checks it: the screenshots of the
-held frames against a model of the HUD (the same drawing in Python, from
+held frames against a model of the compact HUD (sprite composition, from
 tools/gen_hud.py), and the time and DMA bytes of hud_draw.
 
   hud_check.py ELMA_RES ELMA_LGR [--rom build/test_hud.sfc] [--out DIR]
@@ -80,92 +80,53 @@ def b5(c):
 
 
 class Model:
-    """The screen of the test ROM (snes_hud.c) in 5-bit colors."""
+    """Independent sprite composition of the HUD test ROM in 5-bit RGB."""
 
     def __init__(self, res, lgr):
         self.levels = elmadata.internal_levels(elmadata.Resource(res))
         self.test_levels = gh.test_levels(self.levels)
-        self.col = gh.colors(Lgr(lgr))
-        self.maps = {}
-        self.paths = {}
-        bd = BACKDROP
-        self.backdrop = (bd & 31, bd >> 5 & 31, bd >> 10 & 31)
+        self.paths = {i: gh.test_path(self.levels[i]) for i in self.test_levels}
+        self.apple, pal = gh.apple_image(Lgr(lgr))
+        self.palette = np.asarray(pal, np.uint8) >> 3
 
-    def level(self, k):
-        li = self.test_levels[k]
-        if li not in self.maps:
-            self.maps[li] = gh.LevelMap(self.levels[li])
-            self.paths[li] = gh.test_path(self.levels[li])
-        return self.levels[li], self.maps[li], self.paths[li]
+    def blit(self, scr, pix, x, y):
+        yy, xx = np.nonzero(pix)
+        scr[y + yy, x + xx] = self.palette[pix[yy, xx]]
 
     def screen(self, k, f):
-        lev, m, path = self.level(k)
+        li = self.test_levels[k]
+        lev, path = self.levels[li], self.paths[li]
         scr = np.zeros((224, 256, 3), np.uint8)
-        scr[:, :] = self.backdrop
-        x, y, bj, _ = path[f]
+        bd = (0x4210, 0x7FFF, 0, 0x7E44)[k]
+        scr[:, :] = (bd & 31, bd >> 5 & 31, bd >> 10 & 31)
         eaten = {e for _, _, _, e in path[:f + 1] if e >= 0}
-        show_map = not (k == 1 and (200 <= f < 300 or 400 <= f < 500))
+        show_apples = not (k == 1 and (200 <= f < 300 or 400 <= f < 500))
         show_time = not (k == 1 and 300 <= f < 500)
-        cx, cy = gh.test_camera(lev, x, y)
         if show_time:
             t = f * 5 // 3 + (359000 if k == 2 else 0)
             best = {0: None, 1: 1970, 2: 123456, 3: 400000}[k]
-            self.digits(scr, m, cx, cy, gh.ido2string(t), 1)
+            if k == 1 and 600 <= f < 700:
+                best = None
+            if k == 1 and f >= 700:
+                best = 400
+            self.digits(scr, gh.ido2string(t), 1)
             if best is not None:
-                self.digits(scr, m, cx, cy, gh.ido2string(best), 0)
-        if show_map:
-            self.view(scr, lev, m, x, y, bj, eaten)
+                self.digits(scr, gh.ido2string(best), 0)
+        if show_apples:
+            count = sum(t == elmadata.T_APPLE and i not in eaten
+                        for i, (t, *_) in enumerate(lev.objects))
+            if k == 0 and f < 400:
+                count = (64, 0, 99, 65535)[f // 100]
+            count = min(count, 99)
+            self.blit(scr, self.apple, gh.APPLE_X, gh.APPLE_Y)
+            for i, d in enumerate('%02d' % count):
+                self.blit(scr, gh.glyph_image(d), gh.COUNT_X + i * 7, gh.APPLE_Y)
         return scr
 
-    def digits(self, scr, m, cx, cy, s, which):
-        v = (cy + gh.TIME_Y + 7) // 10
+    def digits(self, scr, s, which):
         for p, ch in enumerate(s[0:2] + s[3:5] + s[6:8]):
-            x0 = gh.TIME_X[which] + gh.DIGIT_X[p]
-            u = (cx + x0 + 2) // 10
-            white = m.at(u, v) == 1
-            c = b5(self.col['bright'] if white else self.col['dark'])
-            px = gh.glyph(ch)
-            if p in (1, 3):
-                px = px + [(gh.COLON_DX, r) for r in gh.COLON_ROWS]
-            for a, b in px:
-                scr[gh.TIME_Y + b, x0 + a] = c
-
-    def view(self, scr, lev, m, x, y, bj, eaten):
-        u0, v0, vx, dot = gh.window(m, x, y, bj)
-        # The content comes from the rows kept inside the stored map; the
-        # apples are in it, the eaten ones painted with the color under them.
-        r0 = min(max(v0 - m.vmin, 0), m.nrows - gh.VIEW_H) + m.vmin
-        cols = [None, b5(self.col['ground']), b5(self.col['sky']), b5(self.col['apple'])]
-        win = np.zeros((gh.VIEW_H, gh.VIEW_W), np.uint8)
-        for r in range(gh.VIEW_H):
-            for c in range(gh.VIEW_W):
-                win[r, c] = m.at(u0 + c, r0 + r)
-        under = {}
-        for au, av, au_under in m.apples:
-            under.setdefault((au, av), au_under)
-        for i, (t, ox, oy, _, _) in enumerate(lev.objects):
-            if t == elmadata.T_APPLE and i in eaten:
-                u, v = gh.view_px(m, ox, oy)
-                if 0 <= u - u0 < gh.VIEW_W and 0 <= v - v0 < gh.VIEW_H:
-                    win[v - v0, u - u0] = under.get((u, v), 2)
-        for r in range(gh.VIEW_H):
-            for c in range(gh.VIEW_W):
-                scr[gh.VIEW_Y + r, vx + c] = cols[win[r, c]]
-        # The flowers and the bike (in front) are sprites.
-        dots = []
-        for t, ox, oy, _, _ in lev.objects:
-            if t == elmadata.T_FLOWER:
-                u, v = gh.view_px(m, ox, oy)
-                if 0 <= u - u0 < gh.VIEW_W and 0 <= v - v0 < gh.VIEW_H:
-                    dots.append((u - u0, v - v0, 'flower'))
-        dots.append((dot, gh.BIKE_ROW, 'bike'))
-        for wx, wy, name in dots:
-            scr[gh.VIEW_Y + wy, vx + wx] = b5(self.col[name])
-        fc = b5(self.col['frame'])
-        scr[gh.VIEW_Y - 1, vx - 1:vx + gh.VIEW_W + 1] = fc
-        scr[gh.VIEW_Y + gh.VIEW_H, vx - 1:vx + gh.VIEW_W + 1] = fc
-        scr[gh.VIEW_Y - 1:gh.VIEW_Y + gh.VIEW_H + 1, vx - 1] = fc
-        scr[gh.VIEW_Y - 1:gh.VIEW_Y + gh.VIEW_H + 1, vx + gh.VIEW_W] = fc
+            self.blit(scr, gh.glyph_image(ch, p in (1, 3)),
+                      gh.TIME_X[which] + gh.DIGIT_X[p], gh.TIME_Y)
 
 
 def main():
@@ -211,6 +172,13 @@ def main():
             lv, n, s, mx, mxf, ds, dm = (int(v) for v in line.split())
             print('%5d %5d %10d %10d (%4d) %7d %7d' % (lv, n, s // max(n, 1), mx, mxf,
                                                         ds // max(n, 1), dm))
+    expected = len(model.test_levels) * (gh.TEST_FRAMES // HOLD)
+    if len(shots) != expected:
+        print('expected %d screenshots, received %d' % (expected, len(shots)))
+        bad += 1
+    if stats and any(int(line.split()[-1]) for line in stats[-1][2].decode().splitlines()):
+        print('compact HUD unexpectedly queued DMA')
+        bad += 1
     return 1 if bad else 0
 
 

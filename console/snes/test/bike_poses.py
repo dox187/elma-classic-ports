@@ -110,6 +110,27 @@ def model_states():
     # Near the edges: the bike partly off the screen.
     for cam in ((115, 0), (-120, 0), (0, 100), (0, -96), (125, 95)):
         out.append((rotated(0.3, turned=True), cam))
+    # Relative-pose cache coverage: absolute translation, fractional
+    # quantization changes, wheel spin and camera motion remain visible.
+    for step in range(12):
+        st = bm.State(wheel0_a=step * 0.19, wheel1_a=-step * 0.23)
+        st = st.moved(bm.v(step / 256.0, -step / 512.0))
+        out.append((st, (step * 3 - 18, step % 3 - 1)))
+    # Interpolation-like motion: each relative component changes separately
+    # across subpixel boundaries, so a stale cached pose must never survive.
+    for step in range(12):
+        d = step / 512.0
+        out.append((bm.State(body_a=step / 4096.0,
+                             wheel0=(1.9 + d, 3.0 - d / 2),
+                             wheel1=(3.6 - d / 3, 3.0 + d),
+                             rider=(2.75 + d / 4, 4.04 - d / 3),
+                             wheel0_a=step * 0.2, wheel1_a=-step * 0.1),
+                    (step % 4 - 2, step % 3 - 1)))
+    # Geometry samples turn/volt table indices, not the discarded low byte.
+    for step in range(4):
+        out.append((bm.State(turn=(0x4000 + step) / 65536.0,
+                             volt=(0x8000 + step) / 65536.0,
+                             volt1=True), (step, 0)))
     return out
 
 

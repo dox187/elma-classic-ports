@@ -110,6 +110,7 @@ T3          dsb 4
 ; The multiplicand (A 8-bit):
 .MACRO MB_DP                    ; a word of the direct page
 	lda.b \1
+	sta.w core_m7_latch+1
 	sta.w MPYA
 	lda.b \1+1
 	sta.w MPYA
@@ -117,6 +118,7 @@ T3          dsb 4
 
 .MACRO MB_ABS                   ; a word by absolute address (DB), with X
 	lda.w \1
+	sta.w core_m7_latch+1
 	sta.w MPYA
 	lda.w \1+1
 	sta.w MPYA
@@ -124,6 +126,7 @@ T3          dsb 4
 
 .MACRO MB_ABSX
 	lda.w \1,x
+	sta.w core_m7_latch+1
 	sta.w MPYA
 	lda.w \1+1,x
 	sta.w MPYA
@@ -131,6 +134,7 @@ T3          dsb 4
 
 .MACRO MB_IMM                   ; a constant
 	lda.b #(\1) & $FF
+	sta.w core_m7_latch+1
 	sta.w MPYA
 	lda.b #((\1) >> 8) & $FF
 	sta.w MPYA

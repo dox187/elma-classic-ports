@@ -12,10 +12,10 @@
 ; copied from the ROM. These go to tiles of VRAM from the cache (a stack of
 ; free tile numbers) through a buffer in WRAM, in runs of consecutive tiles.
 ;
-; Lines that are on the screen are decoded in the frame they appear; the
-; rest of the work goes on while the frame has time (MAP_LINES scanlines
-; from the start of map_set_camera, read from the PPU's counter) and the
-; DMA of the frame room, and waits for the next frame otherwise. Masks of
+; Visible lines take priority. Work stops at the shared frame deadline,
+; the relative MAP_LINES ceiling, or the reserved DMA capacity, then waits
+; for the next frame. Spare rows and extra columns prepare
+; cells before the camera reaches them. The PPU counters track elapsed time. Masks of
 ; the cells that hold tiles of the cache (a column's 32 bits, a row's 64)
 ; make freeing a line cheap.
 ;
@@ -34,16 +34,16 @@
 .include "hdr.asm"
 .include "core.inc"
 
-.DEFINE MAP_COLS     35         ; cells kept ready: the 33 columns of the screen and one more on each side
-.DEFINE MAP_ROWS     31         ; the 29 rows and one more above and below
+.DEFINE MAP_COLS     39         ; 33 visible columns and three spare columns on each side
+.DEFINE MAP_ROWS     32         ; 29 visible rows, one spare above and two below
 .DEFINE MAP_MAXT     32         ; tiles made in a frame
 .DEFINE MAP_MAXCOMP  20         ; edges (masked texture) made in a frame
 .DEFINE MAP_MAXRUNS  12         ; DMA transfers of tiles in a frame
 .DEFINE MAP_MAXJOBS  80         ; lines waiting (all of them in the region and more)
-.DEFINE MAP_LINES    42         ; scanlines map_set_camera may start new work in (about 57000 master clocks)
-.DEFINE MAP_DECLINES 22         ; and decoding a line (about 20 scanlines of work)
+.DEFINE MAP_LINES    80         ; relative work ceiling; gameplay also obeys the shared frame deadline
+.DEFINE MAP_DECLINES 58         ; new line leaves 22 scanlines for its atomic decode
 .DEFINE MAP_TOUCH    8          ; lines written to the VRAM map in a frame
-.DEFINE MAP_JOBSIZE  224        ; a job: 10 bytes and 6 a special cell
+.DEFINE MAP_JOBSIZE  248        ; a job: 10 bytes and 6 a special cell
 .DEFINE BG1_TILES    704
 .DEFINE PAL_TEX      3          ; palettes: 1-2 sky, 3 foreground texture, 4 second texture, complex 4-7
 .DEFINE PAL_CPLX     4
@@ -59,6 +59,7 @@
 .DEFINE J_DIRTY  6              ; to write this frame: 1 the line, 2 the part J_LO..J_HI of it
 .DEFINE J_LO     7              ; (cells by their place in the map: row or column 0-63)
 .DEFINE J_HI     8
+.DEFINE J_UNDI   9              ; slot in the undecoded list (0..MAP_MAXJOBS-1)
 .DEFINE J_LIST   10             ; 6 bytes a special cell: coordinate along the line, entry, foreground entry
 
 ; The record of a level (map_level_info, 32 bytes):
@@ -141,6 +142,7 @@ map_detail          db          ; Video Detail: 1 High, 0 Low (no pictures, no g
 .RAMSECTION ".map_vars" BANK $7F SLOT 3
 map_cam_x           dw
 map_cam_y           dw
+map_dma_left        dw          ; queue cost reserved before shadow/stage mutations
 map_rx0             dw          ; first column of the cells kept ready
 map_ry0             dw          ; first row
 map_wc              dw          ; the level in cells
@@ -311,13 +313,21 @@ map_first:
 	dec a
 	rts
 
+; The ready window reserves horizontal margin and biases its three spare
+; rows with a stable vertical margin. Small camera reversals keep their
+; existing prepared rows. The helper keeps the visible-cell math.
+map_first_x:
+	jsr map_first
+	dec a
+	dec a
+	rts
 ;---------------------------------------------------------------------------
 ; Moves the cells kept ready to the camera: the lines that leave give
 ; their tiles back, the ones that come get a job. A jump (or too many jobs)
 ; starts everything again.
 map_region:
 	lda map_cam_x
-	jsr map_first
+	jsr map_first_x
 	sta DT0
 	lda map_cam_y
 	jsr map_first
@@ -441,7 +451,7 @@ map_reset:
 	jsr map_shadow_clear
 	jsr map_jobs_init
 	lda map_cam_x
-	jsr map_first
+	jsr map_first_x
 	sta map_rx0
 	lda map_cam_y
 	jsr map_first
@@ -722,6 +732,11 @@ map_job_add:
 	inc map_jn
 	ldx map_jundn
 	sta map_jund,x
+	txa
+	lsr a
+	sep #$20
+	sta map_jobs+J_UNDI,y
+	rep #$20
 	inx
 	inx
 	stx map_jundn
@@ -800,25 +815,28 @@ map_job_finished:
 
 ; Takes job Y off the list of jobs not decoded yet (keeps Y).
 map_und_remove:
-	ldx #0
--	cpx map_jundn
-	bcs ++
-	tya
-	cmp map_jund,x
-	beq +
-	inx
-	inx
-	bra -
-+	; The last one comes to its place:
+	; The record carries its list slot: removal and swapping the final
+	; entry are constant time even after rapid diagonal movement.
 	phy
-	ldy map_jundn
-	dey
-	dey
+	lda map_jobs+J_UNDI,y
+	and #$00FF
+	asl a
+	tax
+	lda map_jundn
+	dec a
+	dec a
+	tay
 	sty map_jundn
 	lda map_jund,y
 	sta map_jund,x
+	tay
+	txa
+	lsr a
+	sep #$20
+	sta map_jobs+J_UNDI,y
+	rep #$20
 	ply
-++	rts
+	rts
 
 ; Job Y is written to the VRAM map this frame (DJ = Y); carry set if there
 ; is no room for one more line. Keeps Y.
@@ -828,6 +846,12 @@ map_touch:
 	rep #$20
 	and #$00FF
 	bne +
+	lda DNOW
+	bne @room
+	lda map_dma_left
+	cmp #128+2*DMAQ_ENTRY_COST
+	bcc ++
+@room:
 	ldx map_tln
 	cpx #MAP_TOUCH*2
 	bcs ++
@@ -836,6 +860,10 @@ map_touch:
 	inx
 	inx
 	stx map_tln
+	lda map_dma_left
+	sec
+	sbc #128+2*DMAQ_ENTRY_COST
+	sta map_dma_left
 	sep #$20
 	lda #2
 	sta map_jobs+J_DIRTY,y
@@ -850,11 +878,13 @@ map_touch:
 	rts
 
 ;---------------------------------------------------------------------------
-; The jobs of the frame. First the lines that are on the screen and not
-; decoded yet (they must be shown now), then all jobs in order as far as
+; The jobs of the frame. First undecoded visible lines within the shared
+; and relative deadlines, then all jobs in order as far as
 ; the time of the frame (MAP_LINES scanlines from the start of
 ; map_set_camera), the tiles and the lines of the frame allow.
 map_work:
+	jsl core_dma_left
+	sta map_dma_left
 	stz map_nstage
 	stz map_ncomp
 	stz map_nruns
@@ -897,7 +927,11 @@ map_work:
 	cmp #29
 	bcs @vnext
 @vdec:
-	jsr map_decode_job
+	lda #MAP_DECLINES
+	jsr map_over_at
+	bcc +
+	jmp @end
++	jsr map_decode_job
 	bcs @fifo
 	bra @vis                    ; (another job is at this place now)
 @vnext:
@@ -1006,14 +1040,20 @@ map_over_at:
 	sta.b DLT+2
 	lda DNOW
 	bne @no
+	lda #MAP_LINES+20
+	sec
+	sbc.b DLT+2
+	jsl core_work_over
+	bcs @short
 	jsr map_vline
 	sec
 	sbc DLINE0
 	bpl +
 	clc
-	adc #262
+	adc.l core_frame_lines
 +	cmp.b DLT+2
 	bcc @no
+@short:
 	lda #1
 	sta DSTAT
 	sec
@@ -1524,17 +1564,18 @@ map_colfg:
 
 ; Y cells of a column: air.
 map_colair:
+	; Air needs no individual texture words. Advance its texture phase
+	; once for the whole chunk segment, while the clear loop runs.
+	tya
+	sep #$20
+	sta.l $004202
+	lda map_ntx
+	sta.l $004203
+	rep #$20
 	lda DNF
 	bne @nf
 -	FREEX
 	stz map_shadow,x
-	lda DT5
-	clc
-	adc map_ntx
-	cmp map_fglim
-	bcc +
-	sbc map_ntex1
-+	sta DT5
 	txa
 	clc
 	adc #128
@@ -1542,25 +1583,26 @@ map_colair:
 	tax
 	dey
 	bne -
-	rts
+	bra @phase
 @nf:
-	lda DT5
 -	stz map_shadow,x
-	clc
-	adc map_ntx
-	cmp map_fglim
-	bcc +
-	sbc map_ntex1
-+	pha
 	txa
 	clc
 	adc #128
 	and #$0FFF
 	tax
-	pla
 	dey
 	bne -
-	sta DT5
+@phase:
+	lda DT5
+	clc
+	adc.l $004216
+-	cmp map_fglim
+	bcc +
+	sec
+	sbc map_ntex1
+	bra -
++	sta DT5
 	rts
 
 ; DCNT cells of a column in mixed chunk DCP from its row DT8.
@@ -1578,12 +1620,18 @@ map_colmix:
 	lda [DCP8],y
 	and DBIT
 	beq @air
+	lda DNF
+	bne +
 	FREEX
++
 	lda DT5
 	sta map_shadow,x
 	bra @next
 @air:
+	lda DNF
+	bne +
 	FREEX
++
 	stz map_shadow,x
 	bra @next
 @spec:
@@ -1641,6 +1689,10 @@ map_decode_row:
 	lda DT0
 	jsr map_smod
 	sta DT3
+	lda map_ntx
+	sec
+	sbc DT3
+	sta DT3                    ; cells until the texture pattern wraps
 	lda #MAP_COLS
 	sta DT7
 	; Does the row hold tiles of the cache?
@@ -1660,6 +1712,10 @@ map_decode_row:
 +	lda #1
 ++	sta DNF
 	ldx DT4
+	lda DT2
+	clc
+	adc #128
+	sta DT4                    ; end of this shadow row
 	; A row outside the level: all foreground.
 	lda DT1
 	cmp map_hc
@@ -1722,10 +1778,29 @@ map_decode_row:
 	lda [DCP8],y
 	and #$00FF
 	sta DGB
+	; A mixed chunk commonly has entirely plain rows. Keep their cells
+	; on the bulk paths instead of testing two bitmaps for each cell.
+	lda DSB
+	bne @rowmixed
+	ldy DCNT
+	lda DGB
+	beq @rowplainair
+	cmp #$00FF
+	bne @rowmixed
+	jsr map_rowfg
+	bra @adv
+@rowplainair:
+	jsr map_rowair
+	bra @adv
+@rowmixed:
 	lda DT0
 	sta DT6
 	jsr map_rowmix
 @adv:
+	txa
+	and #$007E
+	ora DT2
+	tax
 	lda DT0
 	clc
 	adc DCNT
@@ -1739,22 +1814,16 @@ map_decode_row:
 ; The next cell of a row: X, DT5, DT3.
 .MACRO ROWNEXT
 	inc DT5
-	lda DT3
-	inc a
-	cmp map_ntx
-	bcc +
+	dec DT3
+	bne +
 	lda DT5
 	sec
 	sbc map_ntx
 	sta DT5
-	lda #0
-+	sta DT3
-	txa
-	inc a
-	inc a
-	and #$007E
-	ora DT2
-	tax
+	lda map_ntx
+	sta DT3
++	inx
+	inx
 .ENDM
 
 ; Y cells of a row: foreground (DNF: without looking at what was there).
@@ -1766,6 +1835,13 @@ map_rowfg:
 	lda DT5
 	sta map_shadow,x
 	ROWNEXT
+	cpx DT4
+	bcc +
+	txa
+	sec
+	sbc #128
+	tax
++
 	dey
 	bne @cell
 	rts
@@ -1773,25 +1849,72 @@ map_rowfg:
 	lda DT5
 	sta map_shadow,x
 	ROWNEXT
+	cpx DT4
+	bcc +
+	txa
+	sec
+	sbc #128
+	tax
++
 	dey
 	bne @nf
 	rts
 
 ; Y cells of a row: air.
 map_rowair:
+	; Texture words for air need only advance once per segment. The
+	; countdown handles short patterns and multiple wraps exactly.
+	tya
+	sta DLT
+	lda DT5
+	clc
+	adc DLT
+	sta DT5
+	lda DT3
+	sec
+	sbc DLT
+@wrap:
+	bmi @again
+	bne @phase
+@again:
+	clc
+	adc map_ntx
+	pha
+	lda DT5
+	sec
+	sbc map_ntx
+	sta DT5
+	pla
+	bra @wrap
+@phase:
+	sta DT3
 	lda DNF
 	bne @nf
 @cell:
 	FREEX
 	stz map_shadow,x
-	ROWNEXT
-	dey
+	inx
+	inx
+	cpx DT4
+	bcc +
+	txa
+	sec
+	sbc #128
+	tax
++	dey
 	bne @cell
 	rts
 @nf:
 	stz map_shadow,x
-	ROWNEXT
-	dey
+	inx
+	inx
+	cpx DT4
+	bcc +
+	txa
+	sec
+	sbc #128
+	tax
++	dey
 	bne @nf
 	rts
 
@@ -1808,25 +1931,33 @@ map_rowmix:
 	lda DGB
 	and DBIT
 	beq @air
+	lda DNF
+	bne +
 	FREEX
++
 	lda DT5
 	sta map_shadow,x
 	bra @next
 @air:
+	lda DNF
+	bne +
 	FREEX
++
 	stz map_shadow,x
 	bra @next
 @spec:
+	lda DT6
+	and #7
+	asl a
+	tay
+	lda map_leftw,y
+	sta DLEFT
 	ldy DT8
 	SPECENTRY
 	LISTADD
 	bra @ground
 @next:
 	lsr DBIT
-	lda DLEFT
-	lsr a
-	ora #$0080
-	sta DLEFT
 	inc DT6
 	ROWNEXT
 	dec DLEFTN
@@ -2045,6 +2176,13 @@ map_make_cell:
 ; A tile of the cache for this frame: A = tile, X = offset in map_stage.
 ; Carry set: out of budget. Overflow set: no free tile.
 map_alloc:
+	lda DNOW
+	bne @room
+	lda map_dma_left
+	cmp #32+DMAQ_ENTRY_COST
+	bcs @room
+	jmp @short
+@room:
 	lda map_nstage
 	cmp #MAP_MAXT
 	bcs @short
@@ -2085,6 +2223,10 @@ map_alloc:
 	inc a
 	sta map_runs-2,y
 @take:
+	lda map_dma_left
+	sec
+	sbc #32+DMAQ_ENTRY_COST
+	sta map_dma_left
 	ldx map_freesp
 	dex
 	dex

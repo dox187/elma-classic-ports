@@ -1,4 +1,4 @@
-# The time digits and the view box (tools/gen_hud.py, src/hud.asm).
+# Outlined time digits and compact apple counter (tools/gen_hud.py, src/hud.asm).
 GEN_ASM += $(GEN)/hud.asm
 GEN_H += $(GEN)/hud.inc
 TEST_ROMS += $(BUILD)/test_hud.sfc

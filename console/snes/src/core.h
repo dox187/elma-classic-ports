@@ -9,6 +9,8 @@
 // Entries of the DMA queue of a frame and of the queue of register writes:
 #define DMAQ_MAX 48
 #define REGQ_MAX 32
+#define DMAQ_ENTRY_COST 96
+#define DMAQ_COST_MAX 5000
 
 // VRAM during a level (word addresses):
 #define VRAM_BG1_CHR  0x0000  // ground: 704 tiles of 4 bits
@@ -35,6 +37,8 @@
 
 extern u16 core_frame_count;   // NMIs since the start
 extern u16 core_lag_count;     // NMIs that found no frame ready
+extern u16 core_frame_lines;   // 262 NTSC, 312 PAL
+extern u16 core_dma_overruns;  // published queues above the safe DMA cost
 extern u16 core_pad;           // buttons held
 extern u16 core_dmaq_bytes;    // bytes queued for the next frame
 extern u16 core_scroll[6];     // BG1H BG1V BG2H BG2V BG3H BG3V, from the next frame
@@ -45,8 +49,20 @@ extern u8 core_oam[544];       // the OAM, written at every frame
 void core_init(void);
 // All sprites of the shadow below the screen.
 void core_oam_clear(void);
-// The frame is ready: waits for the NMI that writes it.
+// Publish without waiting, then wait before reusing any queued OAM/DMA data.
+// Physics can run while the preceding frame waits for its NMI.
+void core_frame_submit(void);
+void core_frame_wait(void);
+// Blocking form used by menus, component tests and terminal pictures.
 void core_frame_done(void);
+// A shared deadline for preparing a gameplay frame, ending at the next
+// NMI. Optional for standalone component tests and forced-blank loading.
+void core_work_begin(void);
+void core_work_end(void);
+// Assembly callers: A16 = scanlines reserved for the caller's remaining
+// work; JSL returns carry set if that deadline has passed. Keeps X/Y/D/DB.
+// core_dma_left returns remaining DMA queue cost in A16 and tcc__r0.
+u16 core_dma_left(void);
 // Waits n NMIs.
 void core_wait_frames(u16 n);
 // The buttons pressed since the last call.

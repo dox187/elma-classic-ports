@@ -39,16 +39,24 @@ HOSTCC ?= cc
 HOSTCXX ?= c++
 PHYS_TEST = $(BUILD)/host
 PC_SRC = $(addprefix ../../src/,LEPTET.CPP BEALLIT.CPP UTKOZES.CPP UTKOZES2.CPP SZAKASZ.CPP VEKT2.CPP)
+# Quote includes search the source directory before -I. Compile unchanged
+# copies away from src/all.h so the portable harness wins on both case-sensitive
+# and case-insensitive hosts. The original game sources are never rewritten.
+PC_HOST_SRC = $(addprefix $(PHYS_TEST)/pcsrc/,$(notdir $(PC_SRC)))
+
+$(PHYS_TEST)/pcsrc/%.CPP: ../../src/%.CPP
+	@mkdir -p $(dir $@)
+	cp $< $@
 
 $(PHYS_TEST)/phys_spec.o: test/phys_spec.c test/phys_spec.h $(GEN)/phys_const.h $(GEN)/phys_tables.h
 	@mkdir -p $(PHYS_TEST)
 	$(HOSTCC) -O2 -Wall -c -Itest -I$(GEN) -o $@ $<
 
-$(PHYS_TEST)/physcheck: test/physcheck.cpp test/pcphys/pcphys.cpp test/pcphys/*.h $(PC_SRC) \
+$(PHYS_TEST)/physcheck: test/physcheck.cpp test/pcphys/pcphys.cpp test/pcphys/*.h $(PC_HOST_SRC) \
 		$(PHYS_TEST)/phys_spec.o
 	@mkdir -p $(PHYS_TEST)
 	$(HOSTCXX) -O2 -w -fpermissive -Itest -Itest/pcphys -I$(GEN) -o $@ test/physcheck.cpp \
-		test/pcphys/pcphys.cpp $(PC_SRC) $(PHYS_TEST)/phys_spec.o
+		test/pcphys/pcphys.cpp $(PC_HOST_SRC) $(PHYS_TEST)/phys_spec.o
 
 $(PHYS_TEST)/levdump: test/levdump.py tools/elmadata.py $(GEN)/data_names
 	$(PYTHON) test/levdump.py $(ELMA_RES) $@

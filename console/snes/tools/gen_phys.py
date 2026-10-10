@@ -220,6 +220,40 @@ def write_tables(out, hz):
             a.append('\t%s %s' % (d, ', '.join(str(v & mask) for v in vals[j:j + 12])))
     h += ['', '#endif', '']
     a += ['.ENDS', '']
+    # Exact expansions of the common assembly arithmetic. Each table has
+    # its own section so long indexed reads stay inside a LoROM window.
+    factors = {name: factor(v, name) for name, v, _ in constants(hz)[1]}
+    dm, ds = factors['K_DAMP']
+    sm, ss = factors['K_SPRING']
+    lookup = {}
+    for bank in range(4):
+        # rel+$8080 represents two balanced signed bytes: its range is
+        # [-32896, 32639], rather than ordinary signed16.
+        lookup['phys_damp%d' % bank] = ('.dw', 0xFFFF, [
+            (((key - 0x8080) * dm + (1 << (ds - 1))) >> ds) + 70
+            for key in range(bank * 16384, (bank + 1) * 16384)])
+    # g=256*hi+lo. The high quotient is signed; the residual depends only
+    # on hi modulo4 for the existing K_SPRING_M=31260, K_SPRING_SH=12.
+    den = 1 << (ss - 8)
+    lookup['phys_springhi'] = ('.dd', 0xFFFFFFFF, [
+        ((hi if hi < 128 else hi - 256) * sm) // den
+        for hi in range(256)])
+    lookup['phys_springcorr'] = ('.dw', 0xFFFF, [
+        ((g % 256) * sm + ((g // 256) * sm % den) * 256 +
+         (1 << (ss - 1))) >> ss for g in range(1024)])
+    rho, rhod = t['phys_rho'][1], t['phys_rhod'][1]
+    expanded = [rho[h >> 7] + ((rhod[h >> 7] * (h & 127) + 64) >> 7)
+                for h in range(26368)]
+    lookup['phys_rho0'] = ('.dw', 0xFFFF, expanded[:16384])
+    lookup['phys_rho1'] = ('.dw', 0xFFFF, expanded[16384:])
+    for name, (directive, mask, vals) in lookup.items():
+        a += ['.SECTION ".%s" SUPERFREE' % name, '%s:' % name]
+        for j in range(0, len(vals), 12):
+            # WLA's decimal parser needs signed32 literals for negative .dd.
+            a.append('\t%s %s' % (directive, ', '.join(
+                str(v if directive == '.dd' else v & mask)
+                for v in vals[j:j + 12])))
+        a += ['.ENDS', '']
     with open(os.path.join(out, 'phys_tables.h'), 'w') as fh:
         fh.write('\n'.join(h))
     with open(os.path.join(out, 'phys_tables.asm'), 'w') as fh:

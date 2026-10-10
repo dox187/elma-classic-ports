@@ -11,12 +11,15 @@ Paths: "sweep" goes over the whole level row by row at 8 pixels a frame;
 "fast" makes diagonal moves of 10-16 pixels a frame (falls) between random
 places; "start" only looks at the start of the level. Every check holds the
 camera still for a few frames first. --detail: the Video Detail of the
-loads, high, low or both (every path with each).
+loads, high, low or both (every path with each). --moving-every N also
+compares visible VRAM cells every N camera moves without waiting for
+queued work. Motion errors are reported separately and saved as motion.json.
 """
 
 import argparse
 import binascii
 import io
+import json
 import os
 import random
 import subprocess
@@ -89,7 +92,7 @@ def path_fast(w, h, n=12, seed=1):
     return cams, checks
 
 
-def make_lua(syms, plan, last):
+def make_lua(syms, plan, last, moving_every=0):
     """plan: list of (level, cams, checks, low) one after the other."""
     L = []
     a = lambda n: syms[n]
@@ -105,12 +108,15 @@ def make_lua(syms, plan, last):
     L.append('local loads = {}')
     L.append('local details = {}')
     L.append('local checks = {}')
+    L.append('local moving_checks = {}')
     f = 1
     for n, (level, cams, checks, low) in enumerate(plan):
         L.append('loads[%d] = %d' % (f, level))
         L.append('details[%d] = %d' % (f, 0 if low else 1))
         for i, (x, y) in enumerate(cams):
             L.append('cams[%d] = {%d, %d}' % (f + i, x & 0xFFFF, y & 0xFFFF))
+            if moving_every and i and i % moving_every == 0 and cams[i] != cams[i - 1]:
+                L.append('moving_checks[%d] = "%d_%d_live%d"' % (f + i, level, n, i))
         for c in checks:
             L.append('checks[%d] = "%d_%d_%d"' % (f + c - 1, level, n, c))
         f += len(cams) + 2
@@ -158,7 +164,7 @@ def make_lua(syms, plan, last):
   if frame == 1 then w16(%(detail)d, details[1]) w16(%(ready)d, 0x5A5A) end
   print(string.format("STAT %%d %%d %%d %%d %%d %%d %%d %%d %%d %%d %%d", frame, cpu, r16(%(bytes)d), r16(%(tiles)d), r16(%(comp)d), r16(%(jobs)d), r16(%(short)d), r16(%(minfree)d), r16(%(mcx)d), r16(%(mcy)d), pf))
   cpu = 0
-  local ck = checks[pf]
+  local ck = checks[pf] or moving_checks[pf]
   if ck and waited == 0 then
     dumpv("chr_" .. ck, 0, 704 * 32)
     dumpv("map_" .. ck, 0x5800 * 2, 4096)
@@ -260,6 +266,8 @@ def main():
     ap.add_argument('--levels', default='0,19,33,45,47')
     ap.add_argument('--path', default='sweep;fast')
     ap.add_argument('--every', type=int, default=90)
+    ap.add_argument('--moving-every', type=int, default=0,
+                    help='also sample moving frames without waiting for queued work')
     ap.add_argument('--detail', default='high', choices=('high', 'low', 'both'))
     ap.add_argument('--out', default=None)
     ap.add_argument('--keep', action='store_true', help='save the pictures of failed checks')
@@ -323,7 +331,7 @@ def main():
     os.makedirs(out, exist_ok=True)
     lua = os.path.join(out, 'map_check.lua')
     with open(lua, 'w') as f:
-        f.write(make_lua(syms, plan, last))
+        f.write(make_lua(syms, plan, last, a.moving_every))
     p = subprocess.run([mesen.find_mesen(), '--testrunner', os.path.abspath(a.rom), lua],
                        capture_output=True, text=True, timeout=7200)
     stats = []
@@ -374,6 +382,10 @@ def main():
                      'Low': st[keep & (st[:, 1] > 0) & lowf]}
     nfail = 0
     nbad = 0
+    live_checks = 0
+    live_wrong = 0
+    live_max_wrong = 0
+    live_rows = []
     model_diffs = []
     pcl = {}
     if a.model:
@@ -392,7 +404,21 @@ def main():
             print('check %s: no dump' % name)
             nfail += 1
             continue
+        live = '_live' in name
+        if live:
+            # Read the camera actually presented by the PPU. The CPU may
+            # already have queued the next frame's camera.
+            mcx += (h1 - mcx + 512) % 1024 - 512
+            mcy += ((v1 + 1) - mcy + 512) % 1024 - 512
         errs, bad, img, exp = check(md, level, (mcx, mcy), d, dumps['shot_' + name], low)
+        if live:
+            live_checks += 1
+            cells_wrong = sum(e.startswith('cell ') for e in errs)
+            live_wrong += cells_wrong > 0
+            live_max_wrong = max(live_max_wrong, cells_wrong)
+            live_rows.append(dict(check=name, level=level, x=mcx, y=mcy, jobs=jobs,
+                                  wrong_cells=cells_wrong, errors=errs[:4]))
+            continue
         if jobs:
             errs.append('%d jobs left' % jobs)
         if s0 != mcx or ((s1 + 1) & 0xFFFF) != mcy:
@@ -419,7 +445,13 @@ def main():
                 both = np.concatenate([img, exp], axis=1)
                 Image.fromarray(np.clip(both, 0, 255).astype(np.uint8)).save(
                     os.path.join(out, 'fail_%s.png' % name))
-    print('%d checks, %d failed, %d pixels differed in all' % (len(checks), nfail, nbad))
+    print('%d settled checks, %d failed, %d pixels differed in all' % (len(checks) - live_checks, nfail, nbad))
+    if live_checks:
+        print('motion: %d samples, %d with incorrect cells, max %d incorrect visible cells' % (
+            live_checks, live_wrong, live_max_wrong))
+        with open(os.path.join(out, 'motion.json'), 'w') as f:
+            json.dump(live_rows, f, indent=2)
+            f.write('\n')
     if a.model and model_diffs:
         md_ = np.array(model_diffs)
         print('against the original game at 0.4: mean color difference %.1f (0-255), '

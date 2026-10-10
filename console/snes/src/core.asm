@@ -3,9 +3,9 @@
 ; registers) during the vertical blank, counts the frames and reads the
 ; joypad.
 ;
-; The main loop prepares a frame, then calls core_frame_done, which hands it
-; over to the next NMI and waits for it. A frame that is not ready by the
-; NMI is a lag frame: the screen stays as it was.
+; Gameplay publishes a frame with core_frame_submit, computes upcoming physics,
+; then calls core_frame_wait before reusing the OAM/DMA buffers. Menus use the
+; blocking core_frame_done API. An NMI without a ready picture repeats a frame.
 ;
 ; C calls these with 16-bit registers and the data bank $7E; arguments are on
 ; the stack after the 3 bytes of the return address (u8 is 1 byte, u16 is 2,
@@ -17,6 +17,13 @@
 .RAMSECTION ".core_vars" BANK 0 SLOT 1
 core_frame_count    dw      ; NMIs since the start
 core_lag_count      dw      ; NMIs that found no frame ready
+core_frame_lines    dw      ; TV-system scanlines
+core_work_frame     dw      ; NMI count at the start of gameplay work
+core_work_active    db      ; deadline enabled outside forced-blank loads
+core_dma_overruns   dw      ; queues exceeding DMAQ_COST_MAX
+core_work_reserve   dw
+core_dma_tmp        dw
+core_m7_latch       dw      ; high byte: first coefficient write, restored after NMI scroll
 core_frame_ready    db      ; 1: the main loop finished the frame
 core_pad            dw      ; buttons held on joypad 1 (JOY_*)
 core_pad_new        dw      ; pressed since core_pad_take last cleared it
@@ -71,6 +78,22 @@ core_nmi_fast:
 	bne +
 	jmp _lag
 +
+	; Diagnose the whole queue, including the setup of every transfer.
+	; Producers use the same budget before allocating their buffers.
+	rep #$20
+	lda core_dmaq_n
+	asl a
+	asl a
+	sta core_dma_tmp
+	asl a
+	clc
+	adc core_dma_tmp
+	clc
+	adc core_dmaq_bytes
+	cmp #DMAQ_COST_MAX+1
+	bcc +
+	inc core_dma_overruns
++	sep #$20
 	; OAM:
 	stz $2102
 	stz $2103
@@ -197,6 +220,12 @@ _regloop:
 _regdone:
 	stz core_regq_n
 
+	; BG1 scroll and M7A share a write latch. A ready frame may interrupt
+	; physics between the two M7A writes. Restore only the latch through
+	; unused M7X; this does not alter M7A, M7B, or their current product.
+	sep #$20
+	lda core_m7_latch+1
+	sta $211F
 	sep #$20
 	lda core_inidisp
 	sta $2100
@@ -247,21 +276,119 @@ core_init:
 	sta.l core_pad_prev
 	sta.l core_frame_count
 	sta.l core_lag_count
+	sta.l core_dma_overruns
+	sta.l core_work_frame
 	sta.l core_scroll+0
 	sta.l core_scroll+2
 	sta.l core_scroll+4
 	sta.l core_scroll+6
 	sta.l core_scroll+8
 	sta.l core_scroll+10
+	lda.l snes_50hz
+	and #$00FF
+	beq +
+	lda #312
+	bra ++
++	lda #262
+++	sta.l core_frame_lines
 	jsl core_oam_clear
 	sep #$20
 	lda #0
 	sta.l core_frame_ready
+	sta.l core_work_active
 	lda #$80
 	sta.l core_inidisp
 	sta.l $002100
 	lda #$81                    ; NMI and joypad
 	sta.l $004200
+	plp
+	rtl
+
+; Gameplay work shares one deadline, even when a producer starts late.
+core_work_begin:
+	php
+	rep #$20
+	lda.l core_frame_count
+	sta.l core_work_frame
+	sep #$20
+	lda #1
+	sta.l core_work_active
+	plp
+	rtl
+
+core_work_end:
+	php
+	sep #$20
+	lda #0
+	sta.l core_work_active
+	plp
+	rtl
+
+; A16 = reserved scanlines; carry set means no time remains. A and flags
+; are scratch; X/Y, DB and D remain untouched. Vblank belongs to the work
+; for the next visible picture, so a raster >=225 is allowed. If physics
+; already missed an NMI, finish preparing that picture against the next
+; deadline: starving the map for the rest of the following frame would
+; leave visible rows stale even though CPU time is available.
+core_work_over:
+	rep #$20
+	sta.l core_work_reserve
+	lda.l core_work_active
+	and #$00FF
+	beq @room
+	lda.l core_frame_count
+	cmp.l core_work_frame
+	beq +
+	sta.l core_work_frame
++
+	sep #$20
+	lda.l $002137
+	lda.l $00213F
+	lda.l $00213D
+	xba
+	lda.l $00213D
+	and #$01
+	xba
+	rep #$20
+	cmp #225
+	bcs @room
+	clc
+	adc.l core_work_reserve
+	cmp #225
+	bcs @over
+@room:
+	clc
+	rtl
+@over:
+	sec
+	rtl
+
+; Remaining queue cost, 96 byte-times per entry plus the actual payload.
+; This scratch is separate from the NMI diagnostic: no shared temporary
+; is live across an interrupt.
+core_dma_left:
+	php
+	rep #$30
+	lda.l core_dmaq_n
+	asl a
+	asl a
+	sta.l core_work_reserve
+	asl a
+	clc
+	adc.l core_work_reserve
+	clc
+	adc.l core_dmaq_bytes
+	cmp #DMAQ_COST_MAX
+	bcs @none
+	eor #$FFFF
+	inc a
+	clc
+	adc #DMAQ_COST_MAX
+	bra @done
+@none:
+	lda #0
+@done:
+	sta.l tcc__r0
 	plp
 	rtl
 
@@ -287,16 +414,29 @@ core_oam_clear:
 	plp
 	rtl
 
-; void core_frame_done(void): the frame is ready; waits for the NMI that
-; writes it.
-core_frame_done:
+; Publish separately so physics can use the CPU while a completed picture
+; awaits NMI. Call core_frame_wait before touching any shared OAM/DMA data.
+core_frame_submit:
 	php
 	sep #$20
 	lda #1
 	sta.l core_frame_ready
+	plp
+	rtl
+
+core_frame_wait:
+	php
+	sep #$20
 -	lda.l core_frame_ready
 	bne -
 	plp
+core_frame_wait_end:
+	rtl
+
+; Original blocking API for menus, startup and terminal frames.
+core_frame_done:
+	jsl core_frame_submit
+	jsl core_frame_wait
 	rtl
 
 ; void core_wait_frames(u16 n): waits n NMIs (without a frame).
@@ -317,14 +457,21 @@ core_wait_frames:
 ; u16 core_pad_take(void): the buttons pressed since the last call.
 core_pad_take:
 	php
+	phb
+	sep #$20
+	lda #$80
+	pha
+	plb
 	rep #$30
-	sei
-	lda.l core_pad_new
-	sta.b tcc__r0
-	lda #0
-	sta.l core_pad_new
-	cli
+	lda core_pad_new
+	sta.l tcc__r0
+core_pad_take_read:
+	; TRB atomically acknowledges only the edges just read. A different
+	; edge latched by an intervening NMI remains pending for the next call.
+	trb core_pad_new
+	plb
 	plp
+core_pad_take_end:
 	rtl
 
 ; void core_queue_vram(u16 vaddr, const void* src, u16 size)

@@ -107,7 +107,7 @@ Z_LATE      dw          ; the wheel drawn over the bike, $FFFF: none
 Z_LEFT      dw          ; the time of the vertical blank left (bytes)
 Z_PEND      dw          ; bit p: part p wants another picture
 Z_PTR       dsb 4       ; a long pointer (a descriptor: bike_desc_single and
-                        ; bike_desc_frame are in one bank)
+	                    ; bike_desc_frame are in one bank)
 Z_DST       dw
 Z_NS        dw
 Z_BXS       dw          ; the center of the bike on the screen, biased,
@@ -127,6 +127,8 @@ bike_dp     dsb 256
 .RAMSECTION ".bike_vars" BANK 0 SLOT 1
 bike_cur    dsw 11      ; the descriptor of each part in the VRAM, 0: none
 bike_ta     dsw 11      ; its first tile | attributes << 8
+bike_geom_ok dw         ; exact relative-pose cache valid after geometry
+bike_geom_key dsw 11    ; angle, animation/turn flags, six CONV input deltas
 bike_toggle dw          ; which group of parts loads first
 bike_pend   dw          ; bit p: part p wants a picture not in the VRAM
 bike_ph     dw          ; P_H is set for this Z_TR ($FFFF: not set)
@@ -134,8 +136,8 @@ bike_bn     dw          ; the sprites of the body (bk_bodyset)
 bike_bx     dw          ; their corners for its flips (from bike_desc_single)
 bike_bnl    dw          ; the sprites of the body in the last frame
 bike_key    dsb 10      ; the step of the angle and the mirroring of the
-                        ; picture of each single part in the last frame
-                        ; ($FF: none)
+	                    ; picture of each single part in the last frame
+	                    ; ($FF: none)
 bike_fkey   dw          ; the same for the body
 bike_tkey   dw          ; the same for the single parts while turning
 P_CX        dsw 11      ; the parts: center
@@ -180,18 +182,16 @@ W_KF        dsw 11      ; its flips << 8
 	MB
 .ENDM
 
-; The relative position of a point of phys_view, in units: the bytes 1-2
-; of the 16.16 meters (1/256 meters) minus the body's, * 1.2 (77/64).
+; Relative position from sampled delta \1 to DP word \2, * 77/64.
+; Delta uses bytes 1-2 of both 16.16 points, preserving CONV quantization.
 .MACRO CONV
-	lda.l phys_view+\1+1
-	sec
-	sbc.b \2
+	lda bike_geom_key+\1        ; exact delta sampled by bk_geom_changed
 	asl a
 	asl a
 	MA
 	lda.b #77
 	MB
-	sta.b \3
+	sta.b \2
 .ENDM
 
 ; Part \1 (2 * part) wants W_DESC (in A, W_KF): pending if it is not in
@@ -566,6 +566,7 @@ bike_reset:
 	lda #0
 	sta bike_cur+2*FRAME        ; the body: no sprites
 	sta bike_toggle
+	sta bike_geom_ok
 	sta bike_pend
 	sta bike_bn
 	sta bike_bnl
@@ -613,11 +614,16 @@ bike_draw:
 	lda.b #:bike_desc_single    ; the bank of the descriptors (Z_PTR)
 	sta.b Z_PTR+2
 	rep #$30
-	jsr bk_geometry
+	jsr bk_center
+	jsr bk_geom_changed
+	bcs +
+	bra _reuse_geometry
++	jsr bk_geometry
 	lda.b Z_LATE                ; turning
 	bmi +
 	jsr bk_turn
 +	jsr bk_pictures
+_reuse_geometry:
 	jsr bk_load
 	jsr bk_oam
 bike_draw_end:
@@ -757,8 +763,8 @@ _done:
 ;---------------------------------------------------------------------------
 
 ;---------------------------------------------------------------------------
-; Where the parts are (P_CX, P_CY), their angles and mirroring (P_AL, P_H).
-bk_geometry:
+; The screen center always follows current body position and camera.
+bk_center:
 	; The center of the bike on the screen:
 	rep #$30
 	lda.b Z_CAMX
@@ -795,6 +801,113 @@ bk_geometry:
 	sec
 	sbc.b Z_T3
 	sta.b Z_BSY
+	rts
+
+; Relative geometry depends on the CONV deltas, not absolute translation,
+; camera position or wheel spin. Exact comparison preserves quantization.
+; objects_draw overwrites DP bytes 0..25 only; all wheel/turn metadata used
+; by bk_load and bk_oam survives there, as do P_* and W_* in low RAM.
+; Carry set: key changed, render full geometry. Carry clear: reuse it.
+.MACRO GEOM_REL_CHECK
+	lda.l phys_view+\1+1
+	sec
+	sbc.b \2
+	cmp bike_geom_key+\3
+	beq +
+	jmp _geom_new
++
+.ENDM
+.MACRO GEOM_REL_SAVE
+	lda.l phys_view+\1+1
+	sec
+	sbc.b \2
+	sta bike_geom_key+\3
+.ENDM
+.MACRO GEOM_TURN
+	lda.l bike_anim+BA_TURN
+	cmp.w #TURN_DONE
+	bcc +
+	lda.w #$FFFF                ; all completed turns render identically
+	bra ++
++	and.w #$FF00                ; turning tables use only the high byte
+++
+.ENDM
+bk_geom_changed:
+	lda bike_geom_ok
+	bne +
+	jmp _geom_new
++
+	lda.l phys_view+PV_BODY_A
+	cmp bike_geom_key
+	beq +
+	jmp _geom_new
++
+	GEOM_TURN
+	cmp bike_geom_key+2
+	beq +
+	jmp _geom_new
++
+	lda.l bike_anim+BA_VOLT
+	and.w #$FF00
+	cmp bike_geom_key+4
+	beq +
+	jmp _geom_new
++
+	lda.l phys_view+PV_TURNED
+	and.w #$00FF
+	cmp bike_geom_key+6
+	beq +
+	jmp _geom_new
++
+	lda.l bike_anim+BA_VOLT1
+	and.w #$00FF
+	cmp bike_geom_key+8
+	beq +
+	jmp _geom_new
++
+	lda.l phys_view+PV_BODY_X+1
+	sta.b Z_T4
+	lda.l phys_view+PV_BODY_Y+1
+	sta.b Z_T5
+	GEOM_REL_CHECK PV_WHEEL_X, Z_T4, 10
+	GEOM_REL_CHECK PV_WHEEL_Y, Z_T5, 12
+	GEOM_REL_CHECK PV_WHEEL_X+4, Z_T4, 14
+	GEOM_REL_CHECK PV_WHEEL_Y+4, Z_T5, 16
+	GEOM_REL_CHECK PV_RIDER_X, Z_T4, 18
+	GEOM_REL_CHECK PV_RIDER_Y, Z_T5, 20
+	clc
+	rts
+_geom_new:
+	lda.l phys_view+PV_BODY_A
+	sta bike_geom_key
+	GEOM_TURN
+	sta bike_geom_key+2
+	lda.l bike_anim+BA_VOLT
+	and.w #$FF00
+	sta bike_geom_key+4
+	lda.l phys_view+PV_TURNED
+	and.w #$00FF
+	sta bike_geom_key+6
+	lda.l bike_anim+BA_VOLT1
+	and.w #$00FF
+	sta bike_geom_key+8
+	lda.l phys_view+PV_BODY_X+1
+	sta.b Z_T4
+	lda.l phys_view+PV_BODY_Y+1
+	sta.b Z_T5
+	GEOM_REL_SAVE PV_WHEEL_X, Z_T4, 10
+	GEOM_REL_SAVE PV_WHEEL_Y, Z_T5, 12
+	GEOM_REL_SAVE PV_WHEEL_X+4, Z_T4, 14
+	GEOM_REL_SAVE PV_WHEEL_Y+4, Z_T5, 16
+	GEOM_REL_SAVE PV_RIDER_X, Z_T4, 18
+	GEOM_REL_SAVE PV_RIDER_Y, Z_T5, 20
+	lda.w #1
+	sta bike_geom_ok
+	sec
+	rts
+
+; Rebuild only after bk_geom_changed sampled a different exact key.
+bk_geometry:
 	; The angle:
 	lda.l phys_view+PV_BODY_A
 	sta.b Z_TH
@@ -829,16 +942,12 @@ bk_geometry:
 	sta.b Z_LATE
 ++
 	; Points from the physics:
-	lda.l phys_view+PV_BODY_X+1
-	sta.b Z_T4
-	lda.l phys_view+PV_BODY_Y+1
-	sta.b Z_T5
-	CONV PV_WHEEL_X, Z_T4, Z_W0X
-	CONV PV_WHEEL_Y, Z_T5, Z_W0Y
-	CONV PV_WHEEL_X+4, Z_T4, Z_W1X
-	CONV PV_WHEEL_Y+4, Z_T5, Z_W1Y
-	CONV PV_RIDER_X, Z_T4, Z_RX
-	CONV PV_RIDER_Y, Z_T5, Z_RY
+	CONV 10, Z_W0X
+	CONV 12, Z_W0Y
+	CONV 14, Z_W1X
+	CONV 16, Z_W1Y
+	CONV 18, Z_RX
+	CONV 20, Z_RY
 	; Points fixed to the bike and to the rider: tables by the angle >> 6
 	; and turned.
 	rep #$30

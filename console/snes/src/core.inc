@@ -3,6 +3,11 @@
 ; Entries of the DMA queue of a frame and of the queue of register writes:
 .DEFINE DMAQ_MAX 48
 .DEFINE REGQ_MAX 32
+; Queue cost in byte-times, excluding the fixed 544-byte OAM transfer.
+; Includes 96 byte-times for each transfer's setup, leaving room for the
+; remaining NMI register writes within a 224-line NTSC vertical blank.
+.DEFINE DMAQ_ENTRY_COST 96
+.DEFINE DMAQ_COST_MAX 5000
 ; Types of the entries of the DMA queue:
 .DEFINE DMAQ_VRAM   0           ; VRAM, the address grows by a word
 .DEFINE DMAQ_VRAM32 1           ; VRAM, the address grows by 32 words (a column)

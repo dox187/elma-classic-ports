@@ -17,5 +17,8 @@ u32 game_play(u16 level, u8* finished);
 #define GAME_TURN 0x10
 extern u8* game_keys;
 extern u16 game_keys_n;
+// Diagnostics: steps are never discarded; backlog is retained for the
+// next frame. max is measured in the accumulator's 1/fps step units.
+extern u16 game_phys_drop_count, game_phys_backlog_count, game_phys_backlog_max;
 
 #endif

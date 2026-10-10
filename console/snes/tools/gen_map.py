@@ -98,7 +98,7 @@ TILES_PER_BANK = 1024           # 32 bytes each
 CHUNK = 8                       # cells
 # The cells BG1 keeps ready around the screen (src/map.asm MAP_COLS,
 # MAP_ROWS): the cache of edge and complex tiles must hold all of them.
-FILL_W, FILL_H = 35, 31
+FILL_W, FILL_H = 39, 32
 CACHE_SLACK = 16
 TEX2_MAX_TILES = 144
 TEX_MAX_TILES = 240              # (ROM: 32 bytes each, in every level)
