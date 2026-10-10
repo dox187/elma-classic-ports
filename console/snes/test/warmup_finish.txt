@@ -1,0 +1,6 @@
+# Finishes level 1 Warm Up on the SNES (test/finish_test.py): the bike turns
+# right, rides to the apple, eats it, turns back and rides to the flower.
+# Found by test/finish_search.py with the C description of the physics; the
+# keys of the steps of the physics, in the syntax of test/play.py --steps.
+time 00:17:57
+GT160 N32 B32 G32 GL32 L32 GR64 B32 N32 GL32 N32 GR32 R32 G32 B32 L32 LT32 R32 GL32 L32 GR32 G64 GL32 G32 GR32 B32 R32 N32 GL32 B64 L64 G32 N32 R32 B32 R31
