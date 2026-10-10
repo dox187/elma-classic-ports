@@ -4,6 +4,6 @@ GEN_ASM += $(GEN)/ui_data.asm
 GEN_H += $(GEN)/ui_data.h
 TEST_ROMS += $(BUILD)/test_ui.sfc
 
-$(GEN)/ui_data.asm $(GEN)/ui_data.h &: tools/gen_ui.py tools/elmadata.py \
+$(GEN)/ui_data.asm $(GEN)/ui_data.h &: tools/gen_ui.py tools/elmadata.py VERSION \
 		$(GEN)/data_names
-	$(PYTHON) tools/gen_ui.py $(ELMA_RES) $(GEN)
+	$(PYTHON) tools/gen_ui.py $(ELMA_RES) $(GEN) "$(VERSION)"

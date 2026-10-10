@@ -2,7 +2,7 @@
 the menus of the original game (MENUKEP.CPP, ABC8.CPP, ANIM.CPP,
 TELJES.CPP) from elma.res, scaled by 0.4 for the SNES.
 
-  gen_ui.py ELMA_RES OUT_DIR
+  gen_ui.py ELMA_RES OUT_DIR VERSION
 
 The menus of the game are drawn on a 640x480 picture, or on a taller one
 with the same things centered (Menueltolasy). The SNES screen is that
@@ -15,8 +15,8 @@ taller picture of 640x560 scaled by 0.4: 256x224.
 - The balls of the animated menus (GOLYOK.CPP): circles of the three sizes
   with the two small circles in them, at 16 angles of half a turn
   (clockwise on the screen, as the original turns them).
-- The intro picture: intro.pcx with the version written over as teljes
-  does it, 4 bits in a few palettes.
+- The intro picture: intro.pcx with the SNES release in its version slot
+  and a small fan-port credit below it, 4 bits in a few palettes.
 """
 
 import io
@@ -412,41 +412,60 @@ def gen_balls():
 
 # -- the intro picture -------------------------------------------------------
 
-def intro_picture(res):
-    """intro.pcx as teljes shows it: the number of the version written over
-    with pieces of the picture itself ("1.0" to "1.11a" on the picture of
-    the original game; on the remastered picture of the Steam release the
-    same copies leave "11 a" after "Remastered version", as the original
-    code shows it there too)."""
-    im = res.intro.copy()
+def intro_text(res, text, height):
+    """Original game glyphs resized at PC resolution before SNES scaling."""
+    letters = parse_abc(res.res.read('menu.abc'))
+    widths = [10 if c == ' ' else letters[ord(c)][1].shape[1] for c in text]
+    glyph_height = max(y + rows.shape[0] for c in text if c != ' '
+                       for y, rows, mask in [letters[ord(c)]])
+    alpha = np.zeros((glyph_height, sum(widths) + 2 * (len(text) - 1)), np.uint8)
+    palette = np.array(res.pal).reshape(-1, 3)
+    x = 0
+    for c, width in zip(text, widths):
+        if c != ' ':
+            y, rows, mask = letters[ord(c)]
+            alpha[y:y + rows.shape[0], x:x + width] = palette[rows, 0] * mask
+        x += width + 2
+    return np.array(Image.fromarray(alpha).resize(
+        (round(alpha.shape[1] * height / glyph_height), height), Image.Resampling.LANCZOS))
 
-    def blt(x, y, x1, y1, x2, y2):
-        im.paste(im.crop((x1, y1, x2 + 1, y2 + 1)), (x, y))
-    if res.res.shareware:
-        blt(321, 420, 296, 420, 314, 441)
-        blt(321 + 15, 420, 296, 420, 314, 441)
-        blt(321 + 15 + 17, 432, 88, 458, 98, 468)
-    else:
-        blt(321, 420, 297, 420, 315, 441)
-        blt(321 + 15, 420, 297, 420, 315, 441)
-        blt(321 + 15 + 16, 432, 88, 458, 98, 468)
+
+def intro_picture(res, version):
+    """Original footer, SNES version, and a matching single-line credit."""
     pal = list(res.pal)
     pal[0:3] = [0, 0, 0]                     # pcxtopal: color 0 is black
-    return pal_image(im, pal)
+    rgb = pal_image(res.intro, pal)
+    glyphs = intro_text(res, version, 22)
+    if glyphs.shape[1] > rgb.shape[1] - 296:
+        raise ValueError('SNES VERSION is too long for the intro: %r' % version)
+    old = rgb[420:442, 296:]
+    color = old.reshape(-1, 3)[old[..., 0].argmax()].copy()
+    rgb[420:445, 296:] = 0
+    rgb[420:442, 296:296 + glyphs.shape[1]] = glyphs[..., None] / 255 * color
+
+    # Match the original footer's amber color and smaller letter size.
+    # Draw at PC resolution so the added line has the same soft scaling.
+    footer = rgb[450:480, 330:]
+    color = footer.reshape(-1, 3)[footer[..., 0].argmax()].copy()
+    glyphs = intro_text(res, 'unofficial fan made port by dox187', 16)
+    rgb = np.pad(rgb, ((0, 40), (0, 0), (0, 0)))
+    x = (rgb.shape[1] - glyphs.shape[1]) // 2
+    rgb[496:512, x:x + glyphs.shape[1]] = glyphs[..., None] / 255 * color
+    return rgb
 
 
-def gen_intro(res, npal=4):
-    """Tiles of the intro picture at 0.4 (256x192) in up to npal palettes
+def gen_intro(res, version, npal=4):
+    """Tiles of the intro picture and credit at 0.4 in up to npal palettes
     of 15 colors; black is the transparent color 0. The map has the picture
     from its first row."""
-    rgb = intro_picture(res)
+    rgb = intro_picture(res, version)
     rgba = np.concatenate([rgb, np.ones(rgb.shape[:2] + (1,))], -1)
-    col, _ = area_scale(rgba, SCALE, size=(256, 192))
+    col, _ = area_scale(rgba, SCALE, size=(256, 208))
     col = np.round(col / 255 * 31) * 255 / 31
     dark = col.max(-1) < 12
     tiles = [(ty, tx, col[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8],
               dark[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8])
-             for ty in range(24) for tx in range(32)]
+             for ty in range(col.shape[0] // 8) for tx in range(32)]
     used = [t for t in tiles if not t[3].all()]
     # Groups of tiles by their mean color, a palette for each:
     means = np.array([t[2][~t[3]].mean(0) for t in used])
@@ -514,6 +533,7 @@ def words(values):
 def main():
     res = Res(sys.argv[1])
     out = sys.argv[2]
+    version = sys.argv[3]
     asm = Asm()
     h = ['// Generated by tools/gen_ui.py from %s.' % os.path.basename(sys.argv[1]),
          '#ifndef UI_DATA_H', '#define UI_DATA_H', '']
@@ -601,7 +621,7 @@ def main():
         h.append('#define UI_BALL%d_SIDE %d' % (i, side))
     h += ['extern const u8 ui_ball0_chr[], ui_ball1_chr[], ui_ball2_chr[];', '']
 
-    ichr, ntiles, imap, ipal = gen_intro(res)
+    ichr, ntiles, imap, ipal = gen_intro(res, version)
     # The room of each in the VRAM of the menus (ui.c):
     if len(bg_chr) // 32 > 448 or ntiles > 448:
         raise ValueError('too many tiles: background %d, intro %d'

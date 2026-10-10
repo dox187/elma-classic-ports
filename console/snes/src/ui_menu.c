@@ -375,7 +375,7 @@ static void intro_scroll(void) {
 		u8* t = hdma_tab[buf];
 		if( d >= 224 )
 			break;
-		a = 16 + d;             // the intro from this line
+		a = UI_INTRO_Y + d;     // the intro from this line
 		b = 224 - d;            // the background from this line
 		c = d;                  // the texts and the sprites to this line
 		// Line 0 of the frame is not shown: the first entry has it too.
@@ -427,7 +427,7 @@ void ui_intro_screen(void) {
 	ui_enter();
 	REG(0x212C) = 0x01;         // the intro picture only
 	REG(0x212D) = 0;
-	core_scroll[1] = (u16)(-17);  // 16 lines down
+	core_scroll[1] = (u16)(-UI_INTRO_Y - 1);
 	core_pad_take();
 	while( 1 ) {
 		core_frame_done();

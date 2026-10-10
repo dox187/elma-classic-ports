@@ -19,6 +19,7 @@
 // The menus are made for 640x480; the screen shows them on a picture of
 // 640x560, 40 pixels lower (Menueltolasy), scaled by 0.4.
 #define UI_SHIFT_Y    40
+#define UI_INTRO_Y     1         // balances the splash's visible top/bottom margins
 #define UI_ROWS       28        // rows of tiles of the canvas
 #define UI_COLS       32        // columns of tiles of the canvas (the screen)
 #define UI_CANVAS_STRIDE 512    // bytes of a column of tiles in the canvas

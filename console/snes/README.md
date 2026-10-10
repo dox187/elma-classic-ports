@@ -1,6 +1,6 @@
 # Elasto Mania SNES demake
 
-Current version: **0.1 alpha** (kept in [`VERSION`](VERSION)).
+Current version: **0.2 beta** (kept in [`VERSION`](VERSION)).
 
 An unofficial, fan-made version of Elasto Mania for the Super Nintendo,
 made to look and play like the PC original. It is a separate program, not a
