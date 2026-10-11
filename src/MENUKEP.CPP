@@ -84,6 +84,7 @@ int menumeretbeallit( void ) {
 		Tmpbuffer = new pic8( Menuxsize, Menuysize );
 	}
 	golyofalak( Menuxsize, Menuysize );
+	golyomeret( Menuxsize, Menuysize );
 	frontbuffermeret( Menuxsize, Menuysize );
 	return 1;
 }

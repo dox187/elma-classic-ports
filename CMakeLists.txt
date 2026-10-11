@@ -141,5 +141,10 @@ if(ELMA_PLATFORM STREQUAL "desktop")
             src/DOBOZ.CPP src/VEKT2.CPP src/KISKEP.CPP)
         elma_target(sprite-rotation-test)
         add_test(NAME sprite-rotation COMMAND sprite-rotation-test)
+        add_executable(menu-layout-test tests/menu_layout.cpp
+            desktop/F_SDL/SDL_SETTINGS.CPP src/GOLYOK.CPP src/GOLYKISZ.CPP
+            src/GOLYUTK.CPP src/VEKT2.CPP)
+        elma_target(menu-layout-test)
+        add_test(NAME menu-layout COMMAND menu-layout-test)
     endif()
 endif()

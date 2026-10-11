@@ -118,9 +118,11 @@ the Steam game.
 
 ## Picture and settings
 
-The menus and dialogs fill the window: their background is repeated over it
-and their text keeps its original size, so longer lists fit (see
-`menu_scale`); the editor is a 640x480 picture. The view of the game
+The menus and dialogs fill the window: their background is repeated over it,
+and the splash, text and animated balls grow proportionally with the window,
+including on Retina displays (see `menu_scale`). The balls start centered in
+the menu and bounce across its full area. The editor is a 640x480 picture.
+The view of the game
 takes the aspect ratio of the window or screen: it keeps the original
 scale, 480 pixels high on screens wider than 4:3 (854x480 on 16:9, 768x480 on
 16:10, up to 1120x480 on 21:9) and 640 wide on narrower ones (up to 640x640 on
@@ -146,7 +148,7 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 | `scale`      | `sharp` (default), `smooth`, `nearest`, `integer` or `pixelart`; also under **Options → Scaling** |
 | `aspect`     | `screen` (default): the view of the game takes the aspect ratio of the window, or `4:3`: the original 640x480; also under **Options → Aspect Ratio** |
 | `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds. Alt+Enter and F11 save it |
-| `menu_scale` | the menus fill the window with their background and keep their text at 1:1 pixels, so more fits in the lists; `auto` (default) enlarges them by a whole number only on screens of 2000 rows or more (twice on 4K), a number enlarges them that many times. The editor stays 640x480 |
+| `menu_scale` | `auto` (default) scales the splash, text and animated balls proportionally to the window, with extra background on wider or taller screens; a number enlarges the menu that many times (`1` keeps text at 1:1 pixels and fits more list rows). The editor stays 640x480 |
 | `resolution` | how many pixels the view of the game has for the same part of the level: `auto` (default on desktops) multiplies the sizes above by the largest whole number that fits the screen, so the pictures of the level are enlarged evenly (1708x960 on 1920x1080), `native` uses every pixel of the screen, `original` (default on handhelds) the sizes above, or a number of rows such as `720`; also under **Options → Resolution**. It takes effect with the next level |
 | `zoom`       | size of the bike and the level on the screen, `0.5` to `4` (default `1`, the original size); also under **Options → Zoom** and with the zoom keys in a game |
 | `zoom_textures` | `1` (default): the textures, the sky and the ground as well, are enlarged with the zoom; `0`: they keep their original pixel size, crisper but denser; also under **Options → Zoom Textures** |

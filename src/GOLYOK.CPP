@@ -13,9 +13,11 @@ static double Legkozelebbiutkozesideje = -2, Pillanatnyiido = 0;
 
 typedef double *  duplaramutato;
 
-static void kitoltgolyokat( void ) {
+static void kitoltgolyokat( int xsize, int ysize ) {
 	Ngolyok = 9;
-	Golyok = new golyo[Ngolyok];
+	if( !Golyok )
+		Golyok = new golyo[Ngolyok];
+	double scale = xsize/640.0 < ysize/480.0 ? xsize/640.0 : ysize/480.0;
 	// Nullazas:
 	for( int x = 0; x < 3; x++ ) {
 		for( int y = 0; y < 3; y++ ) {
@@ -26,11 +28,13 @@ static void kitoltgolyokat( void ) {
 				Golyok[i].sug = 30;
 			if( x == 2 )
 				Golyok[i].sug = 50;
+			Golyok[i].sug *= scale;
 			Golyok[i].t = 0;
 			Golyok[i].v.x = 0;
 			Golyok[i].v.y = 0;
-			Golyok[i].r.x = 320+(x-1)*120;
-			Golyok[i].r.y = 240+(y-1)*120;
+			Golyok[i].r.x = xsize/2.0+(x-1)*120*scale;
+			Golyok[i].r.y = ysize/2.0+(y-1)*120*scale;
+			Golyok[i].rmostani = Golyok[i].r;
 			Golyok[i].alfa = 0.0;
 			Golyok[i].alfamostani = 0.0;
 			Golyok[i].omega = 0.0;
@@ -38,19 +42,19 @@ static void kitoltgolyokat( void ) {
 	}
 
 	// Beallitjuk kezdeti sebesseget:
-	srand( time( NULL ) );
 	double alfa = s_random( 1000 );
 	alfa *= K_pip2 / 1000.0;
 	alfa *= 0.999;
 	alfa += 0.0005;
 
-	Golyok[0].v.x = -sin( alfa );
-	Golyok[0].v.y = -cos( alfa );
+	Golyok[0].v.x = -sin( alfa )*scale;
+	Golyok[0].v.y = -cos( alfa )*scale;
 }
 
 // Siker eseten igazzal ter vissza:
 void initgolyo( void ) {
-	kitoltgolyokat();
+	srand( time( NULL ) );
+	kitoltgolyokat( 640, 480 );
 
 	int sikerultlefoglalni, i, j;
 	Legkozelebbiutkozesideje = -2;
@@ -85,6 +89,19 @@ void initgolyo( void ) {
 	}
 
 	Konstrualva = 1;
+}
+
+// Restart centered when the menu changes size. Cached collision times
+// belong to the old positions and walls.
+void golyomeret( int xsize, int ysize ) {
+	if( !Konstrualva )
+		return;
+	kitoltgolyokat( xsize, ysize );
+	Legkozelebbiutkozesideje = -2;
+	Pillanatnyiido = 0;
+	for( int i = 0; i < Ngolyok+4; i++ )
+		for( int j = 0; j < Ngolyok+4; j++ )
+			Idok[i][j] = -2;
 }
 
 /*void destrual( void ) {

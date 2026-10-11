@@ -239,10 +239,16 @@ void menu_view_size(int out_w, int out_h, int* w, int* h) {
     *h = 480;
     if (out_w <= 0 || out_h <= 0) return;
     const char* value = config_get("menu_scale", NULL);
-    int times = value ? atoi(value) : 0;
-    if (times <= 0) times = out_h >= 2000 ? out_h / 1000 : 1;
-    *w = out_w / times;
-    *h = out_h / times;
+    double times = value ? atoi(value) : 0;
+    if (times <= 0) {
+        // Keep the original menu content proportional to the window,
+        // including Retina drawable pixels.
+        times = double(out_w) / 640 < double(out_h) / 480
+                    ? double(out_w) / 640 : double(out_h) / 480;
+        if (times < 1) times = 1;
+    }
+    *w = 2 * int((out_w / times + 1) / 2);
+    *h = int(out_h / times + 0.5);
     if (*w < 640) *w = 640;
     if (*h < 480) *h = 480;
     if (*w > MAXKEPXSIZE) *w = MAXKEPXSIZE;
