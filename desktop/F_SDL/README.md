@@ -147,6 +147,7 @@ variable `ELMA_<KEY>` overrides the file, for example `ELMA_SCALE=smooth`.
 |--------------|--------|
 | `scale`      | `sharp` (default), `smooth`, `nearest`, `integer` or `pixelart`; also under **Options → Scaling** |
 | `aspect`     | `screen` (default): the view of the game takes the aspect ratio of the window, or `4:3`: the original 640x480; also under **Options → Aspect Ratio** |
+| `center_bike` | `1` (default): the camera keeps the bike centered, including in split screen and replays; `0`: the original camera leaves more room ahead of the bike; also under **Options → Center Bike** |
 | `fullscreen` | `1` or `0`; the default is `0` on desktops and `1` on handhelds. Alt+Enter and F11 save it |
 | `menu_scale` | `auto` (default) scales the splash, text and animated balls proportionally to the window, with extra background on wider or taller screens; a number enlarges the menu that many times (`1` keeps text at 1:1 pixels and fits more list rows). The editor stays 640x480 |
 | `resolution` | how many pixels the view of the game has for the same part of the level: `auto` (default on desktops) multiplies the sizes above by the largest whole number that fits the screen, so the pictures of the level are enlarged evenly (1708x960 on 1920x1080), `native` uses every pixel of the screen, `original` (default on handhelds) the sizes above, or a number of rows such as `720`; also under **Options → Resolution**. It takes effect with the next level |

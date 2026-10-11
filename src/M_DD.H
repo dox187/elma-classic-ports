@@ -58,6 +58,11 @@ void dd_next_aspect( void ); // Switches to the other one and saves it
 const char* dd_resolution_name( void );
 void dd_next_resolution( void ); // Switches to the next one and saves it
 
+// Keep the bike at the center of each player's view, independent of the
+// riding direction. Defaults to true; the Options menu toggle is saved.
+int dd_center_bike( void );
+const char* dd_center_bike_name( void );
+void dd_next_center_bike( void );
 
 // Size of the bike on the screen (zoom): 1 is the original, NAGYITASMIN..
 // NAGYITASMAX (adatok.h). Takes effect when the next level loads, and

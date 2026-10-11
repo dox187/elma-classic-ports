@@ -32,6 +32,7 @@ int cursor_x = 0, cursor_y = 0;
 
 cli_renderer renderer;
 int graphics = CLI_GRAPHICS_HALF_BLOCKS;
+bool center_bike = true;
 const char config_name[] = "elma-cli.cfg";
 const char* const graphics_names[CLI_GRAPHICS_COUNT] = {"Half Blocks", "Braille", "ASCII"};
 const char* const graphics_keys[CLI_GRAPHICS_COUNT] = {"halfblocks", "braille", "ascii"};
@@ -54,6 +55,9 @@ void load_config() {
         if (sscanf(line, " graphics = %63s", value) == 1)
             for (int i = 0; i < CLI_GRAPHICS_COUNT; ++i)
                 if (strcmp(value, graphics_keys[i]) == 0) graphics = i;
+        int centered;
+        if (sscanf(line, " center_bike = %d", &centered) == 1 &&
+            (centered == 0 || centered == 1)) center_bike = centered != 0;
     }
     fclose(h);
 }
@@ -62,6 +66,7 @@ void save_config() {
     FILE* h = fopen(config_name, "wt");
     if (!h) return;
     fprintf(h, "graphics = %s\n", graphics_keys[graphics]);
+    fprintf(h, "center_bike = %d\n", int(center_bike));
     fclose(h);
 }
 
@@ -245,6 +250,12 @@ void dd_menumeret(int* w, int* h) { *w = 640; *h = 480; }
 void frontbuffermeret(int, int) {}
 const char* dd_resolution_name() { return NULL; }
 void dd_next_resolution() {}
+int dd_center_bike() { return center_bike; }
+const char* dd_center_bike_name() { return center_bike ? "Yes" : "No"; }
+void dd_next_center_bike() {
+    center_bike = !center_bike;
+    save_config();
+}
 // The terminal keeps the original size of the bike.
 double dd_zoom() { return 1.0; }
 void dd_set_zoom(double) {}

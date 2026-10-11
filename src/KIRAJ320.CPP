@@ -624,7 +624,9 @@ static void kirakegyjatekost(
 	// Kiszamoljuk kepernyo bal also sarkat:
 	vekt2 motorkozep = pmot->kor1.r;
 
-	vekt2 sarok( motorkozep.x-(Mo_bal+pvalt->baljobbv_h.baljobb*Mo_dx),
+	const double motor_x = dd_center_bike() ? Cxsize/Arany/2.0 :
+		Mo_bal+pvalt->baljobbv_h.baljobb*Mo_dx;
+	vekt2 sarok( motorkozep.x-motor_x,
 				 motorkozep.y-Mo_y );
 
 	//ppic->fillbox( 100 );

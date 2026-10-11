@@ -134,6 +134,11 @@ void options( void ) {
 			rubrikaszam = 11;
 		#endif
 
+		int motorkozepsor = rubrikaszam;
+		strcpy( Rubrikak[rubrikaszam+vantagis], "Center Bike:" );
+		strcpy( Rubrikak_tab[rubrikaszam+vantagis], dd_center_bike_name() );
+		rubrikaszam++;
+
 		// Image scaling, if adjustable on the platform:
 		int nagyitassor = -1;
 		if( dd_scale_name() ) {
@@ -253,6 +258,9 @@ void options( void ) {
 			if( kurrens == 10 )
 				cli_next_graphics();
 		#endif
+
+		if( kurrens == motorkozepsor )
+			dd_next_center_bike();
 
 		if( nagyitassor >= 0 && kurrens == nagyitassor )
 			dd_next_scale();

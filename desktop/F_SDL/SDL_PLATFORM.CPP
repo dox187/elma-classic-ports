@@ -849,6 +849,13 @@ int dd_zoom_grass() { return config_zoom_grass(); }
 int dd_texture_filter() { return config_texture_filter(); }
 int dd_zoom_key(int zoom_in) { return config_zoom_key(zoom_in != 0); }
 
+int dd_center_bike() { return config_flag("center_bike", true); }
+const char* dd_center_bike_name() { return dd_center_bike() ? "Yes" : "No"; }
+void dd_next_center_bike() {
+    config_set("center_bike", dd_center_bike() ? "0" : "1");
+    config_save();
+}
+
 #ifdef ELMA_SDL1
 // SDL 1.2 shows the 640x480 picture unscaled.
 unsigned char** lockbackbuffer(int) {

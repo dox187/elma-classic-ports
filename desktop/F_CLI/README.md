@@ -21,6 +21,10 @@ Screenshots captured with the Half Blocks renderer.
 - The picture keeps its 4:3 shape and follows the size of the terminal
   window when it is resized.
 - The bike keeps its original size (no zoom).
+- The camera keeps the bike centered, including in split screen and
+  replays. **Options → Center Bike → No** restores the original camera
+  that leaves more room ahead of the bike. The choice is saved as
+  `center_bike = 1` (default) or `0` in `elma-cli.cfg`.
 - The level editor is not included in the terminal version.
 
 ## Terminal requirements
