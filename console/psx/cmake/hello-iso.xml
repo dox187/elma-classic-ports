@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Track-1-only disc of the hello program. Processed by CMake (configure_file)
+	and used by mkpsxiso. Paths are relative to the build directory.
+	It contains only our own code: SYSTEM.CNF and the PS-EXE.
+-->
+<iso_project>
+	<track type="data">
+		<identifiers
+			system        ="PLAYSTATION"
+			volume        ="ELMA_PSX_HELLO"
+			volume_set    ="ELMA_PSX_HELLO"
+			publisher     ="ELMA CLASSIC"
+			data_preparer ="PSN00BSDK ${PSN00BSDK_VERSION}"
+			application   ="PLAYSTATION"
+			copyright     ="README.TXT;1"
+		/>
+		${PSX_LICENSE_TAG}
+		<directory_tree>
+			<file name="SYSTEM.CNF" type="data" source="${PROJECT_SOURCE_DIR}/cmake/system.cnf" />
+			<file name="HELLO.EXE"  type="data" source="hello.exe" />
+			<dummy sectors="1024"/>
+		</directory_tree>
+	</track>
+</iso_project>
