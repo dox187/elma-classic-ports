@@ -523,14 +523,14 @@ static int talppontkereses( const fx_level* lev, const fx_param* p, fx_vec r, in
 	}
 	if( celly == lev->ydim )
 		celly = lev->ydim-1;
-	const uint16_t* sor = lev->list+lev->row[celly];
+	const uint16_t* sor = fx_level_row( lev, celly );
 	const uint16_t* cell = lev->cell+(lev->xdim+1)*celly+cellx;
 	const uint16_t* it = sor+cell[0];
 	const uint16_t* end = sor+cell[1];
 	int n = 0;
 	contact_t c;
 	for( ; it < end; it++ ) {
-		if( !gombszakasz( &lev->lines[*it], r, sugar, sugar2_62, &c ) )
+		if( !gombszakasz( fx_level_line( lev, *it ), r, sugar, sugar2_62, &c ) )
 			continue;
 		if( !ct )
 			return 1;

@@ -74,6 +74,9 @@ class lgrfile {
 	int csereljen( int i );
 public:
 	friend void loadlgrfile( char* nev ); // Leiras alul
+#ifdef ELMA_PSX
+	friend void loadlgrfile( char* nev, topol* ptop );
+#endif
 	friend void tesztloadlgr( void );
 
 	// Zoom levels it was made with (1: original size):
@@ -153,6 +156,10 @@ extern lgrfile* Plgr; // Az eppen bentlevo lgrfile-ra mutat
 // dd_zoom_grass), also reloading it if the loaded one was made with a
 // different zoom:
 void loadlgrfile( char* nev );
+#ifdef ELMA_PSX
+// The level header can load its graphics before allocating its geometry.
+void loadlgrfile( char* nev, topol* ptop );
+#endif
 // True if an LGR is loaded, and it was made with the zoom level for the
 // current Arany and settings:
 int lgrnagyitasjo( void );

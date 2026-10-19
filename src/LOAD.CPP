@@ -79,6 +79,14 @@ int floadlevel_p( char* nev ) {
 		else
 			Pszak->rendez( Pmot1->kor2.sugar );
 
+#ifdef ELMA_PSX
+		void fxg_prepare_lines( void );
+		fxg_prepare_lines();
+		// Sound decoding and compression need temporary buffers; finish
+		// them before allocating the GPU's scenery instances and sprites.
+		void psx_prepare_sound( void );
+		psx_prepare_sound();
+#endif
 		betoltecseteket();
 	}
 	else {
@@ -86,6 +94,10 @@ int floadlevel_p( char* nev ) {
 		// editor loaded the LGR at its original size:
 		if( maskellarany() || !lgrnagyitasjo() )
 			ujranagyit();
+#ifdef ELMA_PSX
+		void psx_prepare_sound( void );
+		psx_prepare_sound();
+#endif
 	}
 	return 1;
 }

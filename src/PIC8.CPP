@@ -120,6 +120,24 @@ pic8::~pic8( void ) {
         DELETE sprite; }
 }
 
+#ifdef ELMA_PSX
+void pic8::discardpixels( void ) {
+    if( nemdestrukt )
+        return;
+    delete[] sormuttomb;
+    sormuttomb = NULL;
+    if( szegmuttomb )
+        for( int i = 0; i < szegnum; i++ )
+            delete[] szegmuttomb[i];
+    delete[] szegmuttomb;
+    szegmuttomb = NULL;
+    szegnum = 0;
+    delete[] sprite;
+    sprite = NULL;
+    spritehossz = 0;
+}
+#endif
+
 pic8::pic8( int xsizep, int ysizep ) {
     success = 0;
     nemdestrukt = 0;

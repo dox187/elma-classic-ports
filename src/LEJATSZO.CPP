@@ -30,6 +30,28 @@ static void initsoundlejatszoban( void ) {
 	}
 }
 
+#ifdef ELMA_PSX
+void psx_prepare_sound( void ) {
+	if( !State->soundon || Hangmarmegy )
+		return;
+	// Enabling sound after a silent game can reuse an already prepared
+	// level. Its caches give the one-time WAV decoder enough room too.
+#ifdef ELMA_PSX_GPU
+	bool gv_level_release();
+	gv_level_release();
+#endif
+	void gv_menu_picture_free();
+	void gv_menu_images_free();
+	gv_menu_picture_free();
+	gv_menu_images_free();
+	// Restore a compact collision cache before the sound bank becomes
+	// resident, matching the first-load ordering even for dense levels.
+	void fxg_prepare_lines( void );
+	fxg_prepare_lines();
+	initsoundlejatszoban();
+}
+#endif
+
 // Player 1 es 2-re:
 static viewtimest Viewtime1 = { 1, 0, 1, 0 };
 static viewtimest Viewtime2 = { 1, 0, 1, 0 };

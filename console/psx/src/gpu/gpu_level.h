@@ -27,6 +27,8 @@ struct gpu_inst {
 	int32_t sprite0;     // its sprites (gpu_level::sprites)
 	int16_t nsprites;
 };
+const int GPU_INSTANCE_SHIFT = 9;
+const int GPU_INSTANCE_CHUNK = 1 << GPU_INSTANCE_SHIFT;
 
 // The sprites of the pictures are made at level load: an instance is drawn
 // at a fixed place of the world, the texture of a mask or qgrass anchored
@@ -63,7 +65,7 @@ struct gpu_level {
 	// or not) are drawn apart, the far ones (distance 500 and more) and the
 	// near ones apart (gpu_draw.cpp).
 	int ninst;
-	gpu_inst* inst;
+	gpu_inst** inst;
 	int nsprites;
 	gpu_wsprite** sprite_chunks;
 	// A grid over the brush for finding the instances of a view:
@@ -89,6 +91,10 @@ enum { GL_FAR_GROUND, GL_FAR_SKY, GL_NEAR_GROUND, GL_NEAR_SKY };
 const int GPU_GRID_CELL = 512, GPU_TRAP_CELL = 256;
 
 extern gpu_level Glevel;
+
+inline gpu_inst* gpu_instance(int i) {
+	return &Glevel.inst[i >> GPU_INSTANCE_SHIFT][i & (GPU_INSTANCE_CHUNK - 1)];
+}
 
 // Brush pixels of a point in physics coordinates (y up), fixed point.
 int32_t gpu_brush_x16(double x);

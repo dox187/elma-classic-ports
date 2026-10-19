@@ -19,6 +19,7 @@
 #include <psxetc.h>
 #include <psxgpu.h>
 #include <psxpad.h>
+#include <new>
 
 #include "all.h"
 #include "psx_file.h"
@@ -67,7 +68,9 @@ const int W = 640, H = 480;
 // is loaded and while the game view (drawn by the GPU) is on
 // (gv_menu_picture_free), in small pieces of CHUNK_ROWS rows, so that it
 // fits into the heap again however it was cut up meanwhile.
-const int CHUNK_ROWS = 8;
+// Dense external levels can leave enough free RAM in holes smaller than
+// eight rows. Four-row pieces let the menus use those holes on return.
+const int CHUNK_ROWS = 4;
 const int CHUNKS = (H + CHUNK_ROWS - 1) / CHUNK_ROWS;
 unsigned char* chunks[CHUNKS];
 unsigned char* rows_top[H];
@@ -661,6 +664,7 @@ extern "C" void exit(int status) {
 }
 
 void hiba(char* a, char* b, char* c) {
+	printf("elma: internal error: %.160s %.160s %.160s\n", a ? a : "", b ? b : "", c ? c : "");
 	psx_debug.errors++;
 	if (!in_error++) message_screen("Sorry, internal error.", a, b, c, false);
 	exit(1);
@@ -702,9 +706,10 @@ void print_alloc_sites() {
 			       (unsigned)alloc_sites[i].blocks);
 }
 
-void* allocate(size_t size, void* caller) {
+void* allocate(size_t size, void* caller, bool fatal = true) {
 	uint32_t* p = (uint32_t*)malloc(size + ALLOC_HEADER);
 	if (!p) {
+		if (!fatal) return NULL;
 		HeapUsage usage;
 		GetHeapUsage(&usage);
 		printf("elma: out of memory: %u bytes for %p, %u allocated\n", (unsigned)size, caller,
@@ -736,8 +741,12 @@ void release(void* block) {
 
 void* operator new(size_t size) { return allocate(size, __builtin_return_address(0)); }
 void* operator new[](size_t size) { return allocate(size, __builtin_return_address(0)); }
+void* operator new[](size_t size, const std::nothrow_t&) noexcept {
+	return allocate(size, __builtin_return_address(0), false);
+}
 void operator delete(void* p) { release(p); }
 void operator delete[](void* p) { release(p); }
+void operator delete[](void* p, const std::nothrow_t&) noexcept { release(p); }
 void operator delete(void* p, size_t) { release(p); }
 void operator delete[](void* p, size_t) { release(p); }
 

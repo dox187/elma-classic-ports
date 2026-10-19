@@ -30,6 +30,12 @@ local function need(name)
 end
 local dbg = need("psx_debug")
 local state_ptr = need("State")
+local top_ptr = need("Ptop")
+local dialog_waits = elma.sym("psx_dialog_waits")
+local dialogs_answered = 0
+local dialog_release
+local expected_stamp = tonumber(elma.args.stamp)
+local expected_dialogs = tonumber(elma.args.dialogs or "0")
 -- The heap: the statistics of src/mem/psx_mem.c if it is linked in, else
 -- the variables of the SDK's malloc.
 local mem_stats = elma.sym("psx_mem_stats")
@@ -45,6 +51,12 @@ local SITE_COUNT = 256
 local level = tonumber(elma.args.level or "0")
 local external = elma.args.external == "1"
 local play_frames = tonumber(elma.args.play or "600")
+local idle = elma.args.idle == "1"
+local sound_after = elma.args.sound_after == "1"
+local sound_started = sound_after and need("Hangmarmegy") or nil
+local STATE_SOUND_OFFSET = 67756
+local force_reload = elma.args.force_reload == "1"
+local reload_ptr = force_reload and need("Volttopsave") or nil
 local site_lines = tonumber(elma.args.sites or "256")
 local shots = elma.args.shots
 
@@ -56,6 +68,7 @@ local function state()
         menu_chars = elma.u32(dbg + 12),
         bike_x = elma.u32(dbg + 16),
         errors = elma.u32(dbg + 36),
+        stopper = elma.u32(dbg + 48),
     }
 end
 
@@ -74,6 +87,21 @@ local function heap()
             elma.u32(mem_stats + 28)
     end
     return elma.u32(heap_end) - elma.u32(heap_start), elma.u32(heap_alloc)
+end
+
+local function live_report(name)
+    if not mem_stats then return end
+    local start, top, limit = elma.u32(mem_stats + 4), elma.u32(mem_stats + 12), elma.u32(mem_stats + 8)
+    local largest, a = limit - top, start
+    while a < top do
+        local raw = elma.u32(a)
+        local size = bit.band(raw, 0xfffffffe)
+        assert(size >= 16 and a + size <= top, "invalid heap block")
+        if bit.band(raw, 1) == 0 then largest = math.max(largest, size) end
+        a = a + size
+    end
+    print(string.format("LIVE %s allocated=%d free=%d largest=%d", name, elma.u32(mem_stats + 16),
+        elma.u32(mem_stats + 28) + limit - top, math.max(0, largest - 8)))
 end
 
 local function read_sites()
@@ -180,7 +208,10 @@ local function report()
     print(string.format("RAMFILES %d", elma.u32(dbg + 40)))
 end
 
+local finished = false
 local function finish(ok, text)
+    if finished then return end
+    finished = true
     if shots then elma.screenshot("end.ppm") end
     report()
     local s = state()
@@ -194,6 +225,7 @@ end
 -- jatekosokszama.
 local function unlock()
     local s = elma.u32(state_ptr)
+    if sound_after then elma.write_u32(s + STATE_SOUND_OFFSET, 0) end
     local players = elma.u32(s + 61920 + 50 * 116)
     for i = 0, players - 1 do
         local p = s + 61920 + i * 116
@@ -207,23 +239,19 @@ local steps = {
     {name = "name: first letter", button = "RIGHT"},
     {name = "name: enter", button = "CROSS"},
     {name = "main menu: Play", button = "CROSS"},
-    {name = "collections: Original Levels", button = "DOWN"},
 }
-if external then
-    -- The collections: Original Levels, External Levels:
-    steps[#steps + 1] = {name = "collections: External Levels", button = "DOWN"}
-    steps[#steps + 1] = {name = "collections: enter", button = "CROSS"}
-    steps[#steps + 1] = {name = "external file: start", button = "CROSS"}
-else
-    steps[#steps + 1] = {name = "collections: enter", button = "CROSS"}
-    steps[#steps + 1] = {name = "levels: start", button = "CROSS"}
+-- Classic resources enter the internal selector directly; resources with
+-- collections first show the filtered collection rows, like the desktop.
+local path = elma.args.path or (external and "DOWN,DOWN,DOWN,DOWN,DOWN,CROSS,CROSS" or "DOWN,CROSS,CROSS")
+for button in string.gmatch(path, "[^,]+") do
+    steps[#steps + 1] = {name = "level menu: " .. button, button = button}
 end
 
 local step = 0
 local phase = "boot"
 local deadline = 6000
 local press_frame, chars_before, presents_before
-local gas_frame, start_x
+local gas_frame, gas_game_frames, gas_stopper, last_game_at, last_game_frames, start_x
 -- After the first game (after=again,next): leave it and play the same level
 -- again, then the next one, through the menu after a game.
 local after = {}
@@ -231,11 +259,28 @@ for name in string.gmatch(elma.args.after or "", "[^,]+") do after[#after + 1] =
 local played = {}
 local menu_keys, frames_before
 
-elma.on_frame(function(n)
+local function frame(n)
     local s = state()
     sample(n)
-    if s.errors > 0 then return finish(false, "the game stopped with an error in phase " .. phase) end
+    if s.errors > 0 then
+        live_report((current and current.name or phase) .. "_error")
+        return finish(false, "the game stopped with an error in phase " .. phase)
+    end
     if n > deadline then return finish(false, "timeout in phase " .. phase) end
+    if phase == "loading" or phase == "again_loading" then
+        if dialog_release and n >= dialog_release then
+            elma.release(1, "CROSS")
+            dialog_release = nil
+        end
+        if dialog_waits and not dialog_release then
+            local waiting = elma.u32(dialog_waits)
+            if waiting > dialogs_answered then
+                dialogs_answered = waiting
+                elma.press(1, "CROSS")
+                dialog_release = n + 6
+            end
+        end
+    end
 
     if phase == "boot" then
         if not current then enter("boot", n) end
@@ -276,23 +321,60 @@ elma.on_frame(function(n)
         end
     elseif phase == "loading" then
         if s.game_frames >= 3 then
+            if expected_stamp then
+                local top = elma.u32(top_ptr)
+                local stamp = top ~= 0 and elma.u32(top) or 0
+                if stamp ~= expected_stamp then
+                    return finish(false, string.format("wrong external level: stamp %08x, expected %08x",
+                        stamp, expected_stamp))
+                end
+                if dialogs_answered < expected_dialogs then
+                    return finish(false, "missing-LGR recovery was not exercised")
+                end
+                print(string.format("LEVEL stamp=%08x dialogs=%d", stamp, dialogs_answered))
+            end
             print(string.format("frame %d: level running after %d frames of loading", n,
                 n - current.start))
             enter("play", n)
             if shots then elma.screenshot("level.ppm") end
             start_x = signed(s.bike_x)
-            elma.press(1, "UP")
+            elma.press(1, idle and "DOWN" or "UP")
             gas_frame = n
+            gas_game_frames = s.game_frames
+            gas_stopper = s.stopper
+            last_game_at, last_game_frames = n, s.game_frames
             phase = "play"
             deadline = n + play_frames + 600
         end
     elseif phase == "play" then
+        if s.game_frames ~= last_game_frames then
+            last_game_at, last_game_frames = n, s.game_frames
+        end
+        if idle and n > last_game_at + 120 then
+            return finish(false, "idle play stopped advancing in phase " .. current.name)
+        end
         if n >= gas_frame + play_frames then
             elma.release(1, "UP")
+            elma.release(1, "DOWN")
+            local rendered = s.game_frames - gas_game_frames
+            if rendered < 1 then
+                return finish(false, "game frames did not advance in phase " .. current.name)
+            end
             local moved = math.abs(signed(s.bike_x) - start_x)
-            played[#played + 1] = string.format("%s: %d mm", current.name, moved)
+            if sound_after then
+                local started = elma.u32(sound_started)
+                local wanted = current.name == "play" and 0 or 1
+                if started ~= wanted then
+                    return finish(false, "unexpected sound initialization in phase " .. current.name)
+                end
+                print(string.format("SOUND %s initialized=%d", current.name, started))
+            end
+            local elapsed_ms = math.floor((s.stopper - gas_stopper) / 182)
+            live_report(current.name)
+            played[#played + 1] = string.format("%s: %d game frames, %d mm, %d ms", current.name,
+                rendered, moved, elapsed_ms)
             if not after or #after == 0 then
-                return finish(true, string.format("the level ran %d frames, the bike moved: %s",
+                return finish(true, string.format("the level played over %d vsyncs: %s",
                     play_frames, table.concat(played, ", ")))
             end
             -- Leave the game; the menu after it comes up.
@@ -304,6 +386,10 @@ elma.on_frame(function(n)
     elseif phase == "leave" then
         if n == press_frame + 6 then elma.release(1, "SELECT") end
         if n >= press_frame + 240 then
+            if sound_after then
+                elma.write_u32(elma.u32(state_ptr) + STATE_SOUND_OFFSET, 1)
+            end
+            if force_reload then elma.write_u32(reload_ptr, 1) end
             -- The menu after a game: Play again, Play next, ...
             local name = table.remove(after, 1)
             if name == "next" then
@@ -330,11 +416,36 @@ elma.on_frame(function(n)
         end
     elseif phase == "again_loading" then
         if s.game_frames >= frames_before + 3 then
+            if force_reload then
+                if elma.u32(reload_ptr) ~= 0 then
+                    return finish(false, "the forced full level reload was not taken")
+                end
+                local top = elma.u32(top_ptr)
+                if expected_stamp and (top == 0 or elma.u32(top) ~= expected_stamp) then
+                    return finish(false, "wrong level after full reload")
+                end
+                print("RELOAD: full level reload verified")
+            end
             start_x = signed(s.bike_x)
-            elma.press(1, "UP")
+            elma.press(1, idle and "DOWN" or "UP")
             gas_frame = n
+            gas_game_frames = s.game_frames
+            gas_stopper = s.stopper
+            last_game_at, last_game_frames = n, s.game_frames
             phase = "play"
             deadline = n + play_frames + 600
         end
+    end
+end
+
+-- An invariant failure or Lua exception must stop once, even if the
+-- emulator dispatches another vsync before it exits.
+elma.on_frame(function(n)
+    if finished then return end
+    local ok, err = xpcall(function() frame(n) end, debug.traceback)
+    if not ok then
+        finished = true
+        print("FAIL: Lua exception: " .. tostring(err):sub(1, 800))
+        PCSX.quit(99)
     end
 end)

@@ -75,6 +75,9 @@ typedef struct {
 
 typedef struct {
 	fx_line* lines;
+#ifdef ELMA_PSX
+	fx_line** line_chunks;
+#endif
 	int nlines;
 	// The grid of szakaszok (cells of 1 m): the lines of cell (x, y) are
 	// list[row[y]+cell[y*(xdim+1)+x]] .. list[row[y]+cell[y*(xdim+1)+x+1]-1],
@@ -83,6 +86,11 @@ typedef struct {
 	uint32_t* row;
 	uint16_t* cell;
 	uint16_t* list;
+#ifdef ELMA_PSX
+	// Optional exact rows when the flat list cannot fit a fragmented heap.
+	uint16_t** list_rows;
+	uint16_t empty_row;
+#endif
 	int xdim, ydim;
 	fx_vec origo;
 	fx_obj* objs;
@@ -90,6 +98,24 @@ typedef struct {
 	// ecset::kilogna: the bike dies with its body outside these:
 	int64_t kill_x1, kill_x2, kill_y1, kill_y2;
 } fx_level;
+
+#define FX_LINE_SHIFT 8
+#define FX_LINE_CHUNK (1 << FX_LINE_SHIFT)
+static inline const fx_line* fx_level_line( const fx_level* lev, int i ) {
+#ifdef ELMA_PSX
+	if( lev->line_chunks )
+		return &lev->line_chunks[i >> FX_LINE_SHIFT][i & (FX_LINE_CHUNK-1)];
+#endif
+	return &lev->lines[i];
+}
+
+static inline const uint16_t* fx_level_row( const fx_level* lev, int y ) {
+#ifdef ELMA_PSX
+	if( lev->list_rows )
+		return lev->list_rows[y] ? lev->list_rows[y] : &lev->empty_row;
+#endif
+	return lev->list+lev->row[y];
+}
 
 // The constants of the original (ADATOK.CPP initadatok, initmotor and the
 // numbers in the physics sources), made by fx_params().

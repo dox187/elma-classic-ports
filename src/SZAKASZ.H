@@ -18,9 +18,13 @@ class topol;
 
 class szakaszok {
 	vonal* tomb;
+#ifdef ELMA_PSX
+	vonal** tomb_chunks;
+#endif
 	int		 maxszam;
 	int		 szam;
 	int szakfuto;
+	vonal* ptrszakasz( int sorszam );
 
 	// Terbeli kereseshez:
 	pvonalnode* tertomb;

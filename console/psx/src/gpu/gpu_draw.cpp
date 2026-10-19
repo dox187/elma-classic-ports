@@ -545,7 +545,7 @@ void collect_visible() {
 			const int c = cy * Glevel.grid_w + cx;
 			for (uint32_t k = Glevel.inst_start[c]; k < Glevel.inst_start[c + 1]; ++k) {
 				const int i = Glevel.inst_items[k];
-				const gpu_inst* in = &Glevel.inst[i];
+				const gpu_inst* in = gpu_instance(i);
 				// Brush rectangle: columns x..x+w-1, rows y-h+1..y.
 				if (in->x > V.bx1 || in->x + in->w < V.bx0 || in->y < V.by0 || in->y - in->h > V.by1) continue;
 				inst_bits[i >> 5] |= 1u << (i & 31);
@@ -561,7 +561,7 @@ void collect_visible() {
 			const int b = __builtin_ctz(bits);
 			bits &= bits - 1;
 			const int i = (w << 5) + b;
-			const gpu_inst* in = &Glevel.inst[i];
+			const gpu_inst* in = gpu_instance(i);
 			const int near = in->distance < 500 ? 2 : 0;
 			if (in->clip != GI_CLIP_SKY && nvis[GL_FAR_GROUND + near] < MAX_VISIBLE)
 				vis[GL_FAR_GROUND + near][nvis[GL_FAR_GROUND + near]++] = (uint16_t)i;
@@ -573,7 +573,7 @@ void collect_visible() {
 
 void draw_list(int l, bbox* used, uint32_t* count) {
 	for (int i = 0; i < nvis[l]; ++i) {
-		const gpu_inst* in = &Glevel.inst[vis[l][i]];
+		const gpu_inst* in = gpu_instance(vis[l][i]);
 		const int bx = (in->x >> 1) - V.cam_x, by = V.cam_top - (in->y >> 1);
 		int s = in->sprite0;
 		const gpu_wsprite* sp = gpu_sprite(s);
@@ -1504,7 +1504,7 @@ void kirakegyjatekost(int ajatekos, double t, motorst* pmot, valtozok* pvalt, in
 		bbox nb = {0, 0, 0, 0};
 		for (int i = 0; i < nvis[GL_NEAR_GROUND]; ++i) {
 			int x, y, w, h;
-			inst_rect(&Glevel.inst[vis[GL_NEAR_GROUND][i]], &x, &y, &w, &h);
+			inst_rect(gpu_instance(vis[GL_NEAR_GROUND][i]), &x, &y, &w, &h);
 			bbox_add(&nb, x, y, x + w, y + h);
 		}
 		if (nb.x0 < nb.x1) {

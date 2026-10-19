@@ -14,5 +14,9 @@ double fxg_kiszamolsurlodast( void );
 void fxg_reimport( motorst* pmot );
 // Frees the converted level (the next step converts the level again).
 void fxg_unload_level( void );
+#ifdef ELMA_PSX
+// Rebuild and compact collision data after it was released for the menus.
+void fxg_prepare_lines( void );
+#endif
 
 #endif

@@ -4,8 +4,8 @@
 // into the double fields of motorst, which the rest of the game (drawing,
 // recorder, sounds, camera) reads. If something else changes those fields
 // (initmotor in Flag Tag, the start of a game), the state is read from them
-// again. The level (lines, their grid, objects) is converted at the first
-// step after resetleptet.
+// again. The level is prepared at load on the PS1, or at the first step on
+// the host; its compact cache can be evicted and rebuilt around the menus.
 //
 // The functions are named fxg_*; phys_api.cpp gives them the names of the
 // original on the PlayStation, the host test calls them next to the
@@ -173,9 +173,25 @@ slot* find_slot( motorst* pmot ) {
 }
 
 void free_level( void ) {
+#ifdef ELMA_PSX
+	if( Lev.line_chunks ) {
+		for( int c = 0; c < (Lev.nlines+FX_LINE_CHUNK-1)/FX_LINE_CHUNK; ++c )
+			free( Lev.line_chunks[c] );
+		free( Lev.line_chunks );
+	}
+	else
+#endif
 	free( Lev.lines );
 	free( Lev.row );
 	free( Lev.cell );
+#ifdef ELMA_PSX
+	if( Lev.list_rows ) {
+		for( int y = 0; y < Lev.ydim; ++y )
+			free( Lev.list_rows[y] );
+		free( Lev.list_rows );
+	}
+	else
+#endif
 	free( Lev.list );
 	free( Lev.objs );
 	memset( &Lev, 0, sizeof( Lev ) );
@@ -183,26 +199,8 @@ void free_level( void ) {
 
 // The lines of the level and their grid, from szakaszok.
 void build_lines( szakaszok* psz ) {
-	// The lines:
 	int n = psz->szam;
 	Lev.nlines = n;
-	Lev.lines = (fx_line*)malloc( sizeof( fx_line )*(n > 0 ? n : 1) );
-	if( !Lev.lines )
-		uzenet( "memory!" );
-	for( int i = 0; i < n; i++ ) {
-		vonal* pv = &psz->tomb[i];
-		fx_line* l = &Lev.lines[i];
-		l->p.x = fx_d2q( pv->r.x, 40 );
-		l->p.y = fx_d2q( pv->r.y, 40 );
-		vekt2 vege = pv->r+pv->egyseg*pv->hossz;
-		l->e.x = fx_d2q( vege.x, 40 );
-		l->e.y = fx_d2q( vege.y, 40 );
-		l->len = fx_d2q( pv->hossz, 40 );
-		l->ux = (int32_t)fx_d2q( pv->egyseg.x, 30 );
-		l->uy = (int32_t)fx_d2q( pv->egyseg.y, 30 );
-		l->lx = (int32_t)fx_d2q( pv->egyseg.x*1073741824.0-l->ux, 31 );
-		l->ly = (int32_t)fx_d2q( pv->egyseg.y*1073741824.0-l->uy, 31 );
-	}
 
 	// The grid, in the order of the lists of szakaszok:
 	Lev.xdim = psz->xdim;
@@ -213,7 +211,7 @@ void build_lines( szakaszok* psz ) {
 	Lev.row = (uint32_t*)malloc( sizeof( uint32_t )*(ydim+1) );
 	Lev.cell = (uint16_t*)malloc( sizeof( uint16_t )*(xdim+1)*(ydim > 0 ? ydim : 1) );
 	if( !Lev.row || !Lev.cell )
-		uzenet( "memory!" );
+		hiba( "Not enough memory for the collision grid!" );
 	uint32_t total = 0;
 	for( int y = 0; y < ydim; y++ ) {
 		Lev.row[y] = total;
@@ -230,18 +228,76 @@ void build_lines( szakaszok* psz ) {
 	}
 	Lev.row[ydim] = total;
 	Lev.list = (uint16_t*)malloc( sizeof( uint16_t )*(total > 0 ? total : 1) );
-	if( !Lev.list )
-		uzenet( "memory!" );
-	uint32_t j = 0;
-	for( int c = 0; c < xdim*ydim; c++ )
-		for( vonalnode* pn = psz->tertomb[c]; pn; pn = pn->pnext )
-			Lev.list[j++] = (uint16_t)(pn->pvonal-psz->tomb);
+#ifdef ELMA_PSX
+	if( !Lev.list ) {
+		// A warm sound bank can split the remaining space while the
+		// original grid is still resident. Each row is independently
+		// contiguous for the unchanged contact iterator below.
+		Lev.list_rows = (uint16_t**)calloc( ydim > 0 ? ydim : 1, sizeof(uint16_t*) );
+		if( !Lev.list_rows )
+			hiba( "Not enough memory for collision list rows!" );
+		for( int y = 0; y < ydim; ++y ) {
+			const uint32_t count = Lev.row[y+1]-Lev.row[y];
+			if( !count ) continue;
+			Lev.list_rows[y] = (uint16_t*)malloc( sizeof(uint16_t)*count );
+			if( !Lev.list_rows[y] )
+				hiba( "Not enough memory for a collision list row!" );
+		}
+		printf( "elma: collision list uses separate rows (%u bytes)\n", (unsigned)(sizeof(uint16_t)*total) );
+	}
+#else
+	if( !Lev.list ) {
+		printf( "elma: collision cell lists need %u bytes\n", (unsigned)(sizeof(uint16_t)*total) );
+		hiba( "Not enough memory for collision cell lists!" );
+	}
+#endif
+	for( int y = 0; y < ydim; ++y ) {
+		uint16_t* dest = (uint16_t*)fx_level_row( &Lev, y );
+		uint32_t j = 0;
+		for( int x = 0; x < xdim; ++x )
+			for( vonalnode* pn = psz->tertomb[xdim*y+x]; pn; pn = pn->pnext )
+				dest[j++] = (uint16_t)psz->getsorszam( pn->pvonal );
+	}
 #ifdef ELMA_PSX
 	// Only the double physics searched the grid of szakaszok:
 	delete[] psz->tertomb;
 	psz->tertomb = NULL;
 	psz->deleteallnodes();
 #endif
+	// Allocate the fixed lines after the original grid is released. A
+	// dense level can have hundreds of KB of temporary grid nodes, which
+	// need not overlap the second copy of all its line coordinates.
+#ifdef ELMA_PSX
+	const int chunks = (n+FX_LINE_CHUNK-1)/FX_LINE_CHUNK;
+	Lev.line_chunks = (fx_line**)calloc( chunks > 0 ? chunks : 1, sizeof(fx_line*) );
+	if( !Lev.line_chunks )
+		hiba( "Not enough memory for collision line chunks!" );
+	for( int c = 0; c < chunks; ++c ) {
+		const int count = n-c*FX_LINE_CHUNK;
+		Lev.line_chunks[c] = (fx_line*)malloc( sizeof(fx_line)*(count < FX_LINE_CHUNK ? count : FX_LINE_CHUNK) );
+		if( !Lev.line_chunks[c] )
+			hiba( "Not enough memory for collision lines!" );
+	}
+	Lev.lines = chunks > 0 ? Lev.line_chunks[0] : NULL;
+#else
+	Lev.lines = (fx_line*)malloc( sizeof( fx_line )*(n > 0 ? n : 1) );
+	if( !Lev.lines )
+		uzenet( "memory!" );
+#endif
+	for( int i = 0; i < n; i++ ) {
+		vonal* pv = psz->getptrszakasz( i );
+		fx_line* l = (fx_line*)fx_level_line( &Lev, i );
+		l->p.x = fx_d2q( pv->r.x, 40 );
+		l->p.y = fx_d2q( pv->r.y, 40 );
+		vekt2 vege = pv->r+pv->egyseg*pv->hossz;
+		l->e.x = fx_d2q( vege.x, 40 );
+		l->e.y = fx_d2q( vege.y, 40 );
+		l->len = fx_d2q( pv->hossz, 40 );
+		l->ux = (int32_t)fx_d2q( pv->egyseg.x, 30 );
+		l->uy = (int32_t)fx_d2q( pv->egyseg.y, 30 );
+		l->lx = (int32_t)fx_d2q( pv->egyseg.x*1073741824.0-l->ux, 31 );
+		l->ly = (int32_t)fx_d2q( pv->egyseg.y*1073741824.0-l->uy, 31 );
+	}
 }
 
 void build_level( void ) {
@@ -250,9 +306,10 @@ void build_level( void ) {
 	fx_init();
 	szakaszok* psz = Pszak;
 #ifdef ELMA_PSX
-	// The lines and the grid are converted once per level; then the grid of
-	// Pszak is freed (build_lines), which also tells that Lev holds the
-	// lines of this Pszak: a new level makes a new one.
+	if( !Lev.lines && !psz->tertomb )
+		fxg_prepare_lines();
+	// The original grid is freed after conversion. A missing original grid
+	// and resident fixed lines identify an already prepared cache.
 	const int lines_ready = Lev.lines && !psz->tertomb;
 #else
 	const int lines_ready = 0;
@@ -304,7 +361,7 @@ void build_level( void ) {
 	Lev.nobjs = nobj;
 	Lev.objs = (fx_obj*)malloc( sizeof( fx_obj )*(nobj > 0 ? nobj : 1) );
 	if( !Lev.objs )
-		uzenet( "memory!" );
+		hiba( "Not enough memory for collision objects!" );
 	for( int i = 0; i < nobj; i++ ) {
 		kerek* pker = Ptop->kerektomb[i];
 		Lev.objs[i].r.x = fx_d2q( pker->r.x, 40 );
@@ -331,7 +388,33 @@ void fxg_unload_level( void ) {
 	Level_ready = 0;
 }
 
+#ifdef ELMA_PSX
+void fxg_prepare_lines( void ) {
+	// Compact the temporary double-precision collision grid before the
+	// renderer allocates the level's instances and sprites.
+	if( !Pszak ) return;
+	if( !Lev.lines && !Pszak->tertomb ) {
+		void gv_menu_picture_free();
+		void gv_menu_images_free();
+		gv_menu_picture_free();
+		gv_menu_images_free();
+		Pszak->rendez( Fejsugar > Pmot1->kor2.sugar ? Fejsugar : Pmot1->kor2.sugar );
+	}
+	if( Pszak->tertomb ) {
+		free_level();
+		build_lines( Pszak );
+		Level_ready = 0;
+	}
+}
+#endif
+
 void fxg_resetleptet( motorst* pmot ) {
+#ifdef ELMA_PSX
+	// Play and replay restart their stopwatch after resetleptet, so any
+	// collision cache evicted for the menus is rebuilt outside playing time.
+	if( Pszak && !Lev.lines && !Pszak->tertomb )
+		fxg_prepare_lines();
+#endif
 	Racsonkivul = 0;
 	pmot->voltfek = 0;
 	pmot->dfek2 = pmot->dfek4 = 0;

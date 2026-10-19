@@ -220,6 +220,9 @@ make -C console/psx sound-test
 `test/ext_menu_test.py` checks the external-level list and missing-LGR
 dialog. `mem_test.py --external` checks that the requested level actually
 loaded; comma-separated paths run several levels on separate discs.
+Add `--again --force-reload` to check a full reload with sound already
+initialized, or `--again --enable-sound-after` to check enabling sound
+on a retained level.
 `message_test.py` needs a small POT14 level and changes only a private copy
 to exercise two recoverable version warnings per load. Consult each test's
 `--help` for data paths and narrower runs.

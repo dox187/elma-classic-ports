@@ -5,6 +5,7 @@
 #include "gpu/gpu_level.h"
 #include "gpu/gpu_lgr.h"
 #include "gpu/gpu_video.h"
+#include "phys/phys_glue.h"
 
 gpu_level Glevel;
 
@@ -294,13 +295,23 @@ void build_map() {
 // --- Pictures, masks and grass ---------------------------------------------------
 
 // The instances are added twice: first only counted (counting), then into
-// an array of the exact size, so a level with many pictures needs no room
-// for a growing copy.
-gpu_inst* insts = 0;
+// exact-size chunks, so many pictures need neither a growing copy nor one
+// large contiguous heap block after the level's temporary allocations.
+gpu_inst** insts = 0;
 int ninst = 0, inst_cap = 0;
 int order = 0;
 bool counting = false;
 gpu_inst inst_scratch;
+
+gpu_inst& instance_at(int i) {
+	return insts[i >> GPU_INSTANCE_SHIFT][i & (GPU_INSTANCE_CHUNK - 1)];
+}
+
+void free_instances(gpu_inst** chunks, int n) {
+	if (!chunks) return;
+	for (int c = 0; c < (n + GPU_INSTANCE_CHUNK - 1) / GPU_INSTANCE_CHUNK; ++c) delete[] chunks[c];
+	delete[] chunks;
+}
 
 gpu_inst* new_inst() {
 	if (counting || ninst == inst_cap) {
@@ -308,7 +319,7 @@ gpu_inst* new_inst() {
 		order++;
 		return &inst_scratch;
 	}
-	gpu_inst* i = &insts[ninst++];
+	gpu_inst* i = &instance_at(ninst++);
 	memset(i, 0, sizeof(*i));
 	order++;
 	return i;
@@ -447,7 +458,8 @@ void add_grass() {
 // The drawing order: the farthest first; at the same distance the one
 // added later first (a, b: the indices in the order of adding).
 inline bool drawn_before(int a, int b) {
-	return insts[a].distance > insts[b].distance || (insts[a].distance == insts[b].distance && a > b);
+	return instance_at(a).distance > instance_at(b).distance ||
+	       (instance_at(a).distance == instance_at(b).distance && a > b);
 }
 
 void add_instances() {
@@ -466,10 +478,15 @@ void build_instances() {
 	add_instances();
 	counting = false;
 	inst_cap = ninst < 65535 ? ninst : 65535;
-	delete[] Glevel.inst;
+	free_instances(Glevel.inst, Glevel.ninst);
 	Glevel.inst = 0;
 	Glevel.ninst = 0;
-	insts = new gpu_inst[inst_cap ? inst_cap : 1];
+	const int nchunk = (inst_cap + GPU_INSTANCE_CHUNK - 1) / GPU_INSTANCE_CHUNK;
+	insts = new gpu_inst*[nchunk ? nchunk : 1];
+	for (int c = 0; c < nchunk; ++c) {
+		const int n = inst_cap - c * GPU_INSTANCE_CHUNK;
+		insts[c] = new gpu_inst[n < GPU_INSTANCE_CHUNK ? n : GPU_INSTANCE_CHUNK];
+	}
 	add_instances();
 	// Sorted into the drawing order (shell sort of their indices):
 	uint16_t* idx = new uint16_t[ninst ? ninst : 1];
@@ -487,16 +504,16 @@ void build_instances() {
 	// The order applied in place, cycle by cycle (a done place gets idx[j] = j):
 	for (int i = 0; i < ninst; ++i) {
 		if (idx[i] == i) continue;
-		const gpu_inst t = insts[i];
+		const gpu_inst t = instance_at(i);
 		int j = i;
 		while (true) {
 			const int k = idx[j];
 			idx[j] = (uint16_t)j;
 			if (k == i) {
-				insts[j] = t;
+				instance_at(j) = t;
 				break;
 			}
-			insts[j] = insts[k];
+			instance_at(j) = instance_at(k);
 			j = k;
 		}
 	}
@@ -586,12 +603,46 @@ void sprites_world(int32_t hx0, int32_t hx1, int32_t hy_lo, int32_t hy_hi, const
 inline int32_t first_half(int32_t a) { return half(a + 1); }
 inline int32_t last_half(int32_t b) { return half(b); }
 
+// Sprite coordinates are relative to an instance. Repeated pictures and
+// grass share their tiles; world-anchored textures also share when their
+// phase agrees. The bounded table is temporary and may simply stop caching.
+const int SPRITE_CACHE_SIZE = 4096;
+void sprite_phase(const gpu_inst* in, int* x, int* y) {
+	*x = *y = 0;
+	if (in->type == GI_PICTURE || in->type == GI_GRASS) return;
+	if (in->texture < 0 || in->texture >= Glgr.ntextures) return;
+	const gpu_pic* tex = &Glgr.textures[in->texture];
+	if (tex->w > 0) *x = mod(in->x, 2 * tex->w);
+	if (tex->h > 0) *y = mod(in->y, 2 * tex->h);
+}
+
+int sprite_cache_slot(uint16_t* cache, const gpu_inst* in) {
+	int x, y;
+	sprite_phase(in, &x, &y);
+	uint32_t hash = (uint32_t)in->index * 257u + (uint32_t)in->texture * 65537u;
+	hash = (hash * 33u + in->type) * 33u + (uint32_t)x;
+	hash = (hash * 33u + (uint32_t)y) * 33u + (uint16_t)in->w;
+	hash = hash * 33u + (uint16_t)in->h;
+	for (int n = 0; n < SPRITE_CACHE_SIZE; ++n) {
+		const int c = (hash + n) & (SPRITE_CACHE_SIZE - 1);
+		if (cache[c] == 0xffff) return c;
+		const gpu_inst* old = gpu_instance(cache[c]);
+		if (old->type != in->type || old->index != in->index || old->texture != in->texture ||
+		    old->w != in->w || old->h != in->h) continue;
+		int ox, oy;
+		sprite_phase(old, &ox, &oy);
+		if (x == ox && y == oy) return c;
+	}
+	return -1;
+}
+
 void build_sprites() {
 	free_sprite_chunks(Glevel.sprite_chunks, Glevel.nsprites);
 	Glevel.sprite_chunks = 0;
 	Glevel.nsprites = 0;
 	sprs = 0;
 	spr_cap = 0;
+	uint16_t* cache = new uint16_t[SPRITE_CACHE_SIZE];
 	for (int pass = 0; pass < 2; ++pass) {
 		if (pass) {
 			spr_cap = nspr;
@@ -602,9 +653,18 @@ void build_sprites() {
 				sprs[c] = new gpu_wsprite[n < GPU_SPRITE_CHUNK ? n : GPU_SPRITE_CHUNK];
 			}
 		}
+		memset(cache, 0xff, SPRITE_CACHE_SIZE * sizeof(uint16_t));
 		nspr = 0;
 		for (int i = 0; i < Glevel.ninst; ++i) {
-			gpu_inst* in = &Glevel.inst[i];
+			gpu_inst* in = gpu_instance(i);
+			const int cached = sprite_cache_slot(cache, in);
+			if (cached >= 0 && cache[cached] != 0xffff) {
+				const gpu_inst* old = gpu_instance(cache[cached]);
+				in->sprite0 = old->sprite0;
+				in->nsprites = old->nsprites;
+				continue;
+			}
+			if (cached >= 0) cache[cached] = (uint16_t)i;
 			in->sprite0 = nspr;
 			spr_bx = in->x >> 1;
 			spr_by = in->y >> 1;
@@ -660,6 +720,7 @@ void build_sprites() {
 	}
 	Glevel.sprite_chunks = sprs;
 	Glevel.nsprites = nspr;
+	delete[] cache;
 	sprs = 0;
 	spr_cap = 0;
 }
@@ -684,7 +745,7 @@ void build_inst_grid() {
 	const int n = Glevel.ninst < 65536 ? Glevel.ninst : 65536;
 	for (int i = 0; i < n; ++i) {
 		int cx0, cy0, cx1, cy1;
-		inst_cells(&Glevel.inst[i], &cx0, &cy0, &cx1, &cy1);
+		inst_cells(gpu_instance(i), &cx0, &cy0, &cx1, &cy1);
 		for (int cy = cy0; cy <= cy1; ++cy)
 			for (int cx = cx0; cx <= cx1; ++cx) Glevel.inst_start[cy * Glevel.grid_w + cx + 1]++;
 	}
@@ -695,7 +756,7 @@ void build_inst_grid() {
 	memcpy(fill, Glevel.inst_start, cells * sizeof(uint32_t));
 	for (int i = 0; i < n; ++i) {
 		int cx0, cy0, cx1, cy1;
-		inst_cells(&Glevel.inst[i], &cx0, &cy0, &cx1, &cy1);
+		inst_cells(gpu_instance(i), &cx0, &cy0, &cx1, &cy1);
 		for (int cy = cy0; cy <= cy1; ++cy)
 			for (int cx = cx0; cx <= cx1; ++cx) Glevel.inst_items[fill[cy * Glevel.grid_w + cx]++] = (uint16_t)i;
 	}
@@ -728,7 +789,7 @@ static void free_level() {
 	Glevel.map_row_start = 0;
 	Glevel.map_runs = 0;
 	Glevel.map_rows = 0;
-	delete[] Glevel.inst;
+	free_instances(Glevel.inst, Glevel.ninst);
 	Glevel.inst = 0;
 	Glevel.ninst = 0;
 	free_sprite_chunks(Glevel.sprite_chunks, Glevel.nsprites);
@@ -746,16 +807,10 @@ bool level_released = false;
 
 bool gv_level_release() {
 	if (level_released || !Glevel.inst) return false;
-	delete[] Glevel.inst;
-	Glevel.inst = 0;
-	Glevel.ninst = 0;
-	free_sprite_chunks(Glevel.sprite_chunks, Glevel.nsprites);
-	Glevel.sprite_chunks = 0;
-	Glevel.nsprites = 0;
-	delete[] Glevel.inst_start;
-	delete[] Glevel.inst_items;
-	Glevel.inst_start = 0;
-	Glevel.inst_items = 0;
+	free_level();
+	// The source lines stay in Pszak; the compact physics copy can also be
+	// rebuilt when play resumes, making room for large external menus.
+	fxg_unload_level();
 	level_released = true;
 	printf("elma: the level's pictures for the GPU are given back for the menus\n");
 	return true;
@@ -775,9 +830,11 @@ void gpu_level_ensure() {
 	// (Not part of the game's time.)
 	mv_pausestopper(1);
 	const uint32_t t0 = gv_clock();
-	build_instances();
-	build_sprites();
-	build_inst_grid();
+	fxg_prepare_lines();
+	const int flipped = Ptop->kerekekfejjellefele;
+	Ptop->kerekjolalljon();
+	betoltecseteket();
+	if (flipped) Ptop->kereklefejjel();
 	printf("elma: the level's pictures for the GPU made again, %u ms\n",
 	       (unsigned)((gv_clock() - t0) / (GV_CLOCK_HZ / 1000)));
 	mv_pausestopper(0);

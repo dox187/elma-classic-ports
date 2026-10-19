@@ -1085,6 +1085,16 @@ void topol::loadkulso( char* filenev ) {
         strcpy( bgnev, "sky" );
     }
 
+#ifdef ELMA_PSX
+    // Decode the LGR while the level is still only a header. Large external
+    // levels otherwise keep all their geometry and sprites beside the PCX
+    // decoder's temporary images, exceeding the retail machine's RAM.
+    if( !hibas ) {
+        beallitarany( 1 );
+        loadlgrfile( lgrnev, this );
+    }
+#endif
+
     // Gyuruk szamat 100 byte utan kezdjuk:
     if( verzio < 14 ) {
         if( !gyujtemenybol )

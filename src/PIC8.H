@@ -63,6 +63,8 @@ public:
 		// The sprite data (drawn runs) for the PS1 menus (gpu_menukep.cpp):
 		const unsigned char* getsprite( void ) { return sprite; }
 		unsigned getspritehossz( void ) { return spritehossz; }
+		// Keep glyph dimensions for text measurement while menus are absent.
+		void discardpixels( void );
 	#endif
 	void fillbox( int x1, int y1, int x2, int y2, unsigned char szin );
 	void fillbox( unsigned char szin );

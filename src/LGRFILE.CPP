@@ -64,7 +64,16 @@ int lgrnagyitasjo( void ) {
 }
 
 // Ha nincs ilyen nevu file, akkor default-ot olvassa:
+#ifdef ELMA_PSX
 void loadlgrfile( char* nev ) {
+	loadlgrfile( nev, Ptop );
+}
+
+void loadlgrfile( char* nev, topol* ptop ) {
+#else
+void loadlgrfile( char* nev ) {
+	topol* ptop = Ptop;
+#endif
 	//tesztloadlgr();
 	//hiba( "A" );
 
@@ -95,7 +104,7 @@ void loadlgrfile( char* nev ) {
 	char lgrtmp[30];
 	sprintf( lgrtmp, "lgr\\%s.lgr", nev );
 	if( access( lgrtmp, 0 ) != 0 ) {
-		if( !Ptop )
+		if( !ptop )
 			hiba( "loadlgrfile-ban !Ptop!" );
 
 		char nevtmp[20];
@@ -127,10 +136,15 @@ void loadlgrfile( char* nev ) {
 #ifndef ELMA_PSX
 		blt8( Buffsima, Buffgolyo );
 		bltfront( Buffsima );
+#else
+		// The dialog brought the menu picture back; release it before the
+		// LGR decoder needs its large temporary image buffers.
+		gv_menu_picture_free();
+		gv_menu_images_free();
 #endif
 
 		// (Ptop->lgrnev lehet egy mutato nev-vel)
-		strcpy( Ptop->lgrnev, "DEFAULT" );
+		strcpy( ptop->lgrnev, "DEFAULT" );
 		Valtozott = 1;
 
 		if( nagyitasjo && strcmpi( Bentlgrnev, "DEFAULT" ) == 0 )
@@ -139,7 +153,7 @@ void loadlgrfile( char* nev ) {
 		strcpy( lgrtmp, "lgr\\default.lgr" );
 		strcpy( Bentlgrnev, "DEFAULT" );
 
-		Ptop->nincslgrje = 1;
+		ptop->nincslgrje = 1;
 		Valtozott = 1;
 		if( access( lgrtmp, 0 ) != 0 )
 			uzenet( "Could not open file LGR\\DEFAULT.LGR!" );

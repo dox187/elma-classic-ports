@@ -37,6 +37,16 @@ static wav *Pwavok[MAXWAV];
 
 static int Elsostart = 1;
 
+static wav* read_effect( char* name, double gain ) {
+    wav* sample = NEW(wav*) wav( name, gain );
+#ifdef ELMA_PSX
+    // Effects are immutable: discard their 16-bit copies before loading
+    // the next sample rather than keeping the entire bank uncompressed.
+    sample->tomorit();
+#endif
+    return sample;
+}
+
 void starthanghigh( void ) {
     if( !Elsostart )
         hiba( "starthanghigh-ban !Elsostart!" );
@@ -55,19 +65,25 @@ void starthanghigh( void ) {
     for( int i = 0; i < WAVBANKSZAM; i++ ) {
         Wavbank[i] = NULL;
     }
-    { Wavbank[WAV_UTODES] = NEW(wav*) wav( "utodes.wav", 0.25 ); }
-    { Wavbank[WAV_TORES] = NEW(wav*) wav( "torik.wav", 0.34 ); }
-    { Wavbank[WAV_SIKER] = NEW(wav*) wav( "siker.wav", 0.8 ); } // 0.34
-    { Wavbank[WAV_EVES] = NEW(wav*) wav( "eves.wav", 0.5 ); }
-    { Wavbank[WAV_FORDULAS] = NEW(wav*) wav( "fordul.wav", 0.3 ); }
-    { Wavbank[WAV_UGRAS1] = NEW(wav*) wav( "ugras.wav", 0.34 ); }
+    { Wavbank[WAV_UTODES] = read_effect( "utodes.wav", 0.25 ); }
+    { Wavbank[WAV_TORES] = read_effect( "torik.wav", 0.34 ); }
+    { Wavbank[WAV_SIKER] = read_effect( "siker.wav", 0.8 ); } // 0.34
+    { Wavbank[WAV_EVES] = read_effect( "eves.wav", 0.5 ); }
+    { Wavbank[WAV_FORDULAS] = read_effect( "fordul.wav", 0.3 ); }
+    { Wavbank[WAV_UGRAS1] = read_effect( "ugras.wav", 0.34 ); }
     { Wavbank[WAV_UGRAS2] = Wavbank[WAV_UGRAS1]; }
 
     { Psurl = NEW(wav*) wav( "dorzsol.wav", 0.44 ); }
     Psurl->loopol( Mix );
+#ifdef ELMA_PSX
+    Psurl->tomorit();
+#endif
 
     double berregero = 0.26;
     { Pw1 = NEW(wav*) wav( "harl.wav", berregero, 0, I1+Mix ); }
+#ifdef ELMA_PSX
+    Pw1->tomorit();
+#endif
     { Pw2 = NEW(wav*) wav( "harl.wav", berregero, I1, I2 ); }
     { Pw3 = NEW(wav*) wav( "harl.wav", berregero, I2-Mix, I3 ); }
     { Pw4 = NEW(wav*) wav( "harl2.wav", berregero, I4, I5 ); }
@@ -76,6 +92,9 @@ void starthanghigh( void ) {
     //Pw2->save( "alacsony.wav" );
     Pw4->loopol( Mix );
     Pw3->vegereilleszt( Pw4, Mix );
+#ifdef ELMA_PSX
+    Pw3->tomorit();
+#endif
 
     Pw42a = new wav2( Pw4 ); 
     Pw42a->reset();

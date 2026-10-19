@@ -1,6 +1,13 @@
+#ifdef ELMA_PSX
+#include <new>
+#include <stdint.h>
+#endif
 #include	"all.h"
 
 static int Szakaszmaxszam = 5130;
+#ifdef ELMA_PSX
+static const int Szakaszchunkszam = 256;
+#endif
 
 szakaszok* Pszak = NULL;
 //szakaszok* Pszakt = NULL;
@@ -12,6 +19,9 @@ int Ucsoloadszakasz_lezart = 0;
 szakaszok::szakaszok( topol* ptop ) {
 	// Elejen ugyanaz, mint void konstruktor:
 	tomb = NULL;
+#ifdef ELMA_PSX
+	tomb_chunks = NULL;
+#endif
 	maxszam = szam = 0;
 	tertomb = NULL;
 	xdim = 1;
@@ -36,14 +46,30 @@ szakaszok::szakaszok( topol* ptop ) {
 	if( lefoglal < 1 )
 		lefoglal = 1;
 #endif
+#ifdef ELMA_PSX
+	// Keep a flat source array when it fits. Large external levels can
+	// instead use the free gaps left by the LGR's persistent images.
+	tomb = new (std::nothrow_t()) vonal[lefoglal];
+	if( !tomb ) {
+		const int chunks = (lefoglal+Szakaszchunkszam-1)/Szakaszchunkszam;
+		tomb_chunks = new vonal*[chunks];
+		for( int c = 0; c < chunks; ++c ) {
+			const int count = lefoglal-c*Szakaszchunkszam;
+			tomb_chunks[c] = new vonal[count < Szakaszchunkszam ? count : Szakaszchunkszam];
+		}
+		tomb = tomb_chunks[0];
+		printf( "elma: collision source uses %d chunks\n", chunks );
+	}
+#else
 	tomb = new vonal[lefoglal];
+#endif
 	if( !tomb ) {
 		uzenet( "memory szakaszoknak!" );
 		return;
 	}
 	maxszam = lefoglal;
 	for( int i = 0; i < maxszam; i++ )
-		memset( &tomb[i], 0, sizeof( vonal ) );
+		memset( ptrszakasz(i), 0, sizeof( vonal ) );
 
 	// Normal szakaszok beolvasasa:
 	for( int i = 0; i < MAXGYURU; i++ ) {
@@ -65,19 +91,30 @@ szakaszok::szakaszok( topol* ptop ) {
 				r1 = pgy->ponttomb[j];
 				r2 = pgy->ponttomb[0];
 			}
-			tomb[szam].r = r1;
-			tomb[szam].v = r2-r1;
-			tomb[szam].r.y = -tomb[szam].r.y; // fejjel lefele
-			tomb[szam].v.y = -tomb[szam].v.y; // fejjel lefele
+			vonal* line = ptrszakasz( szam );
+			line->r = r1;
+			line->v = r2-r1;
+			line->r.y = -line->r.y; // upside down
+			line->v.y = -line->v.y; // upside down
 			szam++;
 		}
 	}
 }
 
 szakaszok::~szakaszok( void ) {
+#ifdef ELMA_PSX
+	if( tomb_chunks ) {
+		for( int c = 0; c < (maxszam+Szakaszchunkszam-1)/Szakaszchunkszam; ++c )
+			delete[] tomb_chunks[c];
+		delete[] tomb_chunks;
+	}
+	else
+		delete[] tomb;
+#else
 	if( tomb ) {
 		DELETE tomb; }
 	}
+#endif
 	if( tertomb ) {
 		DELETE tertomb; }
 	}
@@ -350,16 +387,41 @@ vonal* szakaszok::getnextszak( void ) {
 	if( szakfuto >= szam )
 		return NULL;
 	szakfuto++;
-	return &tomb[szakfuto-1];
+	return ptrszakasz( szakfuto-1 );
 }
 
+vonal* szakaszok::ptrszakasz( int sorszam ) {
+#ifdef ELMA_PSX
+	if( tomb_chunks )
+		return &tomb_chunks[sorszam/Szakaszchunkszam][sorszam%Szakaszchunkszam];
+#endif
+	return &tomb[sorszam];
+}
 
 vonal* szakaszok::getptrszakasz( int sorszam ) {
 	if( sorszam >= szam )
 		hiba( "szakaszok::getptrszakasz-ban sorszam >= szam!" );
-	return &tomb[sorszam];
+	return ptrszakasz( sorszam );
 }
 
+int szakaszok::getsorszam( vonal* pvonal ) {
+#ifdef ELMA_PSX
+	if( tomb_chunks ) {
+		const uintptr_t address = (uintptr_t)pvonal;
+		for( int c = 0; c < (maxszam+Szakaszchunkszam-1)/Szakaszchunkszam; ++c ) {
+			const uintptr_t base = (uintptr_t)tomb_chunks[c];
+			const int left = maxszam-c*Szakaszchunkszam;
+			const int count = left < Szakaszchunkszam ? left : Szakaszchunkszam;
+			if( address >= base && address < base+sizeof(vonal)*count &&
+				(address-base)%sizeof(vonal) == 0 )
+				return c*Szakaszchunkszam+(address-base)/sizeof(vonal);
+		}
+		hiba( "Collision source pointer is outside its chunks!" );
+		return 0;
+	}
+#endif
+	return pvonal-tomb;
+}
 
 
 

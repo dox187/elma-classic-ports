@@ -78,6 +78,10 @@ static void level( fx_level* lev ) {
 		if( a[1] < miny ) miny = a[1];
 	}
 	lev->lines = Lines;
+#ifdef ELMA_PSX
+	static fx_line* chunks[] = { Lines };
+	lev->line_chunks = chunks;
+#endif
 	lev->nlines = NPOINTS;
 	lev->xdim = 64;
 	lev->ydim = 16;
@@ -98,6 +102,12 @@ static void level( fx_level* lev ) {
 	lev->row = Rows;
 	lev->cell = Cells;
 	lev->list = List;
+#ifdef ELMA_PSX
+	static uint16_t* List_rows[16];
+	for( int y = 0; y < 16; ++y )
+		List_rows[y] = List+Rows[y];
+	lev->list_rows = List_rows;
+#endif
 	Objs[0].r.x = fx_d2q( 14.5, 40 );
 	Objs[0].r.y = fx_d2q( 0.9, 40 );
 	Objs[0].aktiv = &Apple_aktiv;

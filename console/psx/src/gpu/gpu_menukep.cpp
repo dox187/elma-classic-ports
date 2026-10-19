@@ -27,6 +27,8 @@ int Menueredeti = 0;
 static pic8 *Kisnevsima = NULL, *Kisnevgolyo = NULL;
 abc8* Pmenuabc = NULL;
 anim* Psisak = NULL;
+static bool Menu_font_discarded = false;
+static bool Menu_font_changed = false;
 
 static pic8 *Vegetile1 = NULL, *Vegetile2 = NULL;
 
@@ -45,6 +47,15 @@ unsigned char Menupaltomb[768];
 	}
 } */
 
+static void helmetbetolt( void ) {
+	if( Psisak ) return;
+	pic8* sisaktmp = new pic8( "sisak.pcx" );
+	forditkepet( sisaktmp );
+	Psisak = new anim( sisaktmp, "sisak.pcx" );
+	delete sisaktmp;
+	Psisak->korrigal();
+}
+
 void initmenukep1( void ) {
 	if( Buffsima )
 		hiba( "initmenukep1-ben Buffsima!" );
@@ -56,11 +67,7 @@ void initmenukep1( void ) {
 	Pmenuabc = new abc8( "menu.abc" );
 	Pmenuabc->settav( 2 );
 
-	pic8* sisaktmp = new pic8( "sisak.pcx" );
-	forditkepet( sisaktmp );
-	Psisak = new anim( sisaktmp, "sisak.pcx" );
-	delete sisaktmp; sisaktmp = NULL;
-	Psisak->korrigal();
+	helmetbetolt();
 
 	Vegetile1 = new pic8( "ures1b.pcx" );
 	Vegetile2 = new pic8( "ures2b.pcx" );
@@ -68,9 +75,8 @@ void initmenukep1( void ) {
 	initgolyo();
 }
 
-// The tiles of the backgrounds (90 KB) are only needed by the menus: they
-// are given back while an LGR is read (gv_menu_images_free) and read again
-// when a menu is drawn next.
+// Menu tiles, helmet frames and glyph pixels are rebuilt when a menu is
+// drawn after play. Glyph dimensions stay resident for text measurement.
 static void tilebetolt( void ) {
 	if( Kisnevsima )
 		return;
@@ -78,9 +84,9 @@ static void tilebetolt( void ) {
 	// level's pictures for the GPU (made again for the next game):
 	// Else the picture is made again after them (it is in small pieces).
 	for( int lepes = 0; lepes < 2; lepes++ ) {
-		// (Room for a tile and for reading its file, 75 KB, at once.)
+		// Reserve a tile decoder and the returning font/helmet when needed.
 		void* proba1 = malloc( 80*1024 );
-		void* proba2 = malloc( 400*114 + 4096 );
+		void* proba2 = malloc( Menu_font_discarded ? 160*1024 : 400*114 + 4096 );
 		free( proba1 );
 		free( proba2 );
 		if( proba1 && proba2 )
@@ -90,12 +96,27 @@ static void tilebetolt( void ) {
 	}
 	Kisnevsima = new pic8( "szoveg1.pcx" );
 	Kisnevgolyo = new pic8( "szoveg2.pcx" );
+	if( Menu_font_discarded ) {
+		delete Pmenuabc;
+		Pmenuabc = new abc8( "menu.abc" );
+		Pmenuabc->settav( 2 );
+		Menu_font_discarded = false;
+		Menu_font_changed = true;
+	}
+	helmetbetolt();
 }
 
 void gv_menu_images_free( void ) {
 	delete Kisnevsima;
 	delete Kisnevgolyo;
 	Kisnevsima = Kisnevgolyo = NULL;
+	delete Psisak;
+	Psisak = NULL;
+	if( Pmenuabc && !Menu_font_discarded ) {
+		for( int i = 0; i < 256; ++i )
+			if( Pmenuabc->ppsprite[i] ) Pmenuabc->ppsprite[i]->discardpixels();
+		Menu_font_discarded = true;
+	}
 }
 
 void initmenukep2( void ) {
@@ -1524,6 +1545,10 @@ void szoveglista::kirajzol( int nemkellgolyo,
 				State->jatekosok[i].sikerespalyakszama = gpu_test_levels-1;
 	}
 	tilebetolt();
+	if( Menu_font_changed ) {
+		ervenyes = 0;
+		Menu_font_changed = false;
+	}
 	// Kirakjuk hatteret:
 	if( menumeretbeallit() )
 		ervenyes = 0;
