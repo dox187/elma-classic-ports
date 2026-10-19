@@ -19,11 +19,21 @@ https://elastomania.com
 
 # Elma Ports
 
-Ports of the original game for desktops and Linux handhelds, plus separate
-NES and SNES versions. Each platform's README covers requirements, building
-and use.
+Ports of the original game for desktops, Linux handhelds and PlayStation,
+plus separate NES and SNES versions. Each platform's README covers
+requirements, building and use.
 
 ## Console ports
+
+### PlayStation port
+
+An experimental port of the original C++ game for the PlayStation's 2 MB
+of RAM, with GPU graphics, fixed-point physics, SPU sound, two controllers
+and memory card saves. It reads the files of your own copy of the game from
+a second data track. The level editor is omitted, and gameplay can differ
+from the PC version. Tested in PCSX-Redux only; real hardware is untested.
+
+[Requirements, build, disc layout and controls →](console/psx/README.md)
 
 ### NES demake
 
@@ -113,11 +123,12 @@ Screenshots captured with the Half Blocks renderer.
 | [`handheld`](handheld/README.md) | Toolchains, launchers and package build script |
 | [`console/nes`](console/nes/README.md) | NES demake, a separate program |
 | [`console/snes`](console/snes/README.md) | SNES demake, a separate program |
+| [`console/psx`](console/psx/README.md) | PlayStation port, using the shared game code with console physics and rendering |
 | [`third_party/hqx`](third_party/hqx/README.md) | Pixel art scalers and their license |
 
 [`CMakeLists.txt`](CMakeLists.txt) in the root builds the code in `src` with a
-platform layer from `desktop`. The NES and SNES versions have their own
-Makefiles.
+platform layer from `desktop`. The console versions have their own
+Makefiles; the PlayStation Makefile drives a separate PSn00bSDK CMake build.
 
 ## Credits
 
