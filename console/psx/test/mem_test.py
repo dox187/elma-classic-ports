@@ -10,7 +10,7 @@ functions with addr2line), the deepest stack use, and the RAM the whole game
 needed:
 
     total = 64 KB (BIOS) + program (code, data, BSS: up to _end of the map)
-            + heap extent + stack reserve (64 KB)
+            + heap extent + stack reserve (16 KB)
 
 The test fails if a level does not load and play, or if the total of any
 phase is above --limit KB. --without FILE,... also prints for each phase
@@ -47,7 +47,7 @@ from core_boot_test import link, make_pcdrv_dir  # noqa: E402
 
 KB = 1024
 BIOS = 64 * KB
-STACK = 64 * KB
+STACK = 16 * KB  # STACK_SIZE of src/psx_platform.cpp
 PHASES = ("boot", "menu", "load", "play", "again", "next")
 
 
@@ -78,7 +78,7 @@ def run_level(args, label, lua_args, pcdrv):
     os.makedirs(workdir, exist_ok=True)
     exe = os.path.join(args.build, "elma.exe")
     result = pcsx.run(exe=exe, pcdrv=pcdrv, map_file=os.path.join(args.build, "elma.map"),
-                      lua=os.path.join(HERE, "mem_test.lua"), ram8=True, timeout=args.timeout,
+                      lua=os.path.join(HERE, "mem_test.lua"), ram8=not args.ram2, timeout=args.timeout,
                       workdir=workdir, args=lua_args)
     return label, result
 
@@ -123,6 +123,7 @@ def main():
         "ELMA_LGR", os.path.join(REPO, "build", "Lgr", "Default_old.lgr")))
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--quiet", action="store_true", help="one line per level")
+    parser.add_argument("--ram2", action="store_true", help="2 MB of RAM (the default is the 8 MB mode)")
     args = parser.parse_args()
     args.out = os.path.join(args.build, "mem-test")
 

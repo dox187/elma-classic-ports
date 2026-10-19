@@ -140,6 +140,11 @@ void loadlgrfile( char* nev ) {
 	strcpy( Plgr->aktiv_kepnev, aktiv_kepnev );
 	strcpy( Plgr->aktiv_maszknev, aktiv_maszknev );
 	strcpy( Plgr->aktiv_texturanev, aktiv_texturanev );
+#ifdef ELMA_PSX_GPU
+	// The PS1 GPU renderer takes the pictures into VRAM (console/psx):
+	void gpu_lgr_loaded();
+	gpu_lgr_loaded();
+#endif
 	return;
 }
 
@@ -648,6 +653,11 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	pic8* p2biker = NULL;
 	pic8* pcolors = NULL;
 	for( i = 0; i < osszkepszam; i++ ) {
+#ifdef ELMA_PSX_GPU
+		// The PS1 GPU renderer takes the previous picture into VRAM:
+		void gpu_lgr_step( lgrfile* );
+		gpu_lgr_step( this );
+#endif
 		// Egy kep:
 		char nev[30];
 		if( fread( nev, 1, 20, h ) != 20 )
@@ -934,6 +944,10 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 		int minxmintasize = 600;
 		if( pt->ppic->getxsize() >= minxmintasize )
 			continue;
+#if defined(ELMA_PSX_GPU) && !defined(ELMA_PSX_GPU_COMPARE)
+		// Only the software renderer (ecset.cpp) needs the wider copy:
+		continue;
+#endif
 		// Kep tul kicsi, kibovitjuk vizszintes iranyban:
 		int szorzo = 1;
 		while( szorzo * pt->ppic->getxsize() < minxmintasize )

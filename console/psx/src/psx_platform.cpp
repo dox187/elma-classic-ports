@@ -1,14 +1,12 @@
 // Platform layer of the PlayStation version, the counterpart of
 // desktop/F_CLI/CLI_PLATFORM.CPP and desktop/F_SDL/SDL_PLATFORM.CPP.
 //
-// Video: the game draws its menus and its view into one 640x480 8-bit
-// picture, as in the terminal version. Each finished frame is copied to VRAM
-// as an 8-bit texture and drawn with the game's palette as sprites onto a
-// 640x480 interlaced display. VRAM (1024x512 16-bit cells):
-//   x 0-639,   y 0-479: the displayed picture
-//   x 640-959, y 0-479: the 8-bit picture of the game (two pixels a cell)
-//   x 0-255,   y 480:   its palette
-//   x 960-1023:         the debug font of the error screen
+// Video (gpu/gpu_video.h): the menus and the other screens of the core are
+// one 640x480 8-bit picture, as in the terminal version; its changed parts
+// are sent to VRAM and drawn with the game's palette onto a 640x480
+// interlaced display. The game view is drawn by the GPU (gpu/gpu_draw.cpp)
+// on a 320x240 display, unless the build uses the software renderer
+// (ELMA_PSX_GPU off), whose picture is shown like the menus.
 //
 // Time: scan lines counted by root counter 1 (about 15734 a second on
 // NTSC), summed up at every vertical blank.
@@ -24,6 +22,7 @@
 
 #include "all.h"
 #include "psx_file.h"
+#include "gpu/gpu_video.h"
 #ifdef ELMA_PSX_PCDRV
 #include "psx_pcdrv.h"
 #else
@@ -70,15 +69,6 @@ uint32_t clut_words[128];
 uint16_t* const clut = reinterpret_cast<uint16_t*>(clut_words);
 bool clut_dirty = true;
 
-DISPENV disp;
-DRAWENV draw;
-struct frame_prims {
-	DR_TPAGE tpage[6];
-	SPRT sprite[6];
-};
-frame_prims prims;
-uint32_t ot[2];
-
 // Scan line clock:
 const long LINES_PER_SECOND = 15734;
 volatile uint32_t line_total = 0;
@@ -104,6 +94,7 @@ void sample_pad() {
 }
 
 void vblank_callback() {
+	gv_vblank();
 	sample_pad();
 	const uint16_t now = (uint16_t)TIMER_VALUE(1);
 	uint16_t lines = (uint16_t)(now - line_last);
@@ -132,30 +123,6 @@ uint16_t vga_to_vram(const unsigned char* c) {
 	return (uint16_t)(0x8000 | (c[0] >> 1) | (c[1] >> 1) << 5 | (c[2] >> 1) << 10);
 }
 
-void setup_prims() {
-	// Sprites are at most 256x256: three columns, two rows.
-	static const int xs[3] = {0, 256, 512}, ws[3] = {256, 256, 128};
-	static const int ys[2] = {0, 256}, hs[2] = {256, 224};
-	ClearOTagR(ot, 2);
-	int n = 0;
-	for (int row = 0; row < 2; ++row) {
-		for (int col = 0; col < 3; ++col, ++n) {
-			DR_TPAGE* tp = &prims.tpage[n];
-			setDrawTPage(tp, 1, 0, getTPage(1, 0, 640 + xs[col] / 2, ys[row]));
-			SPRT* s = &prims.sprite[n];
-			setSprt(s);
-			setShadeTex(s, 1);
-			setRGB0(s, 128, 128, 128);
-			setXY0(s, xs[col], ys[row]);
-			setUV0(s, 0, 0);
-			setWH(s, ws[col], hs[row]);
-			s->clut = getClut(0, 480);
-			addPrim(&ot[1], s);
-			addPrim(&ot[1], tp);
-		}
-	}
-}
-
 uint32_t last_present_vblank = 0;
 uint32_t fps_start_vblank = 0, fps_frames = 0;
 
@@ -173,23 +140,10 @@ void update_debug() {
 
 void events();
 
-void present() {
-	// Not faster than the display:
-	if (VSync(-1) == (int)last_present_vblank) VSync(0);
-	last_present_vblank = VSync(-1);
+uint32_t prof_start[GV_PROF_COUNT];
 
-	DrawSync(0);
-	if (clut_dirty) {
-		RECT r = {0, 480, 256, 1};
-		LoadImage(&r, clut_words);
-		clut_dirty = false;
-	}
-	RECT r = {640, 0, W / 2, H};
-	LoadImage(&r, pixel_words);
-	DrawOTag(&ot[1]);
-	// The game draws the next frame into the same memory:
-	DrawSync(0);
-
+// The frame rate and where the time went, every 5 seconds.
+void count_frame() {
 	psx_debug.presents++;
 	fps_frames++;
 	const uint32_t vblanks = vblank_count - fps_start_vblank;
@@ -197,11 +151,39 @@ void present() {
 		psx_debug.fps_x100 = fps_frames * 6000 / vblanks;
 		printf("elma: %u.%02u fps, heap %u KB (max %u KB)\n", psx_debug.fps_x100 / 100,
 		       psx_debug.fps_x100 % 100, psx_debug.heap_used / 1024, psx_debug.heap_max / 1024);
+		// (The measuring clock over the same 5 seconds, a check:)
+		static uint32_t clock_start = 0;
+		const uint32_t clock_now = gv_clock();
+		printf("elma: clock %u ticks in %u vblanks\n", (unsigned)(clock_now - clock_start), (unsigned)vblanks);
+		clock_start = clock_now;
+		// Milliseconds a frame:
+		static const char* const names[GV_PROF_COUNT] = {"frame", "draw", "present", "gpu-wait", "menu",
+		                                                          "menu-step", "menu-draw", "debug"};
+		printf("elma: ms/frame");
+		for (int i = 0; i < GV_PROF_COUNT; ++i) {
+			const uint32_t lines = gv_prof[i] - prof_start[i];
+			prof_start[i] = gv_prof[i];
+			const uint32_t tenths = lines / (GV_CLOCK_HZ / 10000) / fps_frames;
+			if (lines) printf(" %s %u.%u", names[i], (unsigned)(tenths / 10), (unsigned)(tenths % 10));
+		}
+		printf("\n");
 		fps_frames = 0;
 		fps_start_vblank = vblank_count;
 	}
+	const uint32_t t0 = gv_clock();
 	update_debug();
 	events();
+	gv_prof[GV_PROF_DEBUG] += gv_clock() - t0;
+}
+
+void present() {
+	// Not faster than the display:
+	if (VSync(-1) == (int)last_present_vblank) VSync(0);
+	last_present_vblank = VSync(-1);
+
+	gv_menu_present(pixels, clut, clut_dirty);
+	clut_dirty = false;
+	count_frame();
 }
 
 // Pad buttons (bits of psxpad.h) and what they do, as in the handheld
@@ -289,8 +271,9 @@ void message_screen(const char* title, char* a, char* b, char* c, bool wait) {
 	if (b) printf("elma:   %s\n", b);
 	if (c) printf("elma:   %s\n", c);
 	if (!Margrafikus) return;
-	DrawSync(0);
-	FntLoad(960, 0);
+	// Over the last menu picture:
+	gv_menu_present(pixels, clut, true);
+	FntLoad(GV_FONT_X, GV_FONT_Y);
 	const int font = FntOpen(32, 32, W - 64, H - 64, 1, 1024);
 	const uint16_t start = pad_down;
 	while (true) {
@@ -305,9 +288,9 @@ void message_screen(const char* title, char* a, char* b, char* c, bool wait) {
 		events();
 		if (wait && (pad_down & ~start & (PAD_CROSS | PAD_START))) break;
 	}
-	// Back to the game's picture:
+	// The next present draws the whole picture again:
 	char_count = 0;
-	setup_prims();
+	gv_menu_invalidate();
 }
 
 int in_error = 0;
@@ -330,8 +313,18 @@ __attribute__((noreturn)) void run_on_stack(void (*fn)(), uint32_t top) {
 
 }
 
+uint32_t gv_lines() { return lines_now(); }
+
+void gv_frame_done(bool game_view) {
+	if (game_view) psx_debug.game_frames++;
+	count_frame();
+}
+
 extern "C" char _end[];
 void game_main();
+
+// The stack (the game needs about 4 KB, test/mem_test.py):
+const uint32_t STACK_SIZE = 16 * 1024;
 
 int main(int, char**) {
 	psx_debug.magic = 0x454C4D41; // "ELMA"
@@ -341,14 +334,14 @@ int main(int, char**) {
 		// rest from the end of the program. Nothing has been allocated yet.
 		psx_debug.ram_8mb = 1;
 		const uint32_t start = ((uint32_t)_end + 15) & ~15u;
-		const uint32_t stack_top = 0x80800000 - 16, stack_size = 64 * 1024;
-		InitHeap((void*)start, stack_top - stack_size - start);
+		const uint32_t stack_top = 0x80800000 - 16;
+		InitHeap((void*)start, stack_top - STACK_SIZE - start);
 		run_on_stack(game_main, stack_top);
 	}
 	// The SDK lets the heap grow up to the stack at the top of the 2 MB;
-	// keep 64 KB for the stack.
+	// keep STACK_SIZE for the stack.
 	const uint32_t start = ((uint32_t)_end + 15) & ~15u;
-	InitHeap((void*)start, 0x80200000 - 64 * 1024 - start);
+	InitHeap((void*)start, 0x80200000 - STACK_SIZE - start);
 	game_main();
 	return 0;
 }
@@ -359,23 +352,13 @@ void ddinit() {
 	if (!graph_reset) ResetGraph(0);
 	graph_reset = true;
 	SetVideoMode(MODE_NTSC);
-	SetDefDispEnv(&disp, 0, 0, W, H);
-	disp.isinter = 1;
-	SetDefDrawEnv(&draw, 0, 0, W, H);
-	draw.dfe = 1;
-	draw.isbg = 1;
-	setRGB0(&draw, 0, 0, 0);
-	PutDispEnv(&disp);
-	PutDrawEnv(&draw);
-	DrawSync(0);
-	draw.isbg = 0;
-	PutDrawEnv(&draw);
-	setup_prims();
+	gv_init();
 
 	// Root counter 1 counts scan lines (clock source: horizontal blank):
 	TIMER_CTRL(1) = 0x0100;
 	line_last = (uint16_t)TIMER_VALUE(1);
 	VSyncCallback(vblank_callback);
+	gv_clock_init();
 
 	InitPAD(pad_buffers[0], 34, pad_buffers[1], 34);
 	StartPAD();
@@ -385,7 +368,7 @@ void ddinit() {
 	Margrafikus = 1;
 }
 
-void ddfinish() { DrawSync(0); }
+void ddfinish() { gv_stop(); }
 
 unsigned char** lockbackbuffer(int) {
 	if (locked) hiba((char*)"framebuffer already locked");
@@ -497,18 +480,40 @@ void mv_check(int) {
 	hang();
 	events();
 }
-void mv_startstopper() { stopper_start = lines_now(); }
+// The tests (test/gpu_compare_test.lua) stop the game's clock with this, so
+// that the same state can be drawn more than once:
+extern "C" volatile int gpu_test_freeze;
+volatile int gpu_test_freeze = 0;
+namespace {
+uint32_t frozen_at = 0;
+bool frozen = false;
+uint32_t stopper_lines() {
+	const uint32_t now = lines_now();
+	if (gpu_test_freeze) {
+		if (!frozen) frozen_at = now;
+		frozen = true;
+		return frozen_at;
+	}
+	if (frozen) {
+		stopper_start += now - frozen_at;
+		frozen = false;
+	}
+	return now;
+}
+}
+
+void mv_startstopper() { stopper_start = stopper_lines(); }
 // The time between the two calls moves the start of the stopper on.
 void mv_pausestopper(int pause) {
 	static bool paused = false;
 	static uint32_t pause_start = 0;
-	const uint32_t now = lines_now();
+	const uint32_t now = stopper_lines();
 	if (pause && !paused) pause_start = now;
 	if (!pause && paused) stopper_start += now - pause_start;
 	paused = pause != 0;
 }
 // 182 ticks a second, as the PC timer of the original.
-double mv_stopperido() { return (double)(lines_now() - stopper_start) * (182.0 / LINES_PER_SECOND); }
+double mv_stopperido() { return (double)(stopper_lines() - stopper_start) * (182.0 / LINES_PER_SECOND); }
 void getbiostort(unsigned short* bios, unsigned short* fraction) {
 	const uint32_t lines = lines_now();
 	*bios = (unsigned short)(lines >> 16);

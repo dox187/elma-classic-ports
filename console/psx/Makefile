@@ -67,6 +67,13 @@ soundtest: configure
 sound-test: soundtest
 	BUILD=$(BUILD) PCSX_REDUX=$(PCSX_REDUX) $(PYTHON) $(ROOT)/test/sound_test.py $(SOUND_TEST_ARGS)
 
+# The GPU renderer of the game view against the original software renderer
+# in headless PCSX-Redux (several minutes). GPU_TEST_ARGS: --levels
+# warmup,internal,external, --external A.lev,B.lev, --gpu-only --fps (frame
+# rate and the time of each part of a frame), --no-build ...
+gpu-test: all
+	PCSX_REDUX=$(PCSX_REDUX) $(PYTHON) $(ROOT)/test/gpu_compare_test.py --build $(BUILD) $(GPU_TEST_ARGS)
+
 # Heap, stack and RAM high-water per phase (boot, menu, load, play) in
 # headless PCSX-Redux, 8 MB mode. MEM_TEST_ARGS: --levels 0,15|all,
 # --external FILE.lev, --limit KB, --jobs N, --quiet ...
