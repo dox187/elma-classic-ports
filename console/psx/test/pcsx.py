@@ -17,10 +17,16 @@ Usage on the command line:
 
 The emulator is started as `-cli -no-ui -testmode -noupdate -stdout -run`
 (plus `-exe`/`-iso`, `-8mb`, `-pcdrv`/`-pcdrvbase`, `-fastboot`) and the Lua
-script is run with `-dofile`. Everything it prints (stdout of the emulator
-and of Lua `print`) is captured in `Result.output`. The process exit code is
-the one passed to `PCSX.quit(code)` in Lua; a timeout kills the emulator and
-returns 124.
+script is run with `-dofile`. What it prints (stdout of the emulator and of
+Lua `print`) is captured in `Result.output`: the first 1 MB and the last 8 MB,
+the whole of it up to 64 MB in output.log of the work directory. The process
+exit code is the one passed to `PCSX.quit(code)` in Lua; a timeout kills the
+emulator and returns 124, more than 256 MB of output (a run stuck in a loop)
+kills it and returns 125.
+
+Resources: the emulator runs in a systemd scope of its own with MemoryMax 3G
+and no swap (PCSX_MEMORY_MAX overrides it, 0 turns it off), so that a runaway
+run is killed alone and never takes the user's session with it.
 
 BIOS: no Sony BIOS is needed. PCSX-Redux logs `Could not open BIOS ... Retrying
 with the OpenBIOS` and boots its bundled OpenBIOS, which runs PS-EXEs and
@@ -70,12 +76,16 @@ PCSX.getRegisters() gives the CPU registers.
 """
 
 import argparse
+import collections
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from dataclasses import dataclass
 
 DEFAULT_HOME = os.path.expanduser("~/.local/share/elma-psx")
@@ -241,24 +251,86 @@ def run(exe=None, iso=None, lua=None, map_file=None, timeout=60, pcdrv=None,
         env["PIPEWIRE_REMOTE"] = "/nonexistent/pipewire"
         env["ALSA_CONFIG_PATH"] = "/dev/null"
 
+    # A memory limit of its own: a runaway emulator is killed alone instead
+    # of the kernel's OOM killer taking down the whole terminal session.
+    memory_max = os.environ.get("PCSX_MEMORY_MAX", "3G")
+    if memory_max != "0" and shutil.which("systemd-run"):
+        cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect",
+               "-p", "MemoryMax=" + memory_max, "-p", "MemorySwapMax=0", "--"] + cmd
+
     # The emulator runs in its own process group: on a timeout or an
     # interrupt the whole group (xvfb-run, Xvfb, the AppImage and its child)
     # is killed, otherwise the emulator outlives xvfb-run.
     p = subprocess.Popen(cmd, env=env, cwd=workdir, start_new_session=True,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         text=True, errors="replace")
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    output = _BoundedOutput(os.path.join(workdir, "output.log"))
+    reader = threading.Thread(target=output.drain, args=(p.stdout,), daemon=True)
+    reader.start()
+    timed_out = False
     try:
-        out, _ = p.communicate(timeout=timeout)
-        return Result(p.returncode, out, False)
-    except subprocess.TimeoutExpired:
-        _kill_group(p)
-        out, _ = p.communicate()
-        return Result(124, (out or "") + "\n[pcsx.py] timeout\n", True)
-    except BaseException:
-        _kill_group(p)
-        raise
+        deadline = time.monotonic() + timeout
+        while p.poll() is None:
+            if output.total > OUTPUT_KILL_BYTES:
+                break
+            if time.monotonic() > deadline:
+                timed_out = True
+                break
+            time.sleep(0.1)
     finally:
         _kill_group(p)
+        p.wait()
+        reader.join(5)
+        output.close()
+    text = output.text()
+    if output.total > OUTPUT_KILL_BYTES:
+        return Result(125, text + "\n[pcsx.py] killed: more than %d MB of output\n"
+                      % (OUTPUT_KILL_BYTES >> 20), False)
+    if timed_out:
+        return Result(124, text + "\n[pcsx.py] timeout\n", True)
+    return Result(p.returncode, text, False)
+
+
+# Output of one run: the start and the end are kept in memory, the whole of
+# it (up to a limit) in output.log of the work directory. A run that prints
+# more than OUTPUT_KILL_BYTES is stopped: it is stuck in a loop.
+OUTPUT_HEAD_BYTES = 1 << 20
+OUTPUT_TAIL_BYTES = 8 << 20
+OUTPUT_LOG_BYTES = 64 << 20
+OUTPUT_KILL_BYTES = 256 << 20
+
+
+class _BoundedOutput:
+    def __init__(self, log_path):
+        self.head = bytearray()
+        self.tail = collections.deque()
+        self.tail_bytes = 0
+        self.total = 0
+        self.log = open(log_path, "wb")
+        self.logged = 0
+
+    def drain(self, stream):
+        for chunk in iter(lambda: stream.read1(65536), b""):
+            self.total += len(chunk)
+            if self.logged < OUTPUT_LOG_BYTES:
+                self.log.write(chunk[:OUTPUT_LOG_BYTES - self.logged])
+                self.logged += len(chunk)
+            if len(self.head) < OUTPUT_HEAD_BYTES:
+                take = OUTPUT_HEAD_BYTES - len(self.head)
+                self.head += chunk[:take]
+                chunk = chunk[take:]
+            if chunk:
+                self.tail.append(chunk)
+                self.tail_bytes += len(chunk)
+                while self.tail_bytes - len(self.tail[0]) >= OUTPUT_TAIL_BYTES:
+                    self.tail_bytes -= len(self.tail.popleft())
+
+    def close(self):
+        self.log.close()
+
+    def text(self):
+        skipped = self.total - len(self.head) - self.tail_bytes
+        middle = b"\n[pcsx.py] %d bytes of output left out\n" % skipped if skipped > 0 else b""
+        return (bytes(self.head) + middle + b"".join(self.tail)).decode(errors="replace")
 
 
 def _kill_group(p):
