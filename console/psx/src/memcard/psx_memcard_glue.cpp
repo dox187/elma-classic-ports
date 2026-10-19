@@ -21,6 +21,7 @@
 
 #include "gpu/gpu_video.h"
 #include "memcard/memcard.h"
+#include "sound/spu_stream.h"
 
 // Read (and the dirty flag written) by the emulator tests through the symbol
 // map. Keep the layout.
@@ -55,12 +56,17 @@ int boot_status = MC_OK;  // the load problem still to be shown
 // cares about.
 struct card_interrupts_off {
 	uint16_t mask;
+	int spu_irq;
 	card_interrupts_off() {
 		mask = IRQ_MASK;
 		IRQ_MASK = mask & ~((1 << IRQ_TIMER2) | (1 << IRQ_SPU));
+		// The SPU latches its own IRQ until its enable bit is cleared.
+		// Masking only the CPU IRQ can leave that source asserted forever.
+		spu_irq = spu_stream_pause_irq();
 	}
 	~card_interrupts_off() {
 		IRQ_STAT = (uint16_t)~((1 << IRQ_TIMER2) | (1 << IRQ_SPU));
+		spu_stream_resume_irq(spu_irq);
 		IRQ_MASK = mask;
 	}
 };
@@ -136,6 +142,9 @@ void psx_memcard_poll(bool leaving) {
 		const uint32_t dirty = debug.dirty;
 		debug.dirty = 0;
 		note("Saving...", NULL, 0);
+		// The notice is already in VRAM. Give the save's temporary raw and
+		// compressed buffers the menu's RAM picture; the next draw rebuilds it.
+		gv_menu_picture_free();
 		int status = MC_OK;
 		for (int i = 0; i < FILE_COUNT && status == MC_OK; ++i) {
 			if (!(dirty & (1u << i))) continue;

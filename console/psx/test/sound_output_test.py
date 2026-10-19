@@ -66,8 +66,10 @@ def main():
     p.add_argument("--lgr", default=os.path.join(REPO, "build/Lgr/Default_old.lgr"))
     p.add_argument("--timeout", type=float, default=600)
     p.add_argument("--spu-irq", action="store_true", help="also enable Redux's SpuIrq compatibility option")
+    p.add_argument("--card-save", action="store_true", help="save the memory card between the two rides")
     args = p.parse_args()
-    work = os.path.abspath(os.path.join(args.build, "sound-output-test" + ("-irq" if args.spu_irq else "")))
+    work = os.path.abspath(os.path.join(args.build, "sound-output-test" +
+                                      ("-irq" if args.spu_irq else "") + ("-card" if args.card_save else "")))
     os.makedirs(work, exist_ok=True)
     raw = os.path.join(work, "sdlaudio.raw")
     if os.path.exists(raw):
@@ -93,9 +95,10 @@ def main():
                       extra_flags=["-memcard1", card],
                       args={"memory_lua": os.path.join(HERE, "mem_test.lua"),
                             "capture_path": raw, "level": 0, "play": 120, "after": "again",
+                            "card_save": int(args.card_save),
                             "path": ",".join(resource_layout(args.res)["internal_steps"])})
     for line in result.output.splitlines():
-        if line.startswith(("Audio:", "sound output:", "AUDIO_MARK", "PASS", "FAIL", "LUA")):
+        if line.startswith(("Audio:", "sound output:", "AUDIO_MARK", "AUDIO_CARD", "PASS", "FAIL", "LUA")):
             print(line)
     if result.returncode or "FAIL:" in result.output or not re.search(r"^PASS:", result.output, re.M):
         print("FAIL: gameplay or capture failed (emulator exit %d)" % result.returncode)
@@ -103,6 +106,8 @@ def main():
     try:
         if "Audio: driver disk," not in result.output:
             raise ValueError("SDL disk backend was not used")
+        if args.card_save and "AUDIO_CARD resumed after save" not in result.output:
+            raise ValueError("memory-card save and audio restart were not exercised")
         check_capture(raw, result.output)
     except (OSError, ValueError) as e:
         print("FAIL:", e)

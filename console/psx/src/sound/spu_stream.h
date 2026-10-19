@@ -66,6 +66,12 @@ void spu_stream_reset(void);
  * or its IRQ-derived play position. */
 void spu_stream_set_muted(int muted);
 
+/* Holds the SPU IRQ source while its CPU interrupt is masked, as during a
+ * BIOS memory-card transfer. The caller restores the returned enable state
+ * after clearing the CPU's pending IRQ and before unmasking it. */
+int spu_stream_pause_irq(void);
+void spu_stream_resume_irq(int enabled);
+
 const SpuStreamStats *spu_stream_stats(void);
 
 /* For tests: the shadow of the ring (what SPU RAM should contain), the

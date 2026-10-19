@@ -364,6 +364,21 @@ void spu_stream_set_muted(int muted)
 	SPU_CH_VOL_R(SPU_STREAM_VOICE) = voice_muted ? 0 : 0x3fff;
 }
 
+int spu_stream_pause_irq(void)
+{
+	if (!ready)
+		return 0;
+	const uint16_t ctrl = SPU_CTRL;
+	spu_ctrl_write(ctrl & ~SPUCNT_IRQ_ENABLE);
+	return (ctrl & SPUCNT_IRQ_ENABLE) != 0;
+}
+
+void spu_stream_resume_irq(int enabled)
+{
+	if (ready && enabled)
+		spu_ctrl_write(SPU_CTRL | SPUCNT_IRQ_ENABLE);
+}
+
 const SpuStreamStats *spu_stream_stats(void)
 {
 	spu_stats.irq_steps = irq_steps;

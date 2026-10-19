@@ -231,9 +231,13 @@ python3 console/psx/test/message_test.py --level /path/to/Lev/NAME.LEV
 make -C console/psx cd-test
 make -C console/psx mc-test
 python3 console/psx/test/mc_game_test.py
-python3 console/psx/test/sound_output_test.py
+python3 console/psx/test/sound_output_test.py --card-save
 python3 console/psx/test/sound_game_test.py --ram2
 make -C console/psx sound-test
+
+# Options save and cold-boot restore; only a copy of this saved card is used
+python3 console/psx/test/options_save_test.py --build console/psx/build \
+  --card /path/to/card-with-a-saved-player.mcd
 ```
 
 `make -C console/psx gpu-test` compares the GPU view with the software renderer.
