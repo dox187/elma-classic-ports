@@ -72,6 +72,7 @@ PCSX.getRegisters() gives the CPU registers.
 import argparse
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -240,16 +241,31 @@ def run(exe=None, iso=None, lua=None, map_file=None, timeout=60, pcdrv=None,
         env["PIPEWIRE_REMOTE"] = "/nonexistent/pipewire"
         env["ALSA_CONFIG_PATH"] = "/dev/null"
 
+    # The emulator runs in its own process group: on a timeout or an
+    # interrupt the whole group (xvfb-run, Xvfb, the AppImage and its child)
+    # is killed, otherwise the emulator outlives xvfb-run.
+    p = subprocess.Popen(cmd, env=env, cwd=workdir, start_new_session=True,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         text=True, errors="replace")
     try:
-        p = subprocess.run(cmd, env=env, cwd=workdir, timeout=timeout,
-                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                           text=True, errors="replace")
-        return Result(p.returncode, p.stdout, False)
-    except subprocess.TimeoutExpired as e:
-        out = e.stdout or ""
-        if isinstance(out, bytes):
-            out = out.decode(errors="replace")
-        return Result(124, out + "\n[pcsx.py] timeout\n", True)
+        out, _ = p.communicate(timeout=timeout)
+        return Result(p.returncode, out, False)
+    except subprocess.TimeoutExpired:
+        _kill_group(p)
+        out, _ = p.communicate()
+        return Result(124, (out or "") + "\n[pcsx.py] timeout\n", True)
+    except BaseException:
+        _kill_group(p)
+        raise
+    finally:
+        _kill_group(p)
+
+
+def _kill_group(p):
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def main():
