@@ -26,15 +26,42 @@ static int extent_ok(const iso_vol *v, uint32_t lba, uint32_t size)
     return n <= v->volume_size - lba;
 }
 
-/* Loads an absolute sector into v->buf (cached). */
-static int load(iso_vol *v, uint32_t abs_lba)
+/* Makes the sector at an absolute LBA available and returns a pointer to
+ * it (valid until the next load), or NULL on a read error. With a window
+ * larger than one sector an aligned group of sectors is read at once. */
+static const uint8_t *load(iso_vol *v, uint32_t abs_lba)
 {
-    if (v->buf_lba == abs_lba)
-        return ISO_OK;
+    if (v->buf_lba != ISO_NO_LBA && abs_lba >= v->buf_lba && abs_lba - v->buf_lba < v->buf_count)
+        return v->buf + (size_t)(abs_lba - v->buf_lba) * ISO_SECTOR_SIZE;
     v->buf_lba = ISO_NO_LBA;
+    v->buf_count = 0;
+    if (v->window > 1 && abs_lba >= v->base && abs_lba - v->base < v->volume_size) {
+        uint32_t rel = abs_lba - v->base;
+        uint32_t start = rel & ~(v->window - 1);
+        uint32_t n = v->volume_size - start;
+        if (n > v->window)
+            n = v->window;
+        if (v->read(v->ctx, v->base + start, n, v->buf) == 0) {
+            v->buf_lba = v->base + start;
+            v->buf_count = n;
+            return v->buf + (size_t)(rel - start) * ISO_SECTOR_SIZE;
+        }
+    }
     if (v->read(v->ctx, abs_lba, 1, v->buf) != 0)
-        return ISO_ERR_READ;
+        return 0;
     v->buf_lba = abs_lba;
+    v->buf_count = 1;
+    return v->buf;
+}
+
+int iso_set_window(iso_vol *v, void *buf, uint32_t sectors)
+{
+    if (!v || !buf || sectors == 0 || (sectors & (sectors - 1)) != 0)
+        return ISO_ERR_BADARG;
+    v->buf = (uint8_t *)buf;
+    v->window = sectors;
+    v->buf_lba = ISO_NO_LBA;
+    v->buf_count = 0;
     return ISO_OK;
 }
 
@@ -76,7 +103,9 @@ int iso_mount(iso_vol *v, iso_read_fn read, void *ctx, void *sector_buf,
     v->read = read;
     v->ctx = ctx;
     v->buf = (uint8_t *)sector_buf;
+    v->window = 1;
     v->buf_lba = ISO_NO_LBA;
+    v->buf_count = 0;
     v->base = base;
     v->volume_size = 0;
     v->root_lba = 0;
@@ -84,15 +113,17 @@ int iso_mount(iso_vol *v, iso_read_fn read, void *ctx, void *sector_buf,
 
     for (i = 0; i < scan; i++) {
         uint32_t lba = base + PVD_SECTOR + i;
+        const uint8_t *b;
         if (lba < base) /* wrapped around */
             break;
-        if (load(v, lba) != ISO_OK)
+        b = load(v, lba);
+        if (!b)
             continue;
         if (err == ISO_ERR_READ)
             err = ISO_ERR_NOT_FOUND;
-        if (v->buf[0] != 1 || memcmp(v->buf + 1, "CD001", 5) != 0 || v->buf[6] != 1)
+        if (b[0] != 1 || memcmp(b + 1, "CD001", 5) != 0 || b[6] != 1)
             continue;
-        if (parse_pvd(v, v->buf) == ISO_OK) {
+        if (parse_pvd(v, b) == ISO_OK) {
             v->base = base + i; /* ISO sector 0 = descriptor sector - 16 */
             return ISO_OK;
         }
@@ -136,11 +167,10 @@ static int next_rec(iso_vol *v, iso_dir *d, rec *r)
     while (d->pos < d->size) {
         uint32_t off = d->pos & (ISO_SECTOR_SIZE - 1);
         uint32_t len, id_len;
-        const uint8_t *p;
-        int e = load(v, v->base + d->lba + (d->pos >> 11));
-        if (e != ISO_OK)
-            return e;
-        p = v->buf + off;
+        const uint8_t *p = load(v, v->base + d->lba + (d->pos >> 11));
+        if (!p)
+            return ISO_ERR_READ;
+        p += off;
         len = p[0];
         if (len == 0) { /* padding up to the next sector */
             d->pos = (d->pos | (ISO_SECTOR_SIZE - 1)) + 1;
@@ -328,12 +358,12 @@ int32_t iso_read(iso_vol *v, const iso_entry *e, uint32_t offset, uint32_t len,
             done += count << 11;
         } else {
             uint32_t n = ISO_SECTOR_SIZE - in;
-            int r = load(v, v->base + sec);
-            if (r != ISO_OK)
-                return r;
+            const uint8_t *p = load(v, v->base + sec);
+            if (!p)
+                return ISO_ERR_READ;
             if (n > left)
                 n = left;
-            memcpy(out + done, v->buf + in, n);
+            memcpy(out + done, p + in, n);
             done += n;
         }
     }

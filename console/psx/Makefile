@@ -43,6 +43,14 @@ hello: configure
 hello-disc: configure
 	cmake --build $(BUILD) --target hello-disc
 
+cdtest: configure
+	cmake --build $(BUILD) --target cdtest
+
+# Builds the disc images (default layout and the variants) from the cdtest
+# PS-EXE with tools/mkdisc.py, into $(BUILD)/cdtest-disc/.
+cdtest-disc: cdtest
+	$(PYTHON) $(ROOT)/test/cd_test.py --build $(BUILD) --discs-only
+
 # Re-run configure every time; it is cheap and picks up elma.cmake appearing
 # or variables changing.
 configure:
@@ -56,6 +64,11 @@ test: hello hello-disc
 		--map $(BUILD)/hello.map --lua $(ROOT)/test/hello_test.lua \
 		--workdir $(BUILD)/test-iso --timeout 180 --arg frames=1500 --grep 'magic=|PASS|FAIL|LUA ERROR'
 	@echo "hello tests passed"
+
+# PS1 disc test in headless PCSX-Redux: track 2 mount, LEV/ listing, CRC of
+# every file. CD_TEST_ARGS: --real, --layouts raw,split,2048, --keep ...
+cd-test: cdtest
+	$(PYTHON) $(ROOT)/test/cd_test.py --build $(BUILD) --redux $(PCSX_REDUX) $(CD_TEST_ARGS)
 
 # Runs on the host only; ELMA_RES, ELMA_LGR and ELMA_LEV choose the game data
 # for --real.

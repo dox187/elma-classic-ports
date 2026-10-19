@@ -266,7 +266,7 @@ def make_sources(root, seed=1):
     lgr = os.path.join(src, "Default.lgr")
     open(lgr, "wb").write(blob(70001))
     files["ELMA.RES"] = open(res, "rb").read()
-    files["DEFAULT.LGR"] = open(lgr, "rb").read()
+    files["LGR/DEFAULT.LGR"] = open(lgr, "rb").read()
     sizes = [0, 1, 2047, 2048, 2049, 4096, 4097, 65536 + 5]
     # names: many files so that the directory spans several sectors; mixed
     # case, to be upper-cased
@@ -327,10 +327,14 @@ def check_disc(name, outdir, expected, exe,
         iso_sectors = stored_count - pregap
     else:
         t1_sectors = t1["nsec"]
-        pregap = t2["pregap"]
-        stored_first = t2["lba1"]
+        if t2["idx0"] is not None:    # pregap stored in the file (raw split)
+            pregap = t2["lba1"] - t2["lba0"]
+            stored_first = t2["lba0"]
+        else:                         # PREGAP directive, not stored (2048)
+            pregap = t2["pregap"]
+            stored_first = t2["lba1"]
         stored_count = t2["nsec"]
-        iso_sectors = stored_count
+        iso_sectors = stored_count - (pregap if t2["idx0"] is not None else 0)
     check(pregap >= 150, "pregap >= 150 sectors (%d)" % pregap)
     if aligned:
         check(pregap < 225, "aligned pregap stays below 225")
@@ -427,8 +431,16 @@ def check_disc(name, outdir, expected, exe,
           % (len(expected), diff[:3]))
     shutil.rmtree(out, ignore_errors=True)
     if selftest:
-        r = c_reader(exe, f, secsize, dataoff, first_lba, td, "selftest")
-        check(r.returncode == 0 and "selftest OK" in r.stdout, "selftest: " + r.stdout.strip()[-300:])
+        for window in ("1", "8", "64"):
+            r = c_reader(exe, f, secsize, dataoff, first_lba, td, "selftest", window)
+            check(r.returncode == 0 and "selftest OK" in r.stdout,
+                  "selftest (window %s): %s" % (window, r.stdout.strip()[-300:]))
+        # extraction through a multi-sector buffer window gives the same bytes
+        out = os.path.join(outdir, "extracted8")
+        shutil.rmtree(out, ignore_errors=True)
+        r = c_reader(exe, f, secsize, dataoff, first_lba, td, "extract", out, "8")
+        check(r.returncode == 0 and tree_of(out) == expected, "extract with window 8 equals the source")
+        shutil.rmtree(out, ignore_errors=True)
     return dict(tracks=tracks, f=f, secsize=secsize, dataoff=dataoff, first_lba=first_lba)
 
 
@@ -574,8 +586,9 @@ def main():
         stage = os.path.join(work, "stage")
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(os.path.join(stage, "LEV"))
+        os.makedirs(os.path.join(stage, "LGR"))
         shutil.copy(S["res"], os.path.join(stage, "ELMA.RES"))
-        shutil.copy(S["lgr"], os.path.join(stage, "DEFAULT.LGR"))
+        shutil.copy(S["lgr"], os.path.join(stage, "LGR", "DEFAULT.LGR"))
         for k, v in exp.items():
             if k.startswith("LEV/"):
                 open(os.path.join(stage, k), "wb").write(v)
@@ -588,7 +601,7 @@ def main():
         check(r.returncode == 0, "%s built the ISO" % tool)
         d = os.path.join(work, "std")
         build_disc(d, S, ["--dummy-track1", "400", "--track2-iso", std])
-        want = {k: v for k, v in exp.items() if k in ("ELMA.RES", "DEFAULT.LGR") or k.startswith("LEV/")}
+        want = {k: v for k, v in exp.items() if k in ("ELMA.RES", "LGR/DEFAULT.LGR") or k.startswith("LEV/")}
         check_disc("--track2-iso from %s" % tool, d, want, exe, check_all_sectors=False)
         shutil.rmtree(d)
         shutil.rmtree(stage)
@@ -604,7 +617,7 @@ def main():
                           "--lev-dir", S["lev"]])
         print("== mkpsxiso track 1 + own track 2")
         info = check_disc("track 1 by mkpsxiso", d, {k: v for k, v in exp.items()
-                          if k in ("ELMA.RES", "DEFAULT.LGR") or k.startswith("LEV/")},
+                          if k in ("ELMA.RES", "LGR/DEFAULT.LGR") or k.startswith("LEV/")},
                           exe, check_all_sectors=allsec, t1_edc=False)
         t1_file = os.path.join(d, "elma.bin")
         # mkpsxiso is a third-party encoder: its Form 1 sectors (the
@@ -665,7 +678,7 @@ def main():
         else:
             levs = sorted(n for n in os.listdir(REAL_LEV) if n.lower().endswith(".lev"))
             real = {"ELMA.RES": open(REAL_RES, "rb").read(),
-                    "DEFAULT.LGR": open(REAL_LGR, "rb").read()}
+                    "LGR/DEFAULT.LGR": open(REAL_LGR, "rb").read()}
             for n in levs:
                 real["LEV/" + n.upper()] = open(os.path.join(REAL_LEV, n), "rb").read()
             d = os.path.join(work, "real")

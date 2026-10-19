@@ -12,9 +12,11 @@
  * Commands:
  *   info              mount and print the result
  *   list PATH         list a directory ("name size flags lba")
- *   extract OUTDIR    copy the whole tree to the host, reading each file
+ *   extract OUTDIR [WINDOW]
+ *                     copy the whole tree to the host, reading each file
  *                     both in one piece and in odd-sized chunks
- *   selftest          mount, then run the error-case and fuzz tests
+ *   selftest [WINDOW] mount, then run the error-case and fuzz tests
+ *                     (WINDOW = sectors per buffer refill, power of two, default 1)
  */
 #include <errno.h>
 #include <stdint.h>
@@ -198,6 +200,23 @@ static uint32_t rnd(void)
     return rnd_state >> 8;
 }
 
+
+/* Sector-group buffers for the window variant of the tests (one per
+ * volume that can be live at the same time). */
+static unsigned g_window = 1;
+static uint8_t g_wbuf[2][64 * 2048];
+
+static int mnt(iso_vol *v, int which, iso_read_fn rd, void *ctx, void *sbuf, uint32_t base,
+               uint32_t scan)
+{
+    int r = iso_mount(v, rd, ctx, sbuf, base, scan);
+    if (r == ISO_OK && g_window > 1)
+        CHECK(iso_set_window(v, g_wbuf[which], g_window) == ISO_OK);
+    return r;
+}
+#define mntv(v, rd, ctx, sb, base, scan) mnt(v, 0, rd, ctx, sb, base, scan)
+#define mntw(v, rd, ctx, sb, base, scan) mnt(v, 1, rd, ctx, sb, base, scan)
+
 static void selftest(iso_vol *v0, file_src *fs)
 {
     uint32_t nsec = v0->volume_size, i;
@@ -221,23 +240,23 @@ static void selftest(iso_vol *v0, file_src *fs)
 
     /* mount with every misalignment 0..74 sectors early, and exact */
     for (i = 0; i <= 74; i++) {
-        r = iso_mount(&v, mem_read, &m, sbuf, m.first - i, ISO_SCAN_DEFAULT);
+        r = mntv(&v, mem_read, &m, sbuf, m.first - i, ISO_SCAN_DEFAULT);
         CHECK(r == ISO_OK && v.base == m.first);
     }
     /* base 0 reads below the image fail; scan skips them and still finds
      * the descriptor when it is within the window */
-    r = iso_mount(&v, mem_read, &m, sbuf, m.first - 3, 20);
+    r = mntv(&v, mem_read, &m, sbuf, m.first - 3, 20);
     CHECK(r == ISO_OK);
-    r = iso_mount(&v, mem_read, &m, sbuf, m.first - 40, 20); /* window too short */
+    r = mntv(&v, mem_read, &m, sbuf, m.first - 40, 20); /* window too short */
     CHECK(r == ISO_ERR_NOT_FOUND || r == ISO_ERR_READ);
-    r = iso_mount(&v, mem_read, &m, sbuf, m.first + 1, ISO_SCAN_DEFAULT); /* past the start */
+    r = mntv(&v, mem_read, &m, sbuf, m.first + 1, ISO_SCAN_DEFAULT); /* past the start */
     CHECK(r != ISO_OK);
-    r = iso_mount(&v, mem_read, &m, sbuf, 0, ISO_SCAN_DEFAULT); /* nothing readable */
+    r = mntv(&v, mem_read, &m, sbuf, 0, ISO_SCAN_DEFAULT); /* nothing readable */
     CHECK(r == ISO_ERR_READ);
     CHECK(iso_mount(NULL, mem_read, &m, sbuf, 0, 1) == ISO_ERR_BADARG);
-    CHECK(iso_mount(&v, NULL, &m, sbuf, 0, 1) == ISO_ERR_BADARG);
+    CHECK(mntv(&v, NULL, &m, sbuf, 0, 1) == ISO_ERR_BADARG);
 
-    CHECK(iso_mount(&v, mem_read, &m, sbuf, m.first, ISO_SCAN_DEFAULT) == ISO_OK);
+    CHECK(mntv(&v, mem_read, &m, sbuf, m.first, ISO_SCAN_DEFAULT) == ISO_OK);
 
     /* lookups */
     CHECK(iso_find(&v, "", &e) == ISO_OK && (e.flags & ISO_FLAG_DIR));
@@ -290,7 +309,9 @@ static void selftest(iso_vol *v0, file_src *fs)
         m.fail_lba_from = (int)(m.first + f.lba + 1);
         CHECK(iso_read(&v, &f, 0, 4096, big) == ISO_ERR_READ);
         CHECK(iso_read(&v, &f, 100, 100, big) == 100);
-        CHECK(iso_read(&v, &f, 2048 + 5, 10, big) == ISO_ERR_READ);
+        /* with a window the sector may already be cached from a good read */
+        r = iso_read(&v, &f, 2048 + 5, 10, big);
+        CHECK(r == ISO_ERR_READ || (g_window > 1 && r == 10));
         m.fail_lba_from = -1;
     }
 
@@ -310,14 +331,14 @@ static void selftest(iso_vol *v0, file_src *fs)
         uint8_t *rootdir = copy + (size_t)root * 2048;
         iso_vol w;
 
-        MUT(memset(pvd, 0, 2048), CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_NOT_FOUND));
-        MUT(pvd[1] = 'X', CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_NOT_FOUND));
-        MUT(pvd[129] = 0x10, CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
-        MUT(memset(pvd + 80, 0, 4), CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
-        MUT(pvd[156 + 2] = 0xFF; pvd[156 + 3] = 0xFF, CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
-        MUT(pvd[156] = 10, CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
-        MUT(pvd[156 + 25] = 0, CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
-        MUT(memset(pvd + 156 + 10, 0, 4), CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
+        MUT(memset(pvd, 0, 2048), CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_NOT_FOUND));
+        MUT(pvd[1] = 'X', CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_NOT_FOUND));
+        MUT(pvd[129] = 0x10, CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
+        MUT(memset(pvd + 80, 0, 4), CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
+        MUT(pvd[156 + 2] = 0xFF; pvd[156 + 3] = 0xFF, CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
+        MUT(pvd[156] = 10, CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
+        MUT(pvd[156 + 25] = 0, CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
+        MUT(memset(pvd + 156 + 10, 0, 4), CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_ERR_CORRUPT));
 
         /* last record of a LEV sector: length that crosses the sector end */
         {
@@ -330,7 +351,7 @@ static void selftest(iso_vol *v0, file_src *fs)
             }
             sec[last] = 0xFE;
             CHECK(last + 0xFE > 2048);
-            CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_OK);
+            CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_OK);
             CHECK(iso_opendir(&w, "LEV", &d) == ISO_OK);
             r = 1;
             while (r > 0)
@@ -338,27 +359,27 @@ static void selftest(iso_vol *v0, file_src *fs)
             CHECK(r == ISO_ERR_CORRUPT);
         }
         MUT(rootdir[68] = 20, { /* shorter than the minimum */
-            iso_mount(&w, mem_read, &m, sbuf, m.first, 80);
+            mntw(&w, mem_read, &m, sbuf, m.first, 80);
             iso_opendir(&w, "/", &d);
             CHECK(iso_readdir(&w, &d, &e) == ISO_ERR_CORRUPT);
         });
         MUT(rootdir[68 + 32] = 200, { /* identifier longer than the record */
-            iso_mount(&w, mem_read, &m, sbuf, m.first, 80);
+            mntw(&w, mem_read, &m, sbuf, m.first, 80);
             iso_opendir(&w, "/", &d);
             CHECK(iso_readdir(&w, &d, &e) == ISO_ERR_CORRUPT);
         });
         MUT(rootdir[68 + 32] = 0, { /* empty identifier */
-            iso_mount(&w, mem_read, &m, sbuf, m.first, 80);
+            mntw(&w, mem_read, &m, sbuf, m.first, 80);
             iso_opendir(&w, "/", &d);
             CHECK(iso_readdir(&w, &d, &e) == ISO_ERR_CORRUPT);
         });
         MUT(rootdir[68 + 10 + 3] = 0x7F, { /* file size far beyond the volume */
-            iso_mount(&w, mem_read, &m, sbuf, m.first, 80);
+            mntw(&w, mem_read, &m, sbuf, m.first, 80);
             iso_opendir(&w, "/", &d);
             CHECK(iso_readdir(&w, &d, &e) == ISO_ERR_CORRUPT);
         });
         MUT(rootdir[68 + 2 + 3] = 0x7F, { /* extent beyond the volume */
-            iso_mount(&w, mem_read, &m, sbuf, m.first, 80);
+            mntw(&w, mem_read, &m, sbuf, m.first, 80);
             iso_opendir(&w, "/", &d);
             CHECK(iso_readdir(&w, &d, &e) == ISO_ERR_CORRUPT);
         });
@@ -373,7 +394,7 @@ static void selftest(iso_vol *v0, file_src *fs)
                     memcpy(copy, img, (size_t)nsec * 2048);
                     for (k = 0; k < 4; k++)
                         rec[10 + k] = 0;
-                    iso_mount(&w, mem_read, &m, sbuf, m.first, 80);
+                    mntw(&w, mem_read, &m, sbuf, m.first, 80);
                     CHECK(iso_find(&w, "LEV", &e) == ISO_OK);
                     CHECK(iso_opendir(&w, "LEV", &d) == ISO_ERR_CORRUPT);
                     CHECK(iso_find(&w, "LEV/X", &e) == ISO_ERR_CORRUPT);
@@ -385,7 +406,7 @@ static void selftest(iso_vol *v0, file_src *fs)
         /* volume claims more sectors than exist: reads fail cleanly */
         MUT({ uint32_t big = nsec + 100000; memcpy(pvd + 80, &big, 4); }, {
             iso_entry f;
-            CHECK(iso_mount(&w, mem_read, &m, sbuf, m.first, 80) == ISO_OK);
+            CHECK(mntw(&w, mem_read, &m, sbuf, m.first, 80) == ISO_OK);
             CHECK(iso_find(&w, "ELMA.RES", &f) == ISO_OK);
             f.lba = nsec + 50;
             CHECK(iso_read(&w, &f, 0, 10, sbuf) == ISO_ERR_READ);
@@ -418,7 +439,7 @@ static void selftest(iso_vol *v0, file_src *fs)
                     off = rnd() % 200; /* favour the start of the sector */
                 copy[(size_t)sec * 2048 + off] = (uint8_t)rnd();
             }
-            if (iso_mount(&w, mem_read, &m, sbuf, m.first - rnd() % 75, 80) == ISO_OK) {
+            if (mntw(&w, mem_read, &m, sbuf, m.first - rnd() % 75, 80) == ISO_OK) {
                 if (iso_find(&w, "", &root) == ISO_OK)
                     walk_count(&w, &root, 0, &budget);
                 iso_find(&w, "LEV/PA26LE01.LEV", &root);
@@ -481,10 +502,17 @@ int main(int argc, char **argv)
     }
     if (!strcmp(argv[6], "extract") && argc >= 8) {
         iso_entry root;
+        if (argc >= 9) {
+            g_window = (unsigned)atoi(argv[8]);
+            if (iso_set_window(&v, g_wbuf[0], g_window) != ISO_OK)
+                return 2;
+        }
         iso_find(&v, "/", &root);
         return extract_dir(&v, &root, "", argv[7]);
     }
     if (!strcmp(argv[6], "selftest")) {
+        if (argc >= 8)
+            g_window = (unsigned)atoi(argv[7]);
         selftest(&v, &fs);
         printf(g_fail ? "selftest FAILED (%d)\n" : "selftest OK\n", g_fail);
         return g_fail != 0;

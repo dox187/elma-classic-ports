@@ -6,7 +6,7 @@ Disc layout
 Track 1  MODE2/2352, bootable, only our own code (SYSTEM.CNF + PS-EXE). It
          is made by mkpsxiso and contains no original game data.
 Track 2  ISO9660 level 1 (8.3 upper-case names, ";1" versions) holding the
-         user's own game files:  ELMA.RES, DEFAULT.LGR and LEV/*.LEV
+         user's own game files:  ELMA.RES, LGR/DEFAULT.LGR and LEV/*.LEV
          (plus anything from --extra-dir).
 
 The game finds track 2 through the TOC (GetTN/GetTD), looks for the "CD001"
@@ -58,8 +58,10 @@ after a data track:
         INDEX 00 mm:ss:ff        ; start of the pregap, stored in the file
         INDEX 01 mm:ss:ff        ; first ISO sector
 
-In the split layouts the pregap is a "PREGAP 00:0x:xx" line instead (the
-sectors are not stored). The pregap sectors contain valid Mode 1 sectors
+With --split the raw track 2 gets its own file in the usual redump style,
+the pregap stored at its start ("INDEX 00 00:00:00" / "INDEX 01 pregap").
+For the plain 2048 file the pregap is not stored (that file stays a plain
+ISO image) and the cue has a "PREGAP 00:0x:xx" line instead. The pregap sectors contain valid Mode 1 sectors
 with zero data. The PS1 drive reports the INDEX 01 position of a track via
 GetTD rounded DOWN to whole seconds, so by default the pregap is lengthened
 (150..224 sectors) until INDEX 01 falls on a second boundary, which makes
@@ -78,6 +80,7 @@ import struct
 import subprocess
 import sys
 import time
+import zlib
 
 SECTOR_RAW = 2352
 SECTOR_USER = 2048
@@ -285,6 +288,24 @@ class IsoImage:
                 self.add_tree(full, iso)
             else:
                 self.add(iso, full)
+
+    def manifest(self):
+        """Text listing "CRC32 SIZE PATH" of every file (paths as stored,
+        without the ';1' version and a trailing '.'), CRC-32 as in zlib."""
+        lines = []
+
+        def walk(d, prefix):
+            for ident in sorted(d.files, key=self._sort_key):
+                src, size = d.files[ident]
+                data = src if isinstance(src, bytes) else open(src, "rb").read()
+                name = ident[:-1] if ident.endswith(".") else ident
+                lines.append("%08X %d %s%s" % (zlib.crc32(data) & 0xFFFFFFFF, size,
+                                                prefix, name))
+            for ident in sorted(d.dirs, key=self._sort_key):
+                walk(d.dirs[ident], prefix + ident + "/")
+
+        walk(self.root, "")
+        return ("\n".join(lines) + "\n").encode()
 
     # -- layout ----------------------------------------------------------
 
@@ -625,11 +646,15 @@ def main(argv=None):
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_argument_group("track 2 contents (own ISO9660 writer)")
     g.add_argument("--res", help="stored as ELMA.RES")
-    g.add_argument("--lgr", help="stored as DEFAULT.LGR")
+    g.add_argument("--lgr", help="stored as LGR/DEFAULT.LGR, where the game looks for it")
     g.add_argument("--lev-dir", help="every *.lev is stored as LEV/NAME.LEV; "
                    "names that do not fit 8.3 are skipped and reported")
     g.add_argument("--extra-dir", help="further files/directories, stored "
                    "with their names upper-cased")
+    g.add_argument("--manifest", metavar="NAME",
+                   help="also store a text file NAME (e.g. SUMS.TXT) with a "
+                   "'CRC32 SIZE PATH' line for every file (test aid: the "
+                   "PS1 test program verifies the disc against it)")
     g.add_argument("--volume-id", default="ELMA", help="ISO volume id")
     g.add_argument("--write-iso", metavar="FILE",
                    help="also write the generated track 2 as a plain ISO")
@@ -692,13 +717,15 @@ def main(argv=None):
         if args.res:
             iso.add("ELMA.RES", args.res)
         if args.lgr:
-            iso.add("DEFAULT.LGR", args.lgr)
+            iso.add("LGR/DEFAULT.LGR", args.lgr)
         if args.lev_dir:
             for name in sorted(os.listdir(args.lev_dir)):
                 if name.lower().endswith(".lev"):
                     iso.add("LEV/" + name, os.path.join(args.lev_dir, name))
         if args.extra_dir:
             iso.add_tree(args.extra_dir)
+        if args.manifest:
+            iso.add(args.manifest, iso.manifest())
         for path, why in iso.skipped:
             print("mkdisc: skipped %s: %s" % (path, why), file=sys.stderr)
         if not iso.root.files and not iso.root.dirs:
@@ -729,14 +756,12 @@ def main(argv=None):
     main_path = os.path.join(out_dir, bin_name)
     with open(main_path, "wb") as fb:
         copy_file(t1, fb)
-        if split:
-            ft2 = open(t2_path, "wb")
-        else:
-            ft2 = fb
+        ft2 = open(t2_path, "wb") if split else fb
+        if raw:
+            # the pregap is stored: Mode 1 sectors with zero data
             zero = bytes(SECTOR_USER)
-            pg = encode_mode1  # pregap: Mode 1 sectors with zero data
             for i in range(pregap):
-                fb.write(pg(n1 + i + 150, zero))
+                ft2.write(encode_mode1(n1 + i + 150, zero))
         for i, sec in enumerate(track2_sectors(args, iso)):
             if iso_out:
                 iso_out.write(sec)
@@ -762,6 +787,12 @@ def main(argv=None):
         lines += ["  TRACK 02 MODE1/2352",
                   "    INDEX 00 %s" % msf_str(n1),
                   "    INDEX 01 %s" % msf_str(t2_start)]
+    elif raw:
+        # redump style multi-file layout: the pregap is stored in the file
+        lines += ['FILE "%s" BINARY' % t2_name,
+                  "  TRACK 02 MODE1/2352",
+                  "    INDEX 00 00:00:00",
+                  "    INDEX 01 %s" % msf_str(pregap)]
     else:
         lines += ['FILE "%s" BINARY' % t2_name,
                   "  TRACK 02 MODE1/%s" % args.track2_format,

@@ -33,4 +33,15 @@ psn00bsdk_add_cd_image(
 	DEPENDS hello cmake/system.cnf
 )
 
+# Disc test: mounts the second data track and verifies the files on it.
+# The disc itself is built by test/cd_test.py (make cd-test / cdtest-disc).
+psn00bsdk_add_executable(
+	cdtest GPREL
+	cdtest/main.c
+	src/cd/cdtrack.c
+	src/cd/cdfile.c
+	src/cd/iso9660.c
+	src/psx_file.c
+)
+
 include(${CMAKE_CURRENT_SOURCE_DIR}/elma.cmake OPTIONAL)

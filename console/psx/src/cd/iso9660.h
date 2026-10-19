@@ -2,7 +2,7 @@
  * Minimal read-only ISO9660 reader for the PlayStation port.
  *
  * Portable C99: no malloc, no stdio, no global state. The caller supplies
- * a 2048-byte sector buffer and a callback that reads 2048-byte user-data
+ * a 2048-byte sector buffer (optionally larger, see iso_set_window) and a callback that reads 2048-byte user-data
  * sectors by absolute LBA. Plain ISO9660 level 1 (and anything compatible
  * with it) is supported; Rock Ridge, Joliet, multi-extent files and
  * extended attributes are ignored. Every length and extent that comes from
@@ -54,8 +54,10 @@ typedef int (*iso_read_fn)(void *ctx, uint32_t lba, uint32_t count, void *dst);
 typedef struct iso_vol {
     iso_read_fn read;
     void *ctx;
-    uint8_t *buf;          /* caller-owned 2048-byte buffer */
-    uint32_t buf_lba;      /* absolute LBA held in buf, or ISO_NO_LBA */
+    uint8_t *buf;          /* caller-owned sector buffer (window * 2048 bytes) */
+    uint32_t window;       /* sectors per buffer refill, 1 unless iso_set_window */
+    uint32_t buf_lba;      /* absolute LBA of the first sector in buf, or ISO_NO_LBA */
+    uint32_t buf_count;    /* valid sectors in buf */
     uint32_t base;         /* absolute LBA of ISO sector 0 */
     uint32_t volume_size;  /* sectors, from the descriptor */
     uint32_t root_lba;     /* ISO-relative */
@@ -83,6 +85,13 @@ typedef struct iso_dir {
  * success v->base is the real start of the ISO image. */
 int iso_mount(iso_vol *v, iso_read_fn read, void *ctx, void *sector_buf,
               uint32_t base, uint32_t scan);
+
+/* Optional speed-up for slow media: after a successful mount, hands the
+ * reader a bigger buffer of `sectors` * 2048 bytes (sectors a power of two,
+ * e.g. 8). Directory and partial-sector reads then fetch aligned groups of
+ * sectors in one request instead of one request per sector. The buffer
+ * must stay valid as long as the volume is used. */
+int iso_set_window(iso_vol *v, void *buf, uint32_t sectors);
 
 /* Absolute LBA of an ISO-relative extent (what the CD driver needs). */
 uint32_t iso_abs_lba(const iso_vol *v, uint32_t lba);
