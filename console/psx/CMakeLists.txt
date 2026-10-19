@@ -8,12 +8,23 @@
 
 cmake_minimum_required(VERSION 3.21)
 
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" ELMA_PSX_VERSION)
+string(STRIP "${ELMA_PSX_VERSION}" ELMA_PSX_VERSION)
+if(NOT ELMA_PSX_VERSION MATCHES "^[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?$")
+	message(FATAL_ERROR "VERSION must contain a numeric PlayStation port version")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+
 project(
 	elma-psx
 	LANGUAGES C CXX ASM
-	VERSION   0.1.0
+	VERSION   ${ELMA_PSX_VERSION}
 	DESCRIPTION "Elasto Mania PlayStation port"
 )
+message(STATUS "Elasto Mania PlayStation port v${ELMA_PSX_VERSION}")
+
+add_library(elma_psx_version INTERFACE)
+target_compile_definitions(elma_psx_version INTERFACE ELMA_PSX_VERSION="${ELMA_PSX_VERSION}")
 
 # Optional Sony license data for real hardware, never committed. Pass
 # -DPSX_LICENSE_FILE=/path/to/license.dat (Makefile: LICENSE_FILE=...).

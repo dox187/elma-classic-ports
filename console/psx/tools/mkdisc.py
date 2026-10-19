@@ -73,6 +73,8 @@ Only the Python 3 standard library is used.
 """
 
 import argparse
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -87,6 +89,68 @@ SECTOR_USER = 2048
 SYNC = b"\x00" + b"\xff" * 10 + b"\x00"
 MIN_PREGAP = 150
 MAX_SECTORS = 360000  # 80 minute disc
+
+
+def port_version():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "VERSION")
+    with open(path) as f:
+        version = f.read().strip()
+    if not re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+){0,2}", version):
+        raise ValueError("VERSION must contain a numeric PlayStation port version")
+    return version
+
+
+def write_release(out_dir, name, release_dir, exe=None):
+    """Copy a complete disc under versioned names, with matching cue references."""
+    version = port_version()
+    base = "elma-psx-v" + version
+    release_dir = os.path.abspath(release_dir)
+    os.makedirs(release_dir, exist_ok=True)
+    with open(os.path.join(out_dir, name + ".cue")) as f:
+        cue = f.read()
+    artifacts = []
+
+    def copy(source, filename):
+        destination = os.path.join(release_dir, filename)
+        if os.path.abspath(source) != destination:
+            shutil.copyfile(source, destination)
+        artifacts.append(filename)
+
+    def rename_file(match):
+        original = match.group(1)
+        if os.path.basename(original) != original or not original.startswith(name):
+            raise ValueError("unexpected disc file in generated cue: " + original)
+        filename = base + original[len(name):]
+        copy(os.path.join(out_dir, original), filename)
+        return 'FILE "%s" BINARY' % filename
+
+    cue = re.sub(r'FILE "([^"]+)" BINARY', rename_file, cue)
+    cue_name = base + ".cue"
+    with open(os.path.join(release_dir, cue_name), "w", newline="") as f:
+        f.write(cue.replace("\n", "\r\n"))
+    artifacts.append(cue_name)
+    if exe:
+        copy(exe, base + ".exe")
+    files = []
+    for filename in sorted(set(artifacts)):
+        path = os.path.join(release_dir, filename)
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        files.append({"name": filename, "size": os.path.getsize(path), "sha256": digest.hexdigest()})
+    manifest = {
+        "name": "Elasto Mania PlayStation port", "version": version,
+        "files": files, "game_assets_included": True,
+        "notice": "The disc contains user-supplied game data. Do not redistribute it without permission."
+    }
+    path = os.path.join(release_dir, base + ".json")
+    with open(path + ".tmp", "w") as f:
+        json.dump(manifest, f, indent=2)
+        f.write("\n")
+    os.replace(path + ".tmp", path)
+    print("mkdisc: PlayStation port v%s release: %s" % (version, release_dir))
+    print("  manifest: %s" % path)
 
 
 # ---------------------------------------------------------------------------
@@ -644,6 +708,7 @@ def main(argv=None):
     default_out = os.path.normpath(os.path.join(here, "..", "build", "disc"))
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--version", action="version", version="PlayStation port v" + port_version())
     g = ap.add_argument_group("track 2 contents (own ISO9660 writer)")
     g.add_argument("--res", help="stored as ELMA.RES")
     g.add_argument("--lgr", help="stored as LGR/DEFAULT.LGR, where the game looks for it")
@@ -676,6 +741,7 @@ def main(argv=None):
     g.add_argument("--out-dir", default=default_out,
                    help="default: console/psx/build/disc")
     g.add_argument("--name", default="elma", help="output base name")
+    g.add_argument("--release-dir", metavar="DIR", help="also copy versioned disc/executable files and a SHA-256 manifest here")
     g.add_argument("--track2-format", choices=("2352", "2048"), default="2352")
     g.add_argument("--split", action="store_true",
                    help="write the raw track 2 into its own .bin file")
@@ -808,6 +874,9 @@ def main(argv=None):
     print("  track 2: MODE1/%s, %d sectors, starts at LBA %d (absolute "
           "%s, GetTD %s)" % (args.track2_format, t2_sectors, t2_start,
                              msf_str(absolute), msf_str(absolute - absolute % 75)))
+    if args.release_dir:
+        write_release(out_dir, args.name, args.release_dir,
+                      args.exe if not (args.track1_bin or args.track1_cue) else None)
     return 0
 
 

@@ -24,6 +24,7 @@ unless --keep is given.
 
 import argparse
 import hashlib
+import json
 import os
 import random
 import re
@@ -308,6 +309,28 @@ def c_reader(exe, f, secsize, dataoff, first_lba, base, *cmd):
     return run([exe, f, str(secsize), str(dataoff), str(first_lba), str(base)] + list(cmd))
 
 
+def check_release(outdir, release_dir):
+    version = open(os.path.join(PSX, "VERSION")).read().strip()
+    base = "elma-psx-v" + version
+    manifest = json.load(open(os.path.join(release_dir, base + ".json")))
+    check(manifest["version"] == version, "release manifest uses the canonical port version")
+    check(manifest["game_assets_included"], "release identifies the included user game data")
+    for entry in manifest["files"]:
+        path = os.path.join(release_dir, entry["name"])
+        check(entry["name"].startswith(base), "release filename includes the port version")
+        check(os.path.getsize(path) == entry["size"] and
+              hashlib.sha256(open(path, "rb").read()).hexdigest() == entry["sha256"],
+              "release size and SHA-256 match " + entry["name"])
+    source = parse_cue(os.path.join(outdir, "elma.cue"))
+    release = parse_cue(os.path.join(release_dir, base + ".cue"))
+    check(len(source) == len(release) == 2, "versioned cue retains both tracks")
+    for old, new in zip(source, release):
+        check(os.path.basename(new["file"]).startswith(base), "versioned cue points to versioned data")
+        check(hashlib.sha256(open(old["file"], "rb").read()).digest() ==
+              hashlib.sha256(open(new["file"], "rb").read()).digest(),
+              "release image data is unchanged")
+
+
 def check_disc(name, outdir, expected, exe,
                selftest=False, check_all_sectors=True, aligned=True, t1_edc=True):
     print("== %s" % name)
@@ -539,7 +562,9 @@ def main():
 
     # 1. raw MODE1/2352, one .bin
     d = os.path.join(work, "raw")
-    r = build_disc(d, S, dummy)
+    release = os.path.join(work, "release-raw")
+    r = build_disc(d, S, dummy + ["--release-dir", release])
+    check_release(d, release)
     check("skipped" in r.stdout and r.stdout.count("skipped") >= 4,
           "non-8.3 names reported as skipped")
     info = check_disc("raw MODE1/2352, single .bin", d, exp, exe, selftest=True,
@@ -556,13 +581,17 @@ def main():
 
     # 2. raw, split files
     d = os.path.join(work, "split")
-    build_disc(d, S, dummy + ["--split"])
+    release = os.path.join(work, "release-split")
+    build_disc(d, S, dummy + ["--split", "--release-dir", release])
+    check_release(d, release)
     check_disc("raw MODE1/2352, split files", d, exp, exe, check_all_sectors=allsec)
     shutil.rmtree(d)
 
     # 3. plain 2048
     d = os.path.join(work, "p2048")
-    build_disc(d, S, dummy + ["--track2-format", "2048"])
+    release = os.path.join(work, "release-2048")
+    build_disc(d, S, dummy + ["--track2-format", "2048", "--release-dir", release])
+    check_release(d, release)
     check_disc("plain MODE1/2048", d, exp, exe, check_all_sectors=False)
     shutil.rmtree(d)
 

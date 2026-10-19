@@ -1,12 +1,12 @@
-# Elasto Mania for PlayStation
+# Elasto Mania for PlayStation v0.9
 
-An experimental PlayStation port of the original C++ game, with a GPU
+An unofficial PlayStation port of the original C++ game, with a GPU
 renderer, fixed-point physics, SPU sound, two controllers and memory card
 saves. The target is a retail PlayStation with 2 MB of RAM. The registered
 game's 54 internal levels have been tested in PCSX-Redux at that memory
 size. Real hardware has not been tested.
 
-This is an alpha version. The level editor is omitted, and the physics and
+The level editor is omitted, and the physics and
 rendering can differ from the PC game. It needs the files from your own
 copy of Elasto Mania; no game data is included here.
 
@@ -37,6 +37,9 @@ systemd session. Host tests need a native C/C++ compiler. The test harness
 uses the emulator's OpenBIOS, so those tests do not require a Sony BIOS.
 
 ## Build and game data
+
+[`VERSION`](VERSION) is the version source for this port. CMake, the game
+and the versioned build outputs use it; other ports have their own versions.
 
 Run these commands from the repository root:
 
@@ -81,13 +84,18 @@ The main outputs in `console/psx/build/` are:
 |------|-----|
 | `elma-cd.exe` | Game executable that reads from the disc |
 | `elma.exe` | Development executable that reads host files through PCdrv |
+| `elma-psx-v0.9.exe` | Versioned copy of the disc executable |
 | `disc/elma.cue`, `disc/elma.bin` | Complete two-track disc image with your game data |
+| `release/elma-psx-v0.9.exe`, `.cue`, `.bin`, `.json` | Matching release copies and a size/SHA-256 manifest, created by `make disc` |
 | `*.elf`, `*.map` | Debugging and automated tests |
 
 Open `disc/elma.cue` in the emulator so both tracks are available. The
 default image keeps both tracks in one `.bin`; this layout is tested in
 PCSX-Redux. The builder's split-file and MODE1/2048 options are available
 for other tools, but are not supported by the current Redux test path.
+The release copy can be opened as `release/elma-psx-v0.9.cue`; its track
+references use the versioned filenames. Rebuilding only the executable
+leaves an existing release bundle alone; run `make disc` to update it.
 
 In DuckStation, open the `.cue` at normal emulation speed with standard
 2 MB RAM. Boot, gameplay with sound, returning to the menu and starting a
@@ -138,9 +146,18 @@ and hardware boot compatibility has not been verified.
 Controller 1 controls player A and the menus. Controller 2 controls player
 B in two-player games. The controls use digital buttons.
 
-Options → Controller Layout and Help show this fixed controller mapping.
-The PSX version does not offer keyboard rebinding, screen-size keys or
-file-based screenshot capture.
+Options → Customize Controls lets you change each gameplay action for
+Player A and Player B. Select an action, then choose a physical button or
+Unassigned with controller 1. Assigning a button removes it from other
+actions for that player; the other player is unchanged. Reset all controls
+restores the defaults below. Changes are saved when you leave Options.
+
+Help shows each player's current layout; Left/Right switches players. Menu
+buttons and Select (leave level) stay fixed. Start can also be assigned to
+a gameplay action. Screen-size keys and file-based screenshot capture are
+not offered by the PSX version.
+
+Default controls:
 
 | Button | In a level | In menus (controller 1) |
 |--------|------------|-------------------------|
@@ -254,6 +271,9 @@ python3 console/psx/test/options_save_test.py --build console/psx/build \
 ```
 
 `make -C console/psx gpu-test` compares the GPU view with the software renderer.
+`controller_layout_test.py` edits both players' physical buttons, resets and
+clears bindings, checks Help, then cold-boots the copied card and drives
+Warm Up with the saved mapping.
 `test/ext_menu_test.py` checks the external-level list and missing-LGR
 dialog. `mem_test.py --external` checks that the requested level actually
 loaded; comma-separated paths run several levels on separate discs.

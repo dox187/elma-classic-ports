@@ -56,7 +56,8 @@ hello-disc: configure
 # The game disc: elma-cd.exe on track 1 (mkpsxiso; the Sony license data of
 # LICENSE_FILE is only needed for real hardware), your ELMA.RES, the LGR as
 # LGR/DEFAULT.LGR and the levels of ELMA_LEV as LEV/*.LEV on track 2; see
-# tools/mkdisc.py. The result is $(BUILD)/disc/elma.cue and elma.bin.
+# tools/mkdisc.py. Stable files stay in $(BUILD)/disc; the versioned image,
+# executable and SHA-256 manifest are copied into $(BUILD)/release.
 disc: configure
 	@test -n "$(ELMA_RES)" -a -f "$(ELMA_RES)" || { echo "disc: ELMA_RES is not set or not a file (your elma.res): make disc ELMA_RES=... ELMA_LGR=..."; exit 1; }
 	@test -n "$(ELMA_LGR)" -a -f "$(ELMA_LGR)" || { echo "disc: ELMA_LGR is not set or not a file (the original-look LGR, e.g. Default_old.lgr): make disc ELMA_RES=... ELMA_LGR=..."; exit 1; }
@@ -65,7 +66,7 @@ disc: configure
 	$(PYTHON) $(ROOT)/tools/mkdisc.py --exe $(BUILD)/elma-cd.exe --res "$(ELMA_RES)" \
 		--lgr "$(ELMA_LGR)" $(if $(ELMA_LEV),--lev-dir "$(ELMA_LEV)") \
 		$(if $(LICENSE_FILE),--license "$(LICENSE_FILE)") --mkpsxiso $(MKPSXISO) \
-		--out-dir $(BUILD)/disc --name elma
+		--out-dir $(BUILD)/disc --name elma --release-dir $(BUILD)/release
 
 cdtest: configure
 	cmake --build $(BUILD) --target cdtest

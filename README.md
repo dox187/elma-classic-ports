@@ -27,7 +27,7 @@ requirements, building and use.
 
 ### PlayStation port
 
-An experimental port of the original C++ game for the PlayStation's 2 MB
+An unofficial port (v0.9) of the original C++ game for the PlayStation's 2 MB
 of RAM, with GPU graphics, fixed-point physics, SPU sound, two controllers
 and memory card saves. It reads the files of your own copy of the game from
 a second data track. The level editor is omitted, and gameplay can differ

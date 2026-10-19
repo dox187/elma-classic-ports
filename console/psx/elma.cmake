@@ -77,6 +77,7 @@ psn00bsdk_add_library(elma_core OBJECT
 set_target_properties(elma_core PROPERTIES PSN00BSDK_TARGET_TYPE EXECUTABLE_GPREL)
 
 function(elma_psx_settings target)
+	target_link_libraries(${target} PUBLIC elma_psx_version)
 	# The libc additions come before the SDK's headers (they include them
 	# with #include_next).
 	target_include_directories(${target} BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
@@ -108,3 +109,13 @@ target_compile_definitions(elma PRIVATE ELMA_PSX_PCDRV)
 
 psn00bsdk_add_executable(elma-cd GPREL src/psx_platform.cpp $<TARGET_OBJECTS:elma_core>)
 elma_psx_settings(elma-cd)
+
+# Keep the development/test filenames stable and give the disc executable
+# a versioned name too. Complete release bundles are made by `make disc`.
+add_custom_command(TARGET elma-cd POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		${CMAKE_CURRENT_BINARY_DIR}/elma-cd.exe
+		${CMAKE_CURRENT_BINARY_DIR}/elma-psx-v${ELMA_PSX_VERSION}.exe
+	BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/elma-psx-v${ELMA_PSX_VERSION}.exe
+	VERBATIM
+)
