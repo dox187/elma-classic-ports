@@ -250,6 +250,8 @@ python3 console/psx/test/resource_menu_test.py --res /path/to/elma.res
 python3 console/psx/test/console_ui_test.py
 python3 console/psx/test/controller_layout_test.py --build console/psx/build \
   --card /path/to/card-with-a-saved-player.mcd
+python3 console/psx/test/controller_layout_test.py --build console/psx/build \
+  --card /path/to/card-with-a-saved-player.mcd --replay
 python3 console/psx/test/retry_test.py --disc --card-save
 python3 console/psx/test/menu_perf_test.py --mode ntsc
 
@@ -281,6 +283,8 @@ python3 console/psx/test/options_save_test.py --build console/psx/build \
 `controller_layout_test.py` edits both players' physical buttons, resets and
 clears bindings, checks Help, then cold-boots the copied card and drives
 Warm Up with the saved mapping.
+Its `--replay` mode checks a mapped Circle action during a recorded replay
+and the reserved Select exit.
 `splash_test.py` checks early Loading, the original logo and copyright,
 versioned credits and safe margins in NTSC and PAL with the chosen resource.
 `test/ext_menu_test.py` checks the external-level list and missing-LGR

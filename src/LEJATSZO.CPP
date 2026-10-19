@@ -1006,8 +1006,13 @@ long lejatszo_r( char* filenev, int showkepmarad ) {
 		// kuld, billentyut nem, mert jatekban az a fek):
 		int escetnyomott = 0;
 		while( mk_kbhit() ) {
+#ifdef ELMA_PSX
+			// Circle can toggle a replay action; only Select holds MK_ESC.
+			mk_getextchar();
+#else
 			if( mk_getextchar() == MK_ESC )
 				escetnyomott = 1;
+#endif
 		}
 		if( mk_getstate( MK_ESC ) || escetnyomott ) {
 			double eltelido = mv_stopperido();

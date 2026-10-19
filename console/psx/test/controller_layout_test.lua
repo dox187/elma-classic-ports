@@ -4,6 +4,7 @@ local function need(name) return assert(elma.sym(name), "missing symbol: "..name
 local dbg, card, state_ptr = need("psx_debug"), need("psx_memcard_debug"), need("State")
 local recorder_ready = need("Prec2")
 local rows_ptr, rows_count = need("_ZL6Hsorok"), need("_ZL5Hszam")
+local transition, replay_view = need("psx_transition_debug"), need("_ZL9Viewtime1")
 local log = assert(io.open(elma.args.log,"w"))
 local function say(text) print(text); log:write(text,"\n"); log:flush() end
 local function bytes(address, count)
@@ -46,11 +47,26 @@ local function expect_custom()
         end
     end
 end
+local function expect_replay_bindings()
+    for player=0,1 do
+        for action,mask in ipairs(defaults) do
+            if player==0 and action==2 then mask=0x0040 end
+            if player==0 and action==6 then mask=0x2000 end
+            expect_binding(player,action,mask)
+        end
+    end
+end
 local function signed(value) return value>=0x80000000 and value-0x100000000 or value end
 local done=false
 local function finish(ok,message)
     if done then return end
     done=true
+    if not ok then
+        say(string.format("CONTROLS failure state active=%d selected=%d choice=%08x frames=%d replay_view=%d",
+            elma.u32(transition+32),elma.u32(transition+28),elma.u32(transition+20),
+            elma.u32(dbg+8),elma.u32(replay_view+4)))
+        pcall(elma.screenshot,elma.args.capture:gsub("%.ppm$", "-fail.ppm"))
+    end
     say((ok and "PASS: " or "FAIL: ")..message)
     PCSX.quit(ok and 0 or 1)
 end
@@ -69,6 +85,18 @@ local function begin(n)
     chars,presents=elma.u32(dbg+12),elma.u32(dbg+4)
     elma.press(1,step.button)
     pressed,released,phase,deadline=n,false,"key",n+3000
+end
+local function play_steps()
+    add("open Play","CROSS",elma.args.collections=="1" and "Select collection!" or "Select Level!")
+    local route={}
+    for button in elma.args.internal_steps:gmatch("[^,]+") do route[#route+1]=button end
+    for i=1,#route-1 do
+        add("open internal levels",route[i],i==#route-1 and "Select Level!" or "Select collection!")
+    end
+    -- The cloned player's last selection can be any level.
+    for i=1,6 do add("first level page","L1","Select Level!") end
+    if elma.args.collections~="1" then down(1,"Select Level!") end
+    add("start Warm Up","CROSS",nil,nil,0)
 end
 local function build_steps()
     add("dismiss splash","CROSS","Choose Player",nil,180)
@@ -141,20 +169,34 @@ local function build_steps()
             assert(bytes(elma.u32(state_ptr)+STATE_CONTROLS,64)==controls_before_help,"Help edited controls")
             assert(elma.u32(card+4)==saves and elma.u32(card+12)==0,"Help triggered a save")
         end)
+    elseif run==3 then
+        down(3,"Main Menu")
+        add("open Options for replay binding","CROSS","Options")
+        local single=elma.u32(elma.u32(state_ptr)+90*688+50*116+44)
+        if single==0 then add("choose Single Player","CROSS","Options") end
+        down(9,"Options")
+        add("open controller editor","CROSS","Customize Controls")
+        add("reset replay controls","CROSS","Customize Controls",expect_defaults)
+        down(1,"Customize Controls")
+        add("edit replay Player A","CROSS","Customize Player A (Pad 1)")
+        down(5,"Customize Player A (Pad 1)")
+        add("choose navigator button","CROSS","Toggle navigator: choose button")
+        for i=1,2 do add("select Circle","UP","Toggle navigator: choose button") end
+        add("bind Circle to replay navigator","CROSS","Customize Player A (Pad 1)",expect_replay_bindings)
+        add("leave replay player editor","CIRCLE","Customize Controls")
+        add("leave replay controls","CIRCLE","Options")
+        add("save replay controls","CIRCLE","Main Menu",function()
+            if elma.u32(card+4)<=saves or elma.u32(card+12)~=0 then return false end
+            assert(elma.u32(card+8)==0,"replay binding card save failed")
+        end,90)
+        for i=1,3 do add("select Play","UP","Main Menu") end
+        play_steps()
     else
-        add("open Play","CROSS",elma.args.collections=="1" and "Select collection!" or "Select Level!")
-        local route={}
-        for button in elma.args.internal_steps:gmatch("[^,]+") do route[#route+1]=button end
-        for i=1,#route-1 do
-            add("open internal levels",route[i],i==#route-1 and "Select Level!" or "Select collection!")
-        end
-        -- The cloned player's last selection can be any level.
-        for i=1,6 do add("first level page","L1","Select Level!") end
-        if elma.args.collections~="1" then down(1,"Select Level!") end
-        add("start Warm Up","CROSS",nil,nil,0)
+        play_steps()
     end
 end
 local old_x,game_frames,game_started
+local replay_choice, replay_toggle_before, replay_ready, moved_with_gas
 elma.on_frame(function(n)
     if done then return end
     local ok,error=pcall(function()
@@ -175,7 +217,7 @@ elma.on_frame(function(n)
         elseif phase=="key" then
             local step=steps[index]
             if not released and n>=pressed+6 then elma.release(1,step.button);released=true end
-            if n<pressed+step.wait or elma.u32(dbg+12)<=chars or
+            if not released or n<pressed+step.wait or elma.u32(dbg+12)<=chars or
                 (step.target and (elma.u32(dbg+4)<presents+4 or not has(list,step.target))) then return end
             if step.check and step.check(list)==false then return end
             if step.name~="move down" and step.name~="first level page" then say("CONTROLS "..step.name) end
@@ -187,10 +229,17 @@ elma.on_frame(function(n)
             else begin(n) end
         elseif phase=="loading" then
             if elma.u32(dbg+8)<3 then return end
-            expect_custom()
             old_x=signed(elma.u32(dbg+16));game_frames=elma.u32(dbg+8)
-            elma.press(1,"CROSS")
-            phase,game_started,deadline="old-gas",n,n+3000
+            if run==3 then
+                expect_replay_bindings()
+                elma.press(1,"UP")
+                phase="mapped-gas"
+            else
+                expect_custom()
+                elma.press(1,"CROSS")
+                phase="old-gas"
+            end
+            game_started,deadline=n,n+3000
         elseif phase=="old-gas" then
             if n<game_started+90 then return end
             elma.release(1,"CROSS")
@@ -208,12 +257,60 @@ elma.on_frame(function(n)
             phase,game_started="mapped-gas",n
         elseif phase=="mapped-gas" then
             if n<game_started+120 then return end
-            elma.release(1,"TRIANGLE")
+            elma.release(1,run==3 and "UP" or "TRIANGLE")
             local moved=math.abs(signed(elma.u32(dbg+16))-old_x)
             assert(elma.u32(dbg+8)>game_frames+30,"gameplay did not keep rendering")
-            assert(moved>1000,"mapped Triangle moved bike only "..moved.." mm")
+            assert(moved>1000,"throttle moved bike only "..moved.." mm")
             elma.screenshot(elma.args.capture)
-            return finish(true,"saved Triangle throttle moved bike "..moved.." mm; old Cross and pad 2 isolated")
+            if run~=3 then return finish(true,"saved Triangle throttle moved bike "..moved.." mm; old Cross and pad 2 isolated") end
+            moved_with_gas=moved
+            elma.press(1,"SELECT")
+            phase,game_started,deadline="game-exit",n,n+4000
+        elseif phase=="game-exit" then
+            if n>=game_started+6 then elma.release(1,"SELECT") end
+            if n<game_started+12 or elma.u32(transition+32)~=1 then return end
+            local count=elma.u32(transition+24)
+            assert(count==4 or count==5,"unexpected post-game choices")
+            replay_choice=count==5 and 2 or 1
+            phase,game_started="choose-replay",n
+            say("CONTROLS real ride recorded; selecting Replay")
+        elseif phase=="choose-replay" then
+            if pressed and n>=pressed+6 then elma.release(1,"DOWN") end
+            if n<game_started+24 then return end
+            if elma.u32(transition+28)~=replay_choice then
+                elma.press(1,"DOWN");pressed=n;game_started=n
+                return
+            end
+            replay_ready=elma.u32(transition+8)
+            game_frames=elma.u32(dbg+8)
+            elma.press(1,"CROSS")
+            phase,game_started,deadline="replay-loading",n,n+600
+            say("CONTROLS confirming selected Replay row "..replay_choice)
+        elseif phase=="replay-loading" then
+            if n>=game_started+6 then elma.release(1,"CROSS") end
+            assert(n<game_started+120 or elma.u32(transition+32)==0,"Replay confirm not accepted")
+            if elma.u32(transition+32)~=0 or elma.u32(dbg+8)<game_frames+3 then return end
+            assert(elma.u32(transition+20)==replay_choice,"wrong post-game action selected")
+            replay_toggle_before=elma.u32(replay_view+4)
+            game_frames=elma.u32(dbg+8)
+            elma.press(1,"CIRCLE")
+            phase,game_started="replay-circle",n
+            say("CONTROLS actual Replay running; pressing mapped Circle")
+        elseif phase=="replay-circle" then
+            if n>=game_started+6 then elma.release(1,"CIRCLE") end
+            assert(elma.u32(transition+32)==0,"Circle aborted actual Replay")
+            if n<game_started+45 then return end
+            assert(elma.u32(replay_view+4)==1-replay_toggle_before,"Circle did not toggle replay navigator")
+            assert(elma.u32(dbg+8)>=game_frames+15,"Replay stopped rendering after Circle")
+            elma.screenshot(elma.args.capture:gsub("%.ppm$", "-replay.ppm"))
+            say("CONTROLS Circle toggled replay navigator without exiting")
+            elma.press(1,"SELECT")
+            phase,game_started="replay-select",n
+        elseif phase=="replay-select" then
+            if n>=game_started+6 then elma.release(1,"SELECT") end
+            if elma.u32(transition+32)~=1 then return end
+            assert(elma.u32(transition+8)>replay_ready,"Select did not return to a fresh selector")
+            return finish(true,"Circle toggles actual Replay; reserved Select exits; recorded bike movement "..moved_with_gas.." mm")
         end
     end)
     if not ok then finish(false,"Lua error: "..tostring(error)) end
