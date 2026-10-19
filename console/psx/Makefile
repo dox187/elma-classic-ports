@@ -51,6 +51,14 @@ cdtest: configure
 cdtest-disc: cdtest
 	$(PYTHON) $(ROOT)/test/cd_test.py --build $(BUILD) --discs-only
 
+mctest: configure
+	cmake --build $(BUILD) --target mctest
+
+# Memory card test: LZ host test, then save/load/no-card/full-card runs in
+# headless PCSX-Redux with private card images. MC_TEST_ARGS: --real ...
+mc-test: mctest
+	$(PYTHON) $(ROOT)/test/mc_test.py --build $(BUILD) --redux $(PCSX_REDUX) $(MC_TEST_ARGS)
+
 soundtest: configure
 	cmake --build $(BUILD) --target soundtest
 

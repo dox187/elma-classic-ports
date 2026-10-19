@@ -44,6 +44,17 @@ psn00bsdk_add_executable(
 	src/psx_file.c
 )
 
+# Memory card test: save, reload and compare through the BIOS card driver.
+# Run by test/mc_test.py (make mc-test).
+psn00bsdk_add_executable(
+	mctest GPREL
+	mctest/main.c
+	src/memcard/memcard.c
+	src/memcard/mclz.c
+	src/psx_file.c
+	src/psx_pcdrv.c
+)
+
 # Sound test: streams a known signal through the SPU ring with the real
 # psx_sound.cpp and checks SPU RAM, playback and CPU cost. Run by
 # test/sound_test.py (make sound-test). The include directory of the test
