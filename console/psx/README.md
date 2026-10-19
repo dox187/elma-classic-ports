@@ -165,6 +165,10 @@ and about 60 Hz on NTSC. The game clock is independent of the video rate.
 Menu animation is drawn in software and its update rate varies with the
 drawing workload.
 
+Level loading shows the current stage: reading the level, loading graphics
+and sounds, preparing the level and starting play. The first load also
+prepares sound data, so it can take longer than subsequent loads.
+
 ## Saves and compatibility
 
 A formatted memory card in slot 1 stores players, options, best times and

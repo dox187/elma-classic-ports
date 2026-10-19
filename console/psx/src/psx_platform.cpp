@@ -387,6 +387,16 @@ __attribute__((noreturn)) void run_on_stack(void (*fn)(), uint32_t top) {
 // the video mode set up in ddinit):
 uint32_t gv_lines() { return (uint32_t)(clock_ticks() * (video_pal ? 15625 : 15734) / GV_CLOCK_HZ); }
 
+// Loading can release the menu's RAM picture. Draw directly in VRAM with
+// the resident font, so the current stage stays visible without allocating.
+void psx_loading_stage(const char* level, const char* stage) {
+	if (!Margrafikus) return;
+	const char* const lines[] = {"Loading level", level ? level : "", "", stage};
+	gv_notice(120, 196, 400, 88, lines, sizeof(lines) / sizeof(lines[0]));
+	VSync(0);
+	printf("elma: loading %s: %s\n", level ? level : "", stage);
+}
+
 void gv_frame_done(bool game_view) {
 	if (game_view) psx_debug.game_frames++;
 	count_frame();

@@ -4,6 +4,10 @@ int Volttopsave = 0;
 
 static char Bentlevelnev[20] = "";
 
+#ifdef ELMA_PSX
+void psx_loading_stage( const char* level, const char* stage );
+#endif
+
 // True while the in-game zoom is changing (ujraepiteshang):
 static int Ujraepites = 0;
 
@@ -38,6 +42,9 @@ int floadlevel_p( char* nev ) {
 	gv_menu_images_free();
 #endif
 	if( Volttopsave || !Ptop || !Pszak || strcmpi( nev, Bentlevelnev ) != 0 ) {
+#ifdef ELMA_PSX
+		psx_loading_stage( NULL, "Reading level..." );
+#endif
 		Volttopsave = 0;
 		// Ujra be kell olvasni palyat:
 		strcpy( Bentlevelnev, nev );
@@ -74,9 +81,15 @@ int floadlevel_p( char* nev ) {
 		}
 		// The game runs at the desired zoom, with the LGR scaled to it:
 		beallitarany( 1 );
+#ifdef ELMA_PSX
+		psx_loading_stage( Ptop->levelname, "Loading graphics..." );
+#endif
 		loadlgrfile( Ptop->lgrnev );
 		Ptop->pic_selejtez( Plgr );
 
+#ifdef ELMA_PSX
+		psx_loading_stage( Ptop->levelname, "Preparing level..." );
+#endif
 		if( Pszak )
 			delete Pszak;
 		Pszak = new szakaszok( Ptop );
@@ -91,20 +104,30 @@ int floadlevel_p( char* nev ) {
 		// Sound decoding and compression need temporary buffers; finish
 		// them before allocating the GPU's scenery instances and sprites.
 		void psx_prepare_sound( void );
+		psx_loading_stage( Ptop->levelname, "Loading sounds..." );
 		psx_prepare_sound();
+		psx_loading_stage( Ptop->levelname, "Preparing graphics..." );
 #endif
 		betoltecseteket();
 	}
 	else {
 		// Same level, but the zoom has changed since (Options), or the
 		// editor loaded the LGR at its original size:
-		if( maskellarany() || !lgrnagyitasjo() )
+		if( maskellarany() || !lgrnagyitasjo() ) {
+#ifdef ELMA_PSX
+			psx_loading_stage( Ptop->levelname, "Loading graphics..." );
+#endif
 			ujranagyit();
+		}
 #ifdef ELMA_PSX
 		void psx_prepare_sound( void );
+		psx_loading_stage( Ptop->levelname, "Loading sounds..." );
 		psx_prepare_sound();
 #endif
 	}
+#ifdef ELMA_PSX
+	psx_loading_stage( Ptop->levelname, "Starting level..." );
+#endif
 	return 1;
 }
 
