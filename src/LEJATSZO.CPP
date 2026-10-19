@@ -442,6 +442,10 @@ long lejatszo( char* filenev ) {
 	}
 
 	fogocskareset();
+#ifdef ELMA_PSX
+	// The first sound start takes seconds there; they must not count as playing time:
+	mv_startstopper();
+#endif
 
 	Pmot1->kajaszam = Pmot2->kajaszam = 0;
 	long l = 0;
@@ -864,6 +868,10 @@ long lejatszo_r( char* filenev, int showkepmarad ) {
 	}
 
 	fogocskareset();
+#ifdef ELMA_PSX
+	// The first sound start takes seconds there; they must not count as playing time:
+	mv_startstopper();
+#endif
 
 	//Pmot1->kajaszam = Pmot2->kajaszam = 0;
 	long l = 0;
