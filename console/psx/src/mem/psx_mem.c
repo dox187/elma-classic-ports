@@ -83,11 +83,15 @@ static void moved_top(void) {
 	}
 }
 
-static void count_used(uint32_t size) {
+static void count_bytes(uint32_t size) {
 	psx_mem_stats.allocated += size;
-	psx_mem_stats.blocks++;
 	if (psx_mem_stats.allocated > psx_mem_stats.allocated_max)
 		psx_mem_stats.allocated_max = psx_mem_stats.allocated;
+}
+
+static void count_used(uint32_t size) {
+	count_bytes(size);
+	psx_mem_stats.blocks++;
 }
 
 /* A free block (not listed) from b up: joined with the free blocks above
@@ -218,7 +222,7 @@ void* realloc(void* ptr, size_t size) {
 		/* The highest block grows into the free space above: */
 		b->size = need | USED;
 		heap_top = (uint8_t*)b + need;
-		count_used(need - have);
+		count_bytes(need - have);
 		moved_top();
 		return ptr;
 	}
@@ -228,7 +232,7 @@ void* realloc(void* ptr, size_t size) {
 			list_remove(a);
 			set_size(b, have + a->size, USED);
 			if (last == a) last = b;
-			count_used(a->size);
+			count_bytes(a->size);
 			trim(b, need);
 			return ptr;
 		}
