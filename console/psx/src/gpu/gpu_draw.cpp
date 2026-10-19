@@ -33,6 +33,8 @@
 //      whose digits take the color by the pixel under them (read back).
 #include <psxgpu.h>
 #include <psxgte.h>
+#include <psxetc.h>
+#include <hwregs_c.h>
 
 #include "all.h"
 #include "gpu/gpu_level.h"
@@ -1244,7 +1246,29 @@ void make_runs(const hud_view* hv) {
 	if (hv->fogo[0]) kiegyszam(hv->fogo, (xelso + x) >> 1, y);
 }
 
-uint16_t readback[4096];
+alignas(4) uint16_t readback[4096];
+
+// PSn00bSDK 0.24's StoreImage waits for the VRAM-write ready bit even after
+// issuing a VRAM-read command. Keep this read in its draw queue, but wait
+// for GPUSTAT bit 27 (ready to send VRAM) before starting DMA to RAM.
+// The caller supplies a 32-pixel-aligned width, so every row contains an
+// exact number of 16-word DMA blocks, with no rounded transfer tail.
+void hud_readback_dma(uint32_t xy, uint32_t wh, uint32_t destination) {
+	const uint32_t words = (wh & 0xffff) * (wh >> 16) / 2;
+	while (!(GPU_GP1 & (1u << 26))) __asm__ volatile("");
+	SetDrawOpType(DRAWOP_TYPE_DMA);
+	GPU_GP1 = 0x04000000; // disable DMA request
+	GPU_GP0 = 0x01000000; // flush texture cache
+	GPU_GP0 = 0xc0000000; // VRAM to CPU
+	GPU_GP0 = xy;
+	GPU_GP0 = wh;
+	GPU_GP1 = 0x04000003; // request DMA from GPU_READ
+	while ((DMA_CHCR(DMA_GPU) & (1u << 24)) || !(GPU_GP1 & (1u << 27)))
+		__asm__ volatile("");
+	DMA_MADR(DMA_GPU) = destination;
+	DMA_BCR(DMA_GPU) = 16 | ((words / 16) << 16);
+	DMA_CHCR(DMA_GPU) = 0x01000200;
+}
 // The darkest and lightest palette colors (makenegalttomb).
 uint16_t dark_color = 0, light_color = 0x7fff;
 
@@ -1346,20 +1370,22 @@ void finish_frame(int fb_x, int fb_y, void* data) {
 		if (x1 > hv->w - 1) x1 = hv->w - 1;
 		if (y1 > hv->h - 1) y1 = hv->h - 1;
 		if (x0 > x1 || y0 > y1) continue;
-		// Whole words: an even width.
-		x0 &= ~1;
-		if (((x1 - x0 + 1) & 1)) x1++;
+		// The readback uses 16-word DMA blocks.
+		// The GPU must produce that exact count: 32 pixels per row, for any
+		// band height. Both supported view widths (160/320) are multiples.
+		x0 &= ~31;
+		x1 |= 31;
 		const int rw = x1 - x0 + 1;
-		// Read back a band of rows at a time (StoreImage writes whole blocks
-		// of 16 words):
+		// Read back a band of rows at a time:
 		const int band = ((int)(sizeof(readback) / 2) - 32) / rw;
 		if (band < 1) continue;
 		for (int b0 = y0; b0 <= y1; b0 += band) {
 			const int b1 = b0 + band - 1 < y1 ? b0 + band - 1 : y1;
-			RECT rect = {(int16_t)(fb_x + hv->view_x + x0), (int16_t)(fb_y + hv->view_y + b0), (int16_t)rw,
-			             (int16_t)(b1 - b0 + 1)};
+			const uint32_t xy = (uint32_t)(fb_x + hv->view_x + x0) |
+			                    ((uint32_t)(fb_y + hv->view_y + b0) << 16);
+			const uint32_t wh = (uint32_t)rw | ((uint32_t)(b1 - b0 + 1) << 16);
 			DrawSync(0);
-			StoreImage(&rect, (uint32_t*)readback);
+			EnqueueDrawOp((void (*)())hud_readback_dma, xy, wh, (uint32_t)readback);
 			DrawSync(0);
 			// Pixel by pixel (the display pixel of an original pixel):
 			for (int i = 0; i < nruns; ++i) {

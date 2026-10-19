@@ -89,6 +89,11 @@ default image keeps both tracks in one `.bin`; this layout is tested in
 PCSX-Redux. The builder's split-file and MODE1/2048 options are available
 for other tools, but are not supported by the current Redux test path.
 
+In DuckStation, open the `.cue` at normal emulation speed with standard
+2 MB RAM. Boot, gameplay with sound, returning to the menu and starting a
+level again have passed with its software renderer and OpenBIOS.
+No proprietary BIOS image is distributed.
+
 ## Disc layout and packaging
 
 Track 1 is bootable MODE2/2352 and contains `SYSTEM.CNF` and the game

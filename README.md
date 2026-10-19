@@ -31,7 +31,7 @@ An experimental port of the original C++ game for the PlayStation's 2 MB
 of RAM, with GPU graphics, fixed-point physics, SPU sound, two controllers
 and memory card saves. It reads the files of your own copy of the game from
 a second data track. The level editor is omitted, and gameplay can differ
-from the PC version. Tested in PCSX-Redux only; real hardware is untested.
+from the PC version. Emulator-tested; real hardware is untested.
 
 [Requirements, build, disc layout and controls →](console/psx/README.md)
 
