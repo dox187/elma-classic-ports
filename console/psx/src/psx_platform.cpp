@@ -342,20 +342,16 @@ void message_screen(const char* title, char* a, char* b, char* c, bool wait) {
 	if (!Margrafikus) return;
 	// Over the last menu picture (a black one if it is not in RAM):
 	gv_menu_present(chunks[0] ? rows_top : NULL, clut, true);
-	FntLoad(GV_FONT_X, GV_FONT_Y);
-	const int font = FntOpen(32, 32, W - 64, H - 64, 1, 1024);
-	const uint16_t start = pad_down;
+	const char* const lines[] = {title, "", a, b, c, wait ? "\nPress X or START" : NULL};
+	gv_notice(32, 32, W - 64, H - 64, lines, sizeof(lines) / sizeof(lines[0]));
+	uint16_t blocked = pad_down;
 	while (true) {
-		FntPrint(font, "%s\n\n", title);
-		if (a) FntPrint(font, "%s\n", a);
-		if (b) FntPrint(font, "%s\n", b);
-		if (c) FntPrint(font, "%s\n", c);
-		if (wait) FntPrint(font, "\nPress X or START");
-		FntFlush(font);
-		DrawSync(0);
 		VSync(0);
 		events();
-		if (wait && (pad_down & ~start & (PAD_CROSS | PAD_START))) break;
+		// A confirm held on entry must be released first, including the X
+		// that closed the previous message in a sequence of warnings.
+		blocked &= pad_down;
+		if (wait && (pad_down & ~blocked & (PAD_CROSS | PAD_START))) break;
 	}
 	// The next present draws the whole picture again:
 	char_count = 0;

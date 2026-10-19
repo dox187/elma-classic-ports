@@ -65,20 +65,12 @@ struct card_interrupts_off {
 	}
 };
 
-// A note over the menu picture, in the debug font that message screens use
-// as well (FntLoad only once: the SDK's second FntLoad damaged the heap); it stays for `vblanks` vertical blanks (0: until the picture is
-// drawn again).
+// A note over the menu picture, sharing the allocation-free debug font
+// with message screens. It stays for `vblanks` vertical blanks (0: until
+// the picture is drawn again).
 void note(const char* line1, const char* line2, int vblanks) {
-	static int font = -2;
-	if (font == -2) {
-		FntLoad(GV_FONT_X, GV_FONT_Y);
-		font = FntOpen(120, 200, 400, 80, 1, 128);
-	}
-	if (font < 0) return;
-	FntPrint(font, "%s\n", line1);
-	if (line2) FntPrint(font, "%s\n", line2);
-	FntFlush(font);
-	DrawSync(0);
+	const char* const lines[] = {line1, line2};
+	gv_notice(120, 200, 400, 80, lines, 2);
 	// The note is on the display after the next vertical blank:
 	VSync(0);
 	VSync(0);

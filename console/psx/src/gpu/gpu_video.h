@@ -82,6 +82,10 @@ uint32_t gv_menu_serial();
 // The display no longer shows the core's picture (error screen): the next
 // gv_menu_present sends all of it.
 void gv_menu_invalidate();
+// A bounded debug-font notice over the menu, with a black background. Reuses
+// the GPU command buffer and does not allocate, so it also works after OOM.
+// Lines wrap at the notice's width; NULL lines are skipped.
+void gv_notice(int x, int y, int w, int h, const char* const* lines, int count);
 
 // --- Game mode -------------------------------------------------------------
 

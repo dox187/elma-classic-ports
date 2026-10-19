@@ -14,7 +14,7 @@ void (*gv_game_mode_hook)() = 0;
 namespace {
 
 enum Mode { MODE_NONE, MODE_MENU, MODE_GAME };
-Mode mode = MODE_NONE;
+volatile Mode mode = MODE_NONE; // also read by the vertical blank interrupt
 
 // Two command lists: one is drawn by the GPU while the next is built.
 // (A frame of the game view takes 2500-3500 words.) The menu mode builds
@@ -176,8 +176,10 @@ void enter_menu_mode() {
 	DISPENV disp;
 	SetDefDispEnv(&disp, 0, 0, GV_MENU_W, GV_MENU_H);
 	disp.isinter = 1;
-	PutDispEnv(&disp);
+	// Stop queued game swaps before changing the display origin: a vertical
+	// blank can interrupt PutDispEnv itself.
 	mode = MODE_MENU;
+	PutDispEnv(&disp);
 	menu_valid = false;
 	menu_clut_loaded = false;
 	menu_serial++;
@@ -257,7 +259,7 @@ void show_at_vblank(int fb) {
 void gv_vblank() {
 	vblanks++;
 	const int fb = show_request;
-	if (fb >= 0) {
+	if (mode == MODE_GAME && fb >= 0) {
 		GPU_GP1 = 0x05000000 | FB_X[fb] | (FB_Y[fb] << 10);
 		shown = fb;
 		show_request = -1;
@@ -266,6 +268,13 @@ void gv_vblank() {
 
 void gv_init() {
 	mode = MODE_NONE;
+	// FntLoad resets all SDK font streams. Both notices and error screens
+	// use FntSort instead: no streams, no heap buffers, and one VRAM upload.
+	static bool font_loaded = false;
+	if (!font_loaded) {
+		FntLoad(GV_FONT_X, GV_FONT_Y);
+		font_loaded = true;
+	}
 }
 
 namespace {
@@ -313,6 +322,74 @@ void gv_menu_partial() { dirty_partial = true; }
 void gv_menu_invalidate() {
 	menu_valid = false;
 	menu_serial++;
+}
+
+void gv_notice(int x, int y, int w, int h, const char* const* lines, int count) {
+	if (x < 0 || y < 0 || x >= GV_MENU_W || y >= GV_MENU_H) return;
+	if (w > GV_MENU_W - x) w = GV_MENU_W - x;
+	if (h > GV_MENU_H - y) h = GV_MENU_H - y;
+	if (w < 8 || h < 8) return;
+	const int MAX_CHARACTERS = 1024;
+	static_assert(MAX_CHARACTERS * sizeof(SPRT_8) + GV_MENU_H / 8 * sizeof(DR_TPAGE)
+	              + sizeof(DR_STP) + sizeof(TILE) + sizeof(uint32_t) <= sizeof(prim_buffers[0]), "notice buffer too small");
+	if (mode != MODE_MENU) enter_menu_mode();
+	ml_wait();
+	// The menu transfer and the game frame are idle before their buffer is
+	// reused. Reset the game renderer's window and mask state as well.
+	uint32_t* p = prim_buffers[0];
+	DRAWENV env;
+	SetDefDrawEnv(&env, x, y, w, h);
+	env.ofs[0] = env.ofs[1] = 0;
+	env.dtd = 0;
+	env.dfe = 1;
+	PutDrawEnv(&env);
+	DR_STP* stp = (DR_STP*)p;
+	p += sizeof(DR_STP) / 4;
+	setDrawStp(stp, 0, 0);
+	// Clear only after disabling both mask bits left by a game frame.
+	TILE* background = (TILE*)p;
+	p += sizeof(TILE) / 4;
+	setTile(background);
+	setRGB0(background, 0, 0, 0);
+	setXY0(background, 0, 0);
+	setWH(background, w, h);
+	catPrim(stp, background);
+	uint32_t* ot = p++;
+	*ot = 0x00ffffff;
+	catPrim(background, ot);
+	const int columns = w / 8 < 72 ? w / 8 : 72;
+	const int bottom = y + h - 8;
+	int row = y, remaining = MAX_CHARACTERS;
+	for (int i = 0; i < count && row <= bottom && remaining > 0; ++i) {
+		if (!lines[i]) continue;
+		const char* in = lines[i];
+		do {
+			char line[73];
+			int n = 0;
+			while (*in && *in != '\n' && n < columns && remaining > 0) {
+				const unsigned char c = (unsigned char)*in++;
+				line[n++] = c >= 32 && c < 127 ? (char)c : '?';
+				--remaining;
+			}
+			line[n] = 0;
+			if (*in == '\n') ++in;
+			uint32_t* first = p;
+			// DRAWENV offsets are relative to its clipping area's origin.
+			p = (uint32_t*)FntSort(ot, p, 0, row - y, line);
+			// The SDK uses page-relative UVs starting at zero, while the
+			// reserved font corner is not at the page's vertical origin.
+			for (SPRT_8* glyph = (SPRT_8*)first; (uint32_t*)glyph < p - 2; ++glyph) {
+				glyph->u0 += (GV_FONT_X & 63) * 4;
+				glyph->v0 += GV_FONT_Y & 255;
+			}
+			// FntSort emits a texture-page command of its own.
+			p[-1] |= 1u << 10; // allow drawing to the displayed field
+			row += 8;
+		} while (*in && row <= bottom && remaining > 0);
+	}
+	DrawOTag(prim_buffers[0]);
+	DrawSync(0);
+	gv_menu_invalidate();
 }
 
 void gv_menu_present(unsigned char* const* rows, const uint16_t* clut, bool clut_changed) {
