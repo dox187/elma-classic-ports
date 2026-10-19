@@ -1,5 +1,10 @@
 #include	"all.h"
 
+#ifdef ELMA_PSX
+int psx_quick_choose( const char* title, const char* const* details, int detail_count,
+		const char* const* choices, int count, int selected );
+#endif
+
 /*static void betuki( int oszlop, char c ) {
 	int x = 50+oszlop*19;
 	int y = 6*SM + 8;
@@ -286,6 +291,14 @@ void saveplay( long belyeg ) {
 
 // Idot beirja tablaba, ha kell:
 void idoelintezes( long ido, char* valasz, int level, char* filenev ) {
+#if defined(ELMA_PSX) && defined(ELMA_PSX_GPU)
+	// Successful runs unpack and update saved times before opening the
+	// selector. Make room for those files without slowing failed-run retries.
+	if( ido > 0 ) {
+		bool gv_level_release();
+		gv_level_release();
+	}
+#endif
 	if( (ido > 0) && (ido%4 == 0) )
 		kimentreadme();
 
@@ -589,6 +602,7 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 		}
 
 		// Valasztas:
+#ifndef ELMA_PSX
 		valaszt2 val;
 		//val.szam = 5+nextisvan+skipisvan;
 		val.kur = kurrens;
@@ -604,6 +618,7 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 		}
 		val.escelheto = 1;
 		strcpy( val.cim, fejlec );
+#endif
 
 		if( nextisvan || skipisvan ) {
 			strcpy( Rubrikak[0], "Play again" );
@@ -624,12 +639,44 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 			//strcpy( Rubrikak[4], "Main menu" );
 		}
 
+#ifndef ELMA_PSX
 		val.bead( 4+nextisvan+skipisvan );
+#endif
 
 		// Idoszoveg helyere beirjuk ecset-ben levok lefoglaltak szamat:
 		//sprintf( Idoszovegek[0].text, "%d", Osszegszam );
 
+#ifdef ELMA_PSX
+		// The level and its GPU data stay resident for an immediate retry.
+		// This selector uses the resident font instead of loading menu art.
+		const char* details[3] = { Idoszovegek[0].text, NULL, NULL };
+		char player_details[2][100];
+		if( !Single ) {
+			snprintf( player_details[0], sizeof(player_details[0]), "A: %s  %d apples",
+					pjatekosa->nev, Pmot1->kajaszam );
+			snprintf( player_details[1], sizeof(player_details[1]), "B: %s  %d apples",
+					pjatekosb->nev, Pmot2->kajaszam );
+			if( Tag ) {
+				char names[2][9];
+				strncpy( names[0], pjatekosa->nev, 8 );
+				strncpy( names[1], pjatekosb->nev, 8 );
+				names[0][8] = names[1][8] = 0;
+				snprintf( player_details[0], sizeof(player_details[0]), "A %s: %d apples %s",
+						names[0], Pmot1->kajaszam, Idoszovegek[3].text );
+				snprintf( player_details[1], sizeof(player_details[1]), "B %s: %d apples %s",
+						names[1], Pmot2->kajaszam, Idoszovegek[6].text );
+			}
+			details[1] = player_details[0];
+			details[2] = player_details[1];
+		}
+		const char* choices[5];
+		for( int row = 0; row < 4+nextisvan+skipisvan; ++row )
+			choices[row] = Rubrikak[row];
+		int eredmeny = psx_quick_choose( fejlec, details, Single ? 1 : 3,
+				choices, 4+nextisvan+skipisvan, kurrens );
+#else
 		int eredmeny = val.valassz( Idoszovegek, idoszovegszam );
+#endif
 		kurrens = eredmeny;
 		// eredmeny-t nextisvan esetere konvertalja:
 		if( eredmeny > 0 && !nextisvan && !skipisvan )
@@ -670,10 +717,12 @@ void kiirloading( void ) {
 		delete Pintro;
 		Pintro = NULL;
 	}
+#ifndef ELMA_PSX
 	szoveglista szovlist;
 	szovlist.clear();
 	szovlist.addszoveg_kozep( "Loading", 320, 230 );
 	szovlist.kirajzol( 1 ); // Golyok nelkul
+#endif
 }
 
 static void playlevel( int level ) {

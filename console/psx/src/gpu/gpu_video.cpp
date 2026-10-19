@@ -13,7 +13,7 @@ void (*gv_game_mode_hook)() = 0;
 
 namespace {
 
-enum Mode { MODE_NONE, MODE_MENU, MODE_GAME };
+enum Mode { MODE_NONE, MODE_MENU, MODE_GAME, MODE_QUICK };
 volatile Mode mode = MODE_NONE; // also read by the vertical blank interrupt
 
 // Two command lists: one is drawn by the GPU while the next is built.
@@ -247,6 +247,25 @@ void enter_game_mode() {
 	if (gv_game_mode_hook) gv_game_mode_hook();
 }
 
+void enter_quick_mode() {
+	DrawSync(0);
+	mode = MODE_QUICK;
+	show_request = -1;
+	pending_fb = -1;
+	pending_finish = 0;
+	pending_data = 0;
+	DISPENV disp;
+	SetDefDispEnv(&disp, 0, 0, GV_GAME_W, GV_GAME_H);
+	disp.isinter = 0;
+	PutDispEnv(&disp);
+	shown = 0;
+	ml_start = 0;
+	ml_busy[0] = ml_busy[1] = false;
+	menu_valid = false;
+	menu_clut_loaded = false;
+	menu_serial++;
+}
+
 void show_at_vblank(int fb) {
 	show_request = fb;
 }
@@ -324,15 +343,16 @@ void gv_menu_invalidate() {
 	menu_serial++;
 }
 
-void gv_notice(int x, int y, int w, int h, const char* const* lines, int count) {
-	if (x < 0 || y < 0 || x >= GV_MENU_W || y >= GV_MENU_H) return;
-	if (w > GV_MENU_W - x) w = GV_MENU_W - x;
-	if (h > GV_MENU_H - y) h = GV_MENU_H - y;
+static void draw_notice(int x, int y, int w, int h, const char* const* lines, int count, int inset) {
+	const int display_w = mode == MODE_QUICK ? GV_GAME_W : GV_MENU_W;
+	const int display_h = mode == MODE_QUICK ? GV_GAME_H : GV_MENU_H;
+	if (x < 0 || y < 0 || x >= display_w || y >= display_h) return;
+	if (w > display_w - x) w = display_w - x;
+	if (h > display_h - y) h = display_h - y;
 	if (w < 8 || h < 8) return;
 	const int MAX_CHARACTERS = 1024;
 	static_assert(MAX_CHARACTERS * sizeof(SPRT_8) + GV_MENU_H / 8 * sizeof(DR_TPAGE)
 	              + sizeof(DR_STP) + sizeof(TILE) + sizeof(uint32_t) <= sizeof(prim_buffers[0]), "notice buffer too small");
-	if (mode != MODE_MENU) enter_menu_mode();
 	ml_wait();
 	// The menu transfer and the game frame are idle before their buffer is
 	// reused. Reset the game renderer's window and mask state as well.
@@ -357,9 +377,9 @@ void gv_notice(int x, int y, int w, int h, const char* const* lines, int count) 
 	uint32_t* ot = p++;
 	*ot = 0x00ffffff;
 	catPrim(background, ot);
-	const int columns = w / 8 < 72 ? w / 8 : 72;
-	const int bottom = y + h - 8;
-	int row = y, remaining = MAX_CHARACTERS;
+	const int columns = (w - 2 * inset) / 8 < 72 ? (w - 2 * inset) / 8 : 72;
+	const int bottom = y + h - inset - 8;
+	int row = y + inset, remaining = MAX_CHARACTERS;
 	for (int i = 0; i < count && row <= bottom && remaining > 0; ++i) {
 		if (!lines[i]) continue;
 		const char* in = lines[i];
@@ -373,23 +393,43 @@ void gv_notice(int x, int y, int w, int h, const char* const* lines, int count) 
 			}
 			line[n] = 0;
 			if (*in == '\n') ++in;
-			uint32_t* first = p;
-			// DRAWENV offsets are relative to its clipping area's origin.
-			p = (uint32_t*)FntSort(ot, p, 0, row - y, line);
-			// The SDK uses page-relative UVs starting at zero, while the
-			// reserved font corner is not at the page's vertical origin.
-			for (SPRT_8* glyph = (SPRT_8*)first; (uint32_t*)glyph < p - 2; ++glyph) {
-				glyph->u0 += (GV_FONT_X & 63) * 4;
-				glyph->v0 += GV_FONT_Y & 255;
+			if (n) {
+				uint32_t* first = p;
+				// DRAWENV offsets are relative to its clipping area's origin.
+				p = (uint32_t*)FntSort(ot, p, inset, row - y, line);
+				// The SDK uses page-relative UVs starting at zero, while the
+				// reserved font corner is not at the page's vertical origin.
+				for (SPRT_8* glyph = (SPRT_8*)first; (uint32_t*)glyph < p - 2; ++glyph) {
+					glyph->u0 += (GV_FONT_X & 63) * 4;
+					glyph->v0 += GV_FONT_Y & 255;
+				}
+				// FntSort emits a texture-page command of its own.
+				p[-1] |= 1u << 10; // allow drawing to the displayed field
 			}
-			// FntSort emits a texture-page command of its own.
-			p[-1] |= 1u << 10; // allow drawing to the displayed field
 			row += 8;
 		} while (*in && row <= bottom && remaining > 0);
 	}
 	DrawOTag(prim_buffers[0]);
 	DrawSync(0);
 	gv_menu_invalidate();
+}
+
+void gv_notice(int x, int y, int w, int h, const char* const* lines, int count) {
+	if (x < 0 || y < 0 || x >= GV_MENU_W || y >= GV_MENU_H || w < 8 || h < 8) return;
+	if (mode == MODE_QUICK) {
+		x /= 2;
+		y /= 2;
+		w = (w + 1) / 2;
+		h = (h + 1) / 2;
+	} else if (mode != MODE_MENU) {
+		enter_menu_mode();
+	}
+	draw_notice(x, y, w, h, lines, count, 0);
+}
+
+void gv_quick_notice(const char* const* lines, int count) {
+	if (mode != MODE_QUICK) enter_quick_mode();
+	draw_notice(0, 0, GV_GAME_W, GV_GAME_H, lines, count, 8);
 }
 
 void gv_menu_present(unsigned char* const* rows, const uint16_t* clut, bool clut_changed) {

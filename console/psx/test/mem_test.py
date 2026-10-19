@@ -23,6 +23,7 @@ the heap are not counted there.
     python3 test/mem_test.py [--levels 0,15,25|all] [--external FILE.lev[,FILE.lev...]]
         [--limit KB] [--jobs N] [--play FRAMES] [--again] [--sites N] [--build DIR]
         [--without FILE,...] [--res elma.res] [--lgr default.lgr] [--quiet]
+        [--enable-sound-after] [--force-reload] [--card-save]
 
 The levels are the internal ones, from 0 (Warm Up); --external plays the
 given .lev file from a two-track disc as the only external level. The loaded
@@ -163,6 +164,8 @@ def main():
                         help="start with sound off, enable it before --again, verify lazy initialization")
     parser.add_argument("--force-reload", action="store_true",
                         help="force and verify a full level reload before --again")
+    parser.add_argument("--card-save", action="store_true",
+                        help="defer a real state card save until the menu before --again")
     parser.add_argument("--again", action="store_true",
                         help="then leave the game, play the level again and then the next one")
     parser.add_argument("--sites", type=int, default=12, help="calling places shown per phase")
@@ -181,6 +184,8 @@ def main():
         parser.error("--enable-sound-after requires --again")
     if args.force_reload and not args.again:
         parser.error("--force-reload requires --again")
+    if args.card_save and not args.again:
+        parser.error("--card-save requires --again")
     args.out = os.path.join(args.build, "mem-test")
 
     for path in (args.res, args.lgr):
@@ -200,6 +205,7 @@ def main():
             lua_args = {"level": n, "play": args.play, "idle": int(args.idle),
                         "sound_after": int(args.enable_sound_after),
                         "force_reload": int(args.force_reload),
+                        "card_save": int(args.card_save),
                         "path": ",".join(layout["internal_steps"])}
             if args.again:
                 lua_args["after"] = "again,next" if n + 1 < layout["internal_count"] else "again"
@@ -214,6 +220,7 @@ def main():
                         "dialogs": int(lgr not in (b"", b"DEFAULT")), "idle": int(args.idle)}
             lua_args["sound_after"] = int(args.enable_sound_after)
             lua_args["force_reload"] = int(args.force_reload)
+            lua_args["card_save"] = int(args.card_save)
             lua_args["path"] = ",".join(layout["external_steps"])
             if args.again:
                 lua_args["after"] = "again"
@@ -244,6 +251,10 @@ def main():
             program = programs[image]
             elf = os.path.join(args.build, image + ".elf")
             phases, sites, stack, status, errors, ram_files = parse(result.output)
+            if args.card_save:
+                for line in result.output.splitlines():
+                    if line.startswith("CARD "):
+                        print("    " + line)
             names = addr2line(elf, sorted({s[0] for l in sites.values() for s in l}))
             peak = 0
             parts, parts_without = [], []

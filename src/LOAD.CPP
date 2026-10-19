@@ -30,6 +30,9 @@ static void ujranagyit( void ) {
 // Ha belso file-ban is megvan palya onnan veszi:
 // Hamissal ter vissza, ha hibas topologiaju level:
 int floadlevel_p( char* nev ) {
+#ifdef ELMA_PSX
+	int loading_notice = 0;
+#endif
 	if( !nev )
 		hiba( "floadlevel_p-ben !nev!" );
 	// A collection's level names can be longer than 8.3 (tutorial01.lev):
@@ -43,6 +46,7 @@ int floadlevel_p( char* nev ) {
 #endif
 	if( Volttopsave || !Ptop || !Pszak || strcmpi( nev, Bentlevelnev ) != 0 ) {
 #ifdef ELMA_PSX
+		loading_notice = 1;
 		psx_loading_stage( NULL, "Reading level..." );
 #endif
 		Volttopsave = 0;
@@ -115,18 +119,23 @@ int floadlevel_p( char* nev ) {
 		// editor loaded the LGR at its original size:
 		if( maskellarany() || !lgrnagyitasjo() ) {
 #ifdef ELMA_PSX
+			loading_notice = 1;
 			psx_loading_stage( Ptop->levelname, "Loading graphics..." );
 #endif
 			ujranagyit();
 		}
 #ifdef ELMA_PSX
 		void psx_prepare_sound( void );
-		psx_loading_stage( Ptop->levelname, "Loading sounds..." );
+		if( State->soundon && !Hangmarmegy ) {
+			loading_notice = 1;
+			psx_loading_stage( Ptop->levelname, "Loading sounds..." );
+		}
 		psx_prepare_sound();
 #endif
 	}
 #ifdef ELMA_PSX
-	psx_loading_stage( Ptop->levelname, "Starting level..." );
+	if( loading_notice )
+		psx_loading_stage( Ptop->levelname, "Starting level..." );
 #endif
 	return 1;
 }

@@ -88,6 +88,10 @@ void gv_menu_invalidate();
 // the GPU command buffer and does not allocate, so it also works after OOM.
 // Lines wrap at the notice's width; NULL lines are skipped.
 void gv_notice(int x, int y, int w, int h, const char* const* lines, int count);
+// A compact 320x240 notice using only the resident font and GPU commands.
+// Cancels queued game frames; the next game frame restores normal rendering.
+// Other notices keep this mode and scale their 640x480 coordinates to it.
+void gv_quick_notice(const char* const* lines, int count);
 
 // --- Game mode -------------------------------------------------------------
 

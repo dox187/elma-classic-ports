@@ -145,6 +145,11 @@ void psx_memcard_poll(bool leaving) {
 		// The notice is already in VRAM. Give the save's temporary raw and
 		// compressed buffers the menu's RAM picture; the next draw rebuilds it.
 		gv_menu_picture_free();
+#ifdef ELMA_PSX_GPU
+		// A compact post-game selector keeps the level resident. Dense levels
+		// must lend their rebuildable GPU cache to the save's temporary buffers.
+		gv_level_release();
+#endif
 		int status = MC_OK;
 		for (int i = 0; i < FILE_COUNT && status == MC_OK; ++i) {
 			if (!(dirty & (1u << i))) continue;

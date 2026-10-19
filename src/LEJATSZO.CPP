@@ -31,6 +31,8 @@ static void initsoundlejatszoban( void ) {
 }
 
 #ifdef ELMA_PSX
+void psx_transition_mark( int phase );
+
 void psx_prepare_sound( void ) {
 	if( !State->soundon || Hangmarmegy )
 		return;
@@ -573,7 +575,13 @@ long lejatszo( char* filenev ) {
 					startwave( WAV_SIKER, 0.999 );
 				else
 					startwave( WAV_TORES, 0.999 );
+#ifdef ELMA_PSX
+				psx_transition_mark( 1 );
+				// Keep the crash cue, then offer retry without the desktop pause.
+				hangosdelay( 200.0 );
+#else
 				hangosdelay( Vegenvaras*1000.0 );
+#endif
 
 				stopmotor( 1 );
 				stopmotor( 0 );

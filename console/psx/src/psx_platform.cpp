@@ -59,6 +59,17 @@ extern "C" {
 psx_debug_state psx_debug;
 }
 
+// Transition timestamps and selector state for emulator regressions. Separate
+// from psx_debug so existing readers keep their original layout.
+struct psx_transition_state {
+	uint32_t finishes, finish_vblank, ready_vblank, selected_vblank, resumed_vblank;
+	int32_t choice;
+	uint32_t count, selected, active;
+};
+extern "C" {
+volatile psx_transition_state psx_transition_debug;
+}
+
 namespace {
 
 const int W = 640, H = 480;
@@ -397,8 +408,127 @@ void psx_loading_stage(const char* level, const char* stage) {
 	printf("elma: loading %s: %s\n", level ? level : "", stage);
 }
 
+void psx_transition_mark(int phase) {
+	if (phase == 1) {
+		psx_transition_debug.finishes++;
+		psx_transition_debug.finish_vblank = vblank_count;
+		psx_transition_debug.ready_vblank = 0;
+		psx_transition_debug.selected_vblank = 0;
+		psx_transition_debug.resumed_vblank = 0;
+	} else if (phase == 2) {
+		psx_transition_debug.ready_vblank = vblank_count;
+	} else if (phase == 3) {
+		psx_transition_debug.resumed_vblank = vblank_count;
+	} else if (phase == 4) {
+		psx_transition_debug.selected_vblank = vblank_count;
+		psx_transition_debug.resumed_vblank = 0;
+	}
+}
+
+int psx_quick_choose(const char* title, const char* const* details, int detail_count,
+		const char* const* choices, int count, int selected) {
+	if (count < 1 || count > 5) return -1;
+	if (selected < 0 || selected >= count) selected = 0;
+	if (detail_count > 3) detail_count = 3;
+	char text[16][37];
+	const char* lines[16];
+	int line_count = 0;
+	auto copy = [](char* out, const char* in, int limit) {
+		int i = 0;
+		while (i < limit && in[i]) { out[i] = in[i]; ++i; }
+		out[i] = 0;
+	};
+	auto add = [&](const char* line) {
+		if (line_count == 16) return;
+		if (!line) line = "";
+		// The software menu uses this prefix to select its result color.
+		// Compare explicitly: the SDK strncmp treats an empty input as equal.
+		const char* prefix = "*$$^&|@";
+		int matched = 0;
+		while (matched < 7 && line[matched] == prefix[matched]) ++matched;
+		if (matched == 7) line += 7;
+		// The SDK formatter does not implement string precision correctly.
+		copy(text[line_count], line, 36);
+		lines[line_count] = text[line_count];
+		++line_count;
+	};
+	add(title);
+	add("");
+	for (int i = 0; i < detail_count; ++i) add(details[i]);
+	add("");
+	const int choice_line = line_count;
+	for (int i = 0; i < count; ++i) add("");
+	add("");
+	add("UP/DOWN: Choose  X/START: Select");
+	add("CIRCLE/SELECT: Level menu");
+	auto draw = [&]() {
+		for (int i = 0; i < count; ++i) {
+			char* row = text[choice_line + i];
+			row[0] = i == selected ? '>' : ' ';
+			row[1] = ' ';
+			copy(row + 2, choices[i], 33);
+		}
+		gv_quick_notice(lines, line_count);
+		gv_frame_done(false);
+	};
+	psx_transition_debug.count = count;
+	psx_transition_debug.selected = selected;
+	draw();
+	// Successful runs may need a real card save. Keep the compact screen
+	// visible, then repaint over its Saving notice before accepting input.
+	psx_memcard_poll();
+	draw();
+	mk_emptychar();
+	uint16_t blocked = pad_down;
+	uint32_t serial = gv_menu_serial();
+	psx_transition_debug.active = 1;
+	psx_transition_mark(2);
+	for (;;) {
+		VSync(0);
+		events();
+		blocked &= pad_down;
+		psx_memcard_poll();
+		bool changed = serial != gv_menu_serial();
+		int result = -2;
+		while (char_count) {
+			const int c = chars[char_head];
+			char_head = (char_head + 1) % 16;
+			--char_count;
+			if (c == MK_UP && !(blocked & PAD_UP)) {
+				selected = (selected + count - 1) % count;
+				changed = true;
+			} else if (c == MK_DOWN && !(blocked & PAD_DOWN)) {
+				selected = (selected + 1) % count;
+				changed = true;
+			} else if (c == MK_ENTER && (pad_down & ~blocked & (PAD_CROSS | PAD_START))) {
+				result = selected;
+				break;
+			} else if (c == MK_ESC && (pad_down & ~blocked & (PAD_CIRCLE | PAD_SELECT))) {
+				result = -1;
+				break;
+			}
+		}
+		if (result != -2) {
+			char_count = 0;
+			psx_transition_debug.active = 0;
+			psx_transition_debug.choice = result;
+			psx_transition_mark(4);
+			return result;
+		}
+		if (changed) {
+			psx_transition_debug.selected = selected;
+			draw();
+			serial = gv_menu_serial();
+		}
+	}
+}
+
 void gv_frame_done(bool game_view) {
-	if (game_view) psx_debug.game_frames++;
+	if (game_view) {
+		psx_debug.game_frames++;
+		if (psx_transition_debug.selected_vblank && !psx_transition_debug.resumed_vblank)
+			psx_transition_mark(3);
+	}
 	count_frame();
 }
 

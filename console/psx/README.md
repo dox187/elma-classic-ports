@@ -173,6 +173,12 @@ Level loading shows the current stage: reading the level, loading graphics
 and sounds, preparing the level and starting play. The first load also
 prepares sound data, so it can take longer than subsequent loads.
 
+After a run, a compact 320×240 selector uses the resident font. Play again
+reuses the level, graphics and prepared sounds without rereading menu art.
+The crash cue lasts 0.2 seconds before the selector accepts a fresh press;
+holding the throttle through death does not choose a menu item. Opening a
+full level list or another full menu still loads its graphics from disc.
+
 ## Saves and compatibility
 
 A formatted memory card in slot 1 stores players, options, best times and
@@ -218,6 +224,9 @@ python3 console/psx/test/core_boot_test.py --disc --ram2
 python3 console/psx/test/video_test.py --disc
 python3 console/psx/test/resource_menu_test.py --res /path/to/elma.res
 python3 console/psx/test/console_ui_test.py
+python3 console/psx/test/controller_layout_test.py --build console/psx/build \
+  --card /path/to/card-with-a-saved-player.mcd
+python3 console/psx/test/retry_test.py --disc --card-save
 python3 console/psx/test/menu_perf_test.py --mode ntsc
 
 # Internal levels in 2 MB; can take a long time
@@ -251,6 +260,10 @@ loaded; comma-separated paths run several levels on separate discs.
 Add `--again --force-reload` to check a full reload with sound already
 initialized, or `--again --enable-sound-after` to check enabling sound
 on a retained level.
+Add `--card-save` together with `--again` to verify a real deferred card
+write before retrying a dense level. `retry_test.py` measures a natural
+death, held-throttle safety and retained retry latency, checks the compact
+screen's pixels and returns to a usable full level menu in retail 2 MB RAM.
 `menu_perf_test.py` reports startup time and menu update intervals in retail
 2 MB RAM. Use `--mode pal` for PAL and `--frames 900` to select the measurement
 length in VBlanks. Its update count measures submitted pictures; interlaced

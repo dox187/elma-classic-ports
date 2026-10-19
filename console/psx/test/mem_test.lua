@@ -15,6 +15,8 @@
 -- shots=1 (screenshots at the start of the level and at the end),
 -- after=again,next (then the phases "again": the same level once more, and
 -- "next": the next level, each played like the first).
+-- card_save=1 defers a real state card save from the first game to its menu
+-- and verifies MC_OK before the retained replay.
 -- With src/mem/psx_mem.c the high-water of a phase is exact (and the free
 -- bytes inside the extent are known); else it is sampled once a frame.
 -- Output lines: "MEM <phase> ...", "SITE <phase> <addr> <bytes> <blocks>",
@@ -57,6 +59,9 @@ local sound_started = sound_after and need("Hangmarmegy") or nil
 local STATE_SOUND_OFFSET = 67756
 local force_reload = elma.args.force_reload == "1"
 local reload_ptr = force_reload and need("Volttopsave") or nil
+local card_save = elma.args.card_save == "1"
+local card_debug = card_save and need("psx_memcard_debug") or nil
+local card_pending, card_verified, card_saves_before, card_seen_at
 local site_lines = tonumber(elma.args.sites or "256")
 local shots = elma.args.shots
 
@@ -211,6 +216,9 @@ end
 local finished = false
 local function finish(ok, text)
     if finished then return end
+    if ok and card_save and not card_verified then
+        ok, text = false, "deferred card save was not verified"
+    end
     finished = true
     if shots then elma.screenshot("end.ppm") end
     report()
@@ -335,6 +343,14 @@ local function frame(n)
             end
             print(string.format("frame %d: level running after %d frames of loading", n,
                 n - current.start))
+            if card_save then
+                -- The already serialized state must stay untouched on the
+                -- card while playing, then use the ordinary menu poll.
+                card_saves_before = elma.u32(card_debug + 4)
+                elma.write_u32(card_debug + 12, bit.bor(elma.u32(card_debug + 12), 1))
+                card_pending = true
+                print(string.format("CARD armed saves=%d", card_saves_before))
+            end
             enter("play", n)
             if shots then elma.screenshot("level.ppm") end
             start_x = signed(s.bike_x)
@@ -347,6 +363,9 @@ local function frame(n)
             deadline = n + play_frames + 600
         end
     elseif phase == "play" then
+        if card_pending and elma.u32(card_debug + 4) ~= card_saves_before then
+            return finish(false, "card save ran before returning to the menu")
+        end
         if s.game_frames ~= last_game_frames then
             last_game_at, last_game_frames = n, s.game_frames
         end
@@ -386,6 +405,19 @@ local function frame(n)
     elseif phase == "leave" then
         if n == press_frame + 6 then elma.release(1, "SELECT") end
         if n >= press_frame + 240 then
+            if card_pending then
+                local saves = elma.u32(card_debug + 4)
+                if saves <= card_saves_before or bit.band(elma.u32(card_debug + 12), 1) ~= 0 then return end
+                local status = elma.u32(card_debug + 8)
+                if status ~= 0 then return finish(false, "deferred card save failed with status " .. status) end
+                -- Observe completion on separate video fields as well, so
+                -- the counter increment cannot race its status update.
+                card_seen_at = card_seen_at or n
+                if n < card_seen_at + 2 then return end
+                card_pending, card_verified = false, true
+                print(string.format("CARD resumed saves=%d status=%d", saves, status))
+                live_report("card_saved")
+            end
             if sound_after then
                 elma.write_u32(elma.u32(state_ptr) + STATE_SOUND_OFFSET, 1)
             end
