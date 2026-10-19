@@ -51,6 +51,14 @@ cdtest: configure
 cdtest-disc: cdtest
 	$(PYTHON) $(ROOT)/test/cd_test.py --build $(BUILD) --discs-only
 
+soundtest: configure
+	cmake --build $(BUILD) --target soundtest
+
+# Sound output: encoder round trip on the host (real samples from elma.res,
+# read only), then soundtest in headless PCSX-Redux. SOUND_TEST_ARGS: host|ps1.
+sound-test: soundtest
+	BUILD=$(BUILD) PCSX_REDUX=$(PCSX_REDUX) $(PYTHON) $(ROOT)/test/sound_test.py $(SOUND_TEST_ARGS)
+
 # Re-run configure every time; it is cheap and picks up elma.cmake appearing
 # or variables changing.
 configure:

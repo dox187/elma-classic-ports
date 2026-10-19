@@ -44,4 +44,23 @@ psn00bsdk_add_executable(
 	src/psx_file.c
 )
 
+# Sound test: streams a known signal through the SPU ring with the real
+# psx_sound.cpp and checks SPU RAM, playback and CPU cost. Run by
+# test/sound_test.py (make sound-test). The include directory of the test
+# provides a minimal all.h in place of the game's.
+psn00bsdk_add_executable(
+	soundtest GPREL
+	soundtest/main.cpp
+	src/sound/psx_sound.cpp
+	src/sound/spu_stream.c
+	src/sound/spu_adpcm.c
+)
+target_compile_definitions(soundtest PRIVATE SPU_STREAM_PROFILE)
+target_include_directories(soundtest PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/soundtest/include
+	${CMAKE_CURRENT_SOURCE_DIR}/soundtest
+	${CMAKE_CURRENT_SOURCE_DIR}/src
+	${CMAKE_CURRENT_SOURCE_DIR}/src/sound
+)
+
 include(${CMAKE_CURRENT_SOURCE_DIR}/elma.cmake OPTIONAL)
