@@ -1,6 +1,8 @@
 #include	<stdio.h>
 #include	<stdlib.h>
-#if defined(__APPLE__) || defined(__linux__)
+// The PS1 build (console/psx) brings the POSIX headers and functions the
+// core needs:
+#if defined(__APPLE__) || defined(__linux__) || defined(ELMA_PSX)
 #define ELMA_POSIX
 #endif
 #ifdef ELMA_POSIX

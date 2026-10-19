@@ -12,8 +12,15 @@ extern int	Cxsize, Cysize; // Belso kep meretei
 
 // The game's picture (lockbackbuffer, m_dd.h) is at most this size; the
 // static arrays that depend on the picture's size are sized for this:
+#ifdef ELMA_PSX
+// The PS1 picture is always 640x480; at the desktop limit the textures,
+// widened by this much (lgrfile.cpp), would not fit in its RAM:
+#define MAXKEPXSIZE (640)
+#define MAXKEPYSIZE (480)
+#else
 #define MAXKEPXSIZE (4096)
 #define MAXKEPYSIZE (2400)
+#endif
 
 extern int Kitoltestmegrak;
 // Es ennyire toltjuk:

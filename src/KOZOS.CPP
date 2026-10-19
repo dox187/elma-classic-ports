@@ -11,7 +11,12 @@ void k_memcpy( void *dest, const void *src, size_t n ) {
 
 static int  Fiben = 0;
 
-#ifdef ELMA_POSIX
+#if defined(ELMA_PSX)
+
+// The PS1 build lists and opens files through its own file layer
+// (console/psx/src/psx_files.cpp).
+
+#elif defined(ELMA_POSIX)
 
 #include <glob.h>
 

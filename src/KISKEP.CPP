@@ -17,10 +17,16 @@ kiskep::kiskep( char* pic8nev, pic8* ppic ) {
 	// (more often on a zoomed engine), and the index ((y<<8)+x) is always
 	// 16 bits: allocate the full 64 kB, set to transparent outside the
 	// picture:
-	{ tomb = NEW(unsigned char*) unsigned char[65536u]; }
+	unsigned meret = 65536u;
+	#ifdef ELMA_PSX
+		// The PS1 version has no zoom and too little RAM for 64 kB each:
+		// only the picture's rows, as in the original game.
+		meret = unsigned(hossz);
+	#endif
+	{ tomb = NEW(unsigned char*) unsigned char[meret]; }
 	if( !tomb )
 		uzenet( "memory!" );
-	memset( tomb, lyuk, 65536u );
+	memset( tomb, lyuk, meret );
 	for( int y = 0; y < ysize; y++ )
 		for( int x = 0; x < xsize; x++ )
 			tomb[y*256+x] = ppic->gpixel( x, y );
