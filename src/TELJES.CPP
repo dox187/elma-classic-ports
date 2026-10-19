@@ -1,5 +1,9 @@
 #include    "all.h"
 
+#ifdef ELMA_PSX
+#include "psx_controls.h"
+#endif
+
 state_s* State = NULL;
 
 void cheatplayer( void ) {
@@ -58,6 +62,9 @@ void teljes( void ) {
 	State = new state_s;
 	if( !State )
 		uzenet( "memory" );
+#ifdef ELMA_PSX
+	psx_controls_normalize();
+#endif
 
 	mergestatedat();
 

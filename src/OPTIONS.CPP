@@ -4,7 +4,7 @@ int Hangmarmegy = 0;
 
 void help( void ) {
 	#ifdef ELMA_PSX
-	customize();
+	controller_help();
 	#else
 	szoveglista szl;
 
@@ -131,11 +131,7 @@ void options( void ) {
 		else
 			sprintf( Rubrikak_tab[8+vantagis], "Yes" );
 
-		#ifdef ELMA_PSX
-		strcpy( Rubrikak[9+vantagis], "Controller Layout ..." );
-		#else
 		sprintf( Rubrikak[9+vantagis], "Customize Controls ..." );
-		#endif
 		sprintf( Rubrikak_tab[9+vantagis], "" );
 
 		int rubrikaszam = 10;
@@ -231,7 +227,7 @@ void options( void ) {
 		}
 
 		#ifdef ELMA_PSX
-		// Player changes save themselves; the layout only displays controls.
+		// Player changes save themselves; control changes report their own result.
 		if( kurrens != 1+vantagis && kurrens != 2+vantagis && kurrens != 9+vantagis )
 			changed = 1;
 		#endif
@@ -272,7 +268,11 @@ void options( void ) {
 			State->aplayerabike = !State->aplayerabike;
 
 		if( kurrens == 9 )
+			#ifdef ELMA_PSX
+			changed |= customize();
+			#else
 			customize();
+			#endif
 
 		#ifdef ELMA_CLI
 			if( kurrens == 10 )

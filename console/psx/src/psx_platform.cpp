@@ -23,6 +23,7 @@
 
 #include "all.h"
 #include "psx_file.h"
+#include "psx_controls.h"
 #include "gpu/gpu_video.h"
 #include "memcard/psx_memcard_glue.h"
 #ifdef ELMA_PSX_PCDRV
@@ -222,37 +223,71 @@ void present() {
 	count_frame();
 }
 
-// Pad buttons (bits of psxpad.h) and what they do, as in the handheld
-// version: a control of the player (pressing its key) and a menu key.
-// ROTATE_BOTH presses both volt keys at once (an alovolt), which the d-pad
-// cannot: it never reports Left and Right together.
-enum Control { NO_CONTROL, GAS, BRAKE, ROTATE_LEFT, ROTATE_RIGHT, ROTATE_BOTH, TURN, VIEW, TIME, SHOWKEP, LEAVE };
+// Menu buttons stay fixed. Gameplay reads each player's saved physical
+// button masks independently, so rebinding an action changes the pad itself.
 struct button_action {
 	uint16_t bit;
-	Control control;
 	int menu;
 };
 const button_action actions[] = {
-	{PAD_UP, GAS, MK_UP},
-	{PAD_DOWN, BRAKE, MK_DOWN},
-	{PAD_LEFT, ROTATE_LEFT, MK_LEFT},
-	{PAD_RIGHT, ROTATE_RIGHT, MK_RIGHT},
-	{PAD_CROSS, GAS, MK_ENTER},
-	{PAD_CIRCLE, BRAKE, MK_ESC},
-	{PAD_SQUARE, TURN, 0},
-	{PAD_TRIANGLE, VIEW, 0},
-	{PAD_L1, TIME, MK_PGUP},
-	{PAD_R1, TURN, MK_PGDOWN},
-	{PAD_L2, ROTATE_BOTH, 0},
-	{PAD_R2, SHOWKEP, 0},
-	{PAD_SELECT, LEAVE, MK_ESC},
-	{PAD_START, NO_CONTROL, MK_ENTER},
+	{PAD_UP, MK_UP}, {PAD_DOWN, MK_DOWN},
+	{PAD_LEFT, MK_LEFT}, {PAD_RIGHT, MK_RIGHT},
+	{PAD_CROSS, MK_ENTER}, {PAD_CIRCLE, MK_ESC},
+	{PAD_L1, MK_PGUP}, {PAD_R1, MK_PGDOWN},
+	{PAD_SELECT, MK_ESC}, {PAD_START, MK_ENTER},
 };
 const int ACTION_COUNT = sizeof(actions) / sizeof(actions[0]);
-int action_key[2][ACTION_COUNT][2]; // the keys a button of each pad holds down
-unsigned char key_count[256]; // pad buttons holding each key
+unsigned char key_count[256]; // fixed leave key and legacy debug-key injection
 uint16_t pad_down = 0;   // buttons of pad 1
 uint16_t pad2_down = 0;  // buttons of pad 2: the controls of player B, no menu keys
+
+const uint32_t CONTROL_TAG = 0x50580000;
+const uint16_t CONTROL_BUTTONS = PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT |
+	PAD_CROSS | PAD_CIRCLE | PAD_SQUARE | PAD_TRIANGLE | PAD_L1 | PAD_R1 |
+	PAD_L2 | PAD_R2 | PAD_START;
+const uint16_t default_controls[PSX_CONTROL_COUNT] = {
+	PAD_UP | PAD_CROSS, PAD_DOWN | PAD_CIRCLE, PAD_LEFT | PAD_L2,
+	PAD_RIGHT | PAD_L2, PAD_SQUARE | PAD_R1, PAD_TRIANGLE, PAD_L1, PAD_R2
+};
+struct control_button { uint16_t mask; const char* name; };
+const control_button control_buttons[] = {
+	{0, "Unassigned"}, {PAD_UP, "Up"}, {PAD_DOWN, "Down"},
+	{PAD_LEFT, "Left"}, {PAD_RIGHT, "Right"}, {PAD_CROSS, "Cross"},
+	{PAD_CIRCLE, "Circle"}, {PAD_SQUARE, "Square"}, {PAD_TRIANGLE, "Triangle"},
+	{PAD_L1, "L1"}, {PAD_R1, "R1"}, {PAD_L2, "L2"}, {PAD_R2, "R2"},
+	{PAD_START, "Start"}
+};
+
+int* control_field(state_s* state, int player, int action) {
+	if (!state || player < 0 || player > 1) return NULL;
+	jatekosopciok& keys = player ? state->opciok2 : state->opciok1;
+	switch (action) {
+	case PSX_THROTTLE: return &keys.billgaz;
+	case PSX_BRAKE: return &keys.billfek;
+	case PSX_ROTATE_LEFT: return &keys.billugras2;
+	case PSX_ROTATE_RIGHT: return &keys.billugras1;
+	case PSX_TURN: return &keys.billfordul;
+	case PSX_NAVIGATOR: return &keys.billview;
+	case PSX_TIME: return &keys.billtime;
+	case PSX_SHOW_HIDE: return &keys.billshowkep;
+	default: return NULL;
+	}
+}
+
+int control_key(int player, uint16_t mask) {
+	return (int)(CONTROL_TAG | (uint32_t)player << 16 | (mask & CONTROL_BUTTONS));
+}
+
+bool reset_controls(state_s* state) {
+	bool changed = false;
+	for (int player = 0; player < 2; ++player)
+		for (int action = 0; action < PSX_CONTROL_COUNT; ++action) {
+			int* field = control_field(state, player, action);
+			const int key = control_key(player, default_controls[action]);
+			if (field && *field != key) { *field = key; changed = true; }
+		}
+	return changed;
+}
 
 int chars[16];
 int char_head = 0, char_count = 0;
@@ -265,54 +300,16 @@ void push_char(int c) {
 	psx_debug.menu_chars++;
 }
 
-// The keys of the player's controls that a control presses (0: none); pad 1
-// plays player A, pad 2 player B.
-void control_keys(Control control, int pad, int keys[2]) {
-	keys[0] = keys[1] = 0;
-	if (control == LEAVE) {
-		keys[0] = DIK_ESCAPE;
-		return;
-	}
-	if (!State) return;
-	const jatekosopciok& player = pad ? State->opciok2 : State->opciok1;
-	switch (control) {
-	case GAS: keys[0] = player.billgaz; break;
-	case BRAKE: keys[0] = player.billfek; break;
-	case ROTATE_LEFT: keys[0] = player.billugras2; break;
-	case ROTATE_RIGHT: keys[0] = player.billugras1; break;
-	case ROTATE_BOTH:
-		keys[0] = player.billugras2;
-		keys[1] = player.billugras1;
-		break;
-	case TURN: keys[0] = player.billfordul; break;
-	case VIEW: keys[0] = player.billview; break;
-	case TIME: keys[0] = player.billtime; break;
-	case SHOWKEP: keys[0] = player.billshowkep; break;
-	default: break;
-	}
-}
-
 void apply_buttons(int pad, uint16_t buttons) {
 	uint16_t& down = pad ? pad2_down : pad_down;
 	const uint16_t changed = buttons ^ down;
 	if (!changed) return;
-	for (int i = 0; i < ACTION_COUNT; ++i) {
-		if (!(changed & actions[i].bit)) continue;
-		int* held = action_key[pad][i];
-		if (buttons & actions[i].bit) {
-			control_keys(actions[i].control, pad, held);
-			for (int k = 0; k < 2; ++k) {
-				if (held[k] <= 0 || held[k] >= 256) held[k] = 0;
-				if (held[k]) ++key_count[held[k]];
-			}
-			if (actions[i].menu && !pad) push_char(actions[i].menu);
-		} else {
-			for (int k = 0; k < 2; ++k) {
-				if (held[k]) --key_count[held[k]];
-				held[k] = 0;
-			}
-		}
-	}
+	if (changed & PAD_SELECT)
+		key_count[DIK_ESCAPE] += (buttons & PAD_SELECT) ? 1 : -1;
+	if (!pad)
+		for (int i = 0; i < ACTION_COUNT; ++i)
+			if ((changed & buttons & actions[i].bit) && actions[i].menu)
+				push_char(actions[i].menu);
 	down = buttons;
 }
 
@@ -397,6 +394,80 @@ __attribute__((noreturn)) void run_on_stack(void (*fn)(), uint32_t top) {
 // Scan lines since the start, for the header of gpu_video.h (at the rate of
 // the video mode set up in ddinit):
 uint32_t gv_lines() { return (uint32_t)(clock_ticks() * (video_pal ? 15625 : 15734) / GV_CLOCK_HZ); }
+
+int psx_control_binding(int player, int action) {
+	int* field = control_field(State, player, action);
+	return field ? *field : 0;
+}
+
+int psx_control_button_count() { return sizeof(control_buttons) / sizeof(control_buttons[0]); }
+
+const char* psx_control_button_name(int index) {
+	return index >= 0 && index < psx_control_button_count() ? control_buttons[index].name : "Unassigned";
+}
+
+int psx_control_key(int player, int button_index) {
+	if (player < 0 || player > 1 || button_index < 0 || button_index >= psx_control_button_count()) return 0;
+	return control_key(player, control_buttons[button_index].mask);
+}
+
+const char* psx_control_name(int binding) {
+	static char text[96];
+	char* out = text;
+	const char* end = text + sizeof(text) - 1;
+	const uint16_t mask = binding & CONTROL_BUTTONS;
+	if (!mask) return "Unassigned";
+	for (int i = 1; i < psx_control_button_count(); ++i) {
+		if (!(mask & control_buttons[i].mask)) continue;
+		if (out != text && out < end) *out++ = '/';
+		const char* name = control_buttons[i].name;
+		while (*name && out < end) *out++ = *name++;
+	}
+	*out = 0;
+	return text;
+}
+
+bool psx_control_assign(int player, int action, int binding) {
+	int* field = control_field(State, player, action);
+	if (!field) return false;
+	const uint16_t mask = binding & CONTROL_BUTTONS;
+	const int key = control_key(player, mask);
+	if (*field == key) return false;
+	// A newly chosen button belongs to this action. Keep unaffected aliases
+	// and the other player's entire layout.
+	for (int i = 0; i < PSX_CONTROL_COUNT; ++i) {
+		if (i == action) continue;
+		int* other = control_field(State, player, i);
+		*other = control_key(player, (uint16_t)*other & ~mask);
+	}
+	*field = key;
+	return true;
+}
+
+bool psx_controls_reset() { return reset_controls(State); }
+
+void psx_controls_normalize() {
+	// Older PSX cards used keyboard codes. Translate the former button
+	// families while preserving current-format masks and unassigned actions.
+	const int legacy[2][PSX_CONTROL_COUNT] = {
+		{DIK_UP, DIK_DOWN, DIK_LEFT, DIK_RIGHT, DIK_SPACE, DIK_V, DIK_T, DIK_1},
+		{DIK_NUMPAD5, DIK_NUMPAD2, DIK_NUMPAD1, DIK_NUMPAD3, DIK_NUMPAD0, DIK_B, DIK_Y, DIK_2}
+	};
+	for (int player = 0; player < 2; ++player)
+		for (int action = 0; action < PSX_CONTROL_COUNT; ++action) {
+			int* field = control_field(State, player, action);
+			if (!field) continue;
+			uint16_t mask = default_controls[action];
+			if (((uint32_t)*field & 0xffff0000u) == (CONTROL_TAG | (uint32_t)player << 16))
+				mask = (uint16_t)*field & CONTROL_BUTTONS;
+			else if (!*field)
+				mask = 0;
+			else
+				for (int old = 0; old < PSX_CONTROL_COUNT; ++old)
+					if (*field == legacy[player][old]) { mask = default_controls[old]; break; }
+			*field = control_key(player, mask);
+		}
+}
 
 // Loading can release the menu's RAM picture. Draw directly in VRAM with
 // the resident font, so the current stage stays visible without allocating.
@@ -578,6 +649,8 @@ void ddinit() {
 
 	gv_clock_init();
 	clock_prev = gv_clock();
+	// Pad bytes are invalid until the BIOS driver starts.
+	memset(pad_buffers, 0xff, sizeof(pad_buffers));
 	VSyncCallback(vblank_callback);
 
 	InitPAD(pad_buffers[0], 34, pad_buffers[1], 34);
@@ -684,7 +757,6 @@ void dd_next_zoom_textures() {}
 
 void mk_init() {
 	memset(key_count, 0, sizeof(key_count));
-	memset(action_key, 0, sizeof(action_key));
 	char_count = 0;
 }
 int mk_getextchar() {
@@ -709,19 +781,16 @@ int mk_kbhit() {
 }
 int mk_getstate(int code) {
 	events();
+	if (((uint32_t)code & 0xfffe0000u) == CONTROL_TAG) {
+		const uint16_t buttons = code & 0x10000 ? pad2_down : pad_down;
+		return (buttons & code & CONTROL_BUTTONS) ? 0x80 : 0;
+	}
 	return code >= 0 && code < 256 && key_count[code] ? 0x80 : 0;
 }
 int controlaltnyomva() { return 0; }
 
 void di_reset_state(state_s* state) {
-	state->opciok1.billgaz = DIK_UP; state->opciok1.billfek = DIK_DOWN;
-	state->opciok1.billugras1 = DIK_RIGHT; state->opciok1.billugras2 = DIK_LEFT;
-	state->opciok1.billfordul = DIK_SPACE; state->opciok1.billview = DIK_V;
-	state->opciok1.billtime = DIK_T; state->opciok1.billshowkep = DIK_1;
-	state->opciok2.billgaz = DIK_NUMPAD5; state->opciok2.billfek = DIK_NUMPAD2;
-	state->opciok2.billugras1 = DIK_NUMPAD3; state->opciok2.billugras2 = DIK_NUMPAD1;
-	state->opciok2.billfordul = DIK_NUMPAD0; state->opciok2.billview = DIK_B;
-	state->opciok2.billtime = DIK_Y; state->opciok2.billshowkep = DIK_2;
+	reset_controls(state);
 	state->billplussz = DIK_EQUALS; state->billminusz = DIK_MINUS; state->billsnap = DIK_I;
 }
 

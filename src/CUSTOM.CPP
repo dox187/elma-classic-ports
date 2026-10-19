@@ -1,30 +1,121 @@
 #include "all.h"
 
 #ifdef ELMA_PSX
+#include "psx_controls.h"
 
-void customize( void ) {
-	const char* buttons[] = { "Up / Cross", "Down / Circle", "Left / Right",
-		"Square / R1", "Triangle", "L1", "L2", "R2", "Select" };
-	const char* actions[] = { "Throttle", "Brake", "Rotate left / right",
-		"Change direction", "Toggle navigator", "Toggle time",
-		"Both rotation keys", "Show / hide view", "Leave level" };
-	szoveglista layout;
-	layout.addszoveg_kozep( "Controller Layout", 320, 16 );
-	layout.addszoveg_kozep( "Pad 1: Player A; Pad 2: Player B", 320, 60 );
-	for( int i = 0; i < 9; ++i ) {
-		layout.addszoveg( (char*)buttons[i], 56, 102+i*32 );
-		layout.addszoveg( (char*)actions[i], 320, 102+i*32 );
+static const char* ControllerActions[PSX_CONTROL_COUNT] = {
+	"Throttle", "Brake", "Rotate left", "Rotate right", "Change direction",
+	"Toggle navigator", "Toggle time", "Show / hide view"
+};
+
+static void controller_button( int player, int action ) {
+	valaszt2 val;
+	val.egykepen = 11;
+	val.x0 = 200;
+	val.y0 = 85;
+	val.dy = 32;
+	val.escelheto = 1;
+	sprintf( val.cim, "%s: choose button", ControllerActions[action] );
+	const int count = psx_control_button_count();
+	for( int i = 0; i < count; ++i ) {
+		strcpy( Rubrikak[i], psx_control_button_name( i ) );
+		if( psx_control_binding( player, action ) == psx_control_key( player, i ) )
+			val.kur = i;
 	}
-	layout.addszoveg_kozep( "Pad 1 menus: arrows; L1/R1 pages", 320, 400 );
-	layout.addszoveg_kozep( "Cross/Start: OK; Circle/Select: Back", 320, 440 );
-	mk_emptychar();
+	val.bead( count );
+	const int choice = val.valassz();
+	if( choice >= 0 )
+		psx_control_assign( player, action, psx_control_key( player, choice ) );
+}
+
+static void controller_player( int player ) {
+	int current = 0;
 	while( 1 ) {
-		if( mk_kbhit() ) {
-			const int key = mk_getextchar();
-			if( key == MK_ENTER || key == MK_ESC )
-				return;
+		valaszt2 val;
+		val.kur = current;
+		val.egykepen = 10;
+		val.x0 = 56;
+		val.x0_tab = 348;
+		val.y0 = 96;
+		val.dy = 36;
+		val.escelheto = 1;
+		sprintf( val.cim, "Customize Player %c (Pad %d)", 'A'+player, player+1 );
+		for( int i = 0; i < PSX_CONTROL_COUNT; ++i ) {
+			strcpy( Rubrikak[i], ControllerActions[i] );
+			strncpy( Rubrikak_tab[i], psx_control_name( psx_control_binding( player, i ) ),
+				MAXRUBRIKAHOSSZ );
+			Rubrikak_tab[i][MAXRUBRIKAHOSSZ] = 0;
 		}
-		layout.kirajzol();
+		val.bead( PSX_CONTROL_COUNT, 1 );
+		current = val.valassz();
+		if( current < 0 )
+			return;
+		controller_button( player, current );
+	}
+}
+
+int customize( void ) {
+	int original[2][PSX_CONTROL_COUNT];
+	for( int player = 0; player < 2; ++player )
+		for( int action = 0; action < PSX_CONTROL_COUNT; ++action )
+			original[player][action] = psx_control_binding( player, action );
+	int current = 0;
+	while( 1 ) {
+		valaszt2 val;
+		val.kur = current;
+		val.egykepen = 10;
+		val.x0 = 100;
+		val.y0 = 160;
+		val.dy = 50;
+		val.escelheto = 1;
+		strcpy( val.cim, "Customize Controls" );
+		strcpy( Rubrikak[0], "Reset all controls to default" );
+		strcpy( Rubrikak[1], "Customize Player A" );
+		strcpy( Rubrikak[2], "Customize Player B" );
+		val.bead( 3 );
+		current = val.valassz();
+		if( current < 0 ) {
+			for( int player = 0; player < 2; ++player )
+				for( int action = 0; action < PSX_CONTROL_COUNT; ++action )
+					if( original[player][action] != psx_control_binding( player, action ) )
+						return 1;
+			return 0;
+		}
+		if( current == 0 )
+			psx_controls_reset();
+		else
+			controller_player( current-1 );
+	}
+}
+
+void controller_help( void ) {
+	int player = 0;
+	while( 1 ) {
+		szoveglista layout;
+		char title[64];
+		sprintf( title, "Controller Layout: Player %c (Pad %d)", 'A'+player, player+1 );
+		layout.addszoveg_kozep( title, 320, 16 );
+		for( int i = 0; i < PSX_CONTROL_COUNT; ++i ) {
+			layout.addszoveg( (char*)ControllerActions[i], 56, 86+i*34 );
+			layout.addszoveg( (char*)psx_control_name( psx_control_binding( player, i ) ),
+				348, 86+i*34 );
+		}
+		layout.addszoveg_kozep( "Select: leave level (both pads)", 320, 374 );
+		layout.addszoveg_kozep( "Left/Right: switch player", 320, 408 );
+		layout.addszoveg_kozep( "Cross/Start: OK; Circle/Select: Back", 320, 442 );
+		mk_emptychar();
+		while( 1 ) {
+			if( mk_kbhit() ) {
+				const int key = mk_getextchar();
+				if( key == MK_ENTER || key == MK_ESC )
+					return;
+				if( key == MK_LEFT || key == MK_RIGHT ) {
+					player = !player;
+					break;
+				}
+			}
+			layout.kirajzol();
+		}
 	}
 }
 
