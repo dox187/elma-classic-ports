@@ -69,6 +69,8 @@ void gv_menu_picture_free();
 // The menus' tile pictures are given back until a menu is drawn again
 // (gpu_menukep.cpp, while an LGR is read).
 void gv_menu_images_free();
+// Drop optional text-background caches before a submenu allocates its list.
+void gv_menu_cache_free();
 // Marks a rectangle of the picture (inclusive coordinates) for the next
 // gv_menu_present.
 void gv_menu_dirty(int x1, int y1, int x2, int y2);

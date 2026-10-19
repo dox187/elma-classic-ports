@@ -157,6 +157,8 @@ opened from Options.
 PAL and NTSC are detected from the console's video mode. Gameplay uses
 320×240 output and menus use 640×480 interlaced output, at 50 Hz on PAL
 and about 60 Hz on NTSC. The game clock is independent of the video rate.
+Menu animation is drawn in software and its update rate varies with the
+drawing workload.
 
 ## Saves and compatibility
 
@@ -203,6 +205,7 @@ python3 console/psx/test/core_boot_test.py --disc --ram2
 python3 console/psx/test/video_test.py --disc
 python3 console/psx/test/resource_menu_test.py --res /path/to/elma.res
 python3 console/psx/test/console_ui_test.py
+python3 console/psx/test/menu_perf_test.py --mode ntsc
 
 # Internal levels in 2 MB; can take a long time
 make -C console/psx mem-test \
@@ -231,6 +234,15 @@ loaded; comma-separated paths run several levels on separate discs.
 Add `--again --force-reload` to check a full reload with sound already
 initialized, or `--again --enable-sound-after` to check enabling sound
 on a retained level.
+`menu_perf_test.py` reports startup time and menu update intervals in retail
+2 MB RAM. Use `--mode pal` for PAL and `--frames 900` to select the measurement
+length in VBlanks. Its update count measures submitted pictures; interlaced
+fields and uneven intervals can make motion less smooth than the average suggests.
+For exact menu pixel comparisons, configure a separate build with
+`-DELMA_PSX_MENU_COMPARE=ON`, build `elma-cd`, and run the test with
+`python3 console/psx/test/menu_perf_test.py --build /path/to/that/build --compare`.
+`--compare-frames 200` selects the minimum number of checked pictures. The
+reference repaint adds substantial work; keep this option off for release timing.
 `message_test.py` needs a small POT14 level and changes only a private copy
 to exercise two recoverable version warnings per load. Consult each test's
 `--help` for data paths and narrower runs.

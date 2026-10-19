@@ -1,4 +1,7 @@
 #include    "all.h"
+#ifdef ELMA_PSX
+#include "pcx_decode.h"
+#endif
 
 typedef unsigned char* puchar;
 
@@ -539,6 +542,10 @@ void pic8::pcxbeolvas( char* nev, FILE* h ) {
 	//if( !lefoglal( desc.Xmax-desc.Xmin+1, desc.Ymax-desc.Ymin+1 ) ) {
 	if( !lefoglal( desc.Xmax-desc.Xmin+1, desc.Ymax-desc.Ymin+1 ) )
 		hiba( "pcx !lefoglal!" );
+#ifdef ELMA_PSX
+	if( psx_pcx_decode( h, sormuttomb, xsize, ysize, desc.BytesPerScanLine ) != 0 )
+		hiba( "Invalid or truncated PCX data!", nev );
+#else
 	for( int y = 0; y < ysize; y++ ) {
 		// Egy sor beolvasasa:
 		short nnn = 0, ccc, iii;
@@ -570,6 +577,7 @@ void pic8::pcxbeolvas( char* nev, FILE* h ) {
 			}
 		} while( nnn < desc.BytesPerScanLine );
 	}
+#endif
 
 	// success az elejen mar 1-re van allitva!
 	if( zarando )

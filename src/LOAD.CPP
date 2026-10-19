@@ -31,6 +31,12 @@ int floadlevel_p( char* nev ) {
 	// A collection's level names can be longer than 8.3 (tutorial01.lev):
 	if( strlen( nev ) > 15 || !nev[0] )
 		hiba( "floadlevel_p-ben strlen( nev ) > 15 || !nev[0]!: ", nev );
+#ifdef ELMA_PSX
+	// Menu-only image caches must leave before any level allocation,
+	// including a retained level whose physics or GPU data needs rebuilding.
+	void gv_menu_images_free( void );
+	gv_menu_images_free();
+#endif
 	if( Volttopsave || !Ptop || !Pszak || strcmpi( nev, Bentlevelnev ) != 0 ) {
 		Volttopsave = 0;
 		// Ujra be kell olvasni palyat:

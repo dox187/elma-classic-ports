@@ -1,7 +1,7 @@
 #!/bin/sh
 # Host-side tests of the pieces the PS1 build adds to the game core: the
 # vendored musl math subset and the small FILE layer. They need only the
-# host C compiler. Output goes to console/psx/build/host-tests/.
+# host C and C++ compilers. Output goes to console/psx/build/host-tests/.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 out=${1:-$here/build/host-tests}
@@ -33,6 +33,10 @@ $cc -std=c99 -O2 -Wall -Wextra -DPSX_FILE_HOST_TEST -I"$here/src" \
     "$here/test/core_file_test.c" "$here/src/psx_file.c" "$here/src/memcard/mclz.c" \
     -o "$out/core_file_test"
 "$out/core_file_test" "$out/file-test"
+
+${CXX:-c++} -std=c++11 -O2 -Wall -Wextra -Werror -I"$here/src" \
+    "$here/test/pcx_host_test.cpp" -o "$out/pcx_host_test"
+"$out/pcx_host_test"
 
 $cc -std=c99 -O2 -Wall -Wextra -Wno-pointer-to-int-cast \
     "$here/test/heap_host_test.c" -o "$out/heap_host_test"

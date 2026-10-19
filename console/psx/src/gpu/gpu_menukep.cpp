@@ -30,6 +30,27 @@ anim* Psisak = NULL;
 static bool Menu_font_discarded = false;
 static bool Menu_font_changed = false;
 
+// Optional menu-only copies of the two tiled backgrounds behind their text.
+// They replace repeated glyph clipping in the animated rectangles, and are
+// released before loading level assets. Allocation failure keeps the small
+// memory renderer active.
+static unsigned char* Menu_background[2] = { NULL, NULL };
+static int* Menu_background_offsets = NULL;
+static int Menu_background_capacity = 0;
+static bool Menu_background_valid = false, Menu_background_tried = false;
+static uint32_t Menu_background_serial = 0;
+static void menu_background_forget( bool release ) {
+	Menu_background_valid = Menu_background_tried = false;
+	if( release ) {
+		free( Menu_background_offsets );
+		Menu_background_offsets = NULL;
+		Menu_background[0] = Menu_background[1] = NULL;
+		Menu_background_capacity = 0;
+	}
+}
+
+void gv_menu_cache_free( void ) { menu_background_forget( true ); }
+
 static pic8 *Vegetile1 = NULL, *Vegetile2 = NULL;
 
 ddpal* Pmenupal = NULL;
@@ -86,7 +107,7 @@ static void tilebetolt( void ) {
 	for( int lepes = 0; lepes < 2; lepes++ ) {
 		// Reserve a tile decoder and the returning font/helmet when needed.
 		void* proba1 = malloc( 80*1024 );
-		void* proba2 = malloc( Menu_font_discarded ? 160*1024 : 400*114 + 4096 );
+		void* proba2 = malloc( Menu_font_discarded ? 224*1024 : 400*114 + 4096 );
 		free( proba1 );
 		free( proba2 );
 		if( proba1 && proba2 )
@@ -107,6 +128,7 @@ static void tilebetolt( void ) {
 }
 
 void gv_menu_images_free( void ) {
+	menu_background_forget( true );
 	delete Kisnevsima;
 	delete Kisnevgolyo;
 	Kisnevsima = Kisnevgolyo = NULL;
@@ -122,8 +144,11 @@ void gv_menu_images_free( void ) {
 void initmenukep2( void ) {
 	if( Pmenupal )
 		hiba( "initmenukep2-ben Pmenupal!" );
-	pcxtopal( "intro.pcx", &Pmenupal ); // O new-ik egy ddpal-t
 	pcxtopal( "intro.pcx", Menupaltomb );
+	unsigned char pal[768];
+	memcpy( pal, Menupaltomb, sizeof( pal ) );
+	pal[0] = pal[1] = pal[2] = 0;
+	Pmenupal = new ddpal( pal );
 	menumeretbeallit();
 }
 
@@ -141,6 +166,7 @@ int menumeretbeallit( void ) {
 		return 0;
 	Menuxsize = xsize;
 	Menuysize = ysize;
+	menu_background_forget( true );
 	Menueltolasx = (Menuxsize-640)/2;
 	Menueltolasy = (Menuysize-480)/2;
 	// (The picture is always 640x480 here, dd_menumeret.)
@@ -151,6 +177,7 @@ int menumeretbeallit( void ) {
 }
 
 void tilevaltas( void ) {
+	menu_background_forget( false );
 	for( int y = 0; y < Kisnevsima->getysize(); y += Vegetile1->getysize() ) {
 		for( int x = 0; x < Kisnevsima->getxsize(); x += Vegetile1->getxsize() ) {
 			blt8( Kisnevsima, Vegetile1, x, y );
@@ -181,6 +208,7 @@ szoveglista::~szoveglista( void ) {
 }
 
 void szoveglista::addszoveg( char* text, int x, int y ) {
+	menu_background_forget( true );
 	if( strlen( text ) > 100 )
 		hiba( "89ygui" );
 	if( elemszam >= MAXSZOVEGSOR-1 )
@@ -213,6 +241,7 @@ void szoveglista::setsisak( int x, int y ) {
 }
 
 void szoveglista::clear( void ) {
+	menu_background_forget( true );
 	if( elemszam > SOROK_MIN ) {
 		delete[] sorok;
 		sorok = new egyszovsor[SOROK_MIN];
@@ -740,6 +769,41 @@ static int16_t Szovegfutasdb[GV_MENU_H];
 // when the texts are drawn the general way:
 static int16_t Szovegx1[GV_MENU_H], Szovegx2[GV_MENU_H];
 
+static void menu_background_make( void ) {
+	if( Menu_background_valid || Menu_background_tried || !Hszoveg || Hkepek[3] || !Szovegfutas ) return;
+	Menu_background_tried = true;
+	int pixels = 0;
+	for( int y = 0; y < GV_MENU_H; ++y )
+		if( Szovegx1[y] <= Szovegx2[y] )
+			pixels += Szovegx2[y]-Szovegx1[y]+1;
+	// The rest of each row comes directly from the tile; keep ample room
+	// for the next menu's lists even on a retail console.
+	if( !pixels || 2*pixels > 256*1024 ) return;
+	if( pixels > Menu_background_capacity ) {
+		menu_background_forget( true );
+		Menu_background_tried = true;
+		Menu_background_offsets = (int*)malloc( (GV_MENU_H+1)*sizeof(int) + 2*pixels );
+		if( !Menu_background_offsets ) return;
+		Menu_background_capacity = pixels;
+		Menu_background[0] = (unsigned char*)(Menu_background_offsets+GV_MENU_H+1);
+		Menu_background[1] = Menu_background[0]+pixels;
+	}
+	int offset = 0;
+	for( int y = 0; y < GV_MENU_H; ++y ) {
+		Menu_background_offsets[y] = offset;
+		if( Szovegx1[y] > Szovegx2[y] ) continue;
+		const int w = Szovegx2[y]-Szovegx1[y]+1;
+		for( int i = 0; i < 2; ++i ) {
+			unsigned char* row = Menu_background[i]+offset;
+			hatterreszlet( i, 1, &row, Szovegx1[y], y, w, 1 );
+		}
+		offset += w;
+	}
+	Menu_background_offsets[GV_MENU_H] = offset;
+	Menu_background_valid = true;
+	Menu_background_serial = gv_menu_serial();
+}
+
 static void szovegxtorol( int mind ) {
 	for( int y = 0; y < GV_MENU_H; y++ ) {
 		Szovegx1[y] = (int16_t)(mind ? 0 : 32767);
@@ -831,6 +895,8 @@ static void szovegfutasok( void ) {
 		Szovegfutasdb[y] = (int16_t)m;
 		Szovegx1[y] = (int16_t)(m ? f[0] : 32767);
 		Szovegx2[y] = (int16_t)(m ? f[2*m-1] : -1);
+		if( Szovegx1[y] < 0 ) Szovegx1[y] = 0;
+		if( Szovegx2[y] >= GV_MENU_W ) Szovegx2[y] = GV_MENU_W-1;
 	}
 }
 
@@ -1057,6 +1123,21 @@ struct rajzsor {
 static void sorresz( const rajzsor* r, int l, int a, int b, int szoveggel ) {
 	if( a > b )
 		return;
+	if( Menu_background_valid ) {
+		const int x1 = Szovegx1[r->y], x2 = Szovegx2[r->y];
+		if( x1 > x2 ) {
+			tilesor( r->forras[l], r->alap, r->tw, a, b, r->sor );
+			return;
+		}
+		if( a < x1 )
+			tilesor( r->forras[l], r->alap, r->tw, a, b < x1 ? b : x1-1, r->sor );
+		const int ca = a > x1 ? a : x1, cb = b < x2 ? b : x2;
+		if( ca <= cb )
+			memcpy( r->sor+ca, Menu_background[l]+Menu_background_offsets[r->y]+ca-x1, cb-ca+1 );
+		if( b > x2 )
+			tilesor( r->forras[l], r->alap, r->tw, a > x2 ? a : x2+1, b, r->sor );
+		return;
+	}
 	if( szoveggel || !Szovegfutas || !Hszoveg || Hkepek[3] ) {
 		sortile st;
 		st.forras[0] = r->forras[0];
@@ -1393,10 +1474,13 @@ static void kepkeszit( pic8* cel, int mindig ) {
 			if( ga->x1 <= gb->x2 && gb->x1 <= ga->x2 && ga->y1 <= gb->y2 && gb->y1 <= ga->y2 &&
 				nagykorok_metszik( ga->k, ga->nk, gb->k, gb->nk ) ) {
 				egyutt = 1;
-				const int c = gb->csoport;
+				// Groups are visited from their lowest ball index below. Keep
+				// that root when two previously merged groups meet as well.
+				const int ca = ga->csoport, cb = gb->csoport;
+				const int root = ca < cb ? ca : cb, c = ca < cb ? cb : ca;
 				for( int g = 0; g < MAXTERULET; g++ )
 					if( golyok[g].csoport == c )
-						golyok[g].csoport = ga->csoport;
+						golyok[g].csoport = root;
 			}
 		}
 
@@ -1536,6 +1620,58 @@ static void kepkeszit( pic8* cel, int mindig ) {
 extern "C" volatile int gpu_test_levels;
 volatile int gpu_test_levels = 0;
 
+#ifdef ELMA_PSX_MENU_COMPARE
+// Test builds compare partial drawing with a full repaint of the same
+// circles and text. The reference is only allocated while this test runs.
+extern "C" {
+volatile unsigned gpu_menu_compare_enable = 0;
+volatile unsigned gpu_menu_compare_frames = 0;
+volatile unsigned gpu_menu_compare_errors = 0;
+volatile unsigned gpu_menu_timed_frames = 0;
+volatile unsigned gpu_menu_cached_ticks = 0, gpu_menu_uncached_ticks = 0;
+}
+static void menu_compare( pic8* front, int full, uint32_t cached_ticks ) {
+	static pic8* reference = NULL;
+	if( !reference ) reference = new pic8( GV_MENU_W, GV_MENU_H );
+	const bool cached = Menu_background_valid;
+	Menu_background_valid = false;
+	kepkeszit( reference, 1 );
+	Menu_background_valid = cached;
+	for( int y = 0; y < GV_MENU_H; ++y ) {
+		if( memcmp( front->getptr(y), reference->getptr(y), GV_MENU_W ) ) {
+			printf( "elma: menu repaint differs on row %d, frame %u\n", y, gpu_menu_compare_frames );
+			for( int x = 0; x < GV_MENU_W; ++x )
+				if( front->getptr(y)[x] != reference->getptr(y)[x] ) {
+					printf( "elma: pixel %d,%d cached=%u full=%u\n", x,y,front->getptr(y)[x],reference->getptr(y)[x] );
+					break;
+				}
+			Menu_background_valid = false;
+			kepkeszit( front, 0 );
+			printf( "elma: uncached partial row agrees=%d\n", !memcmp(front->getptr(y),reference->getptr(y),GV_MENU_W) );
+			Menu_background_valid = cached;
+			for( int f = 0; f < 2; ++f )
+				for( int i = 0; i < Korszam[f]; ++i ) {
+					const golyokor* c = &Korok[f][i];
+					if( y >= c->y1 && y <= c->y2 )
+						printf( "elma: circle frame=%d ball=%d layer=%d order=%d x=%d..%d\n", f,c->golyo,c->golyos,c->sorrend,c->x1[y-c->y1],c->x2[y-c->y1] );
+				}
+			++gpu_menu_compare_errors;
+			break;
+		}
+	}
+	if( cached && !full ) {
+		Menu_background_valid = false;
+		const uint32_t start = gv_clock();
+		kepkeszit( front, 0 );
+		gpu_menu_uncached_ticks += gv_clock()-start;
+		gpu_menu_cached_ticks += cached_ticks;
+		++gpu_menu_timed_frames;
+		Menu_background_valid = cached;
+	}
+	++gpu_menu_compare_frames;
+}
+#endif
+
 void szoveglista::kirajzol( int nemkellgolyo,
 							pic8* rarakkep1, pic8* rarakkep2,
 							pic8* rarakkep3, pic8* rarakkep4 ) {
@@ -1546,6 +1682,7 @@ void szoveglista::kirajzol( int nemkellgolyo,
 	}
 	tilebetolt();
 	if( Menu_font_changed ) {
+		menu_background_forget( false );
 		ervenyes = 0;
 		Menu_font_changed = false;
 	}
@@ -1571,6 +1708,7 @@ void szoveglista::kirajzol( int nemkellgolyo,
 	// Another list than the last one drawn (whose texts may still be on the
 	// picture) is drawn whole, too:
 	if( (!ervenyes || Hlista != this) && !Kezdoanimjon ) {
+		menu_background_forget( false );
 		ervenyes = 1;
 		Elozoervenyes = 0;
 		Hlista = this;
@@ -1634,6 +1772,13 @@ void szoveglista::kirajzol( int nemkellgolyo,
 	unsigned char** sorok_front = lockfrontbuffer();
 	pic8 front( Menuxsize, Menuysize, sorok_front );
 	int reszleges = Elozoervenyes && Elozosorozat == gv_menu_serial();
+	if( !State->animatedmenus || Hkepek[3] ) menu_background_forget( true );
+	else {
+		if( Menu_background_valid && Menu_background_serial != gv_menu_serial() )
+			menu_background_forget( false );
+		// The first picture stays responsive; build only after it was shown.
+		if( reszleges ) menu_background_make();
+	}
 	golyoterulet uj[MAXTERULET];
 	for( int i = 0; i < MAXTERULET; i++ ) {
 		uj[i].x1 = uj[i].y1 = 1;
@@ -1661,7 +1806,13 @@ void szoveglista::kirajzol( int nemkellgolyo,
 		egyesit( &uj[i], ujkor( xo8+dx8, yo8+dy8, r8kicsi, HATTER_SIMA, i ) );
 		egyesit( &uj[i], ujkor( xo8-dx8, yo8-dy8, r8kicsi, HATTER_SIMA, i ) );
 	}
+#ifdef ELMA_PSX_MENU_COMPARE
+	const uint32_t compare_start = gv_clock();
+#endif
 	kepkeszit( &front, !reszleges );
+#ifdef ELMA_PSX_MENU_COMPARE
+	if( gpu_menu_compare_enable ) menu_compare( &front, !reszleges, gv_clock()-compare_start );
+#endif
 	Regisisak.x1 = Regisisak.y1 = 1;
 	Regisisak.x2 = Regisisak.y2 = 0;
 	if( !nemkellgolyo ) {

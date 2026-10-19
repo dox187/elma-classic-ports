@@ -12,6 +12,10 @@
 # place of MENUKEP.CPP) and memcpy is a word copy (gpu_memcpy.c).
 option(ELMA_PSX_GPU "Draw the game view with the GPU" ON)
 option(ELMA_PSX_GPU_COMPARE "Keep the software renderer next to the GPU one (tests)" OFF)
+option(ELMA_PSX_MENU_COMPARE "Check menu rectangles against full repaints (tests)" OFF)
+if(ELMA_PSX_MENU_COMPARE)
+	add_compile_definitions(ELMA_PSX_MENU_COMPARE)
+endif()
 
 list(APPEND ELMA_PSX_EXTRA_SOURCES
 	${CMAKE_CURRENT_LIST_DIR}/gpu_memcpy.c

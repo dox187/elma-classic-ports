@@ -248,6 +248,8 @@ int char_head = 0, char_count = 0;
 
 void push_char(int c) {
 	if (char_count == 16) return;
+	// The selected submenu may allocate its rows before drawing again.
+	if (c == MK_ENTER || c == MK_ESC) gv_menu_cache_free();
 	chars[(char_head + char_count++) % 16] = c;
 	psx_debug.menu_chars++;
 }
