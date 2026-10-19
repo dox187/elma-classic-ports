@@ -28,6 +28,7 @@ PSX = os.path.dirname(HERE)
 REPO = os.path.dirname(os.path.dirname(PSX))
 sys.path.insert(0, HERE)
 import pcsx  # noqa: E402
+from res_layout import resource_layout  # noqa: E402
 
 
 def link(target, path):
@@ -87,6 +88,7 @@ def main():
     workdir = os.path.join(args.build, "core-boot-test-disc" if args.disc else "core-boot-test")
     os.makedirs(workdir, exist_ok=True)
     lua_args = {"shots": "boot_"} if args.shots else {}
+    lua_args["internal_steps"] = ",".join(resource_layout(args.res)["internal_steps"])
     run_args = dict(map_file=os.path.splitext(exe)[0] + ".map",
                     lua=os.path.join(HERE, "core_boot_test.lua"), ram8=not args.ram2,
                     timeout=args.timeout, workdir=workdir, args=lua_args)
@@ -99,8 +101,10 @@ def main():
     for line in result.output.splitlines():
         if line.startswith(("elma:", "frame ", "PASS", "FAIL", "LUA")) or "error" in line.lower():
             print(line)
-    if result.returncode != 0 and "PASS" not in result.output:
+    passed = any(line.startswith("PASS:") for line in result.output.splitlines())
+    if result.returncode != 0 or not passed:
         print("FAIL: emulator exit code %d" % result.returncode)
+        return result.returncode or 1
     return result.returncode
 
 

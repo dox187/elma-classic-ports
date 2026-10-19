@@ -57,12 +57,10 @@ local steps = {
     {name = "name: first letter", button = "RIGHT"},
     {name = "name: enter", button = "CROSS"},
     {name = "main menu: Play", button = "CROSS"},
-    {name = "collections: row 2", button = "DOWN"},
-    {name = "collections: row 3", button = "DOWN"},
-    {name = "collections: row 4", button = "DOWN"},
-    {name = "collections: row 5", button = "DOWN"},
-    {name = "collections: row 6, External Levels", button = "DOWN"},
 }
+for button in string.gmatch(elma.args.path or "DOWN,DOWN,DOWN,DOWN,DOWN", "[^,]+") do
+    steps[#steps + 1] = {name = "select External Levels: " .. button, button = button}
+end
 local step, phase = 0, "boot"
 local settled_at
 local deadline = 9000

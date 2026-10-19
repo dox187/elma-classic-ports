@@ -130,10 +130,11 @@ if run == 1 then
         {name = "name: first letter", button = "RIGHT"},
         {name = "name: enter", button = "CROSS", after = "first_save"},
         {name = "main menu: Play", button = "CROSS"},
-        {name = "collections: Original Levels", button = "DOWN"},
-        {name = "collections: enter", button = "CROSS"},
-        {name = "levels: Warm Up", button = "CROSS", before = "freeze"},
     }
+    for button in assert(elma.args.internal_steps, "internal_steps is required"):gmatch("[^,]+") do
+        steps[#steps + 1] = {name = "levels route: " .. button, button = button}
+    end
+    steps[#steps].before = "freeze"
 else
     steps = {{name = "intro", button = "CROSS"}}
 end

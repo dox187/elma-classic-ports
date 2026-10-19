@@ -4,7 +4,7 @@
 -- internal level (Warm Up), gives gas and checks that the bike moves.
 --
 -- The game state comes from psx_debug in src/psx_platform.cpp.
--- Arguments: shots=DIR prefix of the screenshots (default: none).
+-- Arguments: internal_steps=BUTTON,... (from res_layout.py), shots=DIR.
 
 local dbg = elma.sym("psx_debug")
 if not dbg then
@@ -46,10 +46,10 @@ local steps = {
     {name = "name: first letter", button = "RIGHT"},
     {name = "name: enter", button = "CROSS"},
     {name = "main menu: Play", button = "CROSS"},
-    {name = "collections: Original Levels", button = "DOWN"},
-    {name = "collections: enter", button = "CROSS"},
-    {name = "levels: Warm Up", button = "CROSS"},
 }
+for button in assert(elma.args.internal_steps, "internal_steps must come from the resource layout"):gmatch("[^,]+") do
+    steps[#steps + 1] = {name = "levels route: " .. button, button = button}
+end
 
 local step = 0          -- 0: waiting for the first picture
 local phase = "boot"

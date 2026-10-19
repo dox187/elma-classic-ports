@@ -11,6 +11,7 @@ import sys
 import pcsx
 from core_boot_test import PSX, REPO, make_disc, make_pcdrv_dir
 from mc_test import make_card
+from res_layout import resource_layout
 
 
 def main():
@@ -25,6 +26,7 @@ def main():
     ap.add_argument("--timeout", type=float, default=600)
     ap.add_argument("--redux")
     args = ap.parse_args()
+    internal_steps = ",".join(resource_layout(args.res)["internal_steps"])
     base = os.path.abspath(os.path.join(args.build, "video-test-disc" if args.disc else "video-test"))
     os.makedirs(base, exist_ok=True)
     if args.disc:
@@ -49,6 +51,7 @@ def main():
                               lua=os.path.join(os.path.dirname(__file__), script),
                               ram8=False, workdir=work, timeout=args.timeout, redux=args.redux,
                               args={"force": 2 if mode == "pal" else 1,
+                                    "internal_steps": internal_steps,
                                     "frames": 900 if scene == "menu" else 480,
                                     "log": os.path.join(work, "test.log")},
                               extra_flags=["-memcard1", card])

@@ -134,7 +134,10 @@ bp(need("_ZN12_GLOBAL__N_114message_screenEPKcPcS2_S2_b"), function()
     say(string.format("MESSAGE warning %d at frame %d", warnings, frame))
 end)
 
-local keys = {"CROSS", "RIGHT", "CROSS", "CROSS", "DOWN", "DOWN", "DOWN", "DOWN", "DOWN", "CROSS", "CROSS"}
+local keys = {"CROSS", "RIGHT", "CROSS", "CROSS"}
+for button in assert(elma.args.external_steps, "external_steps must come from the resource layout"):gmatch("[^,]+") do
+    keys[#keys + 1] = button
+end
 local phase, index, deadline = "boot", 1, 9000
 local pressed, chars_before, presents_before, game_before, play_at, left_at
 local plays = 0

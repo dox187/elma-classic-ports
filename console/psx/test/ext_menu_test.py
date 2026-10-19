@@ -26,6 +26,7 @@ REPO = os.path.dirname(os.path.dirname(PSX))
 sys.path.insert(0, HERE)
 import pcsx  # noqa: E402
 import mc_test  # noqa: E402
+from res_layout import resource_layout  # noqa: E402
 
 
 def make_disc(build, res, lgr, lev_dir, scenario):
@@ -77,7 +78,9 @@ def main():
     log = os.path.join(work, "test.log")
     if os.path.exists(log):
         os.remove(log)
-    args = {"scenario": o.scenario, "log": log}
+    layout = resource_layout(o.res)
+    args = {"scenario": o.scenario, "log": log,
+            "path": ",".join(layout["external_steps"][:-2])}
     if o.shots:
         args["shots"] = os.path.join(work, "shot_")
     r = pcsx.run(iso=cue, map_file=os.path.join(o.build, "elma-cd.map"),
@@ -86,11 +89,16 @@ def main():
     for line in r.output.splitlines():
         if line.startswith(("elma: reading", "elma: no")):
             print(line)
+    report = ""
     if os.path.exists(log):
-        print(open(log).read().rstrip())
-    if r.returncode != 0:
+        with open(log) as f:
+            report = f.read()
+        print(report.rstrip())
+    passed = any(line.startswith("PASS:") for line in report.splitlines())
+    if r.returncode != 0 or not passed:
         print("FAIL: emulator exit code %d; the end of its output:" % r.returncode)
         print("\n".join(l[:160] for l in r.output.splitlines()[-12:]))
+        return r.returncode or 1
     return r.returncode
 
 

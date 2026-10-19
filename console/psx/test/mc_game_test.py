@@ -26,6 +26,7 @@ sys.path.insert(0, HERE)
 import pcsx  # noqa: E402
 import mc_test  # noqa: E402
 from core_boot_test import make_pcdrv_dir  # noqa: E402
+from res_layout import resource_layout  # noqa: E402
 
 
 def read_script(path):
@@ -63,6 +64,7 @@ def main():
     os.makedirs(base, exist_ok=True)
     pcdrv = os.path.join(base, "pcdrv")
     make_pcdrv_dir(pcdrv, o.res, o.lgr)
+    internal_steps = ",".join(resource_layout(o.res)["internal_steps"])
     card = os.path.join(base, "card.mcd")
     with open(card, "wb") as f:
         f.write(mc_test.make_card("fresh"))
@@ -70,7 +72,8 @@ def main():
     status = 0
     for run in (1, 2):
         work = os.path.join(base, "run%d" % run)
-        args = {"run": run, "want_time": want, "script": script}
+        args = {"run": run, "want_time": want, "script": script,
+                "internal_steps": internal_steps}
         if os.environ.get("MC_NODIRTY"): args["nodirty"] = 1
         if os.environ.get("MC_SECOND"): args["second"] = 1
         if os.environ.get("MC_NOFREEZE"): args["nofreeze"] = 1

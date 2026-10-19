@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Repeated message/card notices and menu/game recovery in retail 2 MB RAM.
 
-Uses a private copy of a valid POT14 level with its version changed to 15.
-The core shows two warnings, then continues loading the compatible data.
+Uses two private copies of a valid POT14 level with its version changed to 15.
+The core shows two warnings per copy, then loads the compatible data.
 No game data is changed in place. Run after building elma-cd:
 
     python3 test/message_test.py --build build --level /path/to/small.lev
@@ -17,6 +17,7 @@ import sys
 
 import pcsx
 import mc_test
+from res_layout import resource_layout
 
 PSX = Path(__file__).resolve().parent.parent
 REPO = PSX.parent.parent
@@ -52,6 +53,7 @@ def main():
     card = work / "card.mcd"
     card.write_bytes(mc_test.make_card("fresh"))
     lua_args = {"force": 2 if args.pal else 1, "log": str(work / "test.log")}
+    lua_args["external_steps"] = ",".join(resource_layout(args.res)["external_steps"])
     if args.shots:
         lua_args["shots"] = str(work / "shot_")
     result = pcsx.run(iso=str(disc / "elma.cue"),

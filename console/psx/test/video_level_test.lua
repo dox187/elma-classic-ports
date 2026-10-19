@@ -3,7 +3,7 @@
 -- leaves the bike idle for `frames` frames and compares, over the same
 -- emulated CPU cycles, the vertical blanks, the frames of the game view and
 -- the game's stopper (182 ticks a second in both modes).
--- Arguments: force=1|2, frames=N, shot=PATH.
+-- Arguments: internal_steps=BUTTON,..., force=1|2, frames=N, shot=PATH.
 
 -- LuaJIT traces of the emulator's frame callbacks can overflow its stack.
 if jit then jit.off() end
@@ -25,7 +25,10 @@ local function snapshot()
             presents = elma.u32(dbg + 4)}
 end
 
-local steps = {"CROSS", "RIGHT", "CROSS", "CROSS", "DOWN", "CROSS", "CROSS"}
+local steps = {"CROSS", "RIGHT", "CROSS", "CROSS"}
+for button in assert(elma.args.internal_steps, "internal_steps must come from the resource layout"):gmatch("[^,]+") do
+    steps[#steps + 1] = button
+end
 local step, phase = 0, "boot"
 local press_frame, chars_before, presents_before, first
 local last_game, moved_frame, game_advanced_at
