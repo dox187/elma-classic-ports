@@ -19,13 +19,12 @@ def main():
     ap.add_argument("--res", type=Path, default=REPO / "elma.res")
     ap.add_argument("--lgr", type=Path, default=REPO / "build/Lgr/Default_old.lgr")
     ap.add_argument("--timeout", type=float, default=600)
-    ap.add_argument("--replay", action="store_true", help="focused Circle replay toggle and Select exit regression")
     args = ap.parse_args()
     build = args.build.resolve()
     for path in (build / "elma.exe", build / "elma.map", args.card, args.res, args.lgr):
         if not path.is_file():
             ap.error("file not found: " + str(path))
-    base = build / ("controller-replay-test" if args.replay else "controller-layout-test")
+    base = build / "controller-layout-test"
     base.mkdir(parents=True, exist_ok=True)
     card = base / "private-card.mcd"
     if card.resolve() == args.card.resolve():
@@ -34,7 +33,7 @@ def main():
     pcdrv = base / "pcdrv"
     make_pcdrv_dir(str(pcdrv), str(args.res.resolve()), str(args.lgr.resolve()))
     layout = resource_layout(str(args.res.resolve()))
-    for run in ((3,) if args.replay else (1, 2)):
+    for run in (1, 2):
         work = base / ("run%d" % run)
         work.mkdir(exist_ok=True)
         result = pcsx.run(exe=str(build / "elma.exe"), map_file=str(build / "elma.map"),

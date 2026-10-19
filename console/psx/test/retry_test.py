@@ -46,6 +46,16 @@ def check_panel(path):
         raise ValueError("fast restart explanation is missing at the bottom")
 
 
+def check_recording_removed(path):
+    with open(path, encoding="utf-8") as f:
+        symbols = f.read()
+    for name in ("recorder_darab", "_ZN8recorder5store", "_ZN8recorder7addhang",
+                 "_ZN8recorder4load", "_ZN8recorder4save", "_Z6replayv",
+                 "_ZL4demov", "_Z8saveplayl", "_Z10replayprecv", "lejatszo_r"):
+        if name in symbols:
+            raise ValueError("obsolete replay/recording code remains linked: " + name)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--build", default=os.path.join(PSX, "build"))
@@ -63,6 +73,8 @@ def main():
     with open(card, "wb") as f:
         f.write(make_card("fresh"))
     image = "elma-cd" if args.disc else "elma"
+    check_recording_removed(os.path.join(args.build, image + ".map"))
+    print("RETRY no replay/demo/recording code linked")
     if args.disc:
         disc = os.path.join(work, "disc")
         subprocess.run([sys.executable, os.path.join(PSX, "tools/mkdisc.py"),

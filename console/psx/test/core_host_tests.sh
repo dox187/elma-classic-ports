@@ -43,6 +43,11 @@ ${CXX:-c++} -std=c++11 -O2 -Wall -Wextra -Werror -I"$here/src" \
     "$here/test/pcx_host_test.cpp" -o "$out/pcx_host_test"
 "$out/pcx_host_test"
 
+${CXX:-c++} -std=c++11 -O2 -Wall -Wextra -Werror -Wno-write-strings -DELMA_PSX \
+    -I"$here/test/recorder_host" "$here/test/recorder_host_test.cpp" \
+    "$here/../../src/RECORDER.CPP" -o "$out/recorder_host_test"
+"$out/recorder_host_test"
+
 $cc -std=c99 -O2 -Wall -Wextra -Wno-pointer-to-int-cast \
     "$here/test/heap_host_test.c" -o "$out/heap_host_test"
 "$out/heap_host_test"

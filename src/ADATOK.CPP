@@ -227,6 +227,7 @@ void initadatok( void ) {
 // reorder.h-ban friend-kent vannak deklaralva mar:
 // pgazhatra-ba beepiti betoltvet:
 void berakrecbehosszat( recorder* prec ) {
+#ifndef ELMA_PSX
 	if( prec->betoltve < 80 )
 		return;
 	unsigned int beirando = prec->betoltve;
@@ -236,6 +237,7 @@ void berakrecbehosszat( recorder* prec ) {
 			prec->pgazhatra[40+i] += 128;
 		beirando = beirando >> 1;
 	}
+#endif
 }
 
 // pgazhatra alapjan ellenorzi hosszt:

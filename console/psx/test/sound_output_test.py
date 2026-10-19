@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify real SPU output, sound-option mute and menu/replay silence.
+"""Verify real SPU output, sound-option mute and menu/retry silence.
 
 Uses PCSX-Redux's SDL disk backend: no audible output or host mixer changes.
 The captured native stereo F32 output is checked independently of the game's
@@ -38,7 +38,7 @@ def check_capture(path, output):
     marks = [(int(m), int(s), int(b)) for m, s, b in re.findall(
         r"AUDIO_MARK mute=(\d+) sound=(\d+) bytes=(\d+)", output)]
     if [(m, s) for m, s, _ in marks] != [(0, 1), (0, 0), (0, 1), (1, 1), (0, 1)]:
-        raise ValueError("missing ride, sound option, menu or replay transition")
+        raise ValueError("missing ride, sound option, menu or retry transition")
     for i, (mute, sound, start) in enumerate(marks):
         end = marks[i + 1][2] if i + 1 < len(marks) else len(samples) * 4
         # Ignore device buffering around an edge, never the steady interval.
@@ -112,7 +112,7 @@ def main():
     except (OSError, ValueError) as e:
         print("FAIL:", e)
         return 1
-    print("PASS: digital output, option mute, menu silence and replay resume")
+    print("PASS: digital output, option mute, menu silence and retry resume")
     return 0
 
 

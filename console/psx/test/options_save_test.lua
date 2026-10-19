@@ -22,6 +22,7 @@ local function rows_have(prefix)
     return false
 end
 local function screen(name)
+    if name == "choose" then return rows_have("Choose Player") end
     return rows_have(name == "main" and "Main Menu" or "Options")
 end
 local stopped = false
@@ -57,10 +58,11 @@ elma.on_frame(function(n)
             local run = tonumber(elma.args.run)
             if run == 2 and single() ~= 0 then return finish(false, "Multiplayer did not survive reboot") end
             if run == 3 and single() ~= 1 then return finish(false, "Single Player did not survive reboot") end
+            add("dismiss splash", "CROSS", "choose")
             add("choose saved player", "CROSS", "main")
             local target = run == 1 and 0 or 1
             if run ~= 3 and single() ~= target then
-                for i=1,3 do add("select Options "..i,"DOWN","main") end
+                add("select Options","DOWN","main")
                 add("open Options","CROSS","options")
                 local mode = target == 1 and "Single Player" or "Multiplayer"
                 add("select "..mode,"CROSS","options",target)

@@ -85,7 +85,7 @@ if fresh then
     step("Play submenu Circle returns", "CIRCLE", "main", 1)
     step("reopen Play submenu", "CROSS", "play", 1)
     step("Play submenu Select returns", "SELECT", "main", 1)
-    for i = 1, 3 do step("select Options row " .. i, "DOWN", "main", 1) end
+    step("select Options", "DOWN", "main", 1)
     step("open Options", "CROSS", "options", 1)
     step("select Player A", "DOWN", "options", 1)
     step("open Options player chooser", "CROSS", "choose", 1)
@@ -117,6 +117,11 @@ elma.on_frame(function(n)
     if quitting then return end
     local ok, err = xpcall(function()
         local rows = menu_rows()
+        if has(rows, "Main Menu") then
+            assert(#rows == 5 and rows[2] == "Play" and rows[3] == "Options" and
+                rows[4] == "Help" and rows[5] == "Best Times", "wrong console main menu")
+            assert(not has(rows, "Replay") and not has(rows, "Demo"), "replay or demo remains in main menu")
+        end
         if has(rows, "Do you want to quit?") then return finish(false, "console opened the desktop quit dialog") end
         if elma.u32(dbg + 36) ~= 0 then return finish(false, "runtime error") end
         if n > deadline then return finish(false, "timeout at " .. steps[index].name .. ": " .. table.concat(rows, " | ")) end

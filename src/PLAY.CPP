@@ -56,6 +56,7 @@ int psx_quick_choose( const char* title, const char* const* details, int detail_
 }*/
 
 // Siker eseten igazzal ter vissza:
+#ifndef ELMA_PSX
 static int bevesznevet( char* nev ) {
 	szoveglista szovlist;
 
@@ -288,6 +289,7 @@ void saveplay( long belyeg ) {
 	strcat( tmp, ".rec" );
 	saverecek( tmp, belyeg, State->tag );
 }
+#endif
 
 // Idot beirja tablaba, ha kell:
 void idoelintezes( long ido, char* valasz, int level, char* filenev ) {
@@ -414,6 +416,7 @@ void idoelintezes( long ido, char* valasz, int level, char* filenev ) {
 		Ptop->saveidok( filenev );
 }
 
+#ifndef ELMA_PSX
 void replayprec( void ) {
 	floadlevel_p( Prec1->palyanev );
 	int elso = 1;
@@ -447,6 +450,7 @@ void replayjelenlegi( char* filenev ) {
 		elso = 0;
 	}
 }
+#endif
 
 static egyszovsor Idoszovegek[14];
 
@@ -626,16 +630,24 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 				strcpy( Rubrikak[1], "Play next" );
 			else
 				strcpy( Rubrikak[1], "Skip level" );
+#ifdef ELMA_PSX
+			strcpy( Rubrikak[2], "Best times" );
+#else
 			strcpy( Rubrikak[2], "Replay" );
 			strcpy( Rubrikak[3], "Save play" );
 			strcpy( Rubrikak[4], "Best times" );
+#endif
 			//strcpy( Rubrikak[5], "Main menu" );
 		}
 		else {
 			strcpy( Rubrikak[0], "Play again" );
+#ifdef ELMA_PSX
+			strcpy( Rubrikak[1], "Best times" );
+#else
 			strcpy( Rubrikak[1], "Replay" );
 			strcpy( Rubrikak[2], "Save play" );
 			strcpy( Rubrikak[3], "Best times" );
+#endif
 			//strcpy( Rubrikak[4], "Main menu" );
 		}
 
@@ -669,18 +681,24 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 			details[1] = player_details[0];
 			details[2] = player_details[1];
 		}
-		const char* choices[5];
-		for( int row = 0; row < 4+nextisvan+skipisvan; ++row )
+		const int choice_count = 2+nextisvan+skipisvan;
+		const char* choices[3];
+		for( int row = 0; row < choice_count; ++row )
 			choices[row] = Rubrikak[row];
 		int eredmeny = psx_quick_choose( fejlec, details, Single ? 1 : 3,
-				choices, 4+nextisvan+skipisvan, kurrens );
+				choices, choice_count, kurrens );
 #else
 		int eredmeny = val.valassz( Idoszovegek, idoszovegszam );
 #endif
 		kurrens = eredmeny;
+#ifdef ELMA_PSX
+		if( eredmeny == choice_count-1 )
+			eredmeny = 4;
+#else
 		// eredmeny-t nextisvan esetere konvertalja:
 		if( eredmeny > 0 && !nextisvan && !skipisvan )
 			eredmeny++;
+#endif
 
 		if( eredmeny < 0 /*|| eredmeny == 5*/ )
 			return 0;
@@ -696,6 +714,7 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 			if( skippelheto( level ) )
 				return 3;
 		}
+#ifndef ELMA_PSX
 		if( eredmeny == 2 ) {
 			replayprec();
 			Pmenupal->set();
@@ -704,6 +723,7 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 			if( level != Palyaszam-1 ) // Utolso palyat nem lehet menteni
 				saveplay( Ptop->belyeg );
 		}
+#endif
 		if( eredmeny == 4 )
 			if( extlev )
 				besttimes( Ptop, Single );

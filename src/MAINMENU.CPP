@@ -89,6 +89,7 @@ int veletlen( void ) {
 	return int( sum & 0x7fffffff );
 }
 
+#ifndef ELMA_PSX
 void replay( void ) {
 	strcpy( Rubrikak[0], "Randomizer" );
 
@@ -316,7 +317,6 @@ static void demo( void ) {
 	}
 }
 
-#ifndef ELMA_PSX
 static void kilephakell( void ) {
 	valaszt2 val;
 	val.kur = 0;
@@ -364,6 +364,12 @@ void mainmenu( void ) {
 	strcpy( val.cim, "Main Menu" );
 
 	strcpy( Rubrikak[0], "Play" );
+#ifdef ELMA_PSX
+	strcpy( Rubrikak[1], "Options" );
+	strcpy( Rubrikak[2], "Help" );
+	strcpy( Rubrikak[3], "Best Times" );
+	int rubrikaszam = 4;
+#else
 	strcpy( Rubrikak[1], "Replay" );
 	strcpy( Rubrikak[2], "Demo" );
 	strcpy( Rubrikak[3], "Options" );
@@ -376,6 +382,7 @@ void mainmenu( void ) {
 		strcpy( Rubrikak[6], "Editor" );
 		rubrikaszam = 7;
 	#endif
+#endif
 
 	val.bead( rubrikaszam );
 
@@ -390,6 +397,12 @@ void mainmenu( void ) {
 		//Buffsima->save( "menu.pcx", Menupaltomb );
 		//uzenet( "Menut mentett menu.pcx file-ba!" );
 
+#ifdef ELMA_PSX
+		if( eredmeny == 0 ) play();
+		else if( eredmeny == 1 ) options();
+		else if( eredmeny == 2 ) help();
+		else if( eredmeny == 3 ) besttimes();
+#else
 		if( eredmeny == 0 )
 			play();
 
@@ -424,7 +437,6 @@ void mainmenu( void ) {
 			Pmenupal->set();
 		}
 
-#ifndef ELMA_PSX
 		if( eredmeny == -1 ) {
 			//State->save_aaa(); kilep majd menti
 			kilephakell();

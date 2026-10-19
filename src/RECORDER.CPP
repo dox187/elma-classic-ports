@@ -3,15 +3,22 @@
 recorder *Prec1 = NULL, *Prec2 = NULL;
 int Multirec = 0; // Ha multiplayer, akkor ez igaz
 
+#ifdef ELMA_PSX
+recorder::recorder( void ) : tag( 0 ) { palyanev[0] = 0; }
+recorder::~recorder( void ) {}
+
+void recorder::erase( char* name ) {
+	if( strlen( name ) > 15 ) hiba( "Invalid recorder level name!" );
+	strcpy( palyanev, name );
+}
+
+long loadrecek( char*, int ) { return 0; }
+void saverecek( char*, long, int ) {}
+#else
 #define MAGICNUMBER (4796277l)
 
-#ifdef ELMA_PSX
-#define RECFREAD( t, n, h ) (t).olvas( (h), (n) )
-#define RECFWRITE( t, n, h ) (t).ir( (h), (n) )
-#else
 #define RECFREAD( t, n, h ) fread( (t), 1, (n), (h) )
 #define RECFWRITE( t, n, h ) fwrite( (t), 1, (n), (h) )
-#endif
 
 //#define Darabszam (10000u)
 //#define Hangdarabszam (3000u)
@@ -26,19 +33,8 @@ static const int Hangdarabszam = 3900;
 static double Valtrate = 30; //60;
 static double Recorderszorzo = Valtrate/(182.0*0.0024);
 
-#ifdef ELMA_PSX
-void* recorder_darab( unsigned meret ) {
-	char* d = new char[meret];
-	if( !d )
-		uzenet( "memory" );
-	memset( d, 0, meret );
-	return d;
-}
-#endif
-
 recorder::recorder( void ) {
 	palyanev[0] = 0;
-#ifndef ELMA_PSX
 	pk1rx = NULL;
 	pk1ry = NULL;
 	pk2rx = NULL;
@@ -55,7 +51,6 @@ recorder::recorder( void ) {
 	pgazhatra = NULL;
 
 	phangok = NULL;
-#endif
 
 	betoltve = 0;
 	hangbetoltve = 0;
@@ -74,16 +69,6 @@ recorder::recorder( void ) {
 	if( hossz > 64000l )
 		hiba( "Hangdarabszam*sizeof( egyhang )!" );
 
-#ifdef ELMA_PSX
-	// Little memory: the buffers are made when the recorder is first used
-	// (store, addhang, load), so the second one only in a game of two.
-}
-
-void recorder::lefoglal( void ) {
-	// (The pieces are made when used, rectomb.)
-}
-#endif
-#ifndef ELMA_PSX
 	pk1rx = new float[Darabszam];
 	pk1ry = new float[Darabszam];
 	pk2rx = new short[Darabszam];
@@ -107,7 +92,6 @@ void recorder::lefoglal( void ) {
 	!phangok || !psurlero )
 		uzenet( "memory" );
 }
-#endif
 
 recorder::~recorder( void ) {
 	// Ez most nincs megcsinalva!
@@ -116,14 +100,6 @@ recorder::~recorder( void ) {
 void recorder::erase( char* palyanev_p ) {
 	if( strlen( palyanev_p ) > 15 )
 		hiba( "875h8uyf" );
-#ifdef ELMA_PSX
-	// A new recording: the old one's pieces are given back.
-	pk1rx.torol(); pk1ry.torol(); pk2rx.torol(); pk2ry.torol();
-	pk4rx.torol(); pk4ry.torol(); pvezrx.torol(); pvezry.torol();
-	pk2alfa.torol(); pk4alfa.torol(); pk1alfa.torol();
-	pfrekvencia.torol(); psurlero.torol(); pgazhatra.torol();
-	phangok.torol();
-#endif
 	strcpy( palyanev, palyanev_p );
 	betoltve = 0;
 	hangbetoltve = 0;
@@ -300,9 +276,6 @@ int recorder::recall( motorst* pmot, double dt, hanginfo* phinfo ) {
 static const double Reclepesido = 1.0 / Recorderszorzo;
 
 void recorder::store( motorst* pmot, double ido, hanginfo* phinfo ) {
-#ifdef ELMA_PSX
-	lefoglal();
-#endif
 	if( !legkozindex ) {
 		ucso_r = pmot->kor1.r;
 		ucsot = -0.00000000001;
@@ -459,9 +432,6 @@ void recorder::store( motorst* pmot, double ido, hanginfo* phinfo ) {
 }*/
 
 void recorder::addhang( double t, char wavindex, double hangero, int objszam ) {
-#ifdef ELMA_PSX
-	lefoglal();
-#endif
 	if( hangbetoltve >= Hangdarabszam )
 		return;
 	if( hangbetoltve > 0 ) {
@@ -521,9 +491,6 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 		}
 	}
 
-#ifdef ELMA_PSX
-	lefoglal();
-#endif
 	betoltve = 0;
 	if( fread( &betoltve, 1, 4, h ) != 4 )
 		olvhiba( nev );
@@ -861,6 +828,8 @@ void saverecek( char* nev, long belyeg, int tag ) {
 		Prec1->save( nev, NULL, belyeg, tag );
 	}
 }
+
+#endif
 
 // WAV GYUJTO:
 
