@@ -80,6 +80,11 @@ const uint8_t *spu_stream_shadow(void);
 uint32_t spu_stream_write_block(void);
 uint32_t spu_stream_play_block(void);
 
+/* End of submitted PCM, including a partially encoded final block, and
+ * whether all blocks before that exclusive end are certainly audible. */
+uint32_t spu_stream_end_block(void);
+int spu_stream_has_played(uint32_t end_block);
+
 /* For tests: reads blocks of the ring back from SPU RAM by DMA into dst,
  * a buffer of the size of the ring (each slot lands at its own place). */
 void spu_stream_readback(uint8_t *dst, int first_slot, int blocks);

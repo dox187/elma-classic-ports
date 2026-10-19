@@ -1,4 +1,7 @@
 #include	"all.h"
+#ifdef ELMA_PSX
+#include "sound/psx_sound.h"
+#endif
 
 // Jatek modja ket fele lehet:
 int Single = 1; 
@@ -577,8 +580,8 @@ long lejatszo( char* filenev ) {
 					startwave( WAV_TORES, 0.999 );
 #ifdef ELMA_PSX
 				psx_transition_mark( 1 );
-				// Keep the crash cue, then offer retry without the desktop pause.
-				hangosdelay( 200.0 );
+				// Keep the whole cue, including the audio already queued in the SPU.
+				psx_wait_for_effects();
 #else
 				hangosdelay( Vegenvaras*1000.0 );
 #endif

@@ -400,6 +400,16 @@ uint32_t spu_stream_play_block(void)
 	return irq_steps * SEG;
 }
 
+uint32_t spu_stream_end_block(void)
+{
+	return wblock + (pending_count != 0);
+}
+
+int spu_stream_has_played(uint32_t end_block)
+{
+	return started && (int32_t)(safe_block() - end_block) >= 0;
+}
+
 void spu_stream_readback(uint8_t *dst, int first_slot, int blocks)
 {
 	/* dst holds the whole ring: the slots are read to their own place. */
