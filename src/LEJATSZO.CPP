@@ -221,6 +221,13 @@ static void belsoresz( motorst* pmot, jatekosopciok* popciok,
 	// Berreges es nyikorgas:
 	pvalt->inf.surlero = kiszamolsurlodast();
 
+#ifdef ELMA_PSX
+	// The same in fixed point (console/psx/src/phys/phys_api.cpp): exp in
+	// software floating point would cost a few thousand cycles each step.
+	double psx_motorfrekvencia( double omega );
+	pvalt->inf.frekvencia = psx_motorfrekvencia(
+		pmot->hatra_f ? pmot->kor2.omega : pmot->kor4.omega );
+#else
 	if( pmot->hatra_f )
 		pvalt->inf.frekvencia = fabs(pmot->kor2.omega)*0.025;
 	else
@@ -229,6 +236,7 @@ static void belsoresz( motorst* pmot, jatekosopciok* popciok,
 	if( pvalt->inf.frekvencia > 30.0 )
 		pvalt->inf.frekvencia = 30.0;
 	pvalt->inf.frekvencia = 2.0 - exp(-pvalt->inf.frekvencia);
+#endif
 
 	pvalt->inf.gaz = (char)mk_getstate( popciok->billgaz );
 	prec->store( pmot, eddig, &pvalt->inf );

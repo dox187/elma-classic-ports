@@ -1,0 +1,7 @@
+# Finishes level 1 Warm Up (test/phys_test.py): the bike turns, rides to the
+# apple, eats it, turns back and rides to the flower. Found by phys_host
+# --search with the original double physics in whole steps of 0.0055; the
+# keys of the steps, in the syntax of test/phys_host.cpp.
+time 00:16:52
+GT64 G64 G64 G64 GR64 GL64 GR64 B64 L64 GL64 L64 B64 B64 GT64 G64 G64 G64 GL64
+GR64 GL64 N64
