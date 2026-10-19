@@ -87,7 +87,9 @@ state_s::state_s( char* nev ) {
 
 	if( access( nev, 0 ) != 0 ) {
 		// Nem letezik state.dat:
+		#ifndef ELMA_PSX
 		save();
+		#endif
 		return;
 	}
 

@@ -1,14 +1,12 @@
 -- Memory card test of the game on the PS1, run by test/mc_game_test.py (two
 -- runs on the same card image). Arguments: run=1|2, shots=PREFIX.
 --
--- Run 1 (fresh card): boots, enters a name (the first state.dat; it must
--- reach the card at once, in the menu), starts Warm Up with the game's clock
--- held, marks the state as saved in the middle of the level (the card must
--- NOT be written during the level), plays test/phys_warmup_finish.txt step
--- by step (the whole-step physics of the host test, so that the level is
--- really finished), and waits for the card write after the level, in the menu.
--- Run 2 (the same card, a new emulator): the best time must be in the
--- state that the game read back from the card, without a name entry.
+-- Run 1 (fresh card): enters a name and saves it in the menu, starts Warm Up
+-- with the clock held, marks the state as saved during the level, and checks
+-- that the card write waits until Select returns to the menu. Back at Main
+-- Menu keeps the game running. An optional physics script finishes the level.
+-- Run 2 (the same card, a new emulator): the player, and the best time when
+-- a finish script was used, must return from the card without name entry.
 
 -- The emulator's output is long and the harness keeps only its beginning and
 -- end, so the test's own messages also go to a file (arg log=PATH).
@@ -26,9 +24,10 @@ local state_ptr = elma.sym("State")
 local key_count = elma.sym("_ZN12_GLOBAL__N_19key_countE")
 local freeze = elma.sym("gpu_test_freeze")
 local clock_add = elma.sym("gpu_test_clock_add")
+local rows_ptr, rows_count = elma.sym("_ZL6Hsorok"), elma.sym("_ZL5Hszam")
 for name, v in pairs({psx_debug = dbg, psx_memcard_debug = mcd, State = state_ptr,
                       key_count = key_count, gpu_test_freeze = freeze,
-                      gpu_test_clock_add = clock_add}) do
+                      gpu_test_clock_add = clock_add, menu_rows = rows_ptr, menu_count = rows_count}) do
     if not v then say("FAIL: symbol " .. name .. " not found") PCSX.quit(1) end
 end
 local shots = elma.args.shots
@@ -59,6 +58,18 @@ local function players()
     -- palyakidejei: 90 * 2 * (4 + 40 + 2 * 150) bytes, then jatekosok[50] of 16+92+8 bytes
     return elma.u32(s + 90 * 2 * 344 + 50 * 116)
 end
+local function menu_has(prefix)
+    local address, count = elma.u32(rows_ptr), elma.u32(rows_count)
+    if address == 0 or count > 300 then return false end
+    for row = 0, count - 1 do
+        local matches = true
+        for i = 1, #prefix do
+            if elma.u8(address + 116 * row + i - 1) ~= prefix:byte(i) then matches = false break end
+        end
+        if matches then return true end
+    end
+    return false
+end
 
 -- The free list of the heap (src/mem/psx_mem.c): a cycle means the heap is damaged.
 local fl_sym = elma.sym("free_list")
@@ -73,6 +84,7 @@ end
 local heap_bad_reported = false
 local quitting = false
 local function finish(ok, text)
+    if ok and elma.u32(dbg + 44) ~= 0 then ok, text = false, "development RAM enabled" end
     quitting = true
     local m = mc()
     say(string.format("%s: %s (card saves=%d last status=%d boot status=%d)", ok and "PASS" or "FAIL",
@@ -146,7 +158,8 @@ local press_frame, chars_before, presents_before
 local script_step, advance_frames, gf_at_advance
 local saves_in_level, saves_before_level, finish_frame, last_gf, last_gf_frame
 local quiet_since
-local quit_buttons, quit_index, saves_before_quit
+local back_buttons, back_index, back_presents, back_chars
+local saves_before_player, saves_before_second
 local stall, last_gf_seen = 0, -1
 
 -- An error in the handler would be printed again at every frame:
@@ -170,6 +183,7 @@ elma.on_frame(guarded(function(n)
     local s = dbg_state()
     local m = mc()
     if s.errors > 0 then return finish(false, "the game stopped with an error") end
+    if menu_has("Do you want to quit?") then return finish(false, "console opened the desktop quit dialog") end
     if n > deadline then return finish(false, "timeout in phase " .. phase) end
     if n % 30 == 0 and not heap_bad_reported then
         local ok, cnt = free_list_ok()
@@ -189,6 +203,7 @@ elma.on_frame(guarded(function(n)
         end
     elseif phase == "press" then
         local st = steps[step]
+        if st.after == "first_save" then saves_before_player = m.saves end
         if st.before == "freeze" then
             -- Warm Up starts with the game's clock held: nothing moves until
             -- the script moves it
@@ -233,13 +248,15 @@ elma.on_frame(guarded(function(n)
             phase = "press"
         end
     elseif phase == "first_save" then
-        -- the name made the first state.dat: it goes to the card in the menu
-        if m.saves >= 1 then
+        -- Require a save after submitting the new name, not an earlier write.
+        if m.saves > saves_before_player then
             if m.last ~= 0 then return finish(false, "first save failed with status " .. m.last) end
-            say(string.format("frame %d: first state.dat saved to the card (status %d)", n, m.last))
+            if players() ~= 1 then return finish(false, "first player was not created") end
+            say(string.format("frame %d: new player saved to the card (status %d)", n, m.last))
             shot("first_save")
             if elma.args.second then
                 -- a second save in the menu, no level in between
+                saves_before_second = m.saves
                 elma.write_u32(mcd + 12, 1)
                 phase = "second_save"
                 deadline = n + 1500
@@ -250,7 +267,7 @@ elma.on_frame(guarded(function(n)
             deadline = n + 3000
         end
     elseif phase == "second_save" then
-        if m.saves >= 2 then return finish(m.last == 0, "second save in the menu, status " .. m.last) end
+        if m.saves > saves_before_second then return finish(m.last == 0, "second save in the menu, status " .. m.last) end
     elseif phase == "loading" then
         if s.game_frames >= 3 then
             say(string.format("frame %d: level running (clock held)", n))
@@ -292,37 +309,36 @@ elma.on_frame(guarded(function(n)
             say(string.format("frame %d: card written after leaving the level (status %d)", n, m.last))
             shot("saved")
             if m.last ~= 0 then return finish(false, "save after the level failed: " .. m.last) end
-            -- on to the quit dialog: Back, Back, Back, then Yes; the game saves
-            -- the state and the card is written as the program leaves
-            quit_buttons = {"CIRCLE", "CIRCLE", "CIRCLE", "CIRCLE", "CROSS"}
-            quit_index = 0
-            saves_before_quit = m.saves
-            phase = "quit_press"
+            -- Return through the level menus. Back at the root must keep
+            -- the game running; run 2 verifies the card after a power reset.
+            back_buttons = {"CIRCLE", "CIRCLE", "CIRCLE", "CIRCLE", "SELECT"}
+            back_index = 0
+            back_presents, back_chars = s.presents, s.menu_chars
+            phase = "back_press"
             deadline = n + 6000
         end
-    elseif phase == "quit_press" then
+    elseif phase == "back_press" then
         -- one button at a time, every 150 frames
         if n >= (press_frame or 0) + 150 then
-            if quit_index > 0 then shot("q" .. quit_index) end
-            quit_index = quit_index + 1
-            if quit_index > #quit_buttons then
-                phase = "quit_wait"
+            if back_index > 0 then shot("back" .. back_index) end
+            back_index = back_index + 1
+            if back_index > #back_buttons then
+                phase = "back_wait"
             else
-                elma.press(1, quit_buttons[quit_index])
+                elma.press(1, back_buttons[back_index])
                 press_frame = n
-                phase = "quit_release"
+                phase = "back_release"
             end
         end
-    elseif phase == "quit_release" then
+    elseif phase == "back_release" then
         if n >= press_frame + 6 then
-            elma.release(1, quit_buttons[quit_index])
-            phase = "quit_press"
+            elma.release(1, back_buttons[back_index])
+            phase = "back_press"
         end
-    elseif phase == "quit_wait" then
-        if m.saves > saves_before_quit then
-            say(string.format("frame %d: card written as the program leaves (status %d)", n, m.last))
-            if m.last ~= 0 then return finish(false, "save at exit failed: " .. m.last) end
-            return finish(true, "the card was not written in the level, was written in the menu after it, and at exit")
+    elseif phase == "back_wait" then
+        if menu_has("Main Menu") and menu_has("Play") and
+            s.presents > back_presents + 4 and s.menu_chars > back_chars then
+            return finish(true, "card deferred until the menu; root Back kept Main Menu running")
         end
     elseif phase == "script" then
         -- one physics step at a time: keys first, then the clock; the next step

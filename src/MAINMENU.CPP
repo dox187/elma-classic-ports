@@ -316,6 +316,7 @@ static void demo( void ) {
 	}
 }
 
+#ifndef ELMA_PSX
 static void kilephakell( void ) {
 	valaszt2 val;
 	val.kur = 0;
@@ -343,6 +344,7 @@ static void kilephakell( void ) {
 		kilep();
 	}
 }
+#endif
 
 void mainmenu( void ) {
 	Pmenupal->set();
@@ -354,7 +356,11 @@ void mainmenu( void ) {
 	val.x0 = 200;
 	val.y0 = 100;
 	val.dy = 50;
+#ifdef ELMA_PSX
+	val.escelheto = 0;
+#else
 	val.escelheto = 1;
+#endif
 	strcpy( val.cim, "Main Menu" );
 
 	strcpy( Rubrikak[0], "Play" );
@@ -418,9 +424,11 @@ void mainmenu( void ) {
 			Pmenupal->set();
 		}
 
+#ifndef ELMA_PSX
 		if( eredmeny == -1 ) {
 			//State->save_aaa(); kilep majd menti
 			kilephakell();
 		}
+#endif
 	}
 }

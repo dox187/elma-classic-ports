@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Memory card test of the game in headless PCSX-Redux (two emulator runs on
+"""Memory card test in retail 2 MB headless PCSX-Redux (two emulator runs on
 one private card image, never the user's cards).
 
     python3 test/mc_game_test.py [--res elma.res] [--lgr default.lgr]
         [--build DIR] [--shots] [--timeout S]
 
-Run 1: a new player (the first state.dat) must reach the card in the menu;
+Run 1: a new player must reach the card in the menu after entering the name;
 Warm Up is started with the game's clock held, the state is marked as saved
-in the middle of the level (the card must not be written there), the level is
-finished with test/phys_warmup_finish.txt, one step at a time, and the card
-must be written after the level, in the menu.
-Run 2: a new emulator with the same card: the best time must come back, without
-a name entry. The game files are read from the host (PCdrv, symbolic links only).
+in the middle of the level (the card must not be written there), then Select
+leaves the level and the card must be written in the menu. Back returns to
+Main Menu and keeps the game running without a quit dialog.
+Run 2: a new emulator with the same card must restore the player without a
+name entry. --finish instead runs the experimental completion script and
+checks that the best time returns. Game files use read-only PCdrv links.
 Takes a few minutes: run it in the background. Exit 0 on PASS.
 """
 import argparse
@@ -54,6 +55,7 @@ def main():
                     help="also play test/phys_warmup_finish.txt step by step (experimental: the bike dies)")
     ap.add_argument("--redux")
     o = ap.parse_args()
+    o.build = os.path.abspath(o.build)
 
     exe = os.path.join(o.build, "elma.exe")
     if not os.path.isfile(exe):
@@ -85,7 +87,7 @@ def main():
             os.remove(log)
         args["log"] = log
         r = pcsx.run(exe=exe, map_file=os.path.join(o.build, "elma.map"),
-                     lua=os.path.join(HERE, "mc_game_test.lua"), pcdrv=pcdrv, ram8=True,
+                     lua=os.path.join(HERE, "mc_game_test.lua"), pcdrv=pcdrv, ram8=False,
                      timeout=o.timeout, workdir=work, redux=o.redux, args=args,
                      extra_flags=["-memcard1", card])
         for line in r.output.splitlines():
@@ -94,7 +96,7 @@ def main():
         if os.path.exists(log):
             for line in open(log):
                 print("run %d: %s" % (run, line.rstrip()))
-        if r.returncode != 0:
+        if r.returncode != 0 or not any(line.startswith("PASS:") for line in r.output.splitlines()):
             print("FAIL: run %d exit code %d; the end of its output:" % (run, r.returncode))
             print("\n".join(l[:160] for l in r.output.splitlines()[-12:]))
             status = 1

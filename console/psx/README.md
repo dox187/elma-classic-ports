@@ -150,6 +150,10 @@ Holding Up or Down repeats menu movement. Use Left/Right and Up/Down to
 edit letters in name-entry fields. Message screens are dismissed with
 Cross or Start on controller 1.
 
+The game has no Quit action. Back stays on the initial name/player screen
+and the main menu; it returns from submenus and can cancel a new player
+opened from Options.
+
 PAL and NTSC are detected from the console's video mode. Gameplay uses
 320×240 output and menus use 640×480 interlaced output, at 50 Hz on PAL
 and about 60 Hz on NTSC. The game clock is independent of the video rate.
@@ -163,8 +167,10 @@ is a homebrew identifier. The number of card blocks depends on the saved
 data.
 
 Saves are restored at boot and written automatically in menus, after the
-game changes its state. Wait for the `Saving...` message to disappear before
-resetting or removing the card; a write can take several seconds. Card
+game changes its state. Player creation and selection are saved immediately;
+option changes are saved when returning from Options. Wait for the `Saving...`
+message to disappear before resetting or removing the card; a write can take
+several seconds. Card
 errors are reported and play can continue, but those changes may not be
 kept. The port does not format cards. Replays and other files written by
 the game stay in RAM for the current session; they are not included in
@@ -196,6 +202,7 @@ make -C console/psx test
 python3 console/psx/test/core_boot_test.py --disc --ram2
 python3 console/psx/test/video_test.py --disc
 python3 console/psx/test/resource_menu_test.py --res /path/to/elma.res
+python3 console/psx/test/console_ui_test.py
 
 # Internal levels in 2 MB; can take a long time
 make -C console/psx mem-test \

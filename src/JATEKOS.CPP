@@ -5,6 +5,11 @@ static int Maxnevhossz = 8; // Ez kisebb kell hogy legyen JATEKOSNEVHOSSZ-nal!
 // Siker eseten igazzal ter vissza:
 static int bevesznevet( char* nev, int visszater ) {
 	szoveglista szovlist;
+#ifdef ELMA_PSX
+	// The first player must be named before the console can show its menu.
+	if( State->jatekosokszama == 0 )
+		visszater = 0;
+#endif
 
 	int i = 0;
 	mk_emptychar();
@@ -16,7 +21,9 @@ static int bevesznevet( char* nev, int visszater ) {
 			if( c == MK_ESC ) {
 				if( visszater )
 					return 0;
+				#ifndef ELMA_PSX
 				kilep();
+				#endif
 			}
 			if( c == MK_ENTER ) {
 				// ENTER
@@ -84,13 +91,18 @@ void newjatekos( int A, int visszater ) {
 			if( State->jatekosokszama == 1 )
 				strcpy( State->jatekosa, State->jatekosb );
 		}
+		#ifdef ELMA_PSX
+		State->save();
+		#endif
 	}
 	else {
 		visszater = 1; // Ha elescapelte, akkor visszamegyunk menube
 	}
 
+#ifndef ELMA_PSX
 	if( State->jatekosokszama == 0 )
 		kilep();
+#endif
 
 	if( visszater )
 		return;
@@ -111,7 +123,11 @@ void jatekosvalasztas( int A, int visszater ) {
 	pval->x0 = LISTx0;
 	pval->y0 = LISTy0;
 	pval->dy = LISTdy;
+#ifdef ELMA_PSX
+	pval->escelheto = visszater;
+#else
 	pval->escelheto = 1;
+#endif
 	strcpy( pval->cim, "Choose Player" );
 
 	strcpy( Rubrikak[0], "Create New Player" );
@@ -135,9 +151,11 @@ void jatekosvalasztas( int A, int visszater ) {
 	delete pval; pval = NULL;
 
 	if( eredmeny < 0 ) {
-		if( visszater )
-			return;
-		kilep();
+#ifndef ELMA_PSX
+		if( !visszater )
+			kilep();
+#endif
+		return;
 	}
 	if( eredmeny == 0 ) {
 		newjatekos( A, visszater );
@@ -171,13 +189,23 @@ void jatekosvalasztas( int A, int visszater ) {
 		if( btorlodott )
 			strcpy( State->jatekosb, State->jatekosok[0].nev );
 
+		#ifdef ELMA_PSX
+		State->save();
+		#endif
 		return;
 	}
 
+	#ifdef ELMA_PSX
+	int changed = strcmp( eddigjatekos, State->jatekosok[eredmeny-1].nev ) != 0;
+	#endif
 	if( A )
 		strcpy( State->jatekosa, State->jatekosok[eredmeny-1].nev );
 	else
 		strcpy( State->jatekosb, State->jatekosok[eredmeny-1].nev );
+	#ifdef ELMA_PSX
+	if( changed )
+		State->save();
+	#endif
 
 	if( visszater )
 		return;

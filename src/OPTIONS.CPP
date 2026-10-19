@@ -50,6 +50,9 @@ void help( void ) {
 // Egyben allithato:
 void options( void ) {
 	int origsecondary = State->secondarybuffer;
+	#ifdef ELMA_PSX
+	int changed = 0;
+	#endif
 
 	int kurrens = 0;
 	while( 1 ) {
@@ -194,7 +197,10 @@ void options( void ) {
 		kurrens = val.valassz();
 
 		if( kurrens < 0 ) {
-			//State->save_aaa(); majd programbol valo kilepeskor kiirjuk
+			#ifdef ELMA_PSX
+			if( changed )
+				State->save();
+			#endif
 			if( origsecondary != State->secondarybuffer && Hangmarmegy ) {
 				// Kiirunk egy dialogust, hogy ujra kell inditani ehhez:
 				szoveglista szl;
@@ -215,6 +221,12 @@ void options( void ) {
 			}
 			return;
 		}
+
+		#ifdef ELMA_PSX
+		// Player changes save themselves; cancelled selection needs no write.
+		if( kurrens != 1+vantagis && kurrens != 2+vantagis )
+			changed = 1;
+		#endif
 
 		if( kurrens == 0 )
 			State->single = !State->single;
