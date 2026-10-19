@@ -6,13 +6,15 @@
 -- Arguments: force=0|1|2, frames=N (frames of the measurement), shot=PATH.
 -- See test/video_level_test.lua for the same in the game view.
 
+-- LuaJIT traces of the emulator's frame callbacks can overflow its stack.
+if jit then jit.off() end
 local force = tonumber(elma.args.force or "0")
 local frames = tonumber(elma.args.frames or "400")
 local dbg = elma.sym("psx_debug")
 local fv = elma.sym("psx_video_force")
 if not dbg or not fv then
     print("FAIL: symbols psx_debug / psx_video_force not found")
-    PCSX.quit(1)
+    return PCSX.quit(1)
 end
 local CPU_HZ = 33868800
 
@@ -31,32 +33,43 @@ end
 -- at a frame in which the present counter has just moved.
 local first, started, last_presents
 local boot_frame
+local quitting = false
 
 -- An error in the handler would be printed again at every frame:
 local function guarded(handler)
     return function(n)
+        if quitting then return end
         local ok, err = xpcall(handler, function(e) return tostring(e) .. "\n" .. debug.traceback("", 2):sub(1, 600) end, n)
         if not ok then
             print("LUA ERROR: " .. tostring(err))
+            quitting = true
             PCSX.quit(99)
         end
     end
 end
 
 elma.on_frame(guarded(function(n)
+    if n > 12000 then
+        quitting = true
+        print("FAIL: video measurement timed out")
+        return PCSX.quit(1)
+    end
     -- The mode is chosen in ddinit: write the override while the program
     -- has started but not yet shown anything.
     if force ~= 0 and elma.u32(dbg) == 0x454C4D41 and elma.u32(dbg + 4) == 0 then
         elma.write_u32(fv, force)
     end
     if elma.u32(dbg + 36) > 0 then
+        quitting = true
         print("FAIL: the game stopped with an error")
-        PCSX.quit(1)
+        return PCSX.quit(1)
     end
     local presents = elma.u32(dbg + 4)
     local moved = presents ~= last_presents
     last_presents = presents
-    if not started and moved and elma.u32(dbg) == 0x454C4D41 and presents >= 3 then
+    -- Boot and the first automatic card write can pause timer interrupts.
+    -- Measure the steady menu after those operations, over several seconds.
+    if not started and moved and n >= 600 and elma.u32(dbg) == 0x454C4D41 and presents >= 10 then
         started = true
         boot_frame = n
         first = snapshot()
@@ -74,6 +87,7 @@ elma.on_frame(guarded(function(n)
         if force == 2 then ok = ok and math.abs(vhz - 50) < 0.3 end
         if force == 1 then ok = ok and math.abs(vhz - 59.94) < 0.3 end
         print(ok and "PASS" or "FAIL")
+        quitting = true
         PCSX.quit(ok and 0 or 1)
     end
 end))
