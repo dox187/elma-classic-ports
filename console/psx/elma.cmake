@@ -9,8 +9,9 @@ set(ELMA_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 # The core files of the desktop builds (CMakeLists.txt at the top), with the
 # silent sound of the terminal version. SZURO.CPP (picture filters for the
-# desktop zoom) is replaced by src/psx_szuro.cpp. The editor is compiled as
-# on the handhelds, where only its menu entry is hidden (ELMA_HANDHELD).
+# desktop zoom) is replaced by src/psx_szuro.cpp. The editor's files are
+# listed as on the handhelds (where only its menu entry is hidden,
+# ELMA_HANDHELD); src/mem/mem.cmake leaves them out.
 set(ELMA_PSX_CORE
 	ABC8.CPP ADATOK.CPP ANIM.CPP BEALLIT.CPP BESTTIME.CPP
 	CUSTOM.CPP DIALOG.CPP DIALOG32.CPP DIGIT.CPP DISPLAY.CPP DOBOZ.CPP
@@ -32,7 +33,7 @@ list(TRANSFORM ELMA_PSX_CORE PREPEND ${ELMA_ROOT}/src/)
 # the repository, e.g. H_DUMMY.CPP) in ELMA_PSX_REPLACED.
 set(ELMA_PSX_EXTRA_SOURCES "")
 set(ELMA_PSX_REPLACED "")
-foreach(part phys gpu sound memcard)
+foreach(part phys gpu sound memcard mem)
 	include(${CMAKE_CURRENT_SOURCE_DIR}/src/${part}/${part}.cmake OPTIONAL)
 endforeach()
 list(TRANSFORM ELMA_PSX_REPLACED PREPEND ${ELMA_ROOT}/src/)

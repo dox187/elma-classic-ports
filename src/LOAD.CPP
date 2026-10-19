@@ -37,6 +37,15 @@ int floadlevel_p( char* nev ) {
 		strcpy( Bentlevelnev, nev );
 		if( Ptop )
 			delete Ptop;
+#ifdef ELMA_PSX
+		// Little memory: the lines of the old level (also the physics' copy)
+		// go before the new level is read; they are made again below:
+		if( Pszak )
+			delete Pszak;
+		Pszak = NULL;
+		void fxg_unload_level( void );
+		fxg_unload_level();
+#endif
 		Ptop = new topol( nev );
 		if( Ptop->hibas ) {
 			// Kiir hiba uzenetet:

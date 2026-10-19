@@ -180,44 +180,9 @@ void free_level( void ) {
 	memset( &Lev, 0, sizeof( Lev ) );
 }
 
-void build_level( void ) {
-	if( !Pszak || !Ptop || !Pecsetalso )
-		hiba( "fxg: no level for the physics!" );
-	fx_init();
-	free_level();
-
-	// The constants:
-	fx_input in;
-	in.drsugar = Drsugar;
-	in.sr = Sr;
-	in.g = G;
-	in.belsosav = Belsosav;
-	in.elszakad = Elszakadasisebhat;
-	in.merge = Talppontegybeolvadasitav;
-	in.fejsugar = Fejsugar;
-	in.objsugar = Objektumsugar;
-	in.ugroturelem = Ugroturelem;
-	in.kord2x = Kord2x;
-	in.kord2y = Kord2y;
-	in.kord4x = Kord4x;
-	in.kord4y = Kord4y;
-	in.kord5y = Kord5y;
-	in.pi = K_pi;
-	const kor* k[3] = { &Pmot1->kor1, &Pmot1->kor2, &Pmot1->kor4 };
-	for( int i = 0; i < 3; i++ ) {
-		in.kor_m[i] = k[i]->m;
-		in.kor_theta[i] = k[i]->theta;
-		in.kor_sugar[i] = k[i]->sugar;
-	}
-	// avnormegys of vezeto_hatarolas:
-	vekt2 av( 0.14-(-0.35), 0.36-(0.13) );
-	vekt2 avnormegys = egys( vekt2( -av.y, av.x ) );
-	in.avn_x = avnormegys.x;
-	in.avn_y = avnormegys.y;
-	fx_params( &Param, &in );
-
+// The lines of the level and their grid, from szakaszok.
+void build_lines( szakaszok* psz ) {
 	// The lines:
-	szakaszok* psz = Pszak;
 	int n = psz->szam;
 	Lev.nlines = n;
 	Lev.lines = (fx_line*)malloc( sizeof( fx_line )*(n > 0 ? n : 1) );
@@ -262,6 +227,66 @@ void build_level( void ) {
 		for( vonalnode* pn = psz->tertomb[c]; pn; pn = pn->pnext )
 			Lev.list[j++] = (uint16_t)(pn->pvonal-psz->tomb);
 	}
+#ifdef ELMA_PSX
+	// Only the double physics searched the grid of szakaszok:
+	delete[] psz->tertomb;
+	psz->tertomb = NULL;
+	psz->deleteallnodes();
+#endif
+}
+
+void build_level( void ) {
+	if( !Pszak || !Ptop || !Pecsetalso )
+		hiba( "fxg: no level for the physics!" );
+	fx_init();
+	szakaszok* psz = Pszak;
+#ifdef ELMA_PSX
+	// The lines and the grid are converted once per level; then the grid of
+	// Pszak is freed (build_lines), which also tells that Lev holds the
+	// lines of this Pszak: a new level makes a new one.
+	const int lines_ready = Lev.lines && !psz->tertomb;
+#else
+	const int lines_ready = 0;
+#endif
+	if( !lines_ready )
+		free_level();
+	else {
+		free( Lev.objs );
+		Lev.objs = NULL;
+	}
+
+	// The constants:
+	fx_input in;
+	in.drsugar = Drsugar;
+	in.sr = Sr;
+	in.g = G;
+	in.belsosav = Belsosav;
+	in.elszakad = Elszakadasisebhat;
+	in.merge = Talppontegybeolvadasitav;
+	in.fejsugar = Fejsugar;
+	in.objsugar = Objektumsugar;
+	in.ugroturelem = Ugroturelem;
+	in.kord2x = Kord2x;
+	in.kord2y = Kord2y;
+	in.kord4x = Kord4x;
+	in.kord4y = Kord4y;
+	in.kord5y = Kord5y;
+	in.pi = K_pi;
+	const kor* k[3] = { &Pmot1->kor1, &Pmot1->kor2, &Pmot1->kor4 };
+	for( int i = 0; i < 3; i++ ) {
+		in.kor_m[i] = k[i]->m;
+		in.kor_theta[i] = k[i]->theta;
+		in.kor_sugar[i] = k[i]->sugar;
+	}
+	// avnormegys of vezeto_hatarolas:
+	vekt2 av( 0.14-(-0.35), 0.36-(0.13) );
+	vekt2 avnormegys = egys( vekt2( -av.y, av.x ) );
+	in.avn_x = avnormegys.x;
+	in.avn_y = avnormegys.y;
+	fx_params( &Param, &in );
+
+	if( !lines_ready )
+		build_lines( psz );
 
 	// The objects (utkozikesprite stops at the first empty place):
 	int nobj = 0;
@@ -291,6 +316,11 @@ void build_level( void ) {
 }
 
 } // namespace
+
+void fxg_unload_level( void ) {
+	free_level();
+	Level_ready = 0;
+}
 
 void fxg_resetleptet( motorst* pmot ) {
 	Racsonkivul = 0;

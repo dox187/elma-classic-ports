@@ -170,6 +170,30 @@ int main(int argc, char** argv) {
 	CHECK(psx_fread(got, 1, 1, f) == 0);
 	psx_fclose(f);
 
+	/* Big RAM files are kept packed while no file is open on them (the
+	 * packer, src/memcard/mclz.c, is linked in, as in the game). */
+	{
+		static unsigned char text[20000], back[20001];
+		for (int i = 0; i < (int)sizeof(text); i++) text[i] = (unsigned char)"elasto mania "[i % 13];
+		const long before = psx_file_ram_used();
+		f = psx_fopen("pack\\text.txt", "wb");
+		CHECK(psx_fwrite(text, 1, sizeof(text), f) == sizeof(text));
+		psx_fclose(f);
+		CHECK(psx_file_ram_used() - before < 2000);
+		CHECK(psx_access("pack\\text.txt") == 0);
+		f = psx_fopen("pack\\text.txt", "ab");
+		CHECK(psx_fputs("!", f) == 0);
+		psx_fclose(f);
+		f = psx_fopen("pack\\text.txt", "rb");
+		CHECK(psx_fread(back, 1, sizeof(back), f) == sizeof(back));
+		CHECK(memcmp(back, text, sizeof(text)) == 0 && back[sizeof(text)] == '!');
+		psx_fclose(f);
+		CHECK(psx_file_ram_used() - before < 2000);
+		f = psx_fopen("pack\\text.txt", "wb");
+		psx_fclose(f);
+		CHECK(psx_file_ram_used() == before);
+	}
+
 	/* The RAM limit makes writes come up short instead of failing hard. */
 	psx_file_set_ram_limit(psx_file_ram_used() + 3000);
 	f = psx_fopen("rec\\big.rec", "wb");

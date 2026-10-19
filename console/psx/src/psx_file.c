@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "memcard/mclz.h"
+
 /* Built with the <stdio.h> shim of src/include (the game) or with the
  * SDK's own <stdio.h> (tests that do not need the FILE names): */
 #ifndef EOF
@@ -29,7 +31,19 @@ typedef struct ram_file {
 	unsigned char* data;
 	long size, capacity;
 	int open_count;
+	/* A copy of the bytes packed with mclz (packed_size bytes). While no
+	 * file is open on it, a big file keeps only this (data is NULL); it is
+	 * unpacked when it is opened and dropped when it is written. */
+	unsigned char* packed;
+	long packed_size;
 } ram_file;
+
+/* The packer of the memory card part (mclz.c). Programs without it (the
+ * tests) keep their RAM files unpacked. */
+size_t mclz_compress(const uint8_t* src, size_t n, uint8_t* dst) __attribute__((weak));
+int mclz_expand(const uint8_t* src, size_t in_n, uint8_t* dst, size_t out_n) __attribute__((weak));
+/* Smaller files are not worth it: */
+#define PACK_MIN 4096
 
 enum { KIND_BACKEND, KIND_RAM, KIND_DISCARD };
 
@@ -106,11 +120,59 @@ static ram_file* new_ram(const char* path) {
 	return NULL;
 }
 
+static void drop_packed(ram_file* r) {
+	if (!r->packed) return;
+	ram_used -= r->packed_size;
+	free(r->packed);
+	r->packed = NULL;
+	r->packed_size = 0;
+}
+
 static void truncate_ram(ram_file* r) {
+	drop_packed(r);
 	ram_used -= r->capacity;
 	free(r->data);
 	r->data = NULL;
 	r->size = r->capacity = 0;
+}
+
+/* Makes the bytes of a packed file readable; 0 if there is no memory. */
+static int unpack_ram(ram_file* r) {
+	if (r->data || !r->packed) return 1;
+	unsigned char* data = (unsigned char*)malloc((size_t)r->size);
+	if (!data) return 0;
+	if (!mclz_expand || mclz_expand(r->packed, (size_t)r->packed_size, data, (size_t)r->size) != 0) {
+		free(data);
+		return 0;
+	}
+	r->data = data;
+	r->capacity = r->size;
+	ram_used += r->capacity;
+	return 1;
+}
+
+/* No file is open on r any more: keeps only a packed copy if that is
+ * clearly smaller. */
+static void pack_ram(ram_file* r) {
+	if (!mclz_compress || r->open_count || !r->data) return;
+	if (!r->packed && r->size >= PACK_MIN) {
+		unsigned char* buffer = (unsigned char*)malloc(MCLZ_BOUND((size_t)r->size));
+		if (!buffer) return;
+		const long n = (long)mclz_compress(r->data, (size_t)r->size, buffer);
+		if (n > r->size - r->size / 4) {
+			free(buffer);
+			return;
+		}
+		unsigned char* packed = (unsigned char*)realloc(buffer, (size_t)n);
+		r->packed = packed ? packed : buffer;
+		r->packed_size = n;
+		ram_used += n;
+	}
+	if (!r->packed) return;
+	ram_used -= r->capacity;
+	free(r->data);
+	r->data = NULL;
+	r->capacity = 0;
 }
 
 /* Makes room for size bytes; 0 if the RAM limit does not allow it. */
@@ -158,6 +220,12 @@ psx_file* psx_fopen(const char* name, const char* mode) {
 		if (!append) truncate_ram(r);
 	}
 	if (r) {
+		if (!unpack_ram(r)) {
+			free(f);
+			return NULL;
+		}
+		/* A file that may change is no longer the packed copy: */
+		if (f->writing) drop_packed(r);
 		f->kind = KIND_RAM;
 		f->ram = r;
 		f->position = append ? r->size : 0;
@@ -199,7 +267,21 @@ int psx_fclose(psx_file* f) {
 		f->backend->close(f->backend->context, f->handle);
 		free(f->buffer);
 	}
-	if (f->kind == KIND_RAM) f->ram->open_count--;
+	if (f->kind == KIND_RAM) {
+		ram_file* r = f->ram;
+		r->open_count--;
+		/* The capacity doubles while a file is written; when it is closed,
+		 * only its bytes keep their room. */
+		if (f->writing && !r->open_count && r->capacity > r->size && r->size > 0) {
+			unsigned char* data = (unsigned char*)realloc(r->data, (size_t)r->size);
+			if (data) {
+				ram_used -= r->capacity - r->size;
+				r->data = data;
+				r->capacity = r->size;
+			}
+		}
+		pack_ram(r);
+	}
 	free(f);
 	return 0;
 }
@@ -356,6 +438,10 @@ int psx_feof(psx_file* f) { return f ? f->eof : 1; }
 int psx_ferror(psx_file* f) { return f ? f->error : 1; }
 
 int psx_access(const char* name) {
+	char path[PATH_SIZE];
+	psx_file_normalize(name, path, sizeof(path));
+	/* (Opening a packed file would unpack it.) */
+	if (path[0] && find_ram(path)) return 0;
 	psx_file* f = psx_fopen(name, "rb");
 	if (!f) return -1;
 	psx_fclose(f);

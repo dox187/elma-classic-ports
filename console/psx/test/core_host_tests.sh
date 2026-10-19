@@ -30,5 +30,6 @@ $cc -std=gnu99 -O2 -ffp-contract=off -fno-builtin "$here/test/core_libm_test.c" 
 "$out/core_libm_test"
 
 $cc -std=c99 -O2 -Wall -Wextra -DPSX_FILE_HOST_TEST -I"$here/src" \
-    "$here/test/core_file_test.c" "$here/src/psx_file.c" -o "$out/core_file_test"
+    "$here/test/core_file_test.c" "$here/src/psx_file.c" "$here/src/memcard/mclz.c" \
+    -o "$out/core_file_test"
 "$out/core_file_test" "$out/file-test"

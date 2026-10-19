@@ -46,6 +46,10 @@ class recorder {
 	// belyeg-et adja vissza, vagy 0-at:
 	long load( char* nev, FILE* h, int demo );
 	void save( char* nev, FILE* h, long belyeg, int tag );
+#ifdef ELMA_PSX
+	// Makes the buffers at the first use:
+	void lefoglal( void );
+#endif
 public:
 	char palyanev[16];
 

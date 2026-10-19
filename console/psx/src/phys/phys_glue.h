@@ -12,5 +12,7 @@ double fxg_kiszamolsurlodast( void );
 // The next step reads the whole state from the double fields of motorst
 // (for tests that set it).
 void fxg_reimport( motorst* pmot );
+// Frees the converted level (the next step converts the level again).
+void fxg_unload_level( void );
 
 #endif

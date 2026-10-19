@@ -67,6 +67,12 @@ soundtest: configure
 sound-test: soundtest
 	BUILD=$(BUILD) PCSX_REDUX=$(PCSX_REDUX) $(PYTHON) $(ROOT)/test/sound_test.py $(SOUND_TEST_ARGS)
 
+# Heap, stack and RAM high-water per phase (boot, menu, load, play) in
+# headless PCSX-Redux, 8 MB mode. MEM_TEST_ARGS: --levels 0,15|all,
+# --external FILE.lev, --limit KB, --jobs N, --quiet ...
+mem-test: all
+	PCSX_REDUX=$(PCSX_REDUX) $(PYTHON) $(ROOT)/test/mem_test.py --build $(BUILD) $(MEM_TEST_ARGS)
+
 # Re-run configure every time; it is cheap and picks up elma.cmake appearing
 # or variables changing.
 configure:

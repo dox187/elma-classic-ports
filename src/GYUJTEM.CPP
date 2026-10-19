@@ -141,11 +141,41 @@ static uint32_t osszeg( void* mut, int hossz, uint32_t sum = 0 ) {
 	return sum;
 }
 
+#ifdef ELMA_PSX
+// Little memory: the tables have room for what the file holds and grow when
+// a time or a player is added, up to the same maximum.
+static int Idohely = 0, Jatekoshely = 0;
+
+static void helyetcsinal( void** ptabla, int* phely, int kell, int elemhossz, int max ) {
+	if( kell <= *phely )
+		return;
+	int uj = kell+16;
+	if( uj > max )
+		uj = max;
+	char* tabla = new char[uj*elemhossz];
+	if( *ptabla ) {
+		memcpy( tabla, *ptabla, *phely*elemhossz );
+		delete[] (char*)*ptabla;
+	}
+	*ptabla = tabla;
+	*phely = uj;
+}
+#define IDOHELY( kell ) helyetcsinal( (void**)&Idotabla, &Idohely, kell, \
+	sizeof( gyujtemenyido ), MAXGYUJTEMENYIDO )
+#define JATEKOSHELY( kell ) helyetcsinal( (void**)&Jatekostabla, &Jatekoshely, kell, \
+	sizeof( gyujtemenyjatekos ), MAXGYUJTEMENYJATEKOS )
+#endif
+
 static void betoltallapot( void ) {
 	if( Idotabla )
 		return;
+#ifdef ELMA_PSX
+	IDOHELY( 1 );
+	JATEKOSHELY( 1 );
+#else
 	Idotabla = new gyujtemenyido[MAXGYUJTEMENYIDO];
 	Jatekostabla = new gyujtemenyjatekos[MAXGYUJTEMENYJATEKOS];
+#endif
 	if( !Idotabla || !Jatekostabla )
 		hiba( "betoltallapot-ban memory!" );
 	Idoszam = 0;
@@ -160,10 +190,18 @@ static void betoltallapot( void ) {
 			 fread( &verzio, 1, 4, h ) == 4 && verzio == GYUJTEMENYVERZIO &&
 			 fread( &idoszam, 1, 4, h ) == 4 && idoszam >= 0 && idoszam <= MAXGYUJTEMENYIDO;
 	int idohossz = jo ? int( idoszam*sizeof( gyujtemenyido ) ) : 0;
+#ifdef ELMA_PSX
+	if( jo )
+		IDOHELY( idoszam );
+#endif
 	jo = jo && fread( Idotabla, 1, idohossz, h ) == size_t(idohossz) &&
 		 fread( &jatekosszam, 1, 4, h ) == 4 && jatekosszam >= 0 &&
 		 jatekosszam <= MAXGYUJTEMENYJATEKOS;
 	int jatekoshossz = jo ? int( jatekosszam*sizeof( gyujtemenyjatekos ) ) : 0;
+#ifdef ELMA_PSX
+	if( jo )
+		JATEKOSHELY( jatekosszam );
+#endif
 	jo = jo && fread( Jatekostabla, 1, jatekoshossz, h ) == size_t(jatekoshossz) &&
 		 fread( &ellenorzo, 1, 4, h ) == 4 &&
 		 fread( &azon2, 1, 4, h ) == 4 && azon2 == GYUJTEMENYAZON2;
@@ -240,6 +278,9 @@ void mentgyujtemenyidok( char* nev, long belyeg, palyaidok* pidok ) {
 	if( !pido ) {
 		if( Idoszam >= MAXGYUJTEMENYIDO || strlen( nev ) >= sizeof( pido->nev ) )
 			hiba( "mentgyujtemenyidok-ben nincs hely!: ", nev );
+#ifdef ELMA_PSX
+		IDOHELY( Idoszam+1 );
+#endif
 		pido = &Idotabla[Idoszam++];
 		memset( pido, 0, sizeof( gyujtemenyido ) );
 		strcpy( pido->nev, nev );
@@ -260,6 +301,9 @@ static gyujtemenyjatekos* keresjatekost( int g, char* jatekosnev, int letrehoz )
 		return NULL;
 	if( Jatekosszam >= MAXGYUJTEMENYJATEKOS )
 		hiba( "keresjatekost-ban nincs hely!" );
+#ifdef ELMA_PSX
+	JATEKOSHELY( Jatekosszam+1 );
+#endif
 	gyujtemenyjatekos* pj = &Jatekostabla[Jatekosszam++];
 	memset( pj, 0, sizeof( gyujtemenyjatekos ) );
 	strncpy( pj->nev, jatekosnev, sizeof( pj->nev )-1 );

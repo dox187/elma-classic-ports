@@ -54,6 +54,15 @@ recorder::recorder( void ) {
 	if( hossz > 64000l )
 		hiba( "Hangdarabszam*sizeof( egyhang )!" );
 
+#ifdef ELMA_PSX
+	// Little memory: the buffers are made when the recorder is first used
+	// (store, addhang, load), so the second one only in a game of two.
+}
+
+void recorder::lefoglal( void ) {
+	if( pk1rx )
+		return;
+#endif
 	pk1rx = new float[Darabszam];
 	pk1ry = new float[Darabszam];
 	pk2rx = new short[Darabszam];
@@ -261,6 +270,9 @@ int recorder::recall( motorst* pmot, double dt, hanginfo* phinfo ) {
 static const double Reclepesido = 1.0 / Recorderszorzo;
 
 void recorder::store( motorst* pmot, double ido, hanginfo* phinfo ) {
+#ifdef ELMA_PSX
+	lefoglal();
+#endif
 	if( !legkozindex ) {
 		ucso_r = pmot->kor1.r;
 		ucsot = -0.00000000001;
@@ -417,6 +429,9 @@ void recorder::store( motorst* pmot, double ido, hanginfo* phinfo ) {
 }*/
 
 void recorder::addhang( double t, char wavindex, double hangero, int objszam ) {
+#ifdef ELMA_PSX
+	lefoglal();
+#endif
 	if( hangbetoltve >= Hangdarabszam )
 		return;
 	if( hangbetoltve > 0 ) {
@@ -476,6 +491,9 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 		}
 	}
 
+#ifdef ELMA_PSX
+	lefoglal();
+#endif
 	betoltve = 0;
 	if( fread( &betoltve, 1, 4, h ) != 4 )
 		olvhiba( nev );

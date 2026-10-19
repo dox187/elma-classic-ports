@@ -101,6 +101,14 @@ void initqopen( void ) {
 		hiba( "initqopen-ben nem stimmel magicnumber!" );
 
 	fclose( h );
+
+#ifdef ELMA_PSX
+	// Little memory: only the descriptors of the files are kept.
+	fileleiro* leirok = new fileleiro[Fileszam];
+	memcpy( leirok, Leirotomb, Fileszam*sizeof( fileleiro ) );
+	delete[] Leirotomb;
+	Leirotomb = leirok;
+#endif
 }
 
 #ifndef W_95

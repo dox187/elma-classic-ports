@@ -22,12 +22,26 @@ szakaszok::szakaszok( topol* ptop ) {
 	pelsocsomag = NULL;
 	csomagbanbetelt = 0;
 
-	tomb = new vonal[Szakaszmaxszam];
+	int lefoglal = Szakaszmaxszam;
+#ifdef ELMA_PSX
+	// Little memory: room for the lines of this level only (the loop below
+	// still stops at Szakaszmaxszam):
+	lefoglal = 0;
+	for( int i = 0; i < MAXGYURU; i++ ) {
+		if( ptop->ptomb[i] && !ptop->ptomb[i]->koveto )
+			lefoglal += ptop->ptomb[i]->pontszam;
+	}
+	if( lefoglal > Szakaszmaxszam )
+		lefoglal = Szakaszmaxszam;
+	if( lefoglal < 1 )
+		lefoglal = 1;
+#endif
+	tomb = new vonal[lefoglal];
 	if( !tomb ) {
 		uzenet( "memory szakaszoknak!" );
 		return;
 	}
-	maxszam = Szakaszmaxszam;
+	maxszam = lefoglal;
 	for( int i = 0; i < maxszam; i++ )
 		memset( &tomb[i], 0, sizeof( vonal ) );
 
