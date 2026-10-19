@@ -51,10 +51,15 @@ make -C console/psx disc \
   ELMA_LEV=/path/to/Lev
 ```
 
-`ELMA_LEV` is optional. Use the original-look LGR (about 760 KB), often
-named `Default_old.lgr` in the Steam installation. The large Steam LGR13
-graphics set is not supported. The supplied LGR is stored as
+`ELMA_LEV` is optional. Use the classic-resolution LGR12 graphics: Steam's
+`Default_old.lgr` (about 760 KB), or the original registered game's
+`Default.lgr` (about 794 KB). The supplied LGR is stored as
 `LGR/DEFAULT.LGR`, regardless of its original filename.
+
+Steam's HD `Default.lgr` (LGR13, about 7.5 MB) is unsupported on the 2 MB
+target. An actual disc test exhausted RAM while loading its graphics,
+before the first gameplay frame. The loader decodes full source images
+before resizing them; the HD sky alone contains 4.9 million indexed pixels.
 
 The registered build reads both the original and Steam `elma.res` formats
 automatically. As on desktop, the archive's contents determine the Play
@@ -62,7 +67,7 @@ menu: original data opens the internal-level list directly, including its
 External File entry; Steam data first offers Tutorial, Original Levels,
 Stolen Internals, Quick & Easy, Quick & Hard and External Levels. Only
 collections actually present in the archive are listed. Steam resource
-data works with the original-look LGR described above.
+data works with the classic-resolution LGR described above.
 
 The default build uses registered game data. For shareware data, configure
 the same build directory with `ELMA_PSX_REGISTERED=OFF` first:
@@ -196,11 +201,12 @@ and sounds, preparing the level and starting play. The first load also
 prepares sound data, so it can take longer than subsequent loads.
 
 After a run, a compact green-and-yellow 320×240 selector uses the resident
-font, with a short explanation of the faster restart mode. Play again
+font, with a short explanation of the faster restart mode. Retrying
 reuses the level, graphics and prepared sounds without rereading menu art.
-The crash cue lasts 0.2 seconds before the selector accepts a fresh press;
-holding the throttle through death does not choose a menu item. Opening a
-full level list or another full menu still loads its graphics from disc.
+With sound enabled, the complete crash or finish sound, including queued
+audio, plays before the selector accepts a fresh press; holding the
+throttle through death does not choose a menu item. Opening a full level
+list or another full menu still loads its graphics from disc.
 
 ## Saves and compatibility
 
@@ -216,16 +222,19 @@ option changes are saved when returning from Options. Wait for the `Saving...`
 message to disappear before resetting or removing the card; a write can take
 several seconds. Card
 errors are reported and play can continue, but those changes may not be
-kept. The port does not format cards. Replays and other files written by
-the game stay in RAM for the current session; they are not included in
-the memory card save. The disc is read-only.
+kept. The port does not format cards. The disc is read-only.
+
+Replay recording, playback and export, and demo playback are omitted from
+the PSX version. The main menu contains Play, Options, Help and Best Times;
+the compact selector offers a retry, Next or Skip when available, and
+Best Times.
 
 The physics uses 64-bit fixed-point state rather than the PC version's
 floating-point calculations. Regression tests compare events and positions
 against the original physics, but numerical differences can grow on some
-levels. The replay file format is retained; identical gameplay, times and
-PC compatibility are not guaranteed. Large or unusual external levels and
-custom graphics may exceed the console's memory or renderer limits.
+levels. Identical gameplay and times are not guaranteed. Large or unusual
+external levels and custom graphics may exceed the console's memory or
+renderer limits.
 
 ## Tests
 
@@ -250,8 +259,6 @@ python3 console/psx/test/resource_menu_test.py --res /path/to/elma.res
 python3 console/psx/test/console_ui_test.py
 python3 console/psx/test/controller_layout_test.py --build console/psx/build \
   --card /path/to/card-with-a-saved-player.mcd
-python3 console/psx/test/controller_layout_test.py --build console/psx/build \
-  --card /path/to/card-with-a-saved-player.mcd --replay
 python3 console/psx/test/retry_test.py --disc --card-save
 python3 console/psx/test/menu_perf_test.py --mode ntsc
 
@@ -259,7 +266,7 @@ python3 console/psx/test/menu_perf_test.py --mode ntsc
 make -C console/psx mem-test \
   MEM_TEST_ARGS='--ram2 --limit 2048 --levels all --quiet'
 
-# External levels from the disc, including return to the menu and replay
+# External levels from the disc, including return to the menu and restart
 python3 console/psx/test/mem_test.py --levels '' \
   --external /path/to/Lev/NAME.LEV --ram2 --limit 2048 --again
 
@@ -271,6 +278,7 @@ make -C console/psx cd-test
 make -C console/psx mc-test
 python3 console/psx/test/mc_game_test.py
 python3 console/psx/test/sound_output_test.py --card-save
+python3 console/psx/test/finish_sound_test.py
 python3 console/psx/test/sound_game_test.py --ram2
 make -C console/psx sound-test
 
@@ -283,8 +291,6 @@ python3 console/psx/test/options_save_test.py --build console/psx/build \
 `controller_layout_test.py` edits both players' physical buttons, resets and
 clears bindings, checks Help, then cold-boots the copied card and drives
 Warm Up with the saved mapping.
-Its `--replay` mode checks a mapped Circle action during a recorded replay
-and the reserved Select exit.
 `splash_test.py` checks early Loading, the original logo and copyright,
 versioned credits and safe margins in NTSC and PAL with the chosen resource.
 `test/ext_menu_test.py` checks the external-level list and missing-LGR
@@ -297,6 +303,9 @@ Add `--card-save` together with `--again` to verify a real deferred card
 write before retrying a dense level. `retry_test.py` measures a natural
 death, held-throttle safety and retained retry latency, checks the compact
 screen's pixels and returns to a usable full level menu in retail 2 MB RAM.
+`finish_sound_test.py` checks complete death and finish cues in captured SPU
+output, menu silence and prompt transitions with sound disabled, using
+private synthetic levels.
 `menu_perf_test.py` reports startup time and menu update intervals in retail
 2 MB RAM. Use `--mode pal` for PAL and `--frames 900` to select the measurement
 length in VBlanks. Its update count measures submitted pictures; interlaced
