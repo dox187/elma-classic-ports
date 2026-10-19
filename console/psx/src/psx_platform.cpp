@@ -469,6 +469,17 @@ void psx_controls_normalize() {
 		}
 }
 
+// Available before the disc and menu assets, using only the resident font.
+void psx_boot_loading(const char* stage) {
+	if (!Margrafikus) return;
+	char heading[64];
+	sprintf(heading, "Loading Elasto Mania v%s", ELMA_PSX_VERSION);
+	const char* const lines[] = {heading, "", stage};
+	gv_notice(112, 188, 416, 104, lines, 3);
+	VSync(0);
+	printf("elma: startup: %s\n", stage);
+}
+
 // Loading can release the menu's RAM picture. Draw directly in VRAM with
 // the resident font, so the current stage stays visible without allocating.
 void psx_loading_stage(const char* level, const char* stage) {
@@ -611,7 +622,7 @@ const uint32_t STACK_SIZE = 16 * 1024;
 
 int main(int, char**) {
 	psx_debug.magic = 0x454C4D41; // "ELMA"
-	printf("elma: PlayStation version starting\n");
+	printf("elma: PlayStation port v%s starting\n", ELMA_PSX_VERSION);
 	if (has_8mb()) {
 		// The stack moves to the top of the 8 MB and the heap takes all the
 		// rest from the end of the program. Nothing has been allocated yet.
@@ -649,9 +660,14 @@ void ddinit() {
 
 	gv_clock_init();
 	clock_prev = gv_clock();
-	// Pad bytes are invalid until the BIOS driver starts.
+	// No BIOS pad data is valid until its driver starts. Early loading
+	// notices already wait on VBlank, which also samples these buffers.
 	memset(pad_buffers, 0xff, sizeof(pad_buffers));
 	VSyncCallback(vblank_callback);
+	gv_menu_present(NULL, clut, true);
+	SetDispMask(1);
+	Margrafikus = 1;
+	psx_boot_loading("Initializing controllers and memory card...");
 
 	InitPAD(pad_buffers[0], 34, pad_buffers[1], 34);
 	// The card driver sits between the two (memcard.h):
@@ -659,8 +675,6 @@ void ddinit() {
 	StartPAD();
 	ChangeClearPAD(0);
 
-	SetDispMask(1);
-	Margrafikus = 1;
 }
 
 void ddfinish() { gv_stop(); }
@@ -969,14 +983,14 @@ void mv_exit(char*) {
 }
 
 void game_main() {
+	mk_init();
+	ddinit();
+	psx_boot_loading("Reading game disc...");
 #ifdef ELMA_PSX_PCDRV
 	if (psx_pcdrv_add_backend() == 0) printf("elma: reading files through PCdrv\n");
 #else
 	// The game data is on the second track of the disc, or else on the
-	// first one with the program. The CD library needs the GPU's interrupt
-	// setup first.
-	ResetGraph(0);
-	graph_reset = true;
+	// first one with the program. Video and interrupts are already ready.
 	static cdtrack_vol volume;
 	static cdfile_ctx cd_context;
 	static psx_file_backend cd_backend;
@@ -994,7 +1008,11 @@ void game_main() {
 	// version did) by allocating it:
 	psx_fclose(psx_fopen("nemmem.inf", "wb"));
 	void initqopen(); void initmenukep1(); void initmenukep2();
-	initqopen(); mk_init(); initmenukep1();
-	ddinit(); initmenukep2(); mv_main();
+	psx_boot_loading("Reading game resources...");
+	initqopen();
+	psx_boot_loading("Loading menu graphics...");
+	initmenukep1();
+	psx_boot_loading("Preparing menus...");
+	initmenukep2(); mv_main();
 	exit(0);
 }

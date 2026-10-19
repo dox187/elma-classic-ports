@@ -152,6 +152,41 @@ void initmenukep2( void ) {
 	menumeretbeallit();
 }
 
+void psx_splash_prepare( pic8* picture ) {
+	if( picture->getxsize() != 640 || picture->getysize() != 480 ) return;
+	const unsigned char background = picture->gpixel( 0, 0 );
+	unsigned char credit = background;
+	// Match the brightest color of the original copyright/footer.
+	for( int y = 450; y < 480; ++y ) {
+		const unsigned char* row = picture->getptr( y );
+		for( int x = 0; x < 640; ++x )
+			if( Menupaltomb[3*row[x]] > Menupaltomb[3*credit] ) credit = row[x];
+	}
+	// Shrink toward the top-left in place: every source row/pixel is at or
+	// after its destination, so unread pixels survive. Keep the allocation
+	// and row table, with a black footer for credits inside the TV safe area.
+	for( int y = 0; y < 384; ++y ) {
+		const unsigned char* source = picture->getptr( ((2*y+1)*5)/8 );
+		unsigned char* dest = picture->getptr( y );
+		for( int x = 0; x < 512; ++x ) dest[x] = source[((2*x+1)*5)/8];
+	}
+	for( int y = 384; y < 480; ++y ) memset( picture->getptr( y ), background, 512 );
+	picture->xsize = 512;
+	// Replace the original PC version band; retain the logo and copyright.
+	for( int y = 333; y < 359; ++y ) memset( picture->getptr( y ), background, 512 );
+	char version[] = "PSX port v" ELMA_PSX_VERSION;
+	Pabc1->writekozep( picture, 256, 350, version );
+	char line1[] = "Unofficial PlayStation port";
+	char line2[] = "Port by dox187";
+	Pabc1->writekozep( picture, 256, 416, line1 );
+	Pabc1->writekozep( picture, 256, 440, line2 );
+	for( int y = 333; y < 480; ++y ) {
+		if( y >= 359 && y < 384 ) continue;
+		unsigned char* row = picture->getptr( y );
+		for( int x = 0; x < 512; ++x ) if( row[x] != background ) row[x] = credit;
+	}
+}
+
 void golyofalak( int xsize, int ysize ); // golyutk.cpp
 
 int menumeretbeallit( void ) {
@@ -1940,7 +1975,7 @@ int szoveglista::kirajzolanim( double ido ) {
 
 	blt8( &front, sisakframe, sisakx+Menueltolasx-20, sisaky+Menueltolasy-7-(Menuysize-1)+frame );
 
-	blt8( &front, Pintro, Menueltolasx, Menueltolasy+frame );
+	blt8( &front, Pintro, Menueltolasx+(640-Pintro->getxsize())/2, Menueltolasy+frame );
 	// The whole picture is sent:
 	unlockfrontbuffer();
 	return 1;

@@ -186,11 +186,17 @@ and about 60 Hz on NTSC. The game clock is independent of the video rate.
 Menu animation is drawn in software and its update rate varies with the
 drawing workload.
 
+Startup shows Loading and the current stage before reading the game
+resources. The splash fits inside the television safe area, retains the
+original copyright and identifies the unofficial PSX port, its version
+and dox187's port credit.
+
 Level loading shows the current stage: reading the level, loading graphics
 and sounds, preparing the level and starting play. The first load also
 prepares sound data, so it can take longer than subsequent loads.
 
-After a run, a compact 320×240 selector uses the resident font. Play again
+After a run, a compact green-and-yellow 320×240 selector uses the resident
+font, with a short explanation of the faster restart mode. Play again
 reuses the level, graphics and prepared sounds without rereading menu art.
 The crash cue lasts 0.2 seconds before the selector accepts a fresh press;
 holding the throttle through death does not choose a menu item. Opening a
@@ -239,6 +245,7 @@ python3 console/psx/test/phys_test.py --quiet
 make -C console/psx test
 python3 console/psx/test/core_boot_test.py --disc --ram2
 python3 console/psx/test/video_test.py --disc
+python3 console/psx/test/splash_test.py --build console/psx/build
 python3 console/psx/test/resource_menu_test.py --res /path/to/elma.res
 python3 console/psx/test/console_ui_test.py
 python3 console/psx/test/controller_layout_test.py --build console/psx/build \
@@ -274,6 +281,8 @@ python3 console/psx/test/options_save_test.py --build console/psx/build \
 `controller_layout_test.py` edits both players' physical buttons, resets and
 clears bindings, checks Help, then cold-boots the copied card and drives
 Warm Up with the saved mapping.
+`splash_test.py` checks early Loading, the original logo and copyright,
+versioned credits and safe margins in NTSC and PAL with the chosen resource.
 `test/ext_menu_test.py` checks the external-level list and missing-LGR
 dialog. `mem_test.py --external` checks that the requested level actually
 loaded; comma-separated paths run several levels on separate discs.

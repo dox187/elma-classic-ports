@@ -2,6 +2,10 @@
 
 #ifdef ELMA_PSX
 #include "psx_controls.h"
+void psx_boot_loading( const char* stage );
+#endif
+#ifdef ELMA_PSX_GPU
+void psx_splash_prepare( pic8* picture );
 #endif
 
 state_s* State = NULL;
@@ -57,6 +61,7 @@ void teljes( void ) {
 #ifdef ELMA_PSX
 	// The saved state.dat comes back from the memory card first:
 	void psx_memcard_restore( void );
+	psx_boot_loading( "Restoring saved game..." );
 	psx_memcard_restore();
 #endif
 	State = new state_s;
@@ -94,8 +99,16 @@ void teljes( void ) {
 	delete pintro; pintro = NULL;
 	delete tile; tile = NULL;*/
 
+#ifdef ELMA_PSX_GPU
+	psx_boot_loading( "Preparing splash..." );
+	// Reuse the small core font for the port's splash credits.
+	Pabc1 = new abc8( "kisbetu1.abc" );
+	Pabc1->settav( 1 );
+#endif
+
 	// Ezt majd elso kiirloading szabaditja fel (menukep-ben van definialva):
 	Pintro = new pic8( "intro.pcx" );
+#ifndef ELMA_PSX_GPU
 	// Itt most atirjuk verziot 1.1-re:
 	//blt8( Pintro, Pintro, 343, 433, 520, 459, 530, 468 ); // a betu
 	if( Sarvari ) {
@@ -108,6 +121,9 @@ void teljes( void ) {
 		blt8( Pintro, Pintro, 321+15, 420, 297, 420, 315, 441 );
 		blt8( Pintro, Pintro, 321+15+16, 432, 88, 458, 98, 468 );
 	}
+#else
+	psx_splash_prepare( Pintro );
+#endif
 	spriteosit( Pintro );
 #ifdef ELMA_PSX
 	// The PS1 version draws it straight into the picture of the screen
@@ -117,7 +133,11 @@ void teljes( void ) {
 	pic8* tmpintro = new pic8( 640, 480 ); // ezt majd kesobb szabaditjuk fel
 #endif
 	tmpintro->fillbox( 254 );
+#ifdef ELMA_PSX_GPU
+	blt8( tmpintro, Pintro, (640-Pintro->getxsize())/2 );
+#else
 	blt8( tmpintro, Pintro );
+#endif
 
 	ddpal* pintropal = NULL;
 	// Gany, ezzel az egy nevvel pcxtopal(pic.cpp) elso harom byte-ot 0-azza:
@@ -155,8 +175,10 @@ void teljes( void ) {
 	#endif
 
 	// Egy par beolvasas:
+#ifndef ELMA_PSX_GPU
 	Pabc1 = new abc8( "kisbetu1.abc" );
 	Pabc1->settav( 1 );
+#endif
 	Pabc2 = new abc8( "kisbetu2.abc" );
 	Pabc2->settav( 1 );
 
