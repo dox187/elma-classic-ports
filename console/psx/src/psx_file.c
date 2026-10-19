@@ -185,6 +185,12 @@ static int reserve_ram(ram_file* r, long size) {
 		if (ram_used - r->capacity + capacity > ram_limit) return 0;
 	}
 	unsigned char* data = (unsigned char*)realloc(r->data, (size_t)capacity);
+	/* Spare growth room is optional: a fragmented heap can still have room
+	 * for the bytes of this write. A failed realloc leaves r->data valid. */
+	if (!data && capacity != size) {
+		capacity = size;
+		data = (unsigned char*)realloc(r->data, (size_t)capacity);
+	}
 	if (!data) return 0;
 	ram_used += capacity - r->capacity;
 	r->data = data;

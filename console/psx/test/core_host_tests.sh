@@ -34,6 +34,11 @@ $cc -std=c99 -O2 -Wall -Wextra -DPSX_FILE_HOST_TEST -I"$here/src" \
     -o "$out/core_file_test"
 "$out/core_file_test" "$out/file-test"
 
+$cc -std=c99 -O2 -Wall -Wextra -DPSX_FILE_HOST_TEST -I"$here/src" \
+    "$here/test/core_file_alloc_test.c" "$here/src/memcard/mclz.c" \
+    -o "$out/core_file_alloc_test"
+"$out/core_file_alloc_test"
+
 ${CXX:-c++} -std=c++11 -O2 -Wall -Wextra -Werror -I"$here/src" \
     "$here/test/pcx_host_test.cpp" -o "$out/pcx_host_test"
 "$out/pcx_host_test"
