@@ -343,7 +343,8 @@ void gv_menu_invalidate() {
 	menu_serial++;
 }
 
-static void draw_notice(int x, int y, int w, int h, const char* const* lines, int count, int inset) {
+static void draw_notice(int x, int y, int w, int h, const char* const* lines, int count, int inset,
+		bool quick_style) {
 	const int display_w = mode == MODE_QUICK ? GV_GAME_W : GV_MENU_W;
 	const int display_h = mode == MODE_QUICK ? GV_GAME_H : GV_MENU_H;
 	if (x < 0 || y < 0 || x >= display_w || y >= display_h) return;
@@ -370,16 +371,38 @@ static void draw_notice(int x, int y, int w, int h, const char* const* lines, in
 	TILE* background = (TILE*)p;
 	p += sizeof(TILE) / 4;
 	setTile(background);
-	setRGB0(background, 0, 0, 0);
+	setRGB0(background, 0, quick_style ? 32 : 0, quick_style ? 8 : 0);
 	setXY0(background, 0, 0);
 	setWH(background, w, h);
 	catPrim(stp, background);
 	uint32_t* ot = p++;
 	*ot = 0x00ffffff;
 	catPrim(background, ot);
+	auto sort_line = [&](int gx, int gy, const char* line) {
+		uint32_t* first = p;
+		// DRAWENV offsets are relative to its clipping area's origin.
+		p = (uint32_t*)FntSort(ot, p, gx, gy, line);
+		// The SDK uses page-relative UVs starting at zero, while the
+		// reserved font corner is not at the page's vertical origin.
+		for (SPRT_8* glyph = (SPRT_8*)first; (uint32_t*)glyph < p - 2; ++glyph) {
+			glyph->u0 += (GV_FONT_X & 63) * 4;
+			glyph->v0 += GV_FONT_Y & 255;
+			if (quick_style) {
+				// Modulate the resident white font to the menu's yellow.
+				// Ordinary notices keep the SDK's unmodulated white glyphs.
+				setShadeTex(glyph, 0);
+				setSemiTrans(glyph, 0);
+				setRGB0(glyph, 132, 132, 16);
+			}
+		}
+		// FntSort emits a texture-page command of its own.
+		p[-1] |= 1u << 10; // allow drawing to the displayed field
+	};
+	static const char footer[] = "Fast menu for quicker restarts";
+	const int footer_characters = sizeof(footer) - 1;
 	const int columns = (w - 2 * inset) / 8 < 72 ? (w - 2 * inset) / 8 : 72;
-	const int bottom = y + h - inset - 8;
-	int row = y + inset, remaining = MAX_CHARACTERS;
+	const int bottom = quick_style ? 200 : y + h - inset - 8;
+	int row = y + inset, remaining = MAX_CHARACTERS - (quick_style ? footer_characters : 0);
 	for (int i = 0; i < count && row <= bottom && remaining > 0; ++i) {
 		if (!lines[i]) continue;
 		const char* in = lines[i];
@@ -393,22 +416,11 @@ static void draw_notice(int x, int y, int w, int h, const char* const* lines, in
 			}
 			line[n] = 0;
 			if (*in == '\n') ++in;
-			if (n) {
-				uint32_t* first = p;
-				// DRAWENV offsets are relative to its clipping area's origin.
-				p = (uint32_t*)FntSort(ot, p, inset, row - y, line);
-				// The SDK uses page-relative UVs starting at zero, while the
-				// reserved font corner is not at the page's vertical origin.
-				for (SPRT_8* glyph = (SPRT_8*)first; (uint32_t*)glyph < p - 2; ++glyph) {
-					glyph->u0 += (GV_FONT_X & 63) * 4;
-					glyph->v0 += GV_FONT_Y & 255;
-				}
-				// FntSort emits a texture-page command of its own.
-				p[-1] |= 1u << 10; // allow drawing to the displayed field
-			}
+				if (n) sort_line(inset, row - y, line);
 			row += 8;
 		} while (*in && row <= bottom && remaining > 0);
 	}
+	if (quick_style) sort_line((GV_GAME_W - footer_characters * 8) / 2, 216, footer);
 	DrawOTag(prim_buffers[0]);
 	DrawSync(0);
 	gv_menu_invalidate();
@@ -424,12 +436,12 @@ void gv_notice(int x, int y, int w, int h, const char* const* lines, int count) 
 	} else if (mode != MODE_MENU) {
 		enter_menu_mode();
 	}
-	draw_notice(x, y, w, h, lines, count, 0);
+	draw_notice(x, y, w, h, lines, count, 0, false);
 }
 
 void gv_quick_notice(const char* const* lines, int count) {
 	if (mode != MODE_QUICK) enter_quick_mode();
-	draw_notice(0, 0, GV_GAME_W, GV_GAME_H, lines, count, 8);
+	draw_notice(0, 0, GV_GAME_W, GV_GAME_H, lines, count, 8, true);
 }
 
 void gv_menu_present(unsigned char* const* rows, const uint16_t* clut, bool clut_changed) {

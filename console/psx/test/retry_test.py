@@ -28,12 +28,22 @@ def check_panel(path):
         pixels = f.read()
     if len(pixels) != 320 * 240 * 3:
         raise ValueError("truncated compact-selector image")
+    background = pixels[:3]
+    if not (background[0] < 8 and 24 <= background[1] <= 40 and background[2] < 20):
+        raise ValueError("selector background is not dark green")
     ink = [x for y in range(8, 16) for x in range(320)
-           if any(pixels[(y * 320 + x) * 3:(y * 320 + x) * 3 + 3])]
+           if pixels[(y * 320 + x) * 3:(y * 320 + x) * 3 + 3] != background]
     if not ink or not 8 <= min(ink) < 16:
         raise ValueError("selector title is not at its left margin")
-    if any(pixels[16 * 320 * 3:24 * 320 * 3]):
+    if pixels[16 * 320 * 3:24 * 320 * 3] != background * (8 * 320):
         raise ValueError("selector blank row contains stray glyphs")
+    title = pixels[8 * 320 * 3:16 * 320 * 3]
+    if not any(title[i] > 180 and title[i + 1] > 180 and title[i + 2] < 80
+               for i in range(0, len(title), 3)):
+        raise ValueError("selector text is not yellow")
+    footer = pixels[216 * 320 * 3:224 * 320 * 3]
+    if sum(footer[i:i + 3] != background for i in range(0, len(footer), 3)) < 80:
+        raise ValueError("fast restart explanation is missing at the bottom")
 
 
 def main():
