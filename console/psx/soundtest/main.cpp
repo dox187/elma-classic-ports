@@ -34,6 +34,7 @@ void hiba(char*, const char*) { for (;;) {} }
 
 void initdsound(int);
 void hang();
+int getstatesoundon() { return 1; }
 void nullazhangot();
 void CustomMixer(void* buffer1, int byteszam1, void* buffer2, int byteszam2, int bitmod16);
 

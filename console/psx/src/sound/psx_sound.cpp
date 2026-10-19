@@ -9,6 +9,7 @@
 int Mostvoltegynemcurpos = 0;
 
 void CustomMixer(void* buffer1, int byteszam1, void* buffer2, int byteszam2, int bitmod16);
+int getstatesoundon(void);
 
 namespace {
 // Same format and block size as the original: 11025 Hz, 16 bit mono.
@@ -32,6 +33,9 @@ void initdsound(int) {
 void hang() {
     if (!Hangenabled || !device)
         return;
+    const bool muted = Mute || !getstatesoundon();
+    if (muted)
+        spu_stream_set_muted(1);
     spu_stream_sync();
     // The queue is a lower bound of what is ahead of the voice, so the loop
     // is bounded in case the position stops advancing.
@@ -40,6 +44,8 @@ void hang() {
         spu_stream_write(block, block_samples);
     }
     spu_stream_flush();
+    if (!muted)
+        spu_stream_set_muted(0);
 }
 
 void nullazhangot() {

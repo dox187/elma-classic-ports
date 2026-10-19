@@ -58,9 +58,13 @@ void spu_stream_sync(void);
  * restarts the stream if the voice has caught up with the data. */
 void spu_stream_flush(void);
 
-/* Drops everything that is queued except for what is already about to be
- * played (a few milliseconds) and continues from there. */
+/* Mutes immediately and drops queued data. The producer unmutes after
+ * preparing fresh data when playback resumes. */
 void spu_stream_reset(void);
+
+/* Changes output gain between silence and unity without moving the voice
+ * or its IRQ-derived play position. */
+void spu_stream_set_muted(int muted);
 
 const SpuStreamStats *spu_stream_stats(void);
 

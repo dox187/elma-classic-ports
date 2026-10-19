@@ -39,6 +39,8 @@ static uint32_t dirty_from;  /* blocks [dirty_from, wblock) are not uploaded yet
 static volatile uint32_t irq_steps;
 static int started;
 static int ready;
+static int voice_muted;
+static uint32_t audible_from;
 static SpuStreamStats spu_stats;
 
 /* Writes SPU_CTRL and waits until the SPU reports the new state. */
@@ -158,6 +160,8 @@ int spu_stream_init(void)
 	dirty_from = 0;
 	irq_steps = 0;
 	started = 0;
+	voice_muted = 0;
+	audible_from = 0;
 	memset(&spu_stats, 0, sizeof spu_stats);
 	for (uint32_t i = 0; i < RING; i++)
 		silent_block(i);
@@ -250,6 +254,8 @@ void spu_stream_write(const int16_t *pcm, int count)
 /* Restarts the stream behind the voice. */
 static void restart_after(uint32_t block)
 {
+	spu_stream_set_muted(1);
+	audible_from = block;
 	const uint32_t old_zero_to = zero_to;
 	/* Encoded but not uploaded blocks before the new start never reach SPU
 	 * RAM; keep the shadow equal to SPU RAM. */
@@ -334,12 +340,28 @@ void spu_stream_reset(void)
 {
 	if (!ready)
 		return;
+	/* The producer may not run again while a menu is open. Old slots
+	 * outside the cleared future span must never become audible on wrap. */
+	spu_stream_set_muted(1);
 	if (!started) {
 		pending_count = 0;
 		spu_adpcm_reset(&enc);
 		return;
 	}
 	restart_after(ahead_block() + MARGIN);
+}
+
+void spu_stream_set_muted(int muted)
+{
+	if (!ready || voice_muted == !!muted)
+		return;
+	/* The guarded slots before newly prepared data may still contain old
+	 * samples. Resume only once they are certainly behind the voice. */
+	if (!muted && started && (int32_t)(safe_block() - audible_from) < 0)
+		return;
+	voice_muted = !!muted;
+	SPU_CH_VOL_L(SPU_STREAM_VOICE) = voice_muted ? 0 : 0x3fff;
+	SPU_CH_VOL_R(SPU_STREAM_VOICE) = voice_muted ? 0 : 0x3fff;
 }
 
 const SpuStreamStats *spu_stream_stats(void)

@@ -219,6 +219,7 @@ python3 console/psx/test/message_test.py --level /path/to/Lev/NAME.LEV
 make -C console/psx cd-test
 make -C console/psx mc-test
 python3 console/psx/test/mc_game_test.py
+python3 console/psx/test/sound_output_test.py
 python3 console/psx/test/sound_game_test.py --ram2
 make -C console/psx sound-test
 ```
