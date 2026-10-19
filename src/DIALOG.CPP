@@ -29,6 +29,13 @@ int boxban( int x, int y, box boxa ) {
 		return 0;
 }
 
+#ifdef ELMA_PSX
+// The dialogs that waited for a key so far, for the tests (they answer them,
+// test/gpu_compare_test.lua):
+extern "C" volatile unsigned psx_dialog_waits;
+volatile unsigned psx_dialog_waits = 0;
+#endif
+
 int dialog( char* text1, char* text2, char* text3,
 			 char* text4, char* text5, char* text6,
 			 char* text7, char* text8, char* text9,
@@ -90,6 +97,12 @@ int dialog( char* text1, char* text2, char* text3,
 	}
 
 	invalidateegesz();
+#ifdef ELMA_PSX
+	// The PS1 version keeps the picture (Buffsima) in RAM only while it is
+	// needed:
+	void gv_menu_picture_ensure();
+	gv_menu_picture_ensure();
+#endif
 
 	int xsize = 0;
 	for( i = 0; i < textszam; i++ )
@@ -146,6 +159,9 @@ int dialog( char* text1, char* text2, char* text3,
 	// Azert adunk egy erteket, hogy ha lenyomassal jutott
 	// dialogba, egyszer fel kell engednie mielott ujra
 	// lenyomasnak erzekelne:
+#ifdef ELMA_PSX
+	psx_dialog_waits++;
+#endif
 	int egerballevoltnyomva = 1; // Eger gombja csak lemenetnel aktivizalodik
 	int egerjobblevoltnyomva = 1; // Eger gombja csak lemenetnel aktivizalodik
 	while( 1 ) {

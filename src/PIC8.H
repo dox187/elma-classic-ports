@@ -59,6 +59,11 @@ public:
 	#else
 		unsigned char* getptr( int y ) { return sormuttomb[y]; }
 	#endif
+	#ifdef ELMA_PSX
+		// The sprite data (drawn runs) for the PS1 menus (gpu_menukep.cpp):
+		const unsigned char* getsprite( void ) { return sprite; }
+		unsigned getspritehossz( void ) { return spritehossz; }
+	#endif
 	void fillbox( int x1, int y1, int x2, int y2, unsigned char szin );
 	void fillbox( unsigned char szin );
 	void line( int x1, int y1, int x2, int y2, unsigned char szin );

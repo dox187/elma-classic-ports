@@ -16,13 +16,22 @@ namespace {
 enum Mode { MODE_NONE, MODE_MENU, MODE_GAME };
 Mode mode = MODE_NONE;
 
+// Two command lists: one is drawn by the GPU while the next is built.
+// (A frame of the game view takes 2500-3500 words.) The menu mode builds
+// its lists in them too.
+const int PRIM_WORDS = 8 * 1024;
+uint32_t prim_buffers[2][PRIM_WORDS];
+
 // --- Menu mode -----------------------------------------------------------
 
-// The staging rows are 256 texels (128 cells) wide, so they stay out of
-// the textures' strip (gpu_lgr.cpp) and a piece is one sprite. Its two
-// halves are used in turn, so a piece can be sent while the previous one is
-// drawn.
-const int STAGE_Y = 480, STAGE_ROWS = 16, STAGE_W = 256;
+// The changed rectangles of the core's 8-bit picture are sent in pieces of
+// at most 256x16 pixels: each piece is copied into a command list as a
+// transfer to the staging rows (they are 256 texels, 128 cells, wide, so
+// they stay out of the textures' strip of gpu_lgr.cpp), followed by the
+// sprite that draws it with the palette. A list goes to the GPU when full
+// or at the end of a present, while the next one is built in the other
+// buffer; nothing waits for the GPU to finish a present.
+const int STAGE_Y = 480, STAGE_ROWS = 32, STAGE_W = 256;
 const int MENU_CLUT_X = GV_MENU_CLUT_X, MENU_CLUT_Y = GV_MENU_CLUT_Y;
 
 uint32_t menu_serial = 1;
@@ -38,19 +47,129 @@ int dirty_count = 0;
 bool dirty_overflow = false;
 bool dirty_partial = false;
 
-// One band of a rectangle: its rows (when narrower than the picture) and the
-// primitives that draw it from the staging rows.
-// (The SDK's LoadImage sends whole blocks of 16 words: zero words, GPU
-// no-ops, follow a piece.)
-uint32_t band_pixels[2][STAGE_W * STAGE_ROWS / 4 + 16];
-struct band_prims {
-	DR_AREA area;
-	DR_OFFSET offset;
-	DR_TPAGE tpage;
-	SPRT sprite;
-};
-band_prims bands[2];
-int band_turn = 0;
+// The menu command list being built (ml_start NULL: none) and the buffers
+// the GPU may still read.
+uint32_t* ml_start = 0;
+uint32_t* ml_cur = 0;
+uint32_t* ml_end = 0;
+uint32_t* ml_last = 0;
+int ml_index = 0;
+bool ml_busy[2] = {false, false};
+
+void ml_wait() {
+	DrawSync(0);
+	ml_busy[0] = ml_busy[1] = false;
+}
+
+void ml_begin() {
+	if (ml_busy[ml_index]) ml_wait();
+	ml_start = ml_cur = prim_buffers[ml_index];
+	ml_end = ml_start + PRIM_WORDS;
+	DR_AREA* area = (DR_AREA*)ml_cur;
+	ml_cur += sizeof(DR_AREA) / 4;
+	DR_OFFSET* offset = (DR_OFFSET*)ml_cur;
+	ml_cur += sizeof(DR_OFFSET) / 4;
+	setDrawAreaXY(area, 0, 0, GV_MENU_W - 1, GV_MENU_H - 1);
+	setDrawOffset(offset, 0, 0);
+	catPrim(area, offset);
+	ml_last = (uint32_t*)offset;
+}
+
+// A packet of the given size in words (its tag included), linked after the
+// last one.
+uint32_t* ml_packet(int words) {
+	uint32_t* p = ml_cur;
+	ml_cur += words;
+	catPrim(ml_last, p);
+	ml_last = p;
+	return p;
+}
+
+void ml_send() {
+	if (!ml_start) return;
+	termPrim(ml_last);
+	DrawOTag(ml_start);
+	ml_busy[ml_index] = true;
+	ml_index ^= 1;
+	ml_start = 0;
+}
+
+// Rows y..y+h-1, columns x1..x2 (from a multiple of 4 pixels, a multiple
+// of 4 wide, at most 256 columns, at most STAGE_ROWS rows) of the picture.
+void present_band(unsigned char* const* rows, int x1, int x2, int y, int h) {
+	const int w = x2 - x1 + 1;
+	const int words = w * h / 4;
+	// The transfer (its command, place and size, then the pixels) in
+	// packets of at most 255 words, the cache flush, the texture page, the
+	// sprite:
+	const int need = 3 + words + (3 + words) / 255 + 1 + 2 + 2 + sizeof(SPRT) / 4 + 4;
+	if (ml_start && ml_cur + need > ml_end) ml_send();
+	if (!ml_start) ml_begin();
+	int left = 3 + words;  // words of the transfer still to place
+	int room = left < 255 ? left : 255;
+	uint32_t* o = ml_packet(1 + room);
+	setlen(o, room);
+	o++;
+	o[0] = 0xA0000000;
+	o[1] = ((uint32_t)STAGE_Y << 16) | 0;
+	o[2] = ((uint32_t)h << 16) | (uint32_t)(w / 2);
+	o += 3;
+	room -= 3;
+	left -= 3;
+	for (int j = 0; j < h; ++j) {
+		const uint32_t* in = (const uint32_t*)(rows[y + j] + x1);
+		int n = w / 4;
+		while (n > 0) {
+			if (!room) {
+				room = left < 255 ? left : 255;
+				o = ml_packet(1 + room);
+				setlen(o, room);
+				o++;
+			}
+			const int k = n < room ? n : room;
+			memcpy(o, in, k * 4);
+			o += k;
+			in += k;
+			n -= k;
+			room -= k;
+			left -= k;
+		}
+	}
+	// The texture cache may hold the staging rows' old texels:
+	uint32_t* flush = ml_packet(2);
+	setlen(flush, 1);
+	flush[1] = 0x01000000;
+	DR_TPAGE* tpage = (DR_TPAGE*)ml_packet(sizeof(DR_TPAGE) / 4);
+	// Drawing to the displayed field is allowed (interlace):
+	setDrawTPage(tpage, 1, 0, getTPage(1, 0, 0, STAGE_Y));
+	SPRT* sp = (SPRT*)ml_packet(sizeof(SPRT) / 4);
+	setSprt(sp);
+	setShadeTex(sp, 1);
+	setRGB0(sp, 128, 128, 128);
+	setXY0(sp, x1, y);
+	setUV0(sp, 0, STAGE_Y & 255);
+	setWH(sp, w, h);
+	sp->clut = getClut(MENU_CLUT_X, MENU_CLUT_Y);
+}
+
+void present_rect(unsigned char* const* rows, int x1, int y1, int x2, int y2) {
+	if (x1 < 0) x1 = 0;
+	if (y1 < 0) y1 = 0;
+	if (x2 > GV_MENU_W - 1) x2 = GV_MENU_W - 1;
+	if (y2 > GV_MENU_H - 1) y2 = GV_MENU_H - 1;
+	// Whole words of the picture:
+	x1 &= ~3;
+	x2 |= 3;
+	if (x2 > GV_MENU_W - 1) x2 = GV_MENU_W - 1;
+	if (x1 > x2 || y1 > y2) return;
+	for (int y = y1; y <= y2; y += STAGE_ROWS) {
+		const int h = y2 - y + 1 < STAGE_ROWS ? y2 - y + 1 : STAGE_ROWS;
+		for (int x = x1; x <= x2; x += STAGE_W) {
+			const int xe = x + STAGE_W - 1 < x2 ? x + STAGE_W - 1 : x2;
+			present_band(rows, x, xe, y, h);
+		}
+	}
+}
 
 void enter_menu_mode() {
 	DrawSync(0);
@@ -62,62 +181,8 @@ void enter_menu_mode() {
 	menu_valid = false;
 	menu_clut_loaded = false;
 	menu_serial++;
-}
-
-// Sends rows y..y+h-1, columns x1..x2 (a multiple of 4 pixels from x1, at
-// most 256 columns, at most STAGE_ROWS rows) of the picture.
-void present_band(const unsigned char* pixels, int x1, int x2, int y, int h) {
-	const int w = x2 - x1 + 1;
-	const int turn = band_turn;
-	band_turn ^= 1;
-	// The half of the staging rows, the pixels and the primitives of this
-	// turn were last used two pieces ago; everything sent until then must be
-	// drawn.
-	if (turn == 0) DrawSync(0);
-	unsigned char* out = (unsigned char*)band_pixels[turn];
-	for (int row = 0; row < h; ++row) memcpy(out + row * w, pixels + (y + row) * GV_MENU_W + x1, w);
-	memset(out + h * w, 0, 64);
-	const int stage_y = STAGE_Y + turn * STAGE_ROWS;
-	RECT r = {0, (int16_t)stage_y, (int16_t)(w / 2), (int16_t)h};
-	LoadImage(&r, band_pixels[turn]);
-
-	band_prims* band = &bands[turn];
-	setDrawAreaXY(&band->area, 0, 0, GV_MENU_W - 1, GV_MENU_H - 1);
-	setDrawOffset(&band->offset, 0, 0);
-	// Drawing to the displayed field is allowed (interlace):
-	setDrawTPage(&band->tpage, 1, 0, getTPage(1, 0, 0, stage_y));
-	SPRT* sp = &band->sprite;
-	setSprt(sp);
-	setShadeTex(sp, 1);
-	setRGB0(sp, 128, 128, 128);
-	setXY0(sp, x1, y);
-	setUV0(sp, 0, stage_y & 255);
-	setWH(sp, w, h);
-	sp->clut = getClut(MENU_CLUT_X, MENU_CLUT_Y);
-	catPrim(&band->area, &band->offset);
-	catPrim(&band->offset, &band->tpage);
-	catPrim(&band->tpage, sp);
-	termPrim(sp);
-	DrawOTag((const uint32_t*)&band->area);
-}
-
-void present_rect(const unsigned char* pixels, int x1, int y1, int x2, int y2) {
-	if (x1 < 0) x1 = 0;
-	if (y1 < 0) y1 = 0;
-	if (x2 > GV_MENU_W - 1) x2 = GV_MENU_W - 1;
-	if (y2 > GV_MENU_H - 1) y2 = GV_MENU_H - 1;
-	// Whole cells, an even number of them (LoadImage drops an odd halfword):
-	x1 &= ~3;
-	x2 |= 3;
-	if (x2 > GV_MENU_W - 1) x2 = GV_MENU_W - 1;
-	if (x1 > x2 || y1 > y2) return;
-	for (int y = y1; y <= y2; y += STAGE_ROWS) {
-		const int h = y2 - y + 1 < STAGE_ROWS ? y2 - y + 1 : STAGE_ROWS;
-		for (int x = x1; x <= x2; x += STAGE_W) {
-			const int xe = x + STAGE_W - 1 < x2 ? x + STAGE_W - 1 : x2;
-			present_band(pixels, x, xe, y, h);
-		}
-	}
+	ml_start = 0;
+	ml_busy[0] = ml_busy[1] = false;
 }
 
 // --- Game mode -------------------------------------------------------------
@@ -132,10 +197,6 @@ volatile int shown = 0;
 volatile uint32_t vblanks = 0;
 uint32_t last_end_vblank = 0;
 
-// Two command lists: one is drawn by the GPU while the next is built.
-// (A frame of the game view takes 2500-3500 words.)
-const int PRIM_WORDS = 8 * 1024;
-uint32_t prim_buffers[2][PRIM_WORDS];
 uint32_t scratch[64];
 int prim_index = 0;
 uint32_t* prim_cur = 0;
@@ -179,6 +240,8 @@ void enter_game_mode() {
 	pending_fb = -1;
 	drawing_fb = 1;
 	mode = MODE_GAME;
+	// The core's 8-bit picture is not drawn in the game:
+	gv_menu_picture_free();
 	if (gv_game_mode_hook) gv_game_mode_hook();
 }
 
@@ -225,7 +288,10 @@ uint32_t gv_clock() {
 	return high | low;
 }
 
-void gv_stop() { DrawSync(0); }
+void gv_stop() {
+	DrawSync(0);
+	ml_busy[0] = ml_busy[1] = false;
+}
 
 void gv_menu_dirty(int x1, int y1, int x2, int y2) {
 	if (x1 > x2 || y1 > y2) return;
@@ -249,28 +315,46 @@ void gv_menu_invalidate() {
 	menu_serial++;
 }
 
-void gv_menu_present(const unsigned char* pixels, const uint16_t* clut, bool clut_changed) {
+void gv_menu_present(unsigned char* const* rows, const uint16_t* clut, bool clut_changed) {
 	const uint32_t t0 = gv_clock();
 	if (mode != MODE_MENU) enter_menu_mode();
 	if (clut_changed || !menu_clut_loaded) {
-		DrawSync(0);
+		ml_wait();
 		RECT r = {MENU_CLUT_X, MENU_CLUT_Y, 256, 1};
 		LoadImage(&r, (const uint32_t*)clut);
 		menu_clut_loaded = true;
+	}
+	if (!rows) {
+		// No picture: black.
+		ml_wait();
+		FILL* fill = (FILL*)prim_buffers[0];
+		setFill(fill);
+		setRGB0(fill, 0, 0, 0);
+		setXY0(fill, 0, 0);
+		setWH(fill, GV_MENU_W, GV_MENU_H);
+		termPrim(fill);
+		DrawOTag((const uint32_t*)fill);
+		DrawSync(0);
+		menu_valid = false;
+		menu_serial++;
+		dirty_count = 0;
+		dirty_overflow = false;
+		dirty_partial = false;
+		gv_prof[GV_PROF_MENU] += gv_clock() - t0;
+		return;
 	}
 	long area = 0;
 	for (int i = 0; i < dirty_count; ++i)
 		area += (long)(dirty[i].x2 - dirty[i].x1 + 1) * (dirty[i].y2 - dirty[i].y1 + 1);
 	if (!menu_valid || !dirty_partial || dirty_overflow || area > (long)GV_MENU_W * GV_MENU_H / 2) {
-		present_rect(pixels, 0, 0, GV_MENU_W - 1, GV_MENU_H - 1);
+		present_rect(rows, 0, 0, GV_MENU_W - 1, GV_MENU_H - 1);
 		// Someone else's picture (or a big change): the menus redraw all.
 		if (!dirty_partial) menu_serial++;
 	} else {
 		for (int i = 0; i < dirty_count; ++i)
-			present_rect(pixels, dirty[i].x1, dirty[i].y1, dirty[i].x2, dirty[i].y2);
+			present_rect(rows, dirty[i].x1, dirty[i].y1, dirty[i].x2, dirty[i].y2);
 	}
-	// The core draws the next picture into the same memory:
-	DrawSync(0);
+	ml_send();
 	menu_valid = true;
 	dirty_count = 0;
 	dirty_overflow = false;

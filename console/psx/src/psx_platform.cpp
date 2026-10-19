@@ -58,9 +58,15 @@ namespace {
 
 const int W = 640, H = 480;
 
-// The picture of the game, 4-byte aligned for the DMA:
-uint32_t pixel_words[W * H / 4];
-unsigned char* const pixels = reinterpret_cast<unsigned char*>(pixel_words);
+// The picture of the core (menus and other screens), top row first. It is
+// in RAM only while such screens are drawn: it is given back while an LGR
+// is loaded and while the game view (drawn by the GPU) is on
+// (gv_menu_picture_free), in small pieces of CHUNK_ROWS rows, so that it
+// fits into the heap again however it was cut up meanwhile.
+const int CHUNK_ROWS = 8;
+const int CHUNKS = (H + CHUNK_ROWS - 1) / CHUNK_ROWS;
+unsigned char* chunks[CHUNKS];
+unsigned char* rows_top[H];
 unsigned char* rows[H];
 bool locked = false;
 
@@ -181,7 +187,7 @@ void present() {
 	if (VSync(-1) == (int)last_present_vblank) VSync(0);
 	last_present_vblank = VSync(-1);
 
-	gv_menu_present(pixels, clut, clut_dirty);
+	gv_menu_present(rows_top, clut, clut_dirty);
 	clut_dirty = false;
 	count_frame();
 }
@@ -271,8 +277,8 @@ void message_screen(const char* title, char* a, char* b, char* c, bool wait) {
 	if (b) printf("elma:   %s\n", b);
 	if (c) printf("elma:   %s\n", c);
 	if (!Margrafikus) return;
-	// Over the last menu picture:
-	gv_menu_present(pixels, clut, true);
+	// Over the last menu picture (a black one if it is not in RAM):
+	gv_menu_present(chunks[0] ? rows_top : NULL, clut, true);
 	FntLoad(GV_FONT_X, GV_FONT_Y);
 	const int font = FntOpen(32, 32, W - 64, H - 64, 1, 1024);
 	const uint16_t start = pad_down;
@@ -370,11 +376,48 @@ void ddinit() {
 
 void ddfinish() { gv_stop(); }
 
+void gv_menu_picture_ensure() {
+	if (chunks[0]) return;
+	for (int c = 0; c < CHUNKS; ++c) {
+		const int n = H - c * CHUNK_ROWS < CHUNK_ROWS ? H - c * CHUNK_ROWS : CHUNK_ROWS;
+		chunks[c] = (unsigned char*)malloc(n * W);
+		// After a game of a big level the room is made by the level's
+		// pictures for the GPU, which are made again for the next game:
+		if (!chunks[c] && gv_level_release()) chunks[c] = (unsigned char*)malloc(n * W);
+		if (!chunks[c]) {
+			HeapUsage usage;
+			GetHeapUsage(&usage);
+			printf("elma: out of memory: the picture of the menus, %d of %d pieces made, %u allocated\n", c, CHUNKS,
+			       (unsigned)usage.alloc);
+			hiba((char*)"Out of memory:", (char*)"the picture of the menus");
+		}
+		memset(chunks[c], 0, n * W);
+		for (int r = 0; r < n; ++r) rows_top[c * CHUNK_ROWS + r] = chunks[c] + r * W;
+	}
+	// What the display shows is not this picture:
+	gv_menu_invalidate();
+}
+
+void gv_menu_picture_free() {
+	if (locked || !chunks[0]) return;
+	for (int c = 0; c < CHUNKS; ++c) {
+		free(chunks[c]);
+		chunks[c] = 0;
+	}
+	memset(rows_top, 0, sizeof(rows_top));
+}
+
+unsigned char** gv_menu_rows() {
+	gv_menu_picture_ensure();
+	return rows_top;
+}
+
 unsigned char** lockbackbuffer(int) {
 	if (locked) hiba((char*)"framebuffer already locked");
+	gv_menu_picture_ensure();
 	locked = true;
 	if (Locky0_alul) psx_debug.game_frames++;
-	for (int y = 0; y < H; ++y) rows[Locky0_alul ? H - 1 - y : y] = pixels + y * W;
+	for (int y = 0; y < H; ++y) rows[Locky0_alul ? H - 1 - y : y] = rows_top[y];
 	return rows;
 }
 void unlockbackbuffer() {

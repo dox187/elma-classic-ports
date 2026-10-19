@@ -174,6 +174,7 @@ slot* find_slot( motorst* pmot ) {
 
 void free_level( void ) {
 	free( Lev.lines );
+	free( Lev.row );
 	free( Lev.cell );
 	free( Lev.list );
 	free( Lev.objs );
@@ -208,25 +209,33 @@ void build_lines( szakaszok* psz ) {
 	Lev.ydim = psz->ydim;
 	Lev.origo.x = fx_d2q( psz->origo.x, 40 );
 	Lev.origo.y = fx_d2q( psz->origo.y, 40 );
-	int cells = psz->xdim*psz->ydim;
-	Lev.cell = (uint32_t*)malloc( sizeof( uint32_t )*(cells+1) );
-	if( !Lev.cell )
+	const int xdim = psz->xdim, ydim = psz->ydim;
+	Lev.row = (uint32_t*)malloc( sizeof( uint32_t )*(ydim+1) );
+	Lev.cell = (uint16_t*)malloc( sizeof( uint16_t )*(xdim+1)*(ydim > 0 ? ydim : 1) );
+	if( !Lev.row || !Lev.cell )
 		uzenet( "memory!" );
 	uint32_t total = 0;
-	for( int c = 0; c < cells; c++ ) {
-		Lev.cell[c] = total;
-		for( vonalnode* pn = psz->tertomb[c]; pn; pn = pn->pnext )
-			total++;
+	for( int y = 0; y < ydim; y++ ) {
+		Lev.row[y] = total;
+		uint32_t inrow = 0;
+		for( int x = 0; x < xdim; x++ ) {
+			Lev.cell[(xdim+1)*y+x] = (uint16_t)inrow;
+			for( vonalnode* pn = psz->tertomb[xdim*y+x]; pn; pn = pn->pnext )
+				inrow++;
+		}
+		if( inrow > 65535 )
+			hiba( "fxg: too many lines in a row of the grid!" );
+		Lev.cell[(xdim+1)*y+xdim] = (uint16_t)inrow;
+		total += inrow;
 	}
-	Lev.cell[cells] = total;
+	Lev.row[ydim] = total;
 	Lev.list = (uint16_t*)malloc( sizeof( uint16_t )*(total > 0 ? total : 1) );
 	if( !Lev.list )
 		uzenet( "memory!" );
-	for( int c = 0; c < cells; c++ ) {
-		uint32_t j = Lev.cell[c];
+	uint32_t j = 0;
+	for( int c = 0; c < xdim*ydim; c++ )
 		for( vonalnode* pn = psz->tertomb[c]; pn; pn = pn->pnext )
 			Lev.list[j++] = (uint16_t)(pn->pvonal-psz->tomb);
-	}
 #ifdef ELMA_PSX
 	// Only the double physics searched the grid of szakaszok:
 	delete[] psz->tertomb;

@@ -77,9 +77,11 @@ typedef struct {
 	fx_line* lines;
 	int nlines;
 	// The grid of szakaszok (cells of 1 m): the lines of cell (x, y) are
-	// list[cell[y*xdim+x]] .. list[cell[y*xdim+x+1]-1], in the order of the
-	// original's lists.
-	uint32_t* cell;
+	// list[row[y]+cell[y*(xdim+1)+x]] .. list[row[y]+cell[y*(xdim+1)+x+1]-1],
+	// in the order of the original's lists (16 bits a cell: offsets in the
+	// row).
+	uint32_t* row;
+	uint16_t* cell;
 	uint16_t* list;
 	int xdim, ydim;
 	fx_vec origo;

@@ -264,20 +264,18 @@ image* take(Kind kind, const void* p, int sw, int sh, int transparent, Group gro
 	im->pic.tiles_x = (uint8_t)((im->w + 255) / 256);
 	im->pic.tiles_y = (uint8_t)((im->h + 255) / 256);
 
-	// The texels and their colors:
+	// The texels' colors (a first pass over the source, row by row):
 	source s = {kind, p, sw, sh, transparent, 0, 0};
-	unsigned char* idx = new unsigned char[im->w * im->h];
-	unsigned char* trans = new unsigned char[im->w * im->h];
+	static unsigned char idx[512], trans[512];
 	uint32_t used[8] = {0};
 	bool any_transparent = false;
 	for (int j = 0; j < im->h; ++j) {
-		sample_row(&s, j, im->w, idx + j * im->w, trans + j * im->w);
+		sample_row(&s, j, im->w, idx, trans);
 		for (int i = 0; i < im->w; ++i) {
-			const int k = j * im->w + i;
-			if (trans[k])
+			if (trans[i])
 				any_transparent = true;
 			else
-				used[idx[k] >> 5] |= 1u << (idx[k] & 31);
+				used[idx[i] >> 5] |= 1u << (idx[i] & 31);
 		}
 	}
 	int count = 0;
@@ -317,42 +315,41 @@ image* take(Kind kind, const void* p, int sw, int sh, int transparent, Group gro
 	if (im->bits == 4)
 		for (int k = 0; k < 16; ++k) to4[map[k]] = (uint8_t)k;
 
-	// Tile after tile, rows of whole cells (tile_bytes):
+	// Tile after tile, rows of whole cells (tile_bytes), filled in a second
+	// pass over the source:
 	int bytes = 0;
+	int tile_offset[4];
 	for (int ty = 0; ty < im->pic.tiles_y; ++ty)
 		for (int tx = 0; tx < im->pic.tiles_x; ++tx) {
 			const int w = im->w - tx * 256 < 256 ? im->w - tx * 256 : 256;
 			const int h = im->h - ty * 256 < 256 ? im->h - ty * 256 : 256;
+			tile_offset[ty * im->pic.tiles_x + tx] = bytes;
 			bytes += tile_bytes(w, h, im->bits);
 		}
 	im->data = new uint8_t[bytes];
 	memset(im->data, 0, bytes);
-	uint8_t* o = im->data;
-	for (int ty = 0; ty < im->pic.tiles_y; ++ty)
+	s.rle_pos = 0;
+	s.rle_row = 0;
+	for (int j = 0; j < im->h; ++j) {
+		sample_row(&s, j, im->w, idx, trans);
+		const int ty = j >> 8, jj = j & 255;
 		for (int tx = 0; tx < im->pic.tiles_x; ++tx) {
-			const int x0 = tx * 256, y0 = ty * 256;
+			const int x0 = tx * 256;
 			const int w = im->w - x0 < 256 ? im->w - x0 : 256;
-			const int h = im->h - y0 < 256 ? im->h - y0 : 256;
 			const int row_bytes = tile_cells(w, im->bits) * 2;
-			uint8_t* tile_start = o;
-			for (int j = 0; j < h; ++j) {
-				const unsigned char* in = idx + (y0 + j) * im->w + x0;
-				const unsigned char* tr = trans + (y0 + j) * im->w + x0;
-				memset(o, 0, row_bytes);
-				for (int i = 0; i < w; ++i) {
-					if (im->bits == 8)
-						o[i] = tr[i] ? (unsigned char)im->transparent : in[i];
-					else {
-						const int v = tr[i] ? im->transparent : to4[in[i]];
-						o[i >> 1] |= (unsigned char)(v << ((i & 1) * 4));
-					}
+			uint8_t* o = im->data + tile_offset[ty * im->pic.tiles_x + tx] + jj * row_bytes;
+			const unsigned char* in = idx + x0;
+			const unsigned char* tr = trans + x0;
+			for (int i = 0; i < w; ++i) {
+				if (im->bits == 8)
+					o[i] = tr[i] ? (unsigned char)im->transparent : in[i];
+				else {
+					const int v = tr[i] ? im->transparent : to4[in[i]];
+					o[i >> 1] |= (unsigned char)(v << ((i & 1) * 4));
 				}
-				o += row_bytes;
 			}
-			o = tile_start + tile_bytes(w, h, im->bits);
 		}
-	delete[] idx;
-	delete[] trans;
+	}
 	nimage++;
 	return im;
 }

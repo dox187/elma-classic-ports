@@ -8,8 +8,26 @@ void wav::lefoglal( void ) {
 		uzenet( "wav::alloc-ban memory!" );
 }
 
+#ifdef ELMA_PSX
+// tomb[i] *= szorzo for every sample, with 16 fraction bits (the result
+// truncated toward zero, as the conversion of the double):
+static void szorzas( signed short* tomb, unsigned size, double szorzo ) {
+	const int32_t f = int32_t( szorzo*65536.0 );
+	for( unsigned i = 0; i < size; i++ ) {
+		int64_t v = int64_t( tomb[i] )*f;
+		if( v < 0 )
+			v += 65535;
+		tomb[i] = (signed short)( v >> 16 );
+	}
+}
+#endif
+
 wav::wav( unsigned sizepar ) {
 	tomb = NULL;
+#ifdef ELMA_PSX
+	tomb8 = NULL;
+	lut = NULL;
+#endif
 	size = sizepar;
 	lefoglal();
 }
@@ -51,6 +69,10 @@ struct wavheader {
 
 wav::wav( char* nev, double maxamplitudo, int start, int ucsoutani ) {
 	tomb = NULL;
+#ifdef ELMA_PSX
+	tomb8 = NULL;
+	lut = NULL;
+#endif
 	nevwavtest( nev );
 	// Lemeri file hosszat:
 	FILE* h = qopen( nev, "rb" );
@@ -126,10 +148,84 @@ wav::wav( char* nev, double maxamplitudo, int start, int ucsoutani ) {
 	}
 	// Kiszamolja szorzot:
 	double szorzo = 32000.0*maxamplitudo/double(maxamp);
+#ifdef ELMA_PSX
+	// (In fixed point: a multiplication of doubles a sample took the PS1
+	// seconds at the first start of the sound.)
+	szorzas( tomb, size, szorzo );
+#else
 	for( int i = 0; i < size; i++ ) {
 		tomb[i] *= szorzo;
 	}
+#endif
 }
+
+#ifdef ELMA_PSX
+// G.711 mu-law of a 16-bit sample (the exponent from a table of the top
+// bits), and back:
+static unsigned char Mulawkitevo[256];
+
+static unsigned char mulaw( int minta ) {
+	int elojel = 0;
+	if( minta < 0 ) {
+		elojel = 0x80;
+		minta = -minta;
+	}
+	if( minta > 32635 )
+		minta = 32635;
+	minta += 0x84;
+	const int kitevo = Mulawkitevo[(minta >> 7) & 0xff];
+	const int mantissza = (minta >> (kitevo+3)) & 0x0f;
+	return (unsigned char)~(elojel | (kitevo << 4) | mantissza);
+}
+
+static int mulawvissza( unsigned char kod ) {
+	kod = (unsigned char)~kod;
+	const int kitevo = (kod >> 4) & 7;
+	const int minta = (((kod & 0x0f) << 3) + 0x84 << kitevo) - 0x84;
+	return (kod & 0x80) ? -minta : minta;
+}
+
+void wav::tomorit( void ) {
+	if( tomb8 || !tomb )
+		return;
+	if( !Mulawkitevo[255] ) {
+		for( int i = 0; i < 256; i++ ) {
+			int k = 0;
+			while( k < 7 && (i >> (k+1)) )
+				k++;
+			Mulawkitevo[i] = (unsigned char)k;
+		}
+	}
+	long maxamp = 1;
+	for( unsigned i = 0; i < size; i++ ) {
+		const long a = tomb[i] < 0 ? -long( tomb[i] ) : tomb[i];
+		if( a > maxamp )
+			maxamp = a;
+	}
+	// The scale reaches the sound's peak (32124, the largest mu-law value):
+	lut = new short[256];
+	tomb8 = new unsigned char[size ? size : 1];
+	if( !lut || !tomb8 )
+		uzenet( "wav::tomorit-ban memory!" );
+	for( int k = 0; k < 256; k++ )
+		lut[k] = short( long( mulawvissza( (unsigned char)k ) )*maxamp/32124 );
+	// The codes of the top 12 bits of a 16-bit sample (made once):
+	static unsigned char* kodok = NULL;
+	if( !kodok ) {
+		kodok = new unsigned char[4096];
+		for( int k = 0; k < 4096; k++ )
+			kodok[k] = mulaw( (k << 4) - 32768 + 8 );
+	}
+	// (15 fraction bits: |tomb| <= maxamp keeps the product within 31 bits.)
+	const long szorzo = (32124l << 15)/maxamp;
+	for( unsigned i = 0; i < size; i++ ) {
+		const long v = (long( tomb[i] )*szorzo) >> 15;
+		tomb8[i] = kodok[(v + 32768) >> 4];
+	}
+	DELETE tomb; }
+	tomb = NULL;
+}
+#endif
 
 void wav::save( char* nev ) {
 	nevwavtest( nev );
@@ -167,9 +263,13 @@ void wav::vegereilleszt( wav* pwav, int n ) {
 }
 
 void wav::hangero( double szorzo ) {
+#ifdef ELMA_PSX
+	szorzas( tomb, size, szorzo );
+#else
 	for( int i = 0; i < size; i++ ) {
 		tomb[i] *= szorzo;
 	}
+#endif
 }
 
 // WAV2 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

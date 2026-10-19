@@ -91,6 +91,17 @@ void starthanghigh( void ) {
     Mute = 0;
 
 	Pw2->hangero( 0.4 );
+#ifdef ELMA_PSX
+	// From here on the samples are only read: 8 bits each on the PS1
+	// (WAV.H). (Pw4's are read by the wav2s, which keep 16 bits.)
+	for( int i = 0; i < WAVBANKSZAM; i++ )
+		if( Wavbank[i] )
+			Wavbank[i]->tomorit();
+	Psurl->tomorit();
+	Pw1->tomorit();
+	Pw2->tomorit();
+	Pw3->tomorit();
+#endif
 }
 
 /*void stophanghigh( void ) {
@@ -255,6 +266,24 @@ static void shortadd( short* dest, short* sour, int number ) {
 		dest[i] += sour[i];
 }
 
+// shortadd( dest, &pwav->tomb[kezd], number ):
+#ifdef ELMA_PSX
+static void wavshortadd( short* dest, wav* pwav, long kezd, int number ) {
+	if( !pwav->tomb8 ) {
+		for( int i = 0; i < number; i++ )
+			dest[i] += pwav->tomb[kezd+i];
+		return;
+	}
+	const unsigned char* t = pwav->tomb8+kezd;
+	const short* lut = pwav->lut;
+	for( int i = 0; i < number; i++ )
+		dest[i] += lut[t[i]];
+}
+#define WAVADD( dest, pwav, kezd, number ) wavshortadd( (dest), (pwav), (kezd), (number) )
+#else
+#define WAVADD( dest, pwav, kezd, number ) shortadd( (dest), &(pwav)->tomb[kezd], (number) )
+#endif
+
 static void motorelintezes( int mot1, short* sbuff, int buffsize ) {
 	mothangstruct* pms;
 	if( mot1 )
@@ -281,8 +310,8 @@ static void motorelintezes( int mot1, short* sbuff, int buffsize ) {
                 if( pms->i_indit+buffsize > Pw1->size ) {
                     // Meg most befejezi A_INDIT-ot:
                     int masolando = Pw1->size-pms->i_indit;
-                    shortadd( &sbuff[counter], 
-						&Pw1->tomb[pms->i_indit], masolando );
+                    WAVADD( &sbuff[counter], 
+						Pw1, pms->i_indit, masolando );
                     counter += masolando;
                     pms->allapot = A_ALACSONY;
                     pms->i_alacsony = Mix;
@@ -290,8 +319,8 @@ static void motorelintezes( int mot1, short* sbuff, int buffsize ) {
                 else {
                     // Most teljes egeszeben indit-bol megy:
                     int masolando = buffsize-counter;
-                    shortadd( &sbuff[counter], 
-						&Pw1->tomb[pms->i_indit], masolando );
+                    WAVADD( &sbuff[counter], 
+						Pw1, pms->i_indit, masolando );
                     pms->i_indit += masolando;
                     return;
                 }
@@ -307,16 +336,16 @@ static void motorelintezes( int mot1, short* sbuff, int buffsize ) {
                     if( masolando > Pw2->size-pms->i_alacsony ) {
                         // Most ujra elejere kell meg ugrani:
                         masolando = Pw2->size-pms->i_alacsony;
-                        shortadd( &sbuff[counter], 
-							&Pw2->tomb[pms->i_alacsony], 
+                        WAVADD( &sbuff[counter], 
+							Pw2, pms->i_alacsony, 
 							masolando );
                         counter += masolando;
                         pms->i_alacsony = 0;
                     }
                     else {
                         // Most egy darabban lehet masolni alacsonybol:
-                        shortadd( &sbuff[counter], 
-							&Pw2->tomb[pms->i_alacsony], 
+                        WAVADD( &sbuff[counter], 
+							Pw2, pms->i_alacsony, 
 							masolando );
                         pms->i_alacsony += masolando;
                         return;
@@ -338,8 +367,8 @@ static void motorelintezes( int mot1, short* sbuff, int buffsize ) {
                     if( pms->i_alacsony >= Pw2->size )
                         pms->i_alacsony = 0;
                     double arany = i*Egypermix;
-                    sbuff[counter+novekmeny] += arany*Pw3->tomb[i] +
-                        (1-arany)*Pw2->tomb[pms->i_alacsony];
+                    sbuff[counter+novekmeny] += arany*WAVMINTA( Pw3, i ) +
+                        (1-arany)*WAVMINTA( Pw2, pms->i_alacsony );
                     pms->i_alacsony++;
                     novekmeny++;
                 }
@@ -353,8 +382,8 @@ static void motorelintezes( int mot1, short* sbuff, int buffsize ) {
                 if( masolando > Pw3->size-pms->i_atmenet ) {
                     // Mar most at kell terni magas-ra:
                     masolando = Pw3->size-pms->i_atmenet;
-                    shortadd( &sbuff[counter], 
-						&Pw3->tomb[pms->i_atmenet], masolando );
+                    WAVADD( &sbuff[counter], 
+						Pw3, pms->i_atmenet, masolando );
                     counter += masolando;
                     pms->allapot = A_MAGAS;
 					if( mot1 )
@@ -365,8 +394,8 @@ static void motorelintezes( int mot1, short* sbuff, int buffsize ) {
                 }
                 else {
                     // Most meg teljes egeszeben atmenet megy ki:
-                    shortadd( &sbuff[counter], 
-						&Pw3->tomb[pms->i_atmenet], masolando );
+                    WAVADD( &sbuff[counter], 
+						Pw3, pms->i_atmenet, masolando );
                     pms->i_atmenet += masolando;
                     return;
                 }
@@ -383,7 +412,7 @@ static void motorelintezes( int mot1, short* sbuff, int buffsize ) {
 							gazshort = Pw42a->getnextsample( dtmost );
 						else
 							gazshort = Pw42b->getnextsample( dtmost );
-						short alapshort = Pw2->tomb[i];
+						short alapshort = WAVMINTA( Pw2, i );
 
 						double alapsuly = (double)i/Mix;
 						double gazsuly = 1.0-alapsuly;
@@ -444,7 +473,7 @@ static void surlodaselintezes( short* sbuff, int buffsize ) {
     long dero = (erokell-eromost)/((double)buffsize);
     int meret = Psurl->size;
     for( int i = 0; i < buffsize; i++ ) {
-        long ertek = Psurl->tomb[Surltart];
+        long ertek = WAVMINTA( Psurl, Surltart );
         Surltart++;
         if( Surltart >= meret )
             Surltart = 0;
@@ -498,7 +527,17 @@ void callbackhang( short* sbuff, int buffsize ) {
                 if( Wavszam < 0 )
                     hiba( "Wavszam < 0 !" );
             }
+#ifdef ELMA_PSX
+            {
+                // (The 8-bit samples, wavadd's formula.)
+                wav* pw = Pwavok[i];
+                const unsigned long hangero = Hangerok[i];
+                for( long j = 0; j < darab; j++ )
+                    sbuff[j] += short((pw->minta( Kovhang[i]+j )*hangero)>>16);
+            }
+#else
             wavadd( sbuff, &Pwavok[i]->tomb[Kovhang[i]], darab, Hangerok[i] );
+#endif
             Kovhang[i] += darab;
         }
     }

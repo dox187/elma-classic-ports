@@ -35,7 +35,8 @@ static const double Track[][2] = {
 #define NPOINTS ((int)(sizeof Track/sizeof Track[0]))
 
 static fx_line Lines[NPOINTS];
-static uint32_t Cells[64*16+1];
+static uint32_t Rows[16+1];
+static uint16_t Cells[65*16];
 static uint16_t List[64*16*NPOINTS];
 static int Apple_aktiv = 1, Killer_aktiv = 1;
 static fx_obj Objs[2];
@@ -85,12 +86,16 @@ static void level( fx_level* lev ) {
 	// Every cell has every line (the order of the lists is all that matters
 	// for the test):
 	uint32_t n = 0;
-	for( int c = 0; c < 64*16; c++ ) {
-		Cells[c] = n;
-		for( int i = 0; i < NPOINTS; i++ )
-			List[n++] = (uint16_t)i;
+	for( int y = 0; y < 16; y++ ) {
+		Rows[y] = n;
+		for( int x = 0; x <= 64; x++ )
+			Cells[65*y+x] = (uint16_t)(x*NPOINTS);
+		for( int x = 0; x < 64; x++ )
+			for( int i = 0; i < NPOINTS; i++ )
+				List[n++] = (uint16_t)i;
 	}
-	Cells[64*16] = n;
+	Rows[16] = n;
+	lev->row = Rows;
 	lev->cell = Cells;
 	lev->list = List;
 	Objs[0].r.x = fx_d2q( 14.5, 40 );

@@ -147,7 +147,8 @@ local function paint()
     if sp >= 0x807f0000 and sp < 0x80800000 then
         stack_top, stack_bottom = 0x807ffff0, 0x807f0000
     elseif sp >= 0x801f0000 and sp < 0x80200000 then
-        stack_top, stack_bottom = 0x80200000, 0x801f0000
+        -- (2 MB: only the stack reserve, the heap ends below it.)
+        stack_top, stack_bottom = 0x80200000, 0x80200000 - 16 * 1024
     else
         print(string.format("STACK not painted (sp %08x)", sp))
         return

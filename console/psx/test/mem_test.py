@@ -80,6 +80,8 @@ def run_level(args, label, lua_args, pcdrv):
     result = pcsx.run(exe=exe, pcdrv=pcdrv, map_file=os.path.join(args.build, "elma.map"),
                       lua=os.path.join(HERE, "mem_test.lua"), ram8=not args.ram2, timeout=args.timeout,
                       workdir=workdir, args=lua_args)
+    with open(os.path.join(workdir, "output.txt"), "w") as f:
+        f.write(result.output)
     return label, result
 
 

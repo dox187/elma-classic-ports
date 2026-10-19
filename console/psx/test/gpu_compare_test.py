@@ -10,9 +10,10 @@ screenshotted, at the start and after some gas. The software picture
 aligned to the GPU's camera) and compared.
 
     python3 test/gpu_compare_test.py [--build DIR] [--levels warmup,internal,external]
-        [--external FILE.lev[,FILE.lev...]] [--no-build] [--timeout S] [--gpu-only] [--fps]
+        [--external FILE.lev[,FILE.lev...]] [--no-build] [--timeout S] [--gpu-only] [--fps] [--ram2]
 
---gpu-only takes only the GPU renderer's pictures, with the normal program
+--ram2 runs in the retail 2 MB of RAM (with --gpu-only; the comparison
+program does not fit). --gpu-only takes only the GPU renderer's pictures, with the normal program
 of BUILD (elma.exe, elma-cd.exe; it is not built), e.g. for a level too big
 for the software renderer's brushes in 8 MB; --fps also measures the view's
 frame rate (10 seconds without input after the pictures, or until the
@@ -151,7 +152,7 @@ def run_level(name, args, exe_dir, result):
         lua_args["levels"] = str(levels)
     exe = os.path.join(exe_dir, "elma-cd.exe" if disc else "elma.exe")
     run_args = dict(map_file=os.path.splitext(exe)[0] + ".map", lua=os.path.join(HERE, "gpu_compare_test.lua"),
-                    ram8=True, timeout=args.timeout, workdir=workdir, args=lua_args)
+                    ram8=not args.ram2, timeout=args.timeout, workdir=workdir, args=lua_args)
     if disc:
         lev_dir = os.path.join(workdir, "lev")
         os.makedirs(lev_dir, exist_ok=True)
@@ -179,6 +180,8 @@ def main():
     ap.add_argument("--timeout", type=float, default=1500)
     ap.add_argument("--gpu-only", action="store_true")
     ap.add_argument("--fps", action="store_true")
+    ap.add_argument("--ram2", action="store_true",
+                    help="the retail 2 MB of RAM (with --gpu-only; the default is the 8 MB mode)")
     ap.add_argument("--trace", action="store_true", help="print where the program is while a level loads")
     args = ap.parse_args()
     exe_dir = args.build if args.gpu_only else os.path.join(args.build, "gpu-compare")

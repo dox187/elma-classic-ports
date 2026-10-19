@@ -24,7 +24,6 @@ struct gpu_inst {
 	uint8_t type, clip;
 	int16_t index;       // picture, mask or grass picture of the LGR
 	int16_t texture;     // the texture of a mask, qgrass
-	int32_t order;       // the original's order of adding
 	int32_t sprite0;     // its sprites (gpu_level::sprites)
 	int16_t nsprites;
 };
@@ -33,11 +32,19 @@ struct gpu_inst {
 // at a fixed place of the world, the texture of a mask or qgrass anchored
 // to the world too. Top left at the half-resolution brush pixel (hx, hy),
 // hy being its top row (y upwards).
+// (hx, hy) is kept relative to the instance's (x >> 1, y >> 1), so a
+// sprite takes 12 bytes; the sprites are kept in pieces of GPU_SPRITE_CHUNK
+// (no single big block for a level with many pictures).
 struct gpu_wsprite {
-	int32_t hx, hy;
+	int16_t dx, dy;
 	uint8_t u, v, w1, h1;
 	uint16_t tpage, clut;
 };
+const int GPU_SPRITE_SHIFT = 9;
+const int GPU_SPRITE_CHUNK = 1 << GPU_SPRITE_SHIFT;
+
+// Makes the level's pictures again if gv_level_release gave them back.
+void gpu_level_ensure();
 
 struct gpu_level {
 	// The brush's origin (physics coordinates) and size (pixels):
@@ -58,7 +65,7 @@ struct gpu_level {
 	int ninst;
 	gpu_inst* inst;
 	int nsprites;
-	gpu_wsprite* sprites;
+	gpu_wsprite** sprite_chunks;
 	// A grid over the brush for finding the instances of a view:
 	// (cells of GPU_GRID_CELL brush pixels)
 	int grid_w, grid_h;
@@ -86,3 +93,8 @@ extern gpu_level Glevel;
 // Brush pixels of a point in physics coordinates (y up), fixed point.
 int32_t gpu_brush_x16(double x);
 int32_t gpu_brush_y16(double y);
+
+// Sprite i of the level (gpu_inst::sprite0 and the next ones):
+inline const gpu_wsprite* gpu_sprite(int i) {
+	return &Glevel.sprite_chunks[i >> GPU_SPRITE_SHIFT][i & (GPU_SPRITE_CHUNK - 1)];
+}

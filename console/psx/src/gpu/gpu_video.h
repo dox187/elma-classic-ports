@@ -17,9 +17,10 @@
 //   menu mode, 640x480 interlaced, single buffered:
 //     (0,0)-(639,479)     the displayed picture
 //     (0,480)-(127,511)   8-bit staging rows: changed rectangles of the
-//                         core's 8-bit picture go through here, 256x16
-//                         pixels at a time (two halves in turn), and are
-//                         drawn with its palette onto the display
+//                         core's 8-bit picture go through here, 256x32
+//                         pixels at a time (one after the other in a
+//                         command list), and are drawn with its palette
+//                         onto the display
 //     (640,511)           that palette (CLUT), kept out of the textures
 //   game mode, 320x240 progressive, triple buffered:
 //     (0,0) (320,0) (0,240)  the three frame buffers
@@ -52,11 +53,22 @@ const int GV_GAME_DATA_X = 320, GV_GAME_DATA_Y = 240;
 
 // --- Menu mode -----------------------------------------------------------
 
-// Presents the core's 640x480 8-bit picture (row stride 640) with its
-// palette (256 VRAM colors). Only the rectangles given by gv_menu_dirty since
-// the last call are sent, or the whole picture if there were none, or if the
-// display was showing something else.
-void gv_menu_present(const unsigned char* pixels, const uint16_t* clut, bool clut_changed);
+// Presents the core's 640x480 8-bit picture (its rows) with its palette
+// (256 VRAM colors). Only the rectangles given by gv_menu_dirty since the
+// last call are sent, or the whole picture if there were none, or if the
+// display was showing something else. rows NULL: a black picture.
+void gv_menu_present(unsigned char* const* rows, const uint16_t* clut, bool clut_changed);
+// The rows of the core's 640x480 8-bit picture (psx_platform.cpp), top row
+// first: the menus draw straight into it (gpu_menukep.cpp). The array stays
+// the same; the picture is only in RAM between gv_menu_picture_ensure (also
+// done by gv_menu_rows and the locks of the picture) and
+// gv_menu_picture_free (an LGR is loaded, the game view starts).
+unsigned char** gv_menu_rows();
+void gv_menu_picture_ensure();
+void gv_menu_picture_free();
+// The menus' tile pictures are given back until a menu is drawn again
+// (gpu_menukep.cpp, while an LGR is read).
+void gv_menu_images_free();
 // Marks a rectangle of the picture (inclusive coordinates) for the next
 // gv_menu_present.
 void gv_menu_dirty(int x1, int y1, int x2, int y2);
@@ -96,6 +108,13 @@ bool gv_in_game_mode();
 extern void (*gv_game_mode_hook)();
 
 // --- Both --------------------------------------------------------------------
+
+// The pictures of the level for the GPU (gpu_level.cpp) are given back when
+// the RAM is needed in the menus after a game (false: nothing to give), and
+// made again when the game view is drawn next.
+bool gv_level_release();
+// All of the level's data for the GPU is given back (a level is loaded).
+void gv_level_free();
 
 void gv_init();
 // Waits until the GPU is idle and leaves the display as it is (error screen).

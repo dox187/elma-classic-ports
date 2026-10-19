@@ -574,9 +574,16 @@ void collect_visible() {
 void draw_list(int l, bbox* used, uint32_t* count) {
 	for (int i = 0; i < nvis[l]; ++i) {
 		const gpu_inst* in = &Glevel.inst[vis[l][i]];
-		const gpu_wsprite* sp = &Glevel.sprites[in->sprite0];
-		for (int k = 0; k < in->nsprites; ++k, ++sp) {
-			const int x = sp->hx - V.cam_x, y = V.cam_top - sp->hy;
+		const int bx = (in->x >> 1) - V.cam_x, by = V.cam_top - (in->y >> 1);
+		int s = in->sprite0;
+		const gpu_wsprite* sp = gpu_sprite(s);
+		int left = GPU_SPRITE_CHUNK - (s & (GPU_SPRITE_CHUNK - 1));
+		for (int k = 0; k < in->nsprites; ++k, ++s, ++sp, --left) {
+			if (!left) {
+				sp = gpu_sprite(s);
+				left = GPU_SPRITE_CHUNK;
+			}
+			const int x = bx + sp->dx, y = by - sp->dy;
 			const int w = sp->w1 + 1, h = sp->h1 + 1;
 			if (x >= V.w || y >= V.h || x + w <= 0 || y + h <= 0) continue;
 			sprite(x, y, w, h, sp->u, sp->v, sp->tpage, sp->clut);
@@ -1552,6 +1559,7 @@ void kirajzol320(double t, valtozok* pvalt1, valtozok* pvalt2, int viewki1, int 
 		return;
 	}
 #endif
+	gpu_level_ensure();
 	const uint32_t t0 = gv_clock();
 	int splitscreen = 0;
 	int fulljatekosA = 1;

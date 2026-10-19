@@ -70,6 +70,17 @@ void loadlgrfile( char* nev ) {
 
 	if( strlen( nev ) > 8 )
 		hiba( "loadlgrfile-ban strlen( nev ) > 8!" );
+#ifdef ELMA_PSX
+	// A level is loaded (the loading screen is shown): the menus' picture
+	// and tiles and the previous level's data for the GPU give their room
+	// before anything of the new level is made.
+	void gv_menu_picture_free();
+	void gv_menu_images_free();
+	void gv_level_free();
+	gv_menu_picture_free();
+	gv_menu_images_free();
+	gv_level_free();
+#endif
 
 	// The loaded one is only good if it was made with the same zoom:
 	double nagyitas = 1.0, texturanagyitas = 1.0, funagyitas = 1.0;
@@ -92,9 +103,18 @@ void loadlgrfile( char* nev ) {
 		strcat( nevtmp, ".LGR" );
 
 		// Kiirunk egy uzenetet:
+#ifdef ELMA_PSX
+		// (The PS1 menus keep no second picture; what was on the screen is
+		// drawn anew afterwards.)
+		void gv_menu_picture_ensure();
+		gv_menu_picture_ensure();
+		Buffsima->fillbox( Hatterindex );
+		bltfront( Buffsima );
+#else
 		blt8( Buffgolyo, Buffsima );
 		Buffsima->fillbox( Hatterindex );
 		bltfront( Buffsima );
+#endif
 		if( !Editorban_dialnak )
 			Pal_editor->set();
 		dialog( "LGR file not found!",
@@ -104,8 +124,10 @@ void loadlgrfile( char* nev ) {
 				"This level file will look now different from that it was designed to look." );
 		if( !Editorban_dialnak )
 			Pmenupal->set();
+#ifndef ELMA_PSX
 		blt8( Buffsima, Buffgolyo );
 		bltfront( Buffsima );
+#endif
 
 		// (Ptop->lgrnev lehet egy mutato nev-vel)
 		strcpy( Ptop->lgrnev, "DEFAULT" );
@@ -310,6 +332,30 @@ void lgrfile::beirkepet( pic8* ppic, piclist* ppiclist, int index ) {
 	if( atlatszo < 0 )
 		uzenet( "Picture must be transparent in lgr file!", pkep->nev );
 
+#ifdef ELMA_PSX
+	// The size of the data first, then the data straight into its place
+	// (the PS1 has no room for the 600 KB scratch array):
+	int meret = 10;
+	for( int y = 0; y < pkep->ysize; y++ ) {
+		unsigned char* sor = ppic->getptr( y );
+		int x = 0;
+		while( 1 ) {
+			x += uresszam( x, pkep->xsize, sor, (unsigned char)atlatszo );
+			meret += 2;
+			if( x >= pkep->xsize )
+				break;
+			int telix = teliszam( x, pkep->xsize, sor, (unsigned char)atlatszo );
+			if( telix <= 0 )
+				hiba( "grgpior" );
+			meret += 2 + telix;
+			x += telix;
+		}
+	}
+	unsigned char* Tmptomb = new unsigned char[meret];
+	int Tmptombmeret = meret;
+	if( !Tmptomb )
+		hiba( "Not enough memory!" );
+#else
 	// One row is at most 3*xsize+4 bytes (alternating 1 empty and 1 full pixel):
 	int tombmeret = PICTOMBMERET;
 	if( tombmeret < pkep->ysize*(3*pkep->xsize+4) )
@@ -324,6 +370,7 @@ void lgrfile::beirkepet( pic8* ppic, piclist* ppiclist, int index ) {
 	}
 	if( !Tmptomb )
 		hiba( "Not enough memory!" );
+#endif
 
 	int i = 0;
 	for( int y = 0; y < pkep->ysize; y++ ) {
@@ -375,10 +422,14 @@ void lgrfile::beirkepet( pic8* ppic, piclist* ppiclist, int index ) {
 		}
 	}
 
+#ifdef ELMA_PSX
+	pkep->adatok = Tmptomb;
+#else
 	pkep->adatok = new unsigned char[i+10];
 	if( !pkep->adatok )
 		hiba( "Not enough memory!" );
 	BYTECOPY( pkep->adatok, Tmptomb, i );
+#endif
 
 	if( ppic != peredeti )
 		delete ppic;
@@ -432,6 +483,37 @@ void lgrfile::beirmaszkot( pic8* ppic, piclist* ppiclist, int index ) {
 	pm->xsize = ppic->getxsize();
 	pm->ysize = ppic->getysize();
 
+#ifdef ELMA_PSX
+	// The number of elements first, then the elements straight into their
+	// place (no 20000-element scratch array):
+	int elemszam = 0;
+	if( atlatszo >= 0 ) {
+		for( int y = 0; y < pm->ysize; y++ ) {
+			unsigned char* sor = ppic->getptr( y );
+			int x = uresszam( 0, pm->xsize, sor, (unsigned char)atlatszo );
+			if( x > 0 )
+				elemszam++;
+			while( x <= pm->xsize-1 ) {
+				int size = teliszam( x, pm->xsize, sor, (unsigned char)atlatszo );
+				if( size <= 0 )
+					hiba( "745gh8g5" );
+				elemszam++;
+				x += size;
+				size = uresszam( x, pm->xsize, sor, (unsigned char)atlatszo );
+				if( size > 0 )
+					elemszam++;
+				x += size;
+			}
+			elemszam++;
+		}
+	}
+	else
+		elemszam = 2*pm->ysize;
+	maszkelem* Melemtomb = new maszkelem[elemszam+10];
+	int Melemtombmeret = elemszam+10;
+	if( !Melemtomb )
+		hiba( "Memory!" );
+#else
 	// One row is at most xsize+1 elements (alternating empty and full, line jump):
 	int elemszam = MAXMASZKELEM;
 	if( elemszam < pm->ysize*(pm->xsize+1)+10 )
@@ -442,6 +524,7 @@ void lgrfile::beirmaszkot( pic8* ppic, piclist* ppiclist, int index ) {
 		Melemtomb = new maszkelem[elemszam];
 		Melemtombmeret = elemszam;
 	}
+#endif
 
 	// Most beeszi adatokat:
 	int i = 0;
@@ -501,11 +584,15 @@ void lgrfile::beirmaszkot( pic8* ppic, piclist* ppiclist, int index ) {
 	}
 
 	// Most betesszuk lefoglalt helyre atlatszosag infot:
+#ifdef ELMA_PSX
+	pm->adatok = Melemtomb;
+#else
 	pm->adatok = new maszkelem[i];
 	if( !pm->adatok )
 		hiba( "Memory!" );
 	for( int j = 0; j < i; j++ )
 		pm->adatok[j] = Melemtomb[j];
+#endif
 
 	delete ppic;
 	maszkszam++;
@@ -651,6 +738,11 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	// Vegigmegy kepeken:
 	pic8* p1biker = NULL;
 	pic8* p2biker = NULL;
+#ifdef ELMA_PSX
+	// The bikes are cut up as soon as they are read, so the big pictures are
+	// not kept while the rest of the file is read:
+	int van1biker = 0, van2biker = 0;
+#endif
 	pic8* pcolors = NULL;
 	for( i = 0; i < osszkepszam; i++ ) {
 #ifdef ELMA_PSX_GPU
@@ -715,9 +807,21 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 			idonegtomb = makenegalttomb( paltomb );
 			pal = new ddpal( paltomb );
 			Nagyitopal = paltomb;
+#ifdef ELMA_PSX
+			chopbiker( p1biker, &mkepek1 );
+			delete p1biker;
+			p1biker = NULL;
+			van1biker = 1;
+#endif
 			continue; }
 		if( strcmpi( nev, "q2bike.pcx" ) == 0 ) {
 			p2biker = ppic;
+#ifdef ELMA_PSX
+			chopbiker( p2biker, &mkepek2 );
+			delete p2biker;
+			p2biker = NULL;
+			van2biker = 1;
+#endif
 			continue; }
 
 		// 1. motoros reszei:
@@ -877,7 +981,11 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	if( !mkepek1.pkiscomb ) 	uzenet( "Picture not found in LGR file!: ", "q1thigh.pcx", lgrtmp );
 	if( !mkepek1.pkislabszar ) 	uzenet( "Picture not found in LGR file!: ", "q1leg.pcx", lgrtmp );
 
+#ifdef ELMA_PSX
+	if( !van1biker )			uzenet( "Picture not found in LGR file!: ", "q1bike.pcx", lgrtmp );
+#else
 	if( !p1biker ) 				uzenet( "Picture not found in LGR file!: ", "q1bike.pcx", lgrtmp );
+#endif
 	if( !mkepek1.pkiskerek ) 	uzenet( "Picture not found in LGR file!: ", "q1wheel.pcx", lgrtmp );
 	if( !mkepek1.pkiselsorud ) 	uzenet( "Picture not found in LGR file!: ", "q1susp1.pcx", lgrtmp );
 	if( !mkepek1.pkishatsorud ) uzenet( "Picture not found in LGR file!: ", "q1susp2.pcx", lgrtmp );
@@ -890,7 +998,11 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	if( !mkepek2.pkiscomb ) 	uzenet( "Picture not found in LGR file!: ", "q2thigh.pcx", lgrtmp );
 	if( !mkepek2.pkislabszar ) 	uzenet( "Picture not found in LGR file!: ", "q2leg.pcx", lgrtmp );
 
+#ifdef ELMA_PSX
+	if( !van2biker )			uzenet( "Picture not found in LGR file!: ", "q2bike.pcx", lgrtmp );
+#else
 	if( !p2biker ) 				uzenet( "Picture not found in LGR file!: ", "q2bike.pcx", lgrtmp );
+#endif
 	if( !mkepek2.pkiskerek ) 	uzenet( "Picture not found in LGR file!: ", "q2wheel.pcx", lgrtmp );
 	if( !mkepek2.pkiselsorud ) 	uzenet( "Picture not found in LGR file!: ", "q2susp1.pcx", lgrtmp );
 	if( !mkepek2.pkishatsorud ) uzenet( "Picture not found in LGR file!: ", "q2susp2.pcx", lgrtmp );
@@ -907,6 +1019,7 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	if( !pcolors ) 	uzenet( "Picture not found in LGR file!: ", "qcolors.pcx", lgrtmp );
 
 	// Elintezzuk biker picture-oket:
+#ifndef ELMA_PSX
 	chopbiker( p1biker, &mkepek1 );
 	delete p1biker;
 	p1biker = NULL;
@@ -914,6 +1027,7 @@ lgrfile::lgrfile( char* lgrnev, double nagyitas_p, double texturanagyitas_p,
 	chopbiker( p2biker, &mkepek2 );
 	delete p2biker;
 	p2biker = NULL;
+#endif
 
 	// Elintezzuk index szineket:
 	viewfoldsor[0]	= pcolors->gpixel( 6, 6+0*12 );

@@ -523,9 +523,10 @@ static int talppontkereses( const fx_level* lev, const fx_param* p, fx_vec r, in
 	}
 	if( celly == lev->ydim )
 		celly = lev->ydim-1;
-	int cell = lev->xdim*celly+cellx;
-	const uint16_t* it = lev->list+lev->cell[cell];
-	const uint16_t* end = lev->list+lev->cell[cell+1];
+	const uint16_t* sor = lev->list+lev->row[celly];
+	const uint16_t* cell = lev->cell+(lev->xdim+1)*celly+cellx;
+	const uint16_t* it = sor+cell[0];
+	const uint16_t* end = sor+cell[1];
 	int n = 0;
 	contact_t c;
 	for( ; it < end; it++ ) {

@@ -5,6 +5,14 @@ int Multirec = 0; // Ha multiplayer, akkor ez igaz
 
 #define MAGICNUMBER (4796277l)
 
+#ifdef ELMA_PSX
+#define RECFREAD( t, n, h ) (t).olvas( (h), (n) )
+#define RECFWRITE( t, n, h ) (t).ir( (h), (n) )
+#else
+#define RECFREAD( t, n, h ) fread( (t), 1, (n), (h) )
+#define RECFWRITE( t, n, h ) fwrite( (t), 1, (n), (h) )
+#endif
+
 //#define Darabszam (10000u)
 //#define Hangdarabszam (3000u)
 
@@ -18,8 +26,19 @@ static const int Hangdarabszam = 3900;
 static double Valtrate = 30; //60;
 static double Recorderszorzo = Valtrate/(182.0*0.0024);
 
+#ifdef ELMA_PSX
+void* recorder_darab( unsigned meret ) {
+	char* d = new char[meret];
+	if( !d )
+		uzenet( "memory" );
+	memset( d, 0, meret );
+	return d;
+}
+#endif
+
 recorder::recorder( void ) {
 	palyanev[0] = 0;
+#ifndef ELMA_PSX
 	pk1rx = NULL;
 	pk1ry = NULL;
 	pk2rx = NULL;
@@ -36,6 +55,7 @@ recorder::recorder( void ) {
 	pgazhatra = NULL;
 
 	phangok = NULL;
+#endif
 
 	betoltve = 0;
 	hangbetoltve = 0;
@@ -60,9 +80,10 @@ recorder::recorder( void ) {
 }
 
 void recorder::lefoglal( void ) {
-	if( pk1rx )
-		return;
+	// (The pieces are made when used, rectomb.)
+}
 #endif
+#ifndef ELMA_PSX
 	pk1rx = new float[Darabszam];
 	pk1ry = new float[Darabszam];
 	pk2rx = new short[Darabszam];
@@ -86,6 +107,7 @@ void recorder::lefoglal( void ) {
 	!phangok || !psurlero )
 		uzenet( "memory" );
 }
+#endif
 
 recorder::~recorder( void ) {
 	// Ez most nincs megcsinalva!
@@ -94,6 +116,14 @@ recorder::~recorder( void ) {
 void recorder::erase( char* palyanev_p ) {
 	if( strlen( palyanev_p ) > 15 )
 		hiba( "875h8uyf" );
+#ifdef ELMA_PSX
+	// A new recording: the old one's pieces are given back.
+	pk1rx.torol(); pk1ry.torol(); pk2rx.torol(); pk2ry.torol();
+	pk4rx.torol(); pk4ry.torol(); pvezrx.torol(); pvezry.torol();
+	pk2alfa.torol(); pk4alfa.torol(); pk1alfa.torol();
+	pfrekvencia.torol(); psurlero.torol(); pgazhatra.torol();
+	phangok.torol();
+#endif
 	strcpy( palyanev, palyanev_p );
 	betoltve = 0;
 	hangbetoltve = 0;
@@ -538,35 +568,35 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 	int hosszc = betoltve*sizeof( char );
 	int hosszs = betoltve*sizeof( short );
 
-	if( fread( pk1rx, 1, hosszf, h ) != hosszf )
+	if( RECFREAD( pk1rx, hosszf, h ) != hosszf )
 		olvhiba( nev );
-	if( fread( pk1ry, 1, hosszf, h ) != hosszf )
+	if( RECFREAD( pk1ry, hosszf, h ) != hosszf )
 		olvhiba( nev );
-	if( fread( pk2rx, 1, hosszs, h ) != hosszs )
+	if( RECFREAD( pk2rx, hosszs, h ) != hosszs )
 		olvhiba( nev );
-	if( fread( pk2ry, 1, hosszs, h ) != hosszs )
+	if( RECFREAD( pk2ry, hosszs, h ) != hosszs )
 		olvhiba( nev );
-	if( fread( pk4rx, 1, hosszs, h ) != hosszs )
+	if( RECFREAD( pk4rx, hosszs, h ) != hosszs )
 		olvhiba( nev );
-	if( fread( pk4ry, 1, hosszs, h ) != hosszs )
+	if( RECFREAD( pk4ry, hosszs, h ) != hosszs )
 		olvhiba( nev );
-	if( fread( pvezrx, 1, hosszs, h ) != hosszs )
+	if( RECFREAD( pvezrx, hosszs, h ) != hosszs )
 		olvhiba( nev );
-	if( fread( pvezry, 1, hosszs, h ) != hosszs )
-		olvhiba( nev );
-
-	if( fread( pk1alfa, 1, hosszs, h ) != hosszs )
-		olvhiba( nev );
-	if( fread( pk2alfa, 1, hosszc, h ) != hosszc )
-		olvhiba( nev );
-	if( fread( pk4alfa, 1, hosszc, h ) != hosszc )
-		olvhiba( nev );
-	if( fread( pgazhatra, 1, hosszc, h ) != hosszc ) // karakter
+	if( RECFREAD( pvezry, hosszs, h ) != hosszs )
 		olvhiba( nev );
 
-	if( fread( pfrekvencia, 1, hosszc, h ) != hosszc )
+	if( RECFREAD( pk1alfa, hosszs, h ) != hosszs )
 		olvhiba( nev );
-	if( fread( psurlero, 1, hosszc, h ) != hosszc )
+	if( RECFREAD( pk2alfa, hosszc, h ) != hosszc )
+		olvhiba( nev );
+	if( RECFREAD( pk4alfa, hosszc, h ) != hosszc )
+		olvhiba( nev );
+	if( RECFREAD( pgazhatra, hosszc, h ) != hosszc ) // karakter
+		olvhiba( nev );
+
+	if( RECFREAD( pfrekvencia, hosszc, h ) != hosszc )
+		olvhiba( nev );
+	if( RECFREAD( psurlero, hosszc, h ) != hosszc )
 		olvhiba( nev );
 
 	// Hangok:
@@ -586,7 +616,7 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 	elsoszam = hangbetoltve;*/
 
 	int hossz = hangbetoltve*sizeof( egyhang );
-	if( fread( phangok, 1, hossz, h ) != hossz )
+	if( RECFREAD( phangok, hossz, h ) != hossz )
 		olvhiba( nev );
 
 	long magic = 0;
@@ -674,43 +704,43 @@ void recorder::save( char* nev, FILE* h, long belyeg, int tag_p ) {
 	int hosszc = betoltve*sizeof( char );
 	int hosszs = betoltve*sizeof( short );
 
-	if( fwrite( pk1rx, 1, hosszf, h ) != hosszf )
+	if( RECFWRITE( pk1rx, hosszf, h ) != hosszf )
 		irhiba( nev );
-	if( fwrite( pk1ry, 1, hosszf, h ) != hosszf )
+	if( RECFWRITE( pk1ry, hosszf, h ) != hosszf )
 		irhiba( nev );
-	if( fwrite( pk2rx, 1, hosszs, h ) != hosszs )
+	if( RECFWRITE( pk2rx, hosszs, h ) != hosszs )
 		irhiba( nev );
-	if( fwrite( pk2ry, 1, hosszs, h ) != hosszs )
+	if( RECFWRITE( pk2ry, hosszs, h ) != hosszs )
 		irhiba( nev );
-	if( fwrite( pk4rx, 1, hosszs, h ) != hosszs )
+	if( RECFWRITE( pk4rx, hosszs, h ) != hosszs )
 		irhiba( nev );
-	if( fwrite( pk4ry, 1, hosszs, h ) != hosszs )
-		irhiba( nev );
-
-	if( fwrite( pvezrx, 1, hosszs, h ) != hosszs )
-		irhiba( nev );
-	if( fwrite( pvezry, 1, hosszs, h ) != hosszs )
+	if( RECFWRITE( pk4ry, hosszs, h ) != hosszs )
 		irhiba( nev );
 
-	if( fwrite( pk1alfa, 1, hosszs, h ) != hosszs )
+	if( RECFWRITE( pvezrx, hosszs, h ) != hosszs )
 		irhiba( nev );
-	if( fwrite( pk2alfa, 1, hosszc, h ) != hosszc )
-		irhiba( nev );
-	if( fwrite( pk4alfa, 1, hosszc, h ) != hosszc )
-		irhiba( nev );
-	if( fwrite( pgazhatra, 1, hosszc, h ) != hosszc )
+	if( RECFWRITE( pvezry, hosszs, h ) != hosszs )
 		irhiba( nev );
 
-	if( fwrite( pfrekvencia, 1, hosszc, h ) != hosszc )
+	if( RECFWRITE( pk1alfa, hosszs, h ) != hosszs )
 		irhiba( nev );
-	if( fwrite( psurlero, 1, hosszc, h ) != hosszc )
+	if( RECFWRITE( pk2alfa, hosszc, h ) != hosszc )
+		irhiba( nev );
+	if( RECFWRITE( pk4alfa, hosszc, h ) != hosszc )
+		irhiba( nev );
+	if( RECFWRITE( pgazhatra, hosszc, h ) != hosszc )
+		irhiba( nev );
+
+	if( RECFWRITE( pfrekvencia, hosszc, h ) != hosszc )
+		irhiba( nev );
+	if( RECFWRITE( psurlero, hosszc, h ) != hosszc )
 		irhiba( nev );
 
 	// Hangok:
 	if( fwrite( &hangbetoltve, 1, 4, h ) != 4 )
 		irhiba( nev );
 	int hossz = hangbetoltve*sizeof( egyhang );
-	if( fwrite( phangok, 1, hossz, h ) != hossz )
+	if( RECFWRITE( phangok, hossz, h ) != hossz )
 		irhiba( nev );
 
 	long magic = MAGICNUMBER;

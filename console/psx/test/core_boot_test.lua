@@ -40,7 +40,9 @@ end
 -- Menu steps: the button to press, then wait until the game has taken the
 -- key and drawn a few frames of the next screen.
 local steps = {
-    {name = "intro", button = "CROSS"},
+    -- (The menu's intro animation, about 1.2 s, follows; the name entry
+    -- drops keys pressed during it.)
+    {name = "intro", button = "CROSS", wait = 150},
     {name = "name: first letter", button = "RIGHT"},
     {name = "name: enter", button = "CROSS"},
     {name = "main menu: Play", button = "CROSS"},
@@ -93,7 +95,8 @@ elma.on_frame(function(n)
         -- The last key starts the level: the loading screen stays without
         -- new frames, so only the key is waited for.
         local drawn = step == #steps or s.presents >= presents_before + 4
-        if s.menu_chars > chars_before and drawn then
+        local waited = n >= press_frame + (steps[step].wait or 0)
+        if s.menu_chars > chars_before and drawn and waited then
             print(string.format("frame %d: %s done", n, steps[step].name))
             if step == #steps then
                 phase = "loading"

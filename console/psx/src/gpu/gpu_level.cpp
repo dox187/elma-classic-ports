@@ -293,22 +293,24 @@ void build_map() {
 
 // --- Pictures, masks and grass ---------------------------------------------------
 
+// The instances are added twice: first only counted (counting), then into
+// an array of the exact size, so a level with many pictures needs no room
+// for a growing copy.
 gpu_inst* insts = 0;
 int ninst = 0, inst_cap = 0;
 int order = 0;
+bool counting = false;
+gpu_inst inst_scratch;
 
 gpu_inst* new_inst() {
-	if (ninst == inst_cap) {
-		const int cap = inst_cap ? inst_cap * 2 : 256;
-		gpu_inst* t = new gpu_inst[cap];
-		if (ninst) memcpy(t, insts, ninst * sizeof(gpu_inst));
-		delete[] insts;
-		insts = t;
-		inst_cap = cap;
+	if (counting || ninst == inst_cap) {
+		if (counting) ninst++;
+		order++;
+		return &inst_scratch;
 	}
 	gpu_inst* i = &insts[ninst++];
 	memset(i, 0, sizeof(*i));
-	i->order = order++;
+	order++;
 	return i;
 }
 
@@ -443,12 +445,12 @@ void add_grass() {
 }
 
 // The drawing order: the farthest first; at the same distance the one
-// added later first.
-inline bool drawn_before(const gpu_inst* a, const gpu_inst* b) {
-	return a->distance > b->distance || (a->distance == b->distance && a->order > b->order);
+// added later first (a, b: the indices in the order of adding).
+inline bool drawn_before(int a, int b) {
+	return insts[a].distance > insts[b].distance || (insts[a].distance == insts[b].distance && a > b);
 }
 
-void build_instances() {
+void add_instances() {
 	ninst = 0;
 	order = 0;
 	if (State->highquality) {
@@ -457,7 +459,18 @@ void build_instances() {
 		add_sprites(FAZIS_EG);
 		add_sprites(FAZIS_NEMFOLDEG);
 	}
-	if (ninst > 65535) ninst = 65535;
+}
+
+void build_instances() {
+	counting = true;
+	add_instances();
+	counting = false;
+	inst_cap = ninst < 65535 ? ninst : 65535;
+	delete[] Glevel.inst;
+	Glevel.inst = 0;
+	Glevel.ninst = 0;
+	insts = new gpu_inst[inst_cap ? inst_cap : 1];
+	add_instances();
 	// Sorted into the drawing order (shell sort of their indices):
 	uint16_t* idx = new uint16_t[ninst ? ninst : 1];
 	for (int i = 0; i < ninst; ++i) idx[i] = (uint16_t)i;
@@ -465,36 +478,61 @@ void build_instances() {
 		for (int i = gap; i < ninst; ++i) {
 			const uint16_t v = idx[i];
 			int j = i;
-			while (j >= gap && drawn_before(&insts[v], &insts[idx[j - gap]])) {
+			while (j >= gap && drawn_before(v, idx[j - gap])) {
 				idx[j] = idx[j - gap];
 				j -= gap;
 			}
 			idx[j] = v;
 		}
-	delete[] Glevel.inst;
-	Glevel.inst = new gpu_inst[ninst ? ninst : 1];
-	for (int i = 0; i < ninst; ++i) Glevel.inst[i] = insts[idx[i]];
+	// The order applied in place, cycle by cycle (a done place gets idx[j] = j):
+	for (int i = 0; i < ninst; ++i) {
+		if (idx[i] == i) continue;
+		const gpu_inst t = insts[i];
+		int j = i;
+		while (true) {
+			const int k = idx[j];
+			idx[j] = (uint16_t)j;
+			if (k == i) {
+				insts[j] = t;
+				break;
+			}
+			insts[j] = insts[k];
+			j = k;
+		}
+	}
+	Glevel.inst = insts;
 	Glevel.ninst = ninst;
 	delete[] idx;
-	delete[] insts;
 	insts = 0;
 	inst_cap = 0;
 }
 
 // --- The instances' sprites and their grid -------------------------------------
 
-gpu_wsprite* sprs = 0;
+gpu_wsprite** sprs = 0;
 int nspr = 0, spr_cap = 0;
+// The instance's (x >> 1, y >> 1), which the sprites are kept relative to:
+int32_t spr_bx = 0, spr_by = 0;
+
+void free_sprite_chunks(gpu_wsprite** chunks, int n) {
+	if (!chunks) return;
+	for (int c = 0; c < (n + GPU_SPRITE_CHUNK - 1) / GPU_SPRITE_CHUNK; ++c) delete[] chunks[c];
+	delete[] chunks;
+}
 
 // (Without sprs only counted: build_sprites runs twice.)
 void push_sprite(int32_t hx, int32_t hy, int u, int v, int w, int h, uint16_t tpage, uint16_t clut) {
+	hx -= spr_bx;
+	hy -= spr_by;
+	if (hx < -32768 || hx > 32767 || hy < -32768 || hy > 32767) return;
 	if (!sprs || nspr >= spr_cap) {
 		nspr++;
 		return;
 	}
-	gpu_wsprite* p = &sprs[nspr++];
-	p->hx = hx;
-	p->hy = hy;
+	gpu_wsprite* p = &sprs[nspr >> GPU_SPRITE_SHIFT][nspr & (GPU_SPRITE_CHUNK - 1)];
+	nspr++;
+	p->dx = (int16_t)hx;
+	p->dy = (int16_t)hy;
 	p->u = (uint8_t)u;
 	p->v = (uint8_t)v;
 	p->w1 = (uint8_t)(w - 1);
@@ -549,19 +587,27 @@ inline int32_t first_half(int32_t a) { return half(a + 1); }
 inline int32_t last_half(int32_t b) { return half(b); }
 
 void build_sprites() {
-	delete[] Glevel.sprites;
-	Glevel.sprites = 0;
+	free_sprite_chunks(Glevel.sprite_chunks, Glevel.nsprites);
+	Glevel.sprite_chunks = 0;
+	Glevel.nsprites = 0;
 	sprs = 0;
 	spr_cap = 0;
 	for (int pass = 0; pass < 2; ++pass) {
 		if (pass) {
 			spr_cap = nspr;
-			sprs = new gpu_wsprite[nspr ? nspr : 1];
+			const int nchunk = (nspr + GPU_SPRITE_CHUNK - 1) / GPU_SPRITE_CHUNK;
+			sprs = new gpu_wsprite*[nchunk ? nchunk : 1];
+			for (int c = 0; c < nchunk; ++c) {
+				const int n = nspr - c * GPU_SPRITE_CHUNK;
+				sprs[c] = new gpu_wsprite[n < GPU_SPRITE_CHUNK ? n : GPU_SPRITE_CHUNK];
+			}
 		}
 		nspr = 0;
 		for (int i = 0; i < Glevel.ninst; ++i) {
 			gpu_inst* in = &Glevel.inst[i];
 			in->sprite0 = nspr;
+			spr_bx = in->x >> 1;
+			spr_by = in->y >> 1;
 			switch (in->type) {
 			case GI_PICTURE:
 				if (in->index >= 0 && in->index < Glgr.npictures)
@@ -612,7 +658,7 @@ void build_sprites() {
 			in->nsprites = (int16_t)(nspr - in->sprite0);
 		}
 	}
-	Glevel.sprites = sprs;
+	Glevel.sprite_chunks = sprs;
 	Glevel.nsprites = nspr;
 	sprs = 0;
 	spr_cap = 0;
@@ -685,8 +731,8 @@ static void free_level() {
 	delete[] Glevel.inst;
 	Glevel.inst = 0;
 	Glevel.ninst = 0;
-	delete[] Glevel.sprites;
-	Glevel.sprites = 0;
+	free_sprite_chunks(Glevel.sprite_chunks, Glevel.nsprites);
+	Glevel.sprite_chunks = 0;
 	Glevel.nsprites = 0;
 	delete[] Glevel.inst_start;
 	delete[] Glevel.inst_items;
@@ -694,9 +740,57 @@ static void free_level() {
 	Glevel.inst_items = 0;
 }
 
+namespace {
+bool level_released = false;
+}
+
+bool gv_level_release() {
+	if (level_released || !Glevel.inst) return false;
+	delete[] Glevel.inst;
+	Glevel.inst = 0;
+	Glevel.ninst = 0;
+	free_sprite_chunks(Glevel.sprite_chunks, Glevel.nsprites);
+	Glevel.sprite_chunks = 0;
+	Glevel.nsprites = 0;
+	delete[] Glevel.inst_start;
+	delete[] Glevel.inst_items;
+	Glevel.inst_start = 0;
+	Glevel.inst_items = 0;
+	level_released = true;
+	printf("elma: the level's pictures for the GPU are given back for the menus\n");
+	return true;
+}
+
+void gv_level_free() {
+	free_level();
+	level_released = false;
+}
+
+void gpu_level_ensure() {
+	if (!level_released) return;
+	level_released = false;
+	// The game view starts: the menus' picture and tiles give their room.
+	gv_menu_picture_free();
+	gv_menu_images_free();
+	// (Not part of the game's time.)
+	mv_pausestopper(1);
+	const uint32_t t0 = gv_clock();
+	build_instances();
+	build_sprites();
+	build_inst_grid();
+	printf("elma: the level's pictures for the GPU made again, %u ms\n",
+	       (unsigned)((gv_clock() - t0) / (GV_CLOCK_HZ / 1000)));
+	mv_pausestopper(0);
+}
+
 void betoltecseteket(void) {
 	const uint32_t t0 = gv_clock();
 	free_level();
+	level_released = false;
+	// (The loading screen is shown: the menus' picture and tiles give
+	// their room until a menu is drawn again.)
+	gv_menu_picture_free();
+	gv_menu_images_free();
 #ifdef ELMA_PSX_GPU_COMPARE
 	soft_betoltecseteket();
 #else

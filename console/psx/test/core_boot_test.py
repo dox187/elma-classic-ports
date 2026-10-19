@@ -3,11 +3,11 @@
 
 Builds a PCdrv data directory from the user's own game files (only symbolic
 links, nothing is copied or written there), runs build/elma.exe in the 8 MB
-development mode and plays test/core_boot_test.lua: intro, name entry, main
+development mode (--ram2: in the retail 2 MB) and plays test/core_boot_test.lua: intro, name entry, main
 menu, Original Levels, Warm Up, gas. Exits 0 on PASS.
 
     python3 test/core_boot_test.py [--res elma.res] [--lgr default.lgr]
-        [--build DIR] [--shots] [--timeout S] [--disc [--lev-dir DIR]]
+        [--build DIR] [--shots] [--timeout S] [--disc [--lev-dir DIR]] [--ram2]
 
 --disc runs build/elma-cd.exe from a two-track disc image instead
 (tools/mkdisc.py: the program on track 1, the game files on track 2, in
@@ -69,6 +69,8 @@ def main():
     parser.add_argument("--shots", action="store_true", help="save screenshots in the work dir")
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--disc", action="store_true", help="boot from a disc image")
+    parser.add_argument("--ram2", action="store_true",
+                        help="the retail 2 MB of RAM (the default is the 8 MB development mode)")
     parser.add_argument("--lev-dir", default=os.environ.get("ELMA_LEV_DIR"),
                         help="external levels for the disc")
     args = parser.parse_args()
@@ -86,7 +88,7 @@ def main():
     os.makedirs(workdir, exist_ok=True)
     lua_args = {"shots": "boot_"} if args.shots else {}
     run_args = dict(map_file=os.path.splitext(exe)[0] + ".map",
-                    lua=os.path.join(HERE, "core_boot_test.lua"), ram8=True,
+                    lua=os.path.join(HERE, "core_boot_test.lua"), ram8=not args.ram2,
                     timeout=args.timeout, workdir=workdir, args=lua_args)
     if args.disc:
         result = pcsx.run(iso=make_disc(args.build, args.res, args.lgr, args.lev_dir), **run_args)

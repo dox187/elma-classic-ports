@@ -1,5 +1,11 @@
 
+#ifdef ELMA_PSX
+// The PS1 has room in VRAM for a few hundred pictures only, and not much
+// RAM for this list while an LGR is read:
+#define MAXPICLISTKEPSZAM (1000)
+#else
 #define MAXPICLISTKEPSZAM (3000)
+#endif
 
 enum { ATLAT_NEMATLATSZO = 10, ATLAT_0, ATLAT_TOPLEFT, ATLAT_TOPRIGHT,
 	   ATLAT_BOTTOMLEFT, ATLAT_BOTTOMRIGHT };

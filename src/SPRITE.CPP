@@ -35,6 +35,11 @@ unsigned char* spriteadat8( pic8* ppic, unsigned char szin,
 	unsigned bufmeret = MAXBUFFER;
 	if( bufmeret < 2u*xsize*ysize+2 )
 		bufmeret = 2u*xsize*ysize+2;
+#ifdef ELMA_PSX
+	// The data cannot be longer than 65535 bytes (spritehossz) anyway:
+	if( bufmeret > 65536u+4 )
+		bufmeret = 65536u+4;
+#endif
 	unsigned char* buffer = NULL;
 	{ buffer = NEW(unsigned char*) unsigned char[bufmeret]; }
 	if( !buffer ) {

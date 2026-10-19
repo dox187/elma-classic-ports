@@ -97,7 +97,13 @@ void teljes( void ) {
 		blt8( Pintro, Pintro, 321+15+16, 432, 88, 458, 98, 468 );
 	}
 	spriteosit( Pintro );
+#ifdef ELMA_PSX
+	// The PS1 version draws it straight into the picture of the screen
+	// (Buffsima is that picture there), without a second 300 KB copy:
+	pic8* tmpintro = Buffsima;
+#else
 	pic8* tmpintro = new pic8( 640, 480 ); // ezt majd kesobb szabaditjuk fel
+#endif
 	tmpintro->fillbox( 254 );
 	blt8( tmpintro, Pintro );
 
@@ -171,7 +177,10 @@ void teljes( void ) {
 		}
 		bltfront( tmpintro );
 	}
-	delete tmpintro; tmpintro = NULL;
+#ifndef ELMA_PSX
+	delete tmpintro;
+#endif
+	tmpintro = NULL;
 
 	/*delete tmpintro;
 	tmpintro = new pic8( "torol.pcx" );

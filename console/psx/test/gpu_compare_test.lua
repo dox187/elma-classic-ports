@@ -46,6 +46,8 @@ for b in string.gmatch(elma.args.path or "DOWN,CROSS,CROSS", "[^,]+") do steps[#
 
 local phase = "boot"
 local loading_presents, loading_release, loading_still = nil, nil, 0
+local dialog_waits = elma.sym("psx_dialog_waits")
+local dialogs_answered = 0
 local step = 0
 local wait_until = 0
 local press_frame, chars_before, presents_before
@@ -107,6 +109,7 @@ elma.on_frame(function(n)
             if step == #steps then
                 phase = "loading"
                 deadline = n + 9000
+                if dialog_waits then dialogs_answered = elma.u32(dialog_waits) end
             else
                 step = step + 1
                 phase = "press"
@@ -122,17 +125,25 @@ elma.on_frame(function(n)
             local r = PCSX.getRegisters()
             print(string.format("loading: pc %08x ra %08x", r.pc, r.GPR.n.ra))
         end
-        -- A message while loading (e.g. the level's LGR is missing, so the
-        -- default one is used): the menu draws but the level does not run;
-        -- answered with CROSS.
-        -- (A dialog may also wait without drawing: then nothing changes for
-        -- long, the presents neither.)
-        if game_frames() == 0 and n % 300 == 0 then
+        -- A dialog while loading (e.g. the level's LGR is missing, so the
+        -- default one is used) waits for a key: answered with CROSS. The
+        -- game counts the dialogs that wait (psx_dialog_waits, DIALOG.CPP);
+        -- without that symbol, a long time without game frames and without
+        -- new pictures is taken for one (a slow load takes seconds).
+        if dialog_waits then
+            local w = elma.u32(dialog_waits)
+            if w > dialogs_answered and not loading_release then
+                dialogs_answered = w
+                print(string.format("frame %d: a dialog while loading, CROSS", n))
+                elma.press(1, "CROSS")
+                loading_release = n + 4
+            end
+        elseif game_frames() == 0 and n % 300 == 0 then
             local still = loading_presents and presents() == loading_presents
             loading_still = still and (loading_still or 0) + 1 or 0
-            if loading_presents and (presents() > loading_presents + 5 or loading_still >= 4) then
+            if loading_presents and loading_still >= 20 then
                 loading_still = 0
-                print(string.format("frame %d: a message while loading, CROSS", n))
+                print(string.format("frame %d: a message while loading?, CROSS", n))
                 elma.press(1, "CROSS")
                 loading_release = n + 4
             end
