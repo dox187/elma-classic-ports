@@ -6,6 +6,10 @@
 #   make -C console/psx test       run the headless PCSX-Redux hello tests
 #   make -C console/psx disc-test  host tests of the disc builder and ISO reader
 #                                  (DISC_TEST_ARGS=--real adds the game data)
+#   make -C console/psx disc       the game disc (elma-cd, two tracks) into
+#                                  $(BUILD)/disc/elma.cue; needs your own game files:
+#                                  ELMA_RES=elma.res ELMA_LGR=Default_old.lgr
+#                                  [ELMA_LEV=dir with the .lev files]
 #   make -C console/psx clean
 #
 # Override any variable on the command line, for example BUILD=/path or
@@ -20,6 +24,12 @@ PCSX_REDUX  ?= $(ELMA_PSX)/pcsx-redux/PCSX-Redux-HEAD-x86_64.AppImage
 PYTHON      ?= python3
 BUILD       ?= $(ROOT)/build
 LICENSE_FILE ?=
+# The game data of the disc (your own copy of the game, never committed). The
+# defaults are the Steam layout at the top of the repository.
+REPO_ROOT   := $(abspath $(ROOT)/../..)
+ELMA_RES    ?= $(wildcard $(REPO_ROOT)/elma.res)
+ELMA_LGR    ?= $(wildcard $(REPO_ROOT)/build/Lgr/Default_old.lgr)
+ELMA_LEV    ?=
 BUILD_TYPE  ?= Release
 
 CMAKE_ARGS := -G Ninja \
@@ -32,7 +42,7 @@ CMAKE_ARGS := -G Ninja \
 # The tools of the SDK (ninja, elf2x, ...) are found through PATH too.
 export PATH := $(SDK)/bin:$(GCC_DIR)/bin:$(PATH)
 
-.PHONY: all hello hello-disc test disc-test configure clean
+.PHONY: all hello hello-disc test disc disc-test configure clean
 
 all: configure
 	cmake --build $(BUILD)
@@ -42,6 +52,20 @@ hello: configure
 
 hello-disc: configure
 	cmake --build $(BUILD) --target hello-disc
+
+# The game disc: elma-cd.exe on track 1 (mkpsxiso; the Sony license data of
+# LICENSE_FILE is only needed for real hardware), your ELMA.RES, the LGR as
+# LGR/DEFAULT.LGR and the levels of ELMA_LEV as LEV/*.LEV on track 2; see
+# tools/mkdisc.py. The result is $(BUILD)/disc/elma.cue and elma.bin.
+disc: configure
+	@test -n "$(ELMA_RES)" -a -f "$(ELMA_RES)" || { echo "disc: ELMA_RES is not set or not a file (your elma.res): make disc ELMA_RES=... ELMA_LGR=..."; exit 1; }
+	@test -n "$(ELMA_LGR)" -a -f "$(ELMA_LGR)" || { echo "disc: ELMA_LGR is not set or not a file (the original-look LGR, e.g. Default_old.lgr): make disc ELMA_RES=... ELMA_LGR=..."; exit 1; }
+	@test -z "$(ELMA_LEV)" -o -d "$(ELMA_LEV)" || { echo "disc: ELMA_LEV is not a directory: $(ELMA_LEV)"; exit 1; }
+	cmake --build $(BUILD) --target elma-cd
+	$(PYTHON) $(ROOT)/tools/mkdisc.py --exe $(BUILD)/elma-cd.exe --res "$(ELMA_RES)" \
+		--lgr "$(ELMA_LGR)" $(if $(ELMA_LEV),--lev-dir "$(ELMA_LEV)") \
+		$(if $(LICENSE_FILE),--license "$(LICENSE_FILE)") --mkpsxiso $(MKPSXISO) \
+		--out-dir $(BUILD)/disc --name elma
 
 cdtest: configure
 	cmake --build $(BUILD) --target cdtest

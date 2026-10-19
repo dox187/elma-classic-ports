@@ -23,6 +23,7 @@
 #include "all.h"
 #include "psx_file.h"
 #include "gpu/gpu_video.h"
+#include "memcard/psx_memcard_glue.h"
 #ifdef ELMA_PSX_PCDRV
 #include "psx_pcdrv.h"
 #else
@@ -49,6 +50,9 @@ struct psx_debug_state {
 	uint32_t errors;         // hiba() calls
 	uint32_t ram_files;      // bytes in the RAM file store
 	uint32_t ram_8mb;        // 1 if the 8 MB development RAM was found
+	uint32_t stopper_x1000;  // mv_stopperido() * 1000 (182 ticks a second)
+	uint32_t vblanks;        // vertical blanks since the start
+	uint32_t video_pal;      // 1 in PAL (50 Hz), 0 in NTSC (59.94 Hz)
 };
 extern "C" {
 psx_debug_state psx_debug;
@@ -75,24 +79,30 @@ uint32_t clut_words[128];
 uint16_t* const clut = reinterpret_cast<uint16_t*>(clut_words);
 bool clut_dirty = true;
 
-// Scan line clock:
-const long LINES_PER_SECOND = 15734;
-volatile uint32_t line_total = 0;
-volatile uint16_t line_last = 0;
+// The game's clock: root counter 2 (gpu_video.h) counts the system clock / 8,
+// 4233600 a second, on NTSC and PAL consoles alike (the same crystal; the
+// video itself runs at 59.94 or 50 fields a second, which the game's time
+// must not follow). It is 32 bits wide and added up to 64 bits at every
+// vertical blank, so that no wrap is lost.
+volatile uint64_t clock_total = 0;
+volatile uint32_t clock_prev = 0;
 volatile uint32_t vblank_count = 0;
-uint32_t stopper_start = 0;
+uint64_t stopper_start = 0;
+bool video_pal = false;
 
 // Pad states, sampled at every vertical blank so that a short press is not
 // lost while the game draws a slow frame; events() applies them in order.
 uint8_t pad_buffers[2][34];
-volatile uint16_t pad_queue[32];
+volatile uint32_t pad_queue[32]; // pad 1 in the low half, pad 2 in the high half
 volatile uint32_t pad_queue_head = 0, pad_queue_tail = 0;
-uint16_t pad_sampled = 0;
+uint32_t pad_sampled = 0;
 
 void sample_pad() {
 	// BIOS pad buffer: [0] 0 when a pad answered, [2..3] buttons, active low.
-	uint16_t buttons = 0;
-	if (pad_buffers[0][0] == 0) buttons = (uint16_t)~(pad_buffers[0][2] | pad_buffers[0][3] << 8);
+	uint32_t buttons = 0;
+	for (int pad = 0; pad < 2; ++pad)
+		if (pad_buffers[pad][0] == 0)
+			buttons |= (uint32_t)(uint16_t)~(pad_buffers[pad][2] | pad_buffers[pad][3] << 8) << (16 * pad);
 	if (buttons == pad_sampled || pad_queue_head - pad_queue_tail >= 32) return;
 	pad_queue[pad_queue_head % 32] = buttons;
 	pad_queue_head++;
@@ -102,26 +112,29 @@ void sample_pad() {
 void vblank_callback() {
 	gv_vblank();
 	sample_pad();
-	const uint16_t now = (uint16_t)TIMER_VALUE(1);
-	uint16_t lines = (uint16_t)(now - line_last);
-	// Without the counter (some emulators) a field is about 262 lines:
-	if (lines == 0) lines = 262;
-	line_total += lines;
-	line_last = now;
+	// (While interrupts are held back the counter's upper half may be
+	// behind for a moment: the clock then waits for the next call.)
+	const uint32_t now = gv_clock();
+	const int32_t passed = (int32_t)(now - clock_prev);
+	if (passed > 0) {
+		clock_total += (uint32_t)passed;
+		clock_prev = now;
+	}
 	vblank_count++;
 }
 
-uint32_t lines_now() {
-	uint32_t total;
-	uint16_t last, now;
+// Clock ticks since the start; exact even if a vertical blank is still
+// waiting to be counted.
+uint64_t clock_ticks() {
+	uint64_t total;
+	uint32_t prev, now;
 	do {
-		total = line_total;
-		last = line_last;
-		now = (uint16_t)TIMER_VALUE(1);
-	} while (total != line_total);
-	// The counter runs on, so this is exact even if a vertical blank is
-	// still waiting to be counted:
-	return total + (uint16_t)(now - last);
+		total = clock_total;
+		prev = clock_prev;
+		now = gv_clock();
+	} while (total != clock_total);
+	const int32_t passed = (int32_t)(now - prev);
+	return total + (passed > 0 ? (uint32_t)passed : 0);
 }
 
 // 6 bits per color, as a VGA card takes them.
@@ -138,6 +151,9 @@ void update_debug() {
 	psx_debug.heap_used = usage.alloc;
 	psx_debug.heap_max = usage.alloc_max;
 	psx_debug.ram_files = (uint32_t)psx_file_ram_used();
+	psx_debug.stopper_x1000 = (uint32_t)(mv_stopperido() * 1000.0);
+	psx_debug.vblanks = vblank_count;
+	psx_debug.video_pal = video_pal;
 	if (Pmot1) {
 		psx_debug.bike_x_mm = (int32_t)(Pmot1->kor1.r.x * 1000.0);
 		psx_debug.bike_y_mm = (int32_t)(Pmot1->kor1.r.y * 1000.0);
@@ -154,7 +170,7 @@ void count_frame() {
 	fps_frames++;
 	const uint32_t vblanks = vblank_count - fps_start_vblank;
 	if (vblanks >= 300) {
-		psx_debug.fps_x100 = fps_frames * 6000 / vblanks;
+		psx_debug.fps_x100 = fps_frames * (video_pal ? 5000 : 5994) / vblanks;
 		printf("elma: %u.%02u fps, heap %u KB (max %u KB)\n", psx_debug.fps_x100 / 100,
 		       psx_debug.fps_x100 % 100, psx_debug.heap_used / 1024, psx_debug.heap_max / 1024);
 		// (The measuring clock over the same 5 seconds, a check:)
@@ -194,7 +210,9 @@ void present() {
 
 // Pad buttons (bits of psxpad.h) and what they do, as in the handheld
 // version: a control of the player (pressing its key) and a menu key.
-enum Control { NO_CONTROL, GAS, BRAKE, ROTATE_LEFT, ROTATE_RIGHT, TURN, VIEW, TIME, LEAVE };
+// ROTATE_BOTH presses both volt keys at once (an alovolt), which the d-pad
+// cannot: it never reports Left and Right together.
+enum Control { NO_CONTROL, GAS, BRAKE, ROTATE_LEFT, ROTATE_RIGHT, ROTATE_BOTH, TURN, VIEW, TIME, SHOWKEP, LEAVE };
 struct button_action {
 	uint16_t bit;
 	Control control;
@@ -211,13 +229,16 @@ const button_action actions[] = {
 	{PAD_TRIANGLE, VIEW, 0},
 	{PAD_L1, TIME, MK_PGUP},
 	{PAD_R1, TURN, MK_PGDOWN},
+	{PAD_L2, ROTATE_BOTH, 0},
+	{PAD_R2, SHOWKEP, 0},
 	{PAD_SELECT, LEAVE, MK_ESC},
 	{PAD_START, NO_CONTROL, MK_ENTER},
 };
 const int ACTION_COUNT = sizeof(actions) / sizeof(actions[0]);
-int action_key[ACTION_COUNT];
+int action_key[2][ACTION_COUNT][2]; // the keys a button of each pad holds down
 unsigned char key_count[256]; // pad buttons holding each key
-uint16_t pad_down = 0;
+uint16_t pad_down = 0;   // buttons of pad 1
+uint16_t pad2_down = 0;  // buttons of pad 2: the controls of player B, no menu keys
 
 int chars[16];
 int char_head = 0, char_count = 0;
@@ -228,45 +249,87 @@ void push_char(int c) {
 	psx_debug.menu_chars++;
 }
 
-int control_key(Control control) {
-	if (control == LEAVE) return DIK_ESCAPE;
-	if (!State) return 0;
-	const jatekosopciok& player = State->opciok1;
+// The keys of the player's controls that a control presses (0: none); pad 1
+// plays player A, pad 2 player B.
+void control_keys(Control control, int pad, int keys[2]) {
+	keys[0] = keys[1] = 0;
+	if (control == LEAVE) {
+		keys[0] = DIK_ESCAPE;
+		return;
+	}
+	if (!State) return;
+	const jatekosopciok& player = pad ? State->opciok2 : State->opciok1;
 	switch (control) {
-	case GAS: return player.billgaz;
-	case BRAKE: return player.billfek;
-	case ROTATE_LEFT: return player.billugras2;
-	case ROTATE_RIGHT: return player.billugras1;
-	case TURN: return player.billfordul;
-	case VIEW: return player.billview;
-	case TIME: return player.billtime;
-	default: return 0;
+	case GAS: keys[0] = player.billgaz; break;
+	case BRAKE: keys[0] = player.billfek; break;
+	case ROTATE_LEFT: keys[0] = player.billugras2; break;
+	case ROTATE_RIGHT: keys[0] = player.billugras1; break;
+	case ROTATE_BOTH:
+		keys[0] = player.billugras2;
+		keys[1] = player.billugras1;
+		break;
+	case TURN: keys[0] = player.billfordul; break;
+	case VIEW: keys[0] = player.billview; break;
+	case TIME: keys[0] = player.billtime; break;
+	case SHOWKEP: keys[0] = player.billshowkep; break;
+	default: break;
 	}
 }
 
-void apply_buttons(uint16_t buttons) {
-	const uint16_t changed = buttons ^ pad_down;
+void apply_buttons(int pad, uint16_t buttons) {
+	uint16_t& down = pad ? pad2_down : pad_down;
+	const uint16_t changed = buttons ^ down;
 	if (!changed) return;
 	for (int i = 0; i < ACTION_COUNT; ++i) {
 		if (!(changed & actions[i].bit)) continue;
+		int* held = action_key[pad][i];
 		if (buttons & actions[i].bit) {
-			const int key = control_key(actions[i].control);
-			action_key[i] = key > 0 && key < 256 ? key : 0;
-			if (action_key[i]) ++key_count[action_key[i]];
-			if (actions[i].menu) push_char(actions[i].menu);
+			control_keys(actions[i].control, pad, held);
+			for (int k = 0; k < 2; ++k) {
+				if (held[k] <= 0 || held[k] >= 256) held[k] = 0;
+				if (held[k]) ++key_count[held[k]];
+			}
+			if (actions[i].menu && !pad) push_char(actions[i].menu);
 		} else {
-			if (action_key[i]) --key_count[action_key[i]];
-			action_key[i] = 0;
+			for (int k = 0; k < 2; ++k) {
+				if (held[k]) --key_count[held[k]];
+				held[k] = 0;
+			}
 		}
 	}
-	pad_down = buttons;
+	down = buttons;
+}
+
+// Holding Up or Down repeats the menu key (long lists, the letters of a name):
+// after a third of a second, then 15 times a second, and only when the menu
+// has taken the last one, so that nothing is left to run on after the release.
+void repeat_keys() {
+	static uint32_t next_vblank = 0;
+	static uint16_t held = 0;
+	const uint16_t now = pad_down & (PAD_UP | PAD_DOWN);
+	if (!now) {
+		held = 0;
+		return;
+	}
+	const uint32_t hz = video_pal ? 50 : 60;
+	if (now != held) {
+		held = now;
+		next_vblank = vblank_count + hz / 3;
+		return;
+	}
+	if ((int32_t)(vblank_count - next_vblank) < 0 || char_count) return;
+	push_char((now & PAD_UP) ? MK_UP : MK_DOWN);
+	next_vblank = vblank_count + hz / 15;
 }
 
 void events() {
 	while (pad_queue_tail != pad_queue_head) {
-		apply_buttons(pad_queue[pad_queue_tail % 32]);
+		const uint32_t both = pad_queue[pad_queue_tail % 32];
+		apply_buttons(0, (uint16_t)both);
+		apply_buttons(1, (uint16_t)(both >> 16));
 		pad_queue_tail++;
 	}
+	repeat_keys();
 }
 
 // The error screen: the lines in the debug font until X or Start (wait) or
@@ -319,7 +382,9 @@ __attribute__((noreturn)) void run_on_stack(void (*fn)(), uint32_t top) {
 
 }
 
-uint32_t gv_lines() { return lines_now(); }
+// Scan lines since the start, for the header of gpu_video.h (at the rate of
+// the video mode set up in ddinit):
+uint32_t gv_lines() { return (uint32_t)(clock_ticks() * (video_pal ? 15625 : 15734) / GV_CLOCK_HZ); }
 
 void gv_frame_done(bool game_view) {
 	if (game_view) psx_debug.game_frames++;
@@ -352,21 +417,31 @@ int main(int, char**) {
 	return 0;
 }
 
+// Set by the emulator tests before ddinit: 1 NTSC, 2 PAL, 0 the console's own.
+extern "C" volatile int psx_video_force;
+volatile int psx_video_force = 0;
 namespace { bool graph_reset = false; }
 
 void ddinit() {
 	if (!graph_reset) ResetGraph(0);
 	graph_reset = true;
-	SetVideoMode(MODE_NTSC);
+	// The console's own video mode: the BIOS sets the GPU to the mode of its
+	// region and ResetGraph keeps it, so a PAL console gets 50 Hz and an NTSC
+	// one 60 Hz (the emulator tests may force one, psx_video_force).
+	int pal = GetVideoMode() == MODE_PAL;
+	if (psx_video_force) pal = psx_video_force == 2;
+	video_pal = pal != 0;
+	SetVideoMode(video_pal ? MODE_PAL : MODE_NTSC);
+	printf("elma: video mode %s\n", video_pal ? "PAL, 50 Hz" : "NTSC, 60 Hz");
 	gv_init();
 
-	// Root counter 1 counts scan lines (clock source: horizontal blank):
-	TIMER_CTRL(1) = 0x0100;
-	line_last = (uint16_t)TIMER_VALUE(1);
-	VSyncCallback(vblank_callback);
 	gv_clock_init();
+	clock_prev = gv_clock();
+	VSyncCallback(vblank_callback);
 
 	InitPAD(pad_buffers[0], 34, pad_buffers[1], 34);
+	// The card driver sits between the two (memcard.h):
+	psx_memcard_init();
 	StartPAD();
 	ChangeClearPAD(0);
 
@@ -473,6 +548,7 @@ void mk_init() {
 }
 int mk_getextchar() {
 	while (!char_count) {
+		psx_memcard_poll();
 		mv_check();
 		VSync(0);
 	}
@@ -486,6 +562,7 @@ void mk_emptychar() {
 	char_count = 0;
 }
 int mk_kbhit() {
+	psx_memcard_poll();
 	events();
 	return char_count != 0;
 }
@@ -523,53 +600,57 @@ void mv_check(int) {
 	hang();
 	events();
 }
-// The tests (test/gpu_compare_test.lua) stop the game's clock with this, so
-// that the same state can be drawn more than once:
+// The tests (test/gpu_compare_test.lua, test/mc_game_test.lua) stop the
+// game's clock with gpu_test_freeze, so that the same state can be drawn
+// more than once; while it is stopped they move it on by the ticks they put
+// in gpu_test_clock_add, which makes the game's steps whole ones.
 extern "C" volatile int gpu_test_freeze;
 volatile int gpu_test_freeze = 0;
+extern "C" volatile uint32_t gpu_test_clock_add;
+volatile uint32_t gpu_test_clock_add = 0;
 namespace {
-uint32_t frozen_at = 0;
+uint64_t frozen_at = 0;
 bool frozen = false;
-uint32_t stopper_lines() {
-	const uint32_t now = lines_now();
+uint64_t stopper_ticks() {
+	const uint64_t now = clock_ticks();
 	if (gpu_test_freeze) {
 		if (!frozen) frozen_at = now;
 		frozen = true;
-		return frozen_at;
+		return frozen_at + gpu_test_clock_add;
 	}
 	if (frozen) {
-		stopper_start += now - frozen_at;
+		stopper_start += now - (frozen_at + gpu_test_clock_add);
 		frozen = false;
 	}
 	return now;
 }
 }
 
-void mv_startstopper() { stopper_start = stopper_lines(); }
+void mv_startstopper() { stopper_start = stopper_ticks(); }
 // The time between the two calls moves the start of the stopper on.
 void mv_pausestopper(int pause) {
 	static bool paused = false;
-	static uint32_t pause_start = 0;
-	const uint32_t now = stopper_lines();
+	static uint64_t pause_start = 0;
+	const uint64_t now = stopper_ticks();
 	if (pause && !paused) pause_start = now;
 	if (!pause && paused) stopper_start += now - pause_start;
 	paused = pause != 0;
 }
 // 182 ticks a second, as the PC timer of the original.
-double mv_stopperido() { return (double)(stopper_lines() - stopper_start) * (182.0 / LINES_PER_SECOND); }
+double mv_stopperido() { return (double)(stopper_ticks() - stopper_start) * 182.0 / GV_CLOCK_HZ; }
 void getbiostort(unsigned short* bios, unsigned short* fraction) {
-	const uint32_t lines = lines_now();
-	*bios = (unsigned short)(lines >> 16);
-	*fraction = (unsigned short)lines;
+	const uint32_t ticks = (uint32_t)clock_ticks();
+	*bios = (unsigned short)(ticks >> 16);
+	*fraction = (unsigned short)ticks;
 }
 int s_random(int max) { return max > 0 ? rand() % max : 0; }
 
 extern "C" time_t time(time_t* t) {
-	const time_t seconds = (time_t)(lines_now() / LINES_PER_SECOND);
+	const time_t seconds = (time_t)(clock_ticks() / GV_CLOCK_HZ);
 	if (t) *t = seconds;
 	return seconds;
 }
-extern "C" clock_t clock(void) { return (clock_t)((uint64_t)lines_now() * 1000 / LINES_PER_SECOND); }
+extern "C" clock_t clock(void) { return (clock_t)(clock_ticks() * 1000 / GV_CLOCK_HZ); }
 
 // There is no mouse (the editor is not in the menu).
 void getmou(int* x, int* y) { *x = *y = 0; }
@@ -665,6 +746,8 @@ void operator delete(void* p, size_t) { release(p); }
 void operator delete[](void* p, size_t) { release(p); }
 
 void mv_exit(char*) {
+	// The last changes of state.dat go to the card:
+	psx_memcard_poll(true);
 	ddfinish();
 	exit(0);
 }

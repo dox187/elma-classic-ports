@@ -225,6 +225,11 @@ void state_s::save( void ) {
 		hiba( "Nem megy beolvasas state file-ba!: ", Statenev );
 
 	fclose( h );
+#ifdef ELMA_PSX
+	// The memory card is written at the next menu:
+	void psx_state_saved( void );
+	psx_state_saved();
+#endif
 }
 
 static void exportegylevel( FILE* h, palyaegyfeleidok* pidok, int single ) {

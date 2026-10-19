@@ -89,6 +89,11 @@ int abcbenelobb( char* text1, char* text2 );
 
 static void abcberendez( int szam ) {
 	for( int i = 0; i < szam+3; i++ ) {
+#ifdef ELMA_PSX
+		// The list of the disc comes in order: stop at the first pass
+		// without a swap (the same result in much less time on a PS1).
+		int voltcsere = 0;
+#endif
 		for( int j = 0; j < szam-1; j++ ) {
 			// Ha j es j+1 edik elem forditva van visszacsereljuk oket:
 			char* nev1 = Rubrikak[j];
@@ -99,8 +104,15 @@ static void abcberendez( int szam ) {
 				strcpy( tmp, nev1 );
 				strcpy( nev1, nev2 );
 				strcpy( nev2, tmp );
+#ifdef ELMA_PSX
+				voltcsere = 1;
+#endif
 			}
 		}
+#ifdef ELMA_PSX
+		if( !voltcsere )
+			break;
+#endif
 	}
 }
 

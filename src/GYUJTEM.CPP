@@ -254,6 +254,13 @@ static void mentallapot( void ) {
 		jo = 0;
 	if( !jo )
 		uzenet( "Could not write file:", GYUJTEMENYSTATE );
+#ifdef ELMA_PSX
+	// The memory card is written at the next menu:
+	else {
+		void psx_collection_saved( void );
+		psx_collection_saved();
+	}
+#endif
 }
 
 static gyujtemenyido* keresidot( char* nev ) {

@@ -50,6 +50,11 @@ static pic8* Vegekep4 = NULL;
 static void mergestatedat( void );
 
 void teljes( void ) {
+#ifdef ELMA_PSX
+	// The saved state.dat comes back from the memory card first:
+	void psx_memcard_restore( void );
+	psx_memcard_restore();
+#endif
 	State = new state_s;
 	if( !State )
 		uzenet( "memory" );
