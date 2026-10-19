@@ -3,6 +3,9 @@
 int Hangmarmegy = 0;
 
 void help( void ) {
+	#ifdef ELMA_PSX
+	customize();
+	#else
 	szoveglista szl;
 
 	int x1 = 90;
@@ -45,6 +48,7 @@ void help( void ) {
 		}
 		szl.kirajzol();
 	}
+	#endif
 }
 
 // Egyben allithato:
@@ -127,7 +131,11 @@ void options( void ) {
 		else
 			sprintf( Rubrikak_tab[8+vantagis], "Yes" );
 
+		#ifdef ELMA_PSX
+		strcpy( Rubrikak[9+vantagis], "Controller Layout ..." );
+		#else
 		sprintf( Rubrikak[9+vantagis], "Customize Controls ..." );
+		#endif
 		sprintf( Rubrikak_tab[9+vantagis], "" );
 
 		int rubrikaszam = 10;
@@ -223,8 +231,8 @@ void options( void ) {
 		}
 
 		#ifdef ELMA_PSX
-		// Player changes save themselves; cancelled selection needs no write.
-		if( kurrens != 1+vantagis && kurrens != 2+vantagis )
+		// Player changes save themselves; the layout only displays controls.
+		if( kurrens != 1+vantagis && kurrens != 2+vantagis && kurrens != 9+vantagis )
 			changed = 1;
 		#endif
 

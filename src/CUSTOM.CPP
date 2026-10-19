@@ -1,5 +1,35 @@
 #include "all.h"
 
+#ifdef ELMA_PSX
+
+void customize( void ) {
+	const char* buttons[] = { "Up / Cross", "Down / Circle", "Left / Right",
+		"Square / R1", "Triangle", "L1", "L2", "R2", "Select" };
+	const char* actions[] = { "Throttle", "Brake", "Rotate left / right",
+		"Change direction", "Toggle navigator", "Toggle time",
+		"Both rotation keys", "Show / hide view", "Leave level" };
+	szoveglista layout;
+	layout.addszoveg_kozep( "Controller Layout", 320, 16 );
+	layout.addszoveg_kozep( "Pad 1: Player A; Pad 2: Player B", 320, 60 );
+	for( int i = 0; i < 9; ++i ) {
+		layout.addszoveg( (char*)buttons[i], 56, 102+i*32 );
+		layout.addszoveg( (char*)actions[i], 320, 102+i*32 );
+	}
+	layout.addszoveg_kozep( "Pad 1 menus: arrows; L1/R1 pages", 320, 400 );
+	layout.addszoveg_kozep( "Cross/Start: OK; Circle/Select: Back", 320, 440 );
+	mk_emptychar();
+	while( 1 ) {
+		if( mk_kbhit() ) {
+			const int key = mk_getextchar();
+			if( key == MK_ENTER || key == MK_ESC )
+				return;
+		}
+		layout.kirajzol();
+	}
+}
+
+#else
+
 #ifdef W_95
 // W_DI.CPP-ben van definialva:
 char* kodtobillnev( int billkod );
@@ -221,4 +251,6 @@ void customize( void ) {
 			gombotvalaszt( Rubrikaszam0, Pbilltomb0, kurrens );
 	}
 }
+
+#endif
 

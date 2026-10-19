@@ -138,6 +138,10 @@ and hardware boot compatibility has not been verified.
 Controller 1 controls player A and the menus. Controller 2 controls player
 B in two-player games. The controls use digital buttons.
 
+Options → Controller Layout and Help show this fixed controller mapping.
+The PSX version does not offer keyboard rebinding, screen-size keys or
+file-based screenshot capture.
+
 | Button | In a level | In menus (controller 1) |
 |--------|------------|-------------------------|
 | Up / Cross | Gas | Up / Confirm |
