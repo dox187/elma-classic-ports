@@ -33,6 +33,13 @@ and memory card saves. It reads the files of your own copy of the game from
 a second data track. The level editor is omitted, and gameplay can differ
 from the PC version. Emulator-tested; real hardware is untested.
 
+<p>
+  <a href="console/psx/docs/title.png"><img src="console/psx/docs/title.png" width="320" alt="PlayStation port v0.9 title screen"></a>
+  <a href="console/psx/docs/gameplay.png"><img src="console/psx/docs/gameplay.png" width="320" alt="PlayStation gameplay on Warm Up"></a>
+</p>
+
+Title screen and Warm Up gameplay, captured in PCSX-Redux with 2 MB of RAM.
+
 [Requirements, build, disc layout and controls →](console/psx/README.md)
 
 ### NES demake

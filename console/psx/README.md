@@ -10,6 +10,18 @@ The level editor is omitted, and the physics and
 rendering can differ from the PC game. It needs the files from your own
 copy of Elasto Mania; no game data is included here.
 
+<p>
+  <a href="docs/title.png"><img src="docs/title.png" width="320" alt="PlayStation port v0.9 title screen"></a>
+  <a href="docs/menu.png"><img src="docs/menu.png" width="320" alt="PlayStation main menu"></a>
+</p>
+<p>
+  <a href="docs/gameplay.png"><img src="docs/gameplay.png" width="320" alt="PlayStation gameplay on Warm Up"></a>
+  <a href="docs/external.png"><img src="docs/external.png" width="320" alt="PlayStation gameplay on external level pa66le09"></a>
+</p>
+
+Title screen, main menu, Warm Up and the external level `pa66le09`, captured
+in PCSX-Redux with 2 MB of RAM.
+
 ## Requirements
 
 The build uses:
