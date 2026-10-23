@@ -80,6 +80,13 @@ A native PSL1GHT/SDL2 build of the shared original C++ engine with the SDL
 platform features, original double precision physics, and PS3 controller
 support. Registered game data is supplied from your own installation.
 
+<p>
+  <a href="console/ps3/docs/title.png"><img src="console/ps3/docs/title.png" width="320" alt="PlayStation 3 port v0.9.0 title screen"></a>
+  <a href="console/ps3/docs/gameplay.png"><img src="console/ps3/docs/gameplay.png" width="320" alt="PlayStation 3 gameplay on Warm Up with Steam HD graphics"></a>
+</p>
+
+Title screen and Warm Up gameplay, captured in RPCS3 at 1280×720.
+
 [PS3 toolchain, build and package instructions →](console/ps3/README.md)
 
 ## Handheld Linux devices
