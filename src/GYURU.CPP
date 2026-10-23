@@ -1,4 +1,10 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
+#ifdef ELMA_PS3
+#define ELMA_LEVEL_WRITE_ERROR(message) return
+#else
+#define ELMA_LEVEL_WRITE_ERROR(message) hiba(message)
+#endif
 
 // Ide balszog tesz be akkor pontot, ha talal tul hegyes szoget:
 // Check hivja gyuru->pozitivkorjaras-on keresztul:
@@ -31,7 +37,7 @@ gyuru::gyuru( void ) {
 
 gyuru::~gyuru( void ) {
 	if( ponttomb )
-		delete ponttomb;
+		delete[] ponttomb;
 	ponttomb = NULL;
 }
 
@@ -88,7 +94,7 @@ int gyuru::beszur( int k ) {
 			ujponttomb[i].x = ponttomb[i].x;
 			ujponttomb[i].y = ponttomb[i].y;
 		}
-		delete ponttomb;
+		delete[] ponttomb;
 		ponttomb = ujponttomb;
 	}
 
@@ -263,24 +269,24 @@ gyuru::gyuru( FILE* h, int verzio ) {
 		kiskoveto = 1;
 
 	if( kovetos ) {
-		if( fread( &koveto, 1, 4, h ) != 4 )
+		if( elma_read( &koveto, 1, 4, h ) != 4 )
 			hiba( "86t6yt!" );
 		if( !kiskoveto && koveto ) {
 			char semmi[20];
-			if( fread( semmi, 1, 10, h ) != 10 )
+			if( elma_read( semmi, 1, 10, h ) != 10 )
 				hiba( "86t6yt!" );
-			if( fread( semmi, 1, 10, h ) != 10 )
+			if( elma_read( semmi, 1, 10, h ) != 10 )
 				hiba( "86t6yt!" );
-			if( fread( semmi, 1, 10, h ) != 10 )
+			if( elma_read( semmi, 1, 10, h ) != 10 )
 				hiba( "86t6yt!" );
-			if( fread( semmi, 1, 4, h ) != 4 )
+			if( elma_read( semmi, 1, 4, h ) != 4 )
 				hiba( "86t6yt!" );
-			if( fread( semmi, 1, 4, h ) != 4 )
+			if( elma_read( semmi, 1, 4, h ) != 4 )
 				hiba( "86t6yt!" );
 		}
 	}
 
-	if( fread( &pontszam, 1, sizeof( pontszam ), h ) != sizeof( pontszam ) )
+	if( elma_read( &pontszam, 1, sizeof( pontszam ), h ) != sizeof( pontszam ) )
 		hiba( "gyuru::gyuru-ben nem megy file olvasas!" );
 
 	if( pontszam < 3 || pontszam > MAXPONT ) {
@@ -293,15 +299,15 @@ gyuru::gyuru( FILE* h, int verzio ) {
 		ponttomb[i].x = 0;
 		ponttomb[i].y = 0;
 	}
-	if( fread( ponttomb, 1, sizeof( vekt2 ) * pontszam, h ) !=
+	if( elma_read( ponttomb, 1, sizeof( vekt2 ) * pontszam, h ) !=
 											sizeof( vekt2 ) * pontszam )
 						hiba( "gyuru::gyuru-ben nem megy file olvasasa!" );
 }
 
 void gyuru::save( FILE* h, topol* ptop ) {
 	// Koveto reszek:
-	if( fwrite( &koveto, 1, 4, h ) != 4 )
-		hiba( "96t6yt!" );
+	if( elma_write( &koveto, 1, 4, h ) != 4 )
+		ELMA_LEVEL_WRITE_ERROR( "96t6yt!" );
 
 	if( !koveto ) {
 		// Ugy kell elmenteni, hogy ha sorban megyunk vegig pontokon,
@@ -329,11 +335,11 @@ void gyuru::save( FILE* h, topol* ptop ) {
 	}
 
 	// Itt jon a mentes lenyegeben:
-	if( fwrite( &pontszam, 1, sizeof( pontszam ), h ) != sizeof( pontszam ) )
-		hiba( "gyuru::save-ben nem megy file-ba iras!" );
-	if( fwrite( ponttomb, 1, sizeof( vekt2 ) * pontszam, h ) !=
+	if( elma_write( &pontszam, 1, sizeof( pontszam ), h ) != sizeof( pontszam ) )
+		ELMA_LEVEL_WRITE_ERROR( "gyuru::save-ben nem megy file-ba iras!" );
+	if( elma_write( ponttomb, 1, sizeof( vekt2 ) * pontszam, h ) !=
 											sizeof( vekt2 ) * pontszam )
-						hiba( "gyuru::save-ben nem megy file-ba iras!" );
+						ELMA_LEVEL_WRITE_ERROR( "gyuru::save-ben nem megy file-ba iras!" );
 }
 
 // Visszaadja b pontban fekvo belso szoget, ha belso oldal bal oldal a, b, c

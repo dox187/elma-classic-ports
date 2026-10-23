@@ -25,23 +25,6 @@ requirements, building and use.
 
 ## Console ports
 
-### PlayStation port
-
-An unofficial port (v0.9) of the original C++ game for the PlayStation's 2 MB
-of RAM, with GPU graphics, fixed-point physics, SPU sound, two controllers
-and memory card saves. It reads the files of your own copy of the game from
-a second data track. The level editor is omitted, and gameplay can differ
-from the PC version. Emulator-tested; real hardware is untested.
-
-<p>
-  <a href="console/psx/docs/title.png"><img src="console/psx/docs/title.png" width="320" alt="PlayStation port v0.9 title screen"></a>
-  <a href="console/psx/docs/gameplay.png"><img src="console/psx/docs/gameplay.png" width="320" alt="PlayStation gameplay on Warm Up"></a>
-</p>
-
-Title screen and Warm Up gameplay, captured in PCSX-Redux with 2 MB of RAM.
-
-[Requirements, build, disc layout and controls →](console/psx/README.md)
-
 ### NES demake
 
 A separate NES program with the internal levels converted into cartridge
@@ -73,6 +56,31 @@ game and may have bugs.
 </p>
 
 [Requirements, build and controls →](console/snes/README.md)
+
+### PlayStation port
+
+An unofficial port (v0.9) of the original C++ game for the PlayStation's 2 MB
+of RAM, with GPU graphics, fixed-point physics, SPU sound, two controllers
+and memory card saves. It reads the files of your own copy of the game from
+a second data track. The level editor is omitted, and gameplay can differ
+from the PC version. Emulator-tested; real hardware is untested.
+
+<p>
+  <a href="console/psx/docs/title.png"><img src="console/psx/docs/title.png" width="320" alt="PlayStation port v0.9 title screen"></a>
+  <a href="console/psx/docs/gameplay.png"><img src="console/psx/docs/gameplay.png" width="320" alt="PlayStation gameplay on Warm Up"></a>
+</p>
+
+Title screen and Warm Up gameplay, captured in PCSX-Redux with 2 MB of RAM.
+
+[Requirements, build, disc layout and controls →](console/psx/README.md)
+
+### PlayStation 3 port
+
+A native PSL1GHT/SDL2 build of the shared original C++ engine with the SDL
+platform features, original double precision physics, and PS3 controller
+support. Registered game data is supplied from your own installation.
+
+[PS3 toolchain, build and package instructions →](console/ps3/README.md)
 
 ## Handheld Linux devices
 
@@ -131,6 +139,7 @@ Screenshots captured with the Half Blocks renderer.
 | [`console/nes`](console/nes/README.md) | NES demake, a separate program |
 | [`console/snes`](console/snes/README.md) | SNES demake, a separate program |
 | [`console/psx`](console/psx/README.md) | PlayStation port, using the shared game code with console physics and rendering |
+| [`console/ps3`](console/ps3/README.md) | Native PSL1GHT/SDL2 build of the shared original game |
 | [`third_party/hqx`](third_party/hqx/README.md) | Pixel art scalers and their license |
 
 [`CMakeLists.txt`](CMakeLists.txt) in the root builds the code in `src` with a

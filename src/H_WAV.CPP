@@ -1,4 +1,5 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
 
 void wav::lefoglal( void ) {
 	if( size > 1000000 )
@@ -67,6 +68,9 @@ struct wavheader {
 	int32_t hossz;
 };
 
+static_assert(sizeof(wavheader)==44,"Legacy WAV header layout changed");
+inline void elma_swap(wavheader& p) { elma_swap(p.hossz1);elma_swap(p.miez1);elma_swap(p.mod);elma_swap(p.channel);elma_swap(p.frekvencia);elma_swap(p.miez2);elma_swap(p.miez3);elma_swap(p.miez4);elma_swap(p.nemkene);elma_swap(p.hossz); }
+
 wav::wav( char* nev, double maxamplitudo, int start, int ucsoutani ) {
 	tomb = NULL;
 #ifdef ELMA_PSX
@@ -84,7 +88,7 @@ wav::wav( char* nev, double maxamplitudo, int start, int ucsoutani ) {
 	if( sizeof( wavheader ) != negyvennegy )
 		hiba( "sizeof( wavheader ) != 44!" );
 
-	if( fread( &header, 1, 44, h ) != 44 )
+	if( elma_read( &header, 1, 44, h ) != 44 )
 		hiba( "Nem sikerult beolvasni wav-ot!" );
 
 	long hossz = header.hossz;
@@ -115,7 +119,7 @@ wav::wav( char* nev, double maxamplitudo, int start, int ucsoutani ) {
 			hiba( "Reszlet kilog wav-bol!" );
 		lefoglal();
 		qseek( h, start*2, SEEK_CUR );
-		if( fread( tomb, 1, size*2, h ) != size*2 )
+		if( elma_read( tomb, 1, size*2, h ) != size*2 )
 			hiba( "Nem sikerult beolvasni wav-ot!: ", nev );
 	}
 	else {
@@ -124,7 +128,7 @@ wav::wav( char* nev, double maxamplitudo, int start, int ucsoutani ) {
 			hiba( "8 bitre meg nincs megirva reszlet!" );
 		size = hossz;
 		lefoglal();
-		if( fread( tomb, 1, hossz, h ) != hossz )
+		if( elma_read( tomb, 1, hossz, h ) != hossz )
 			hiba( "Nem sikerult beolvasni wav-ot!: ", nev );
 		unsigned char* bytetomb = (unsigned char*)tomb;
 		for( int i = size-1; i >= 0; i-- ) {
@@ -222,7 +226,7 @@ void wav::tomorit( void ) {
 		const long v = (long( tomb[i] )*szorzo) >> 15;
 		tomb8[i] = kodok[(v + 32768) >> 4];
 	}
-	DELETE tomb; }
+	DELETE[] tomb; }
 	tomb = NULL;
 }
 #endif
@@ -233,7 +237,7 @@ void wav::save( char* nev ) {
 	FILE* h = fopen( nev, "wb" );
 	if( !h )
 		hiba( "Nem tudta megnyitni file-t: ", nev );
-	if( fwrite( tomb, 1, size*2, h ) != size*2 )
+	if( elma_write( tomb, 1, size*2, h ) != size*2 )
 			hiba( "Nem sikerult irni wav-ot wav::save-ben!" );
 	fclose( h );
 }
@@ -291,8 +295,6 @@ wav2::wav2( wav* pwav ) {
 	mtomb[pwav->size-1] = tomb[0]-tomb[pwav->size-1];
 	ulsize = ((unsigned long)pwav->size)*65536;
 	ulfuto = 0;
-	plow = (unsigned short*)&ulfuto;
-	phigh = plow+1;
 }
 
 void wav2::reset( int fazis ) {
@@ -307,6 +309,8 @@ short wav2::getnextsample( long dt ) {
 	ulfuto += dt;
 	if( ulfuto >= ulsize )
 		ulfuto -= ulsize;
-	return tomb[*phigh] + ((mtomb[*phigh]*(*plow))>>16);
+	const unsigned high = ulfuto >> 16;
+	const unsigned low = ulfuto & 65535u;
+	return tomb[high] + ((int32_t(mtomb[high])*int32_t(low))>>16);
 }
 

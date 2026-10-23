@@ -1,8 +1,17 @@
 #include	"all.h"
+#ifdef ELMA_PS3
+#include "PS3_CONTROLS.H"
+const char* dd_ps3_safe_name();
+void dd_ps3_next_safe();
+#endif
 
 int Hangmarmegy = 0;
 
 void help( void ) {
+	#ifdef ELMA_PS3
+	ps3_controller_help();
+	return;
+#endif
 	#ifdef ELMA_PSX
 	controller_help();
 	#else
@@ -101,7 +110,11 @@ void options( void ) {
 		else
 			sprintf( Rubrikak_tab[3+vantagis], "Disabled" );
 
+#ifdef ELMA_PS3
+        strcpy(Rubrikak[4+vantagis],"Sound Quality:");
+#else
 		strcpy( Rubrikak[4+vantagis], "Sound Optimization:" );
+#endif
 		if( State->secondarybuffer )
 			sprintf( Rubrikak_tab[4+vantagis], "Compatibility" );
 		else
@@ -196,6 +209,11 @@ void options( void ) {
 			rubrikaszam++;
 		}
 
+#ifdef ELMA_PS3
+        int safesor=rubrikaszam++;
+        strcpy(Rubrikak[safesor+vantagis],"TV Safe Area:");
+        strcpy(Rubrikak_tab[safesor+vantagis],dd_ps3_safe_name());
+#endif
 		val.bead( rubrikaszam+vantagis, 1 );
 
 		kurrens = val.valassz();
@@ -204,6 +222,8 @@ void options( void ) {
 			#ifdef ELMA_PSX
 			if( changed )
 				State->save();
+            #elif defined(ELMA_PS3)
+            State->save();
 			#endif
 			if( origsecondary != State->secondarybuffer && Hangmarmegy ) {
 				// Kiirunk egy dialogust, hogy ujra kell inditani ehhez:
@@ -279,6 +299,9 @@ void options( void ) {
 				cli_next_graphics();
 		#endif
 
+#ifdef ELMA_PS3
+        if(kurrens==safesor) dd_ps3_next_safe();
+#endif
 		if( kurrens == motorkozepsor )
 			dd_next_center_bike();
 

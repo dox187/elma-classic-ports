@@ -1,14 +1,23 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
+#ifdef ELMA_PS3
+#include "ATOMIC_FILE.H"
+#include <cmath>
+static bool RecWriteFailed=false;
+static bool RecLoaded=false;
+bool ps3_replay_loaded() { return RecLoaded; }
+#endif
 
 recorder *Prec1 = NULL, *Prec2 = NULL;
 int Multirec = 0; // Ha multiplayer, akkor ez igaz
 
 #ifdef ELMA_PSX
-recorder::recorder( void ) : tag( 0 ) { palyanev[0] = 0; }
+recorder::recorder( void ) : tag( 0 ) { memset(palyanev,0,sizeof(palyanev)); }
 recorder::~recorder( void ) {}
 
 void recorder::erase( char* name ) {
 	if( strlen( name ) > 15 ) hiba( "Invalid recorder level name!" );
+	memset(palyanev,0,sizeof(palyanev));
 	strcpy( palyanev, name );
 }
 
@@ -17,8 +26,8 @@ void saverecek( char*, long, int ) {}
 #else
 #define MAGICNUMBER (4796277l)
 
-#define RECFREAD( t, n, h ) fread( (t), 1, (n), (h) )
-#define RECFWRITE( t, n, h ) fwrite( (t), 1, (n), (h) )
+#define RECFREAD( t, n, h ) elma_read( (t), 1, (n), (h) )
+#define RECFWRITE( t, n, h ) elma_write( (t), 1, (n), (h) )
 
 //#define Darabszam (10000u)
 //#define Hangdarabszam (3000u)
@@ -30,10 +39,52 @@ void saverecek( char*, long, int ) {}
 static const int Darabszam = 8981; // Ot perc
 static const int Hangdarabszam = 3900;
 
+#ifdef ELMA_PS3
+// Validate in bounded chunks before changing either live recorder. A zero
+// level stamp is valid, so callers must use the separate loaded status.
+static bool valid_replay_file(FILE* h) {
+    const long begin=ftell(h);
+    if(begin<0)return false;
+    int riders=1, expected_multi=-1;
+    for(int rider=0;rider<riders;++rider){
+        int header[5]={};char name[16];
+        if(elma_read(header,4,5,h)!=5 || fread(name,1,16,h)!=16)return false;
+        const int frames=header[0], multi=header[2];
+        // Preserve the shared loader's version warning for an otherwise
+        // readable legacy layout instead of rejecting solely by its number.
+        if(frames<=0 || frames>Darabszam || (multi!=0 && multi!=1)
+           || (header[3]!=0 && header[3]!=1) || !name[0] || !memchr(name,0,sizeof(name)))return false;
+        if(!rider){expected_multi=multi;riders=multi?2:1;}
+        else if(multi!=expected_multi)return false;
+        for(int array=0;array<2;++array){
+            for(int left=frames;left;){
+                float coordinates[64];const int count=left<64?left:64;
+                if(elma_read(coordinates,4,count,h)!=size_t(count))return false;
+                for(int i=0;i<count;++i)if(!std::isfinite(coordinates[i]))return false;
+                left-=count;
+            }
+        }
+        // Six short offsets, one short rotation and five byte channels.
+        if(fseek(h,long(frames)*19,SEEK_CUR)!=0)return false;
+        int sounds=0;if(elma_read(&sounds,4,1,h)!=1 || sounds<0 || sounds>Hangdarabszam)return false;
+        for(int i=0;i<sounds;++i){
+            egyhang sound={};
+            if(elma_read(&sound,sizeof(sound),1,h)!=1 || !std::isfinite(sound.t)
+               || !std::isfinite(sound.hangero) || sound.objszam>=MAXKEREK)return false;
+            if(sound.objszam<0 && (sound.wavindex<WAV_UTODES || sound.wavindex>WAV_UGRAS2
+               || sound.hangero<=0 || sound.hangero>=1))return false;
+        }
+        int magic=0;if(elma_read(&magic,4,1,h)!=1 || magic!=MAGICNUMBER)return false;
+    }
+    return fseek(h,begin,SEEK_SET)==0;
+}
+#endif
+
 static double Valtrate = 30; //60;
 static double Recorderszorzo = Valtrate/(182.0*0.0024);
 
 recorder::recorder( void ) {
+	memset(palyanev,0,sizeof(palyanev));
 	palyanev[0] = 0;
 	pk1rx = NULL;
 	pk1ry = NULL;
@@ -100,6 +151,7 @@ recorder::~recorder( void ) {
 void recorder::erase( char* palyanev_p ) {
 	if( strlen( palyanev_p ) > 15 )
 		hiba( "875h8uyf" );
+	memset(palyanev,0,sizeof(palyanev));
 	strcpy( palyanev, palyanev_p );
 	betoltve = 0;
 	hangbetoltve = 0;
@@ -121,6 +173,16 @@ int recorder::gettag( void ) {
 void recorder::settag( int tag_p ) {
 	tag = tag_p;
 }
+
+#ifdef ELMA_PS3
+bool recorder::objects_exist(kerek* const* objects) const {
+    for(long i=0;i<hangbetoltve;++i){
+        const int object=phangok[i].objszam;
+        if(object>=0 && (object>=MAXKEREK || !objects[object]))return false;
+    }
+    return true;
+}
+#endif
 
 static double Korrszorzo = 1000.0, 		   Korrszorzo_rec = 1.0 / Korrszorzo;
 static double Alfaszorzo = 250/(2.0*K_pi), Alfaszorzo_rec = 1.0 / Alfaszorzo;
@@ -330,8 +392,9 @@ void recorder::store( motorst* pmot, double ido, hanginfo* phinfo ) {
 
 		// Belerakunk egy veletlen szamot felso negy bitbe:
 		double tmpb = pmot->kor4.alfa + i*5.752364;
-		memcpy( &pgazhatra[i], (&tmpb)+4, 1 );
-		pgazhatra[i] = pgazhatra[i] & 0xf0;
+		uint64_t tmpbits;
+		memcpy( &tmpbits, &tmpb, sizeof(tmpbits) );
+		pgazhatra[i] = static_cast<unsigned char>((tmpbits >> 32) & 0xf0);
 
 		if( phinfo->gaz )
 			pgazhatra[i] += 1;
@@ -443,6 +506,9 @@ void recorder::addhang( double t, char wavindex, double hangero, int objszam ) {
 			//hiba( "recorder::addhang-ban ido forditott sorrendben!" );
 		}
 	}
+	// The legacy 16-byte record includes padding after wavindex. Do not write
+	// an uninitialized heap byte to disk; all meaningful fields stay unchanged.
+	memset( &phangok[unsigned(hangbetoltve)], 0, sizeof(egyhang) );
 	phangok[unsigned(hangbetoltve)].t = t;
 	phangok[unsigned(hangbetoltve)].wavindex = wavindex;
 	phangok[unsigned(hangbetoltve)].hangero = hangero;
@@ -485,14 +551,20 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 		else {
 			char tmpnev[40];
 			sprintf( tmpnev, "rec\\%s", nev );
+			#ifdef ELMA_PS3
+            elma_restore_save(tmpnev);
+#endif
 			h = fopen( tmpnev, "rb" );
 			if( !h )
 				uzenet( "Could not open for reading record file!:", tmpnev );
 		}
 	}
 
+#ifdef ELMA_PS3
+    if(!h)return 0;
+#endif
 	betoltve = 0;
-	if( fread( &betoltve, 1, 4, h ) != 4 )
+	if( elma_read( &betoltve, 1, 4, h ) != 4 )
 		olvhiba( nev );
 	if( betoltve <= 0 )
 		hiba( "Nem stimmel betoltve recorded file-ban!: ", nev );
@@ -502,7 +574,7 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 	}
 
 	long verzio = 0;
-	if( fread( &verzio, 1, 4, h ) != 4 )
+	if( elma_read( &verzio, 1, 4, h ) != 4 )
 		hiba( "Nem sikerult olvasni recorded file-bol!: ", nev );
 
 	// Ezt loadrecekben is igazitani kell:
@@ -513,17 +585,18 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 		uzenet( "Recorded file version is too new!", nev );
 
 	int tmp = 0; // Multirec, de ezt mar elintezte loadrecek, aki ezt hivta
-	if( fread( &tmp, 1, 4, h ) != 4 )
+	if( elma_read( &tmp, 1, 4, h ) != 4 )
 		hiba( "Nem sikerult olvasni recorded file-bol!: ", nev );
 
-	if( fread( &tag, 1, 4, h ) != 4 )
+	if( elma_read( &tag, 1, 4, h ) != 4 )
 		hiba( "Nem sikerult olvasni recorded file-bol!: ", nev );
 
 	long belyeg = 0;
-	if( fread( &belyeg, 1, 4, h ) != 4 )
+	if( elma_read( &belyeg, 1, 4, h ) != 4 )
 		olvhiba( nev );
-	if( fread( palyanev, 1, 16, h ) != 16 )
+	if( elma_read( palyanev, 1, 16, h ) != 16 )
 		olvhiba( nev );
+	palyanev[sizeof(palyanev)-1]=0;
 
 	// Ehelyett lehet hogy kene valami hasonlo:
 	//if( Sarvari && !belyeg && (level > 15 && level != 22) )
@@ -567,7 +640,7 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 		olvhiba( nev );
 
 	// Hangok:
-	if( fread( &hangbetoltve, 1, 4, h ) != 4 )
+	if( elma_read( &hangbetoltve, 1, 4, h ) != 4 )
 		olvhiba( nev );
 	if( hangbetoltve < 0 )
 		hiba( "hangbetoltve nem stimmel loadban!" );
@@ -587,7 +660,7 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 		olvhiba( nev );
 
 	long magic = 0;
-	if( fread( &magic, 1, 4, h ) != 4 )
+	if( elma_read( &magic, 1, 4, h ) != 4 )
 		olvhiba( nev );
 	if( magic != MAGICNUMBER )
 		hiba( "magic != MAGICNUMBER" );
@@ -609,20 +682,24 @@ long recorder::load( char* nev, FILE* h, int demo ) {
 	if( !h )
 		hiba( "Nem sikerult megnyitni irasra recorded file-t!: ", nev );
 
-	if( fwrite( &betoltve, 1, 4, h ) != 4 )
+	if( elma_write( &betoltve, 1, 4, h ) != 4 )
 		hiba( "Nem sikerult irni recorded file-ba!: ", nev );
-	if( fwrite( &level, 1, 4, h ) != 4 )
+	if( elma_write( &level, 1, 4, h ) != 4 )
 		hiba( "Nem sikerult irni recorded file-ba!: ", nev );
 
 
 	long hossz = betoltve*sizeof( float );
 
-	if( fwrite( pk1rx, 1, unsigned(hossz), h ) != hossz )
+	if( elma_write( pk1rx, 1, unsigned(hossz), h ) != hossz )
 		hiba( "Nem sikerult irni recorded file-ba!: ", nev );
 */
 
 static void irhiba( char* nev ) {
+#ifdef ELMA_PS3
+    RecWriteFailed=true;
+#else
 	hiba( "Nem sikerult irni recorded file-ba!: ", nev );
+#endif
 }
 
 void recorder::save( char* nev, FILE* h, long belyeg, int tag_p ) {
@@ -644,26 +721,26 @@ void recorder::save( char* nev, FILE* h, long belyeg, int tag_p ) {
 			hiba( "Could not open for writing record file!: ", tmpnev );
 	}
 
-	if( fwrite( &betoltve, 1, 4, h ) != 4 )
+	if( elma_write( &betoltve, 1, 4, h ) != 4 )
 		irhiba( nev );
 
 	// Verzio csak 1.2-tol kezdodoen jon bele:
 	// Elozoleg itt level volt, ami biztos hogy kisebb volt 120-nal:
 	long verzio = 131;
-	if( fwrite( &verzio, 1, 4, h ) != 4 )
+	if( elma_write( &verzio, 1, 4, h ) != 4 )
 		irhiba( nev );
 
 	// Ezt loadrecekben is olvassa, ugyhogy ennek verzio utan kell maradnia:
-	if( fwrite( &Multirec, 1, 4, h ) != 4 )
+	if( elma_write( &Multirec, 1, 4, h ) != 4 )
 		irhiba( nev );
 
-	if( fwrite( &tag, 1, 4, h ) != 4 )
+	if( elma_write( &tag, 1, 4, h ) != 4 )
 		irhiba( nev );
 
-	if( fwrite( &belyeg, 1, 4, h ) != 4 )
+	if( elma_write( &belyeg, 1, 4, h ) != 4 )
 		irhiba( nev );
 
-	if( fwrite( palyanev, 1, 16, h ) != 16 )
+	if( elma_write( palyanev, 1, 16, h ) != 16 )
 		irhiba( nev );
 
 	int hosszf = betoltve*sizeof( float );
@@ -704,14 +781,14 @@ void recorder::save( char* nev, FILE* h, long belyeg, int tag_p ) {
 		irhiba( nev );
 
 	// Hangok:
-	if( fwrite( &hangbetoltve, 1, 4, h ) != 4 )
+	if( elma_write( &hangbetoltve, 1, 4, h ) != 4 )
 		irhiba( nev );
 	int hossz = hangbetoltve*sizeof( egyhang );
 	if( RECFWRITE( phangok, hossz, h ) != hossz )
 		irhiba( nev );
 
 	long magic = MAGICNUMBER;
-	if( fwrite( &magic, 1, 4, h ) != 4 )
+	if( elma_write( &magic, 1, 4, h ) != 4 )
 		irhiba( nev );
 
 	if( !megvoltnyitva )
@@ -720,6 +797,9 @@ void recorder::save( char* nev, FILE* h, long belyeg, int tag_p ) {
 
 // demo eseten resource file-bol nyit:
 long loadrecek( char* nev, int demo ) {
+#ifdef ELMA_PS3
+    RecLoaded=false;
+#endif
 	// Eloszor megvizsgaljuk, hogy multirec vagy nem:
 	FILE* h;
 	if( demo ) {
@@ -730,16 +810,27 @@ long loadrecek( char* nev, int demo ) {
 	else {
 		char tmpnev[40];
 		sprintf( tmpnev, "rec\\%s", nev );
-		h = fopen( tmpnev, "rb" );
+		#ifdef ELMA_PS3
+            elma_restore_save(tmpnev);
+#endif
+			h = fopen( tmpnev, "rb" );
 		if( !h )
 			uzenet( "Could not open for reading record file!:", tmpnev );
 	}
+#ifdef ELMA_PS3
+    if(!h)return 0;
+    if(!valid_replay_file(h)){
+        if(demo)qclose(h);else fclose(h);
+        uzenet("This replay is damaged or uses an unsupported format.",nev);
+        return 0;
+    }
+#endif
 	int tmp = 0; // betoltve (bejegyzes darabszam)
-	if( fread( &tmp, 1, 4, h ) != 4 )
+	if( elma_read( &tmp, 1, 4, h ) != 4 )
 		hiba( "Nem sikerult olvasni recorded file-bol!: ", nev );
 
 	long verzio = 0;
-	if( fread( &verzio, 1, 4, h ) != 4 )
+	if( elma_read( &verzio, 1, 4, h ) != 4 )
 		hiba( "Nem sikerult olvasni recorded file-bol!: ", nev );
 
 	if( verzio < 131 )
@@ -749,7 +840,7 @@ long loadrecek( char* nev, int demo ) {
 		uzenet( "Recorded file version is too new!", nev );
 
 	// Betoltjuk Multirec-et:
-	if( fread( &Multirec, 1, 4, h ) != 4 )
+	if( elma_read( &Multirec, 1, 4, h ) != 4 )
 		hiba( "Nem sikerult olvasni recorded file-bol!: ", nev );
 
 	if( demo )
@@ -770,11 +861,17 @@ long loadrecek( char* nev, int demo ) {
 		else {
 			char tmpnev[40];
 			sprintf( tmpnev, "rec\\%s", nev );
+			#ifdef ELMA_PS3
+            elma_restore_save(tmpnev);
+#endif
 			h = fopen( tmpnev, "rb" );
 			if( !h )
 				uzenet( "Could not open for reading record file!:", tmpnev );
 		}
 
+#ifdef ELMA_PS3
+        if(!h)return 0;
+#endif
 		belyeg = Prec1->load( nev, h, demo );
 		Prec2->load( nev, h, demo );
 
@@ -805,11 +902,24 @@ long loadrecek( char* nev, int demo ) {
 		}
 	}
 
+#ifdef ELMA_PS3
+    RecLoaded=true;
+#endif
 	return belyeg;
 }
 
 // belyeg-et adja vissza, vagy 0-at:
 void saverecek( char* nev, long belyeg, int tag ) {
+#ifdef ELMA_PS3
+    char path[64];int length=snprintf(path,sizeof(path),"rec/%s",nev);
+    if(length<0 || size_t(length)>=sizeof(path)){uzenet("Replay filename is too long.");return;}
+    elma_atomic_file transaction(path);FILE* h=transaction.file();
+    if(!h){uzenet("Could not open replay for writing. The previous file is kept.",path);return;}
+    RecWriteFailed=false;
+    Prec1->save(nev,h,belyeg,tag);
+    if(Multirec)Prec2->save(nev,h,belyeg,tag);
+    if(!transaction.commit(!RecWriteFailed))uzenet("Could not save replay. The previous file is kept.",path);
+#else
 	if( Multirec ) {
 		char tmpnev[40];
 		sprintf( tmpnev, "rec\\%s", nev );
@@ -827,6 +937,7 @@ void saverecek( char* nev, long belyeg, int tag ) {
 	else {
 		Prec1->save( nev, NULL, belyeg, tag );
 	}
+#endif
 }
 
 #endif

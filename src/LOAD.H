@@ -33,3 +33,8 @@ void ujraepiteshang( void );
 void dialogselejtez( void );
 
 
+
+#ifdef ELMA_PS3
+// Check the complete graphics rebuild before changing the saved zoom.
+int ps3_zoom_admissible(double requested_zoom);
+#endif

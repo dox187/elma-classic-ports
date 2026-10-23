@@ -1,4 +1,7 @@
 #include	"all.h"
+#ifdef ELMA_PS3
+#include "PS3_PLATFORM.H"
+#endif
 
 void editplay( void ) {
 	invalidateegesz();
@@ -9,7 +12,19 @@ void editplay( void ) {
 	if( Ptop->hibas )
 		return;
 
+#ifdef ELMA_PS3
+    Ps3DiagnosticScope diagnostics("editor-play");
+    if(!floadlevel_p(State->editfilenev)){
+        // The play loader may have replaced/deleted topology before refusing
+        // its graphics. Reopen the saved editor copy and restore 1x assets;
+        // returning directly could leave the editor with NULL/stale pointers.
+        Pgy=NULL;Pker=NULL;Psp=NULL;
+        if(!floadlevel_e(State->editfilenev,1))State->editfilenev[0]=0;
+        invalidateegesz();mk_emptychar();Pal_editor->set();return;
+    }
+#else
 	floadlevel_p( State->editfilenev );
+#endif
 
 	Prec1->erase( State->editfilenev );
 	Prec2->erase( State->editfilenev );

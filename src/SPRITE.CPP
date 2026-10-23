@@ -68,7 +68,7 @@ unsigned char* spriteadat8( pic8* ppic, unsigned char szin,
 			// spritehossz is an unsigned short:
 			if( buf >= bufmeret || buf > 65535u ) {
 				hiba( "Nem fer be egy szegmensbe spriteadat!" );
-				DELETE buffer; }
+				DELETE[] buffer; }
 				return NULL;
 			}
 		}
@@ -80,14 +80,14 @@ unsigned char* spriteadat8( pic8* ppic, unsigned char szin,
 	{ jobuffer = NEW(unsigned char*) unsigned char[buf]; }
 	if( !jobuffer ) {
 		uzenet( "spriteadat8-ban memory!" );
-		DELETE buffer; }
+		DELETE[] buffer; }
 		return NULL;
 	}
 	BYTECOPY( jobuffer, buffer, buf );
 
 	*pspritehossz = buf;
 
-	DELETE buffer; }
+	DELETE[] buffer; }
 	return jobuffer;
 }
 

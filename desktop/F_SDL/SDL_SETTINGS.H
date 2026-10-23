@@ -34,6 +34,7 @@ const char* aspect_name(Aspect aspect); // as in the Options menu: Screen, 4:3
 // part of the level; base_view_size gives the size without it.
 void base_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h);
 void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h);
+void game_view_size_at_resolution(Aspect aspect,int out_w,int out_h,int resolution,int* w,int* h);
 
 // How many pixels the game view has (resolution in elma.cfg): original, the
 // sizes above, which the window then enlarges; auto (the default on desktops),

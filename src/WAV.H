@@ -50,8 +50,7 @@ public:
 
 class wav2 {
 	short	*tomb, *mtomb;
-	uint32_t ulsize, ulfuto; // plow/phigh ennek also/felso szavara mutat
-	unsigned short *plow, *phigh;
+	uint32_t ulsize, ulfuto; // 16.16 sample position
 public:
 		wav2( wav* pwav );
 	void reset( int fazis = -1 );

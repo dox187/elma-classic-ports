@@ -1,8 +1,13 @@
 #include	<stdio.h>
+#ifdef __cplusplus
+// libstdc++'s <cstdio> undefines the stdio names. Include it before installing
+// our case-insensitive/absolute-path wrappers, also used by endian I/O helpers.
+#include <cstdio>
+#endif
 #include	<stdlib.h>
 // The PS1 build (console/psx) brings the POSIX headers and functions the
 // core needs:
-#if defined(__APPLE__) || defined(__linux__) || defined(ELMA_PSX)
+#if defined(__APPLE__) || defined(__linux__) || defined(ELMA_PSX) || defined(ELMA_PS3)
 #define ELMA_POSIX
 #endif
 #ifdef ELMA_POSIX
@@ -16,6 +21,12 @@ FILE* elma_fopen(const char* path, const char* mode);
 int elma_access(const char* path, int mode);
 #define fopen elma_fopen
 #define access elma_access
+#ifdef ELMA_PS3
+int elma_remove(const char* path);
+int elma_rename(const char* from, const char* to);
+#define remove elma_remove
+#define rename elma_rename
+#endif
 #else
 #include	<io.h>
 #include	<dos.h>

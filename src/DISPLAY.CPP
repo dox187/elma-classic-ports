@@ -1,4 +1,5 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
 
 int Vonalcsakeditbe = 0; // vonalrajzolashoz
 
@@ -289,15 +290,15 @@ double display_double_kozeltav( void ) {
 	if( !h )
 		hiba( "Nem nyilik display.sta!" );
 
-	fwrite( &Dw1.x, 1, sizeof( Dw1.x ), h );
-	fwrite( &Dw2.x, 1, sizeof( Dw2.x ), h );
-	fwrite( &Dw1.y, 1, sizeof( Dw1.y ), h );
-	fwrite( &Dw2.y, 1, sizeof( Dw2.y ), h );
+	elma_write( &Dw1.x, 1, sizeof( Dw1.x ), h );
+	elma_write( &Dw2.x, 1, sizeof( Dw2.x ), h );
+	elma_write( &Dw1.y, 1, sizeof( Dw1.y ), h );
+	elma_write( &Dw2.y, 1, sizeof( Dw2.y ), h );
 
-	fwrite( &Nagyitas, 1, sizeof( Nagyitas ), h );
-	fwrite( &Nagyitas_rec, 1, sizeof( Nagyitas_rec ), h );
-	fwrite( &Vonalkozep, 1, sizeof( Vonalkozep ), h );
-	fwrite( &Vonalsugar, 1, sizeof( Vonalsugar ), h );
+	elma_write( &Nagyitas, 1, sizeof( Nagyitas ), h );
+	elma_write( &Nagyitas_rec, 1, sizeof( Nagyitas_rec ), h );
+	elma_write( &Vonalkozep, 1, sizeof( Vonalkozep ), h );
+	elma_write( &Vonalsugar, 1, sizeof( Vonalsugar ), h );
 
 	fclose( h );
 }
@@ -306,15 +307,15 @@ void loadallapot( void ) {
 	if( !h )
 		hiba( "Nem nyilik display.sta!" );
 
-	fread( &Dw1.x, 1, sizeof( Dw1.x ), h );
-	fread( &Dw2.x, 1, sizeof( Dw2.x ), h );
-	fread( &Dw1.y, 1, sizeof( Dw1.y ), h );
-	fread( &Dw2.y, 1, sizeof( Dw2.y ), h );
+	elma_read( &Dw1.x, 1, sizeof( Dw1.x ), h );
+	elma_read( &Dw2.x, 1, sizeof( Dw2.x ), h );
+	elma_read( &Dw1.y, 1, sizeof( Dw1.y ), h );
+	elma_read( &Dw2.y, 1, sizeof( Dw2.y ), h );
 
-	fread( &Nagyitas, 1, sizeof( Nagyitas ), h );
-	fread( &Nagyitas_rec, 1, sizeof( Nagyitas_rec ), h );
-	fread( &Vonalkozep, 1, sizeof( Vonalkozep ), h );
-	fread( &Vonalsugar, 1, sizeof( Vonalsugar ), h );
+	elma_read( &Nagyitas, 1, sizeof( Nagyitas ), h );
+	elma_read( &Nagyitas_rec, 1, sizeof( Nagyitas_rec ), h );
+	elma_read( &Vonalkozep, 1, sizeof( Vonalkozep ), h );
+	elma_read( &Vonalsugar, 1, sizeof( Vonalsugar ), h );
 
 	fclose( h );
 }*/

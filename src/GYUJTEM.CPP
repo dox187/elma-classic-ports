@@ -1,4 +1,8 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
+#ifdef ELMA_PS3
+#include "ATOMIC_FILE.H"
+#endif
 
 // The collections' names and order follow the Steam release; their levels
 // are in elma.res as resnev01.lev, resnev02.lev, ..., while in the game
@@ -103,6 +107,8 @@ struct gyujtemenyido {
 	palyaidok idok;
 };
 
+inline void elma_swap(gyujtemenyido& p) { elma_swap(p.belyeg);elma_swap(p.idok); }
+
 // Completed levels per player and per collection. Like sikerespalyakszama
 // for internal levels, this too does not depend on whether its time stayed
 // among the best ten:
@@ -181,21 +187,24 @@ static void betoltallapot( void ) {
 	Idoszam = 0;
 	Jatekosszam = 0;
 
+#ifdef ELMA_PS3
+    elma_restore_save(GYUJTEMENYSTATE);
+#endif
 	FILE* h = fopen( GYUJTEMENYSTATE, "rb" );
 	if( !h )
 		return; // No collection level played yet
 	int32_t azon1 = 0, verzio = 0, idoszam = 0, jatekosszam = 0;
 	int32_t ellenorzo = 0, azon2 = 0;
-	int jo = fread( &azon1, 1, 4, h ) == 4 && azon1 == GYUJTEMENYAZON1 &&
-			 fread( &verzio, 1, 4, h ) == 4 && verzio == GYUJTEMENYVERZIO &&
-			 fread( &idoszam, 1, 4, h ) == 4 && idoszam >= 0 && idoszam <= MAXGYUJTEMENYIDO;
+	int jo = elma_read( &azon1, 1, 4, h ) == 4 && azon1 == GYUJTEMENYAZON1 &&
+			 elma_read( &verzio, 1, 4, h ) == 4 && verzio == GYUJTEMENYVERZIO &&
+			 elma_read( &idoszam, 1, 4, h ) == 4 && idoszam >= 0 && idoszam <= MAXGYUJTEMENYIDO;
 	int idohossz = jo ? int( idoszam*sizeof( gyujtemenyido ) ) : 0;
 #ifdef ELMA_PSX
 	if( jo )
 		IDOHELY( idoszam );
 #endif
 	jo = jo && fread( Idotabla, 1, idohossz, h ) == size_t(idohossz) &&
-		 fread( &jatekosszam, 1, 4, h ) == 4 && jatekosszam >= 0 &&
+		 elma_read( &jatekosszam, 1, 4, h ) == 4 && jatekosszam >= 0 &&
 		 jatekosszam <= MAXGYUJTEMENYJATEKOS;
 	int jatekoshossz = jo ? int( jatekosszam*sizeof( gyujtemenyjatekos ) ) : 0;
 #ifdef ELMA_PSX
@@ -203,14 +212,15 @@ static void betoltallapot( void ) {
 		JATEKOSHELY( jatekosszam );
 #endif
 	jo = jo && fread( Jatekostabla, 1, jatekoshossz, h ) == size_t(jatekoshossz) &&
-		 fread( &ellenorzo, 1, 4, h ) == 4 &&
-		 fread( &azon2, 1, 4, h ) == 4 && azon2 == GYUJTEMENYAZON2;
+		 elma_read( &ellenorzo, 1, 4, h ) == 4 &&
+		 elma_read( &azon2, 1, 4, h ) == 4 && azon2 == GYUJTEMENYAZON2;
 	fclose( h );
 	if( jo ) {
 		titkosit( Idotabla, idohossz );
 		titkosit( Jatekostabla, jatekoshossz );
 		uint32_t sum = osszeg( Jatekostabla, jatekoshossz, osszeg( Idotabla, idohossz ) );
 		jo = ellenorzo == int32_t( sum & 0x7fffffff );
+		elma_convert(Idotabla,idohossz);
 	}
 	if( !jo ) {
 		uzenet( "Corrupt file, please rename it!", GYUJTEMENYSTATE );
@@ -231,27 +241,39 @@ static void mentallapot( void ) {
 	int jatekoshossz = int( Jatekosszam*sizeof( gyujtemenyjatekos ) );
 	int32_t fej[3] = { GYUJTEMENYAZON1, GYUJTEMENYVERZIO, Idoszam };
 	int32_t jatekosszam = Jatekosszam;
+	elma_convert(Idotabla,idohossz);
 	uint32_t sum = osszeg( Jatekostabla, jatekoshossz, osszeg( Idotabla, idohossz ) );
 	int32_t ellenorzo = int32_t( sum & 0x7fffffff );
 	int32_t azon2 = GYUJTEMENYAZON2;
 
+#ifdef ELMA_PS3
+    elma_atomic_file transaction(GYUJTEMENYSTATE);
+    FILE* h=transaction.file();
+#else
 	FILE* h = fopen( GYUJTEMENYSTATE, "wb" );
+#endif
 	if( !h ) {
+		elma_convert(Idotabla,idohossz);
 		uzenet( "Could not open file!", GYUJTEMENYSTATE );
 		return;
 	}
 	titkosit( Idotabla, idohossz );
 	titkosit( Jatekostabla, jatekoshossz );
-	int jo = fwrite( fej, 1, sizeof( fej ), h ) == sizeof( fej ) &&
+	int jo = elma_write( fej, 1, sizeof( fej ), h ) == sizeof( fej ) &&
 			 fwrite( Idotabla, 1, idohossz, h ) == size_t(idohossz) &&
-			 fwrite( &jatekosszam, 1, 4, h ) == 4 &&
+			 elma_write( &jatekosszam, 1, 4, h ) == 4 &&
 			 fwrite( Jatekostabla, 1, jatekoshossz, h ) == size_t(jatekoshossz) &&
-			 fwrite( &ellenorzo, 1, 4, h ) == 4 &&
-			 fwrite( &azon2, 1, 4, h ) == 4;
+			 elma_write( &ellenorzo, 1, 4, h ) == 4 &&
+			 elma_write( &azon2, 1, 4, h ) == 4;
 	titkosit( Idotabla, idohossz );
 	titkosit( Jatekostabla, jatekoshossz );
+	elma_convert(Idotabla,idohossz);
+#ifdef ELMA_PS3
+    jo=transaction.commit(jo);
+#else
 	if( fclose( h ) != 0 )
 		jo = 0;
+#endif
 	if( !jo )
 		uzenet( "Could not write file:", GYUJTEMENYSTATE );
 #ifdef ELMA_PSX

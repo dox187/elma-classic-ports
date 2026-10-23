@@ -81,8 +81,8 @@ void initgolyo( void ) {
 		if( Idok ) {
 			for( i = 0; i < Ngolyok+4; i++ )
 				if( Idok[i] )
-					delete Idok[i];
-			delete Idok;
+					delete[] Idok[i];
+			delete[] Idok;
 			Idok = NULL;
 		}
 		hiba( "Out of memory!" );

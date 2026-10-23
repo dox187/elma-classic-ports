@@ -1,4 +1,11 @@
 #include	"all.h"
+#ifdef ELMA_PS3
+#include "PS3_TEXT.H"
+static bool ps3_text_arrow(char* text,int maximum,int c,bool spaces=false) {
+    int d=c==MK_UP ? 1 : c==MK_DOWN ? -1 : c==MK_RIGHT ? 2 : c==MK_LEFT ? -2 : 0;
+    return d && ps3_edit_text(text,maximum,d,spaces);
+}
+#endif
 
 static const unsigned char Save_as_box_szin = 4, Save_as_szelszin = 5;
 
@@ -113,6 +120,9 @@ static void boxbarajz( pic8* ppic, box abox, unsigned char szin, int fel ) {
 }
 
 void tolt_open( void ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	invalidateegesz();
 	if( Valtozott ) {
 		if( dialog( "There are unsaved changes in the level file.",
@@ -292,6 +302,9 @@ void tolt_open( void ) {
 
 // Editfilenev alapjan megprobal josolni, majd oda teszi eredmenyt:
 void kivalasztkezdetit( void ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	invalidateegesz();
 	if( !Soknev ) {
 		Soknev = new char[Maxnev*10+100];
@@ -501,13 +514,20 @@ int tolt_save( int lokkolhato ) {
 		// Ez a file meg nincsen elnevezve:
 		return tolt_save_as( lokkolhato );
 	}
+#ifdef ELMA_PS3
+    if(!Ptop->save(State->editfilenev)){Valtozott=1;return 0;}
+#else
 	Ptop->save( State->editfilenev );
+#endif
 	Valtozott = 0;
 	return 1;
 }
 
 // Ha sikeresen mentett, akkor igaz:
 int tolt_save_as( int lokkolhato ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope pad_text_scope;
+#endif
 	invalidateegesz();
 	// Itt most be kell olvasnunk egy nevet:
 	box boxnagy = { 20, 200, 600, 380 };
@@ -521,7 +541,11 @@ int tolt_save_as( int lokkolhato ) {
 	kirajzbox( Buffsima, boxsave, Buttonszin, Dialogszelszin );
 	if( lokkolhato )
 		kirajzbox( Buffsima, boxsavelock, Buttonszin, Dialogszelszin );
+#ifdef ELMA_PS3
+    Pabc2->writekozep(Buffsima,(boxnagy.x2+boxnagy.x1)/2,220,"D-pad: letters; Start: save; Circle: cancel; Cross: click SAVE / SAVE LOCKED");
+#else
 	Pabc2->writekozep( Buffsima, (boxnagy.x2+boxnagy.x1)/2, 220, "Type in the file name and press ENTER or click on SAVE, or press ESC to cancel!" );
+#endif
 	if( lokkolhato )
 		Pabc2->writekozep( Buffsima, (boxnagy.x2+boxnagy.x1)/2, 320, "If you click on the SAVE LOCKED button, the saved file won't be modifiable anymore. " );
 	Pabc2->writekozep( Buffsima, (boxsave.x2+boxsave.x1)/2, boxsave.y1+13, "SAVE" );
@@ -532,11 +556,11 @@ int tolt_save_as( int lokkolhato ) {
 	pop();
 
 	mk_emptychar();
-	char nev[10] = "";
+	char nev[16] = "";
 	int i = 0;
 	int egerballevoltnyomva = 0;
 	int egerjobblevoltnyomva = 0;
-	char eddignev[10] = "$%...%^&";
+	char eddignev[16] = "$%...%^&";
 	while( 1 ) {
 		if( strcmp( eddignev, nev ) != 0 ) {
 			strcpy( eddignev, nev );
@@ -555,6 +579,9 @@ int tolt_save_as( int lokkolhato ) {
 		}
 		while( mk_kbhit() ) {
 			int c = mk_getextchar();
+#ifdef ELMA_PS3
+            if(ps3_text_arrow(nev,8,c)) {i=strlen(nev);continue;}
+#endif
 			if( c == MK_ESC )
 				return 0;
 			if( c == MK_ENTER ) {
@@ -570,7 +597,11 @@ int tolt_save_as( int lokkolhato ) {
 					if( dialog( "File exists, overwrite?", nev,
 										"GOMBOK", "Yes", "No" ) == 1 )
 						return 0;
+#ifdef ELMA_PS3
+                if(!Ptop->save(nev)){Valtozott=1;return 0;}
+#else
 				Ptop->save( nev );
+#endif
 				strcpy( State->editfilenev, nev );
 				Valtozott = 0;
 				return 1;
@@ -655,11 +686,16 @@ int tolt_save_as( int lokkolhato ) {
 				// Most mentunk:
 				// Eloallitjuk nevet:
 				strcat( nev, ".lev" );
-				if( access( nev, 0 ) == 0 )
+                char existing_path[40];snprintf(existing_path,sizeof(existing_path),"lev/%s",nev);
+				if( access( existing_path, 0 ) == 0 )
 					if( dialog( "File exists, overwrite?", nev,
 										"GOMBOK", "Yes", "No" ) == 1 )
-					continue;
+                    {nev[strlen(nev)-4]=0;continue;}
+#ifdef ELMA_PS3
+                if(!Ptop->save(nev)){Valtozott=1;return 0;}
+#else
 				Ptop->save( nev );
+#endif
 				strcpy( State->editfilenev, nev );
 				Valtozott = 0;
 				return 1;
@@ -688,13 +724,20 @@ int tolt_save_as( int lokkolhato ) {
 
 										"GOMBOK", "Yes", "No" ) == 1 )
 						return 0;
-				if( access( nev, 0 ) == 0 )
+                char existing_path[40];snprintf(existing_path,sizeof(existing_path),"lev/%s",nev);
+				if( access( existing_path, 0 ) == 0 )
 					if( dialog( "File exists, overwrite?", nev,
 										"GOMBOK", "Yes", "No" ) == 1 )
 						return 0;
 				Ptop->lezart = 1;
+#ifdef ELMA_PS3
+                const int saved=Ptop->save(nev);
+                Ptop->lezart=0;
+                if(!saved){Valtozott=1;return 0;}
+#else
 				Ptop->save( nev );
 				Ptop->lezart = 0;
+#endif
 				//strcpy( State->editfilenev, nev );
 				return 1;
 			}
@@ -826,6 +869,9 @@ static void vegyesblt( pic8* dest, textura* pt, maszk* pm, int x0, int y0 ) {
 // tipus 1-tol 4-ig (4. koveto file):
 static void pickanev( char* kepnev, char* texturanev, char* maszknev,
 						int tipus, int cleares = 0 ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	char* nev = NULL;
 	int nevszam = 0;
 	if( tipus == 1 ) {
@@ -1104,6 +1150,9 @@ static void pickanev( char* kepnev, char* texturanev, char* maszknev,
 }
 
 void tolt_pickasprite( void ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	if( !Plgr )
 		hiba( "tolt_pickasprite-ban !Plgr!" );
 
@@ -1261,6 +1310,9 @@ void tolt_pickasprite( void ) {
 
 
 int tolt_picklgrfile( char* lgrnev ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	invalidateegesz();
 	blt8( Buffgolyo, Buffsima );
 	if( !Soknev ) {
@@ -1437,6 +1489,9 @@ int tolt_picklgrfile( char* lgrnev ) {
 }
 
 static int tavolsagbeir( pic8* ppic, box abox, int tavolsag ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope pad_text_scope;
+#endif
 	push();
 
 	mk_emptychar();
@@ -1451,6 +1506,14 @@ static int tavolsagbeir( pic8* ppic, box abox, int tavolsag ) {
 			bltfront( ppic, abox.x1, abox.y1, abox.x2, abox.y2 );
 		}
 		int c = mk_getextchar();
+#ifdef ELMA_PS3
+        if(c==MK_UP || c==MK_RIGHT || c==MK_DOWN || c==MK_LEFT) {
+            tavolsag += (c==MK_UP || c==MK_RIGHT) ? 1 : -1;
+            if(tavolsag<0)tavolsag=0;
+            if(tavolsag>999)tavolsag=999;
+            valtozott=1;continue;
+        }
+#endif
 		if( c == MK_ESC ) {
 			pop();
 			return oldtavolsag;
@@ -1476,16 +1539,34 @@ static int tavolsagbeir( pic8* ppic, box abox, int tavolsag ) {
 }
 
 static int hatarolbeir( pic8* ppic, box abox, int hatarol ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope pad_text_scope;
+    const int original_hatarol=hatarol;
+#endif
 	push();
 	boxbair( ppic, abox, Feherszin, "", 1 );
 	bltfront( ppic, abox.x1, abox.y1, abox.x2, abox.y2 );
 	mk_emptychar();
 	while( 1 ) {
 		int c = mk_getextchar();
+#ifdef ELMA_PS3
+        if(c==MK_ENTER) {pop();return hatarol;}
+        if(c==MK_UP || c==MK_RIGHT || c==MK_DOWN || c==MK_LEFT) {
+            const int modes[3]={0,HATAROL_G,HATAROL_S};
+            int k=hatarol==HATAROL_G ? 1 : hatarol==HATAROL_S ? 2 : 0;
+            k=(k+((c==MK_UP || c==MK_RIGHT)?1:2))%3;hatarol=modes[k];
+            boxbair(ppic,abox,Feherszin,(char*)(k==0 ? "U" : k==1 ? "G" : "S"),1);
+            bltfront(ppic,abox.x1,abox.y1,abox.x2,abox.y2);continue;
+        }
+#endif
 		if( c == MK_ESC ) {
 			pop();
-			return hatarol;
-		}
+			#ifdef ELMA_PS3
+            return original_hatarol;
+#else
+            return hatarol;
+#endif
+        }
 		if( c == 'u' || c == 'U' ) {
 			pop();
 			return 0;
@@ -1503,6 +1584,9 @@ static int hatarolbeir( pic8* ppic, box abox, int hatarol ) {
 
 
 void setspritetav( sprite* psp ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	invalidateegesz();
 
 	// Koordok megadasa:
@@ -1658,6 +1742,9 @@ void setspritetav( sprite* psp ) {
 }
 
 void set_gyuru_attributes( gyuru* pgy ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	invalidateegesz();
 
 	// Koordok megadasa:
@@ -1766,6 +1853,9 @@ void set_gyuru_attributes( gyuru* pgy ) {
 }
 
 void set_kerek_tipus( char* fejlec, int* pkajatipus, int* pfoodsorszam ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	invalidateegesz();
 
 	// Koordok megadasa:
@@ -1857,12 +1947,25 @@ void set_kerek_tipus( char* fejlec, int* pkajatipus, int* pfoodsorszam ) {
 					boxanimszam.y1+18, "-" );
 				bltfront( Buffsima, x1, y1, x2, y2 );
 
+#ifdef ELMA_PS3
+                Ps3TextInputScope ordinal_scope;
+                int ordinal=*pfoodsorszam;
+#endif
 				mk_emptychar();
 				while( 1 ) {
 					// Kirajzolta dobozba kurzort, most 1..9, vagy ESC-et var:
 					int c = mk_getextchar();
 					if( c == MK_ESC )
 						break;
+#ifdef ELMA_PS3
+                    if(c==MK_ENTER) {*pfoodsorszam=ordinal;break;}
+                    if(c==MK_UP || c==MK_RIGHT || c==MK_DOWN || c==MK_LEFT) {
+                        ordinal=(ordinal+((c==MK_UP || c==MK_RIGHT)?1:8))%9;
+                        char number[4];sprintf(number,"%d",ordinal+1);
+                        boxbair(Buffsima,boxanimszam,Feherszin,number,1);
+                        bltfront(Buffsima,x1,y1,x2,y2);continue;
+                    }
+#endif
 					if( c >= '1' && c <= '9' ) {
 						*pfoodsorszam = c - '1';
 						break;
@@ -1900,6 +2003,9 @@ void set_kerek_tipus( char* fejlec, int* pkajatipus, int* pfoodsorszam ) {
 }
 
 static void change_level_name( char* nev ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope pad_text_scope;
+#endif
 	char orignev[LEVELNAMEHOSSZ+10];
 	strcpy( orignev, nev );
 
@@ -1923,7 +2029,11 @@ static void change_level_name( char* nev ) {
 		Buffsima->line( x1, y2, x2, y2, Save_as_szelszin );
 		Buffsima->line( x1, y1, x1, y2, Save_as_szelszin );
 		Buffsima->line( x2, y1, x2, y2, Save_as_szelszin );
+#ifdef ELMA_PS3
+        Pabc2->writekozep(Buffsima,(x2+x1)/2,220,"D-pad: letters / add / delete; Start: accept; Circle: cancel");
+#else
 		Pabc2->writekozep( Buffsima, (x2+x1)/2, 220, "Type in the name of the level and the designer and press ENTER (ESC to cancel)!" );
+#endif
 		int kezdes = 300-Pabc1->len( nev )/2;
 		Pabc2->write( Buffsima, kezdes, 250, nev );
 		char tmp[LEVELNAMEHOSSZ+10];
@@ -1933,6 +2043,9 @@ static void change_level_name( char* nev ) {
 		bltfront( Buffsima, x1, y1, x2, y2 );
 
 		int c = mk_getextchar();
+#ifdef ELMA_PS3
+        if(ps3_text_arrow(nev,LEVELNAMEHOSSZ,c,true)) {i=strlen(nev);continue;}
+#endif
 		if( c == MK_ESC ) {
 			strcpy( nev, orignev );
 			pop();
@@ -1990,6 +2103,9 @@ static void change_level_name( char* nev ) {
 }
 
 void change_level_properties( void ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	invalidateegesz();
 
 	char fgnev[10];
@@ -2215,6 +2331,9 @@ int Rajzolkoveto = 1;
 int Rajzolkepek = 1;
 
 void setviewoptions( void ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope modal_pad_scope;
+#endif
 	invalidateegesz();
 
 	int x1 = 200, y1 = 100;

@@ -114,6 +114,10 @@ class ecset {
 	ecset( ecset* pold ); // Ures sortomboket hoz benne letre
 	~ecset( void );
 public:
+#ifdef ELMA_PS3
+	unsigned long long memory_bytes() const;
+	int memory_flat_count;
+#endif
 	void getbalalso_int( vekt2 balalso, int* px, int* py );
 	// Beallitja Kisordarabszam-ot is ha define-olt (escet.cpp eleje):
 	// For the part outside the ecset, the bottom and view ecset draw ground,
@@ -144,3 +148,9 @@ int teliszam( int x, int xsize, unsigned char* sor, unsigned char lyuk );
 // betoltecseteket ide osszegzi osszes lefoglalt szakaszt:
 extern int Osszegszam;
 
+
+#ifdef ELMA_PS3
+unsigned long long ps3_brush_peak_bytes();
+unsigned long long ps3_brush_memory_bytes();
+double ps3_brush_effective_zoom();
+#endif

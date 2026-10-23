@@ -36,5 +36,5 @@ kiskep::kiskep( char* pic8nev, pic8* ppic ) {
 
 kiskep::~kiskep( void ) {
 	if( tomb )
-		DELETE tomb; }
+		DELETE[] tomb; }
 }

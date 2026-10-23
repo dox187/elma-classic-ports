@@ -1,0 +1,6 @@
+!!VP2.0
+OPTION NV_vertex_program3;
+MOV result.position, vertex.position;
+MOV result.color, vertex.color;
+MOV result.pointsize, vertex.weight.x;
+END

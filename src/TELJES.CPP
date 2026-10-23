@@ -1,4 +1,7 @@
 #include    "all.h"
+#ifdef ELMA_PS3
+#include "PS3_CONTROLS.H"
+#endif
 
 #ifdef ELMA_PSX
 #include "psx_controls.h"
@@ -6,6 +9,19 @@ void psx_boot_loading( const char* stage );
 #endif
 #ifdef ELMA_PSX_GPU
 void psx_splash_prepare( pic8* picture );
+#endif
+
+#ifdef ELMA_PS3
+static void ps3_splash_text(pic8* dest,abc8& font,char* text,int y,unsigned char ink) {
+    int width=font.len(text);
+    pic8 mask(width+4,32);
+    mask.fillbox(0);
+    font.write(&mask,2,16,text);
+    int left=(dest->getxsize()-width)/2-2;
+    for(int row=0;row<32;++row) for(int col=0;col<width+4;++col)
+        if(mask.gpixel(col,row) && left+col>=0 && left+col<dest->getxsize()
+            && y+row-16>=0 && y+row-16<dest->getysize()) dest->ppixel(left+col,y+row-16,ink);
+}
 #endif
 
 state_s* State = NULL;
@@ -124,6 +140,35 @@ void teljes( void ) {
 #else
 	psx_splash_prepare( Pintro );
 #endif
+#ifdef ELMA_PS3
+	// Keep the original game's splash and copyright; add the port's identity.
+#ifndef ELMA_PS3_VERSION
+#define ELMA_PS3_VERSION "development"
+#endif
+	{
+        // The small font uses the editor palette. Convert its nontransparent
+        // pixels to the splash palette's brightest color, avoiding green text.
+        unsigned char splash_palette[768];
+        pcxtopal("intro.pcx",splash_palette);
+        int brightest=-1;unsigned char ink=0;
+        for(int c=0;c<256;++c) {
+            int light=splash_palette[c*3]+splash_palette[c*3+1]+splash_palette[c*3+2];
+            if(light>brightest) {brightest=light;ink=(unsigned char)c;}
+        }
+		abc8 credits( "kisbetu1.abc" );
+		credits.settav( 1 );
+        // The original logo ends at y=372; remaster/copyright begin at y=420.
+        // Keep one clean footer line in the gap, preserving every original line.
+        char identity[]="PS3 " ELMA_PS3_VERSION " - unofficial fan made port by dox187";
+        ps3_splash_text(Pintro,credits,identity,390,ink);
+        char prompt[]="Cross / Start: continue";
+        ps3_splash_text(Pintro,credits,prompt,24,ink);
+        int crossx=(640-credits.len(prompt))/2-12;
+        ps3_draw_line(Pintro,crossx-4,16,crossx+4,24,ink);
+        ps3_draw_line(Pintro,crossx-4,24,crossx+4,16,ink);
+	}
+#endif
+
 	spriteosit( Pintro );
 #ifdef ELMA_PSX
 	// The PS1 version draws it straight into the picture of the screen
@@ -138,6 +183,7 @@ void teljes( void ) {
 #else
 	blt8( tmpintro, Pintro );
 #endif
+
 
 	ddpal* pintropal = NULL;
 	// Gany, ezzel az egy nevvel pcxtopal(pic.cpp) elso harom byte-ot 0-azza:
@@ -205,6 +251,11 @@ void teljes( void ) {
 
 	// Intro keppel varunk, amig nem toltodik be minden:
 	while( 1 ) {
+#ifdef ELMA_PS3
+        // seteditorpal above prepares the editor, but this is still a splash.
+        // mk_kbhit below pumps the native pad before the next iteration.
+        if(ps3_button_mask(0)&((1u<<PS3_CROSS)|(1u<<PS3_START)))break;
+#endif
 		if( mk_kbhit() ) {
 			mk_getextchar();
 			break;

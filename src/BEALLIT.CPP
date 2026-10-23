@@ -265,7 +265,12 @@ static void vezeto_hatarolas( motorst* pmot, vekt2 i, vekt2 j ) {
 	static const double tavmax = sqrt( tavmax_negyz );
 	if( r.x > 0 && r.y > 0 ) {
 		static const double rxszorzo = (felhat/jobbhat)*(felhat/jobbhat);
+		#ifdef ELMA_CLASSIC_X87
+		// Original 1.11a multiplies the coefficient first; rounding is observable.
+		double tav_negyz = rxszorzo*r.x*r.x + r.y*r.y;
+		#else
 		double tav_negyz = r.x*r.x*rxszorzo + r.y*r.y;
+		#endif
 		if( tav_negyz > tavmax_negyz ) {
 			double tav = sqrt( tav_negyz );
 			double szorzo = tavmax/tav;

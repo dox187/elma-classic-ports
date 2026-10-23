@@ -187,3 +187,7 @@ extern kisbox KisboxA, KisboxB, KisboxC, KisboxD;
 
 
 
+
+#ifdef ELMA_PS3
+unsigned long long ps3_lgr_memory_bytes();
+#endif

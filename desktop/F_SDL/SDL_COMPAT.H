@@ -16,6 +16,7 @@ inline char* itoa(int value, char* buffer, int radix) {
     return buffer;
 }
 
+#if !defined(ELMA_PS3) || defined(ELMA_PS3_HOST_TEST) // PSL1GHT supplies these; host fixtures do not.
 inline char* strupr(char* text) {
 	for (char* p = text; *p; ++p)
 		*p = (char)toupper((unsigned char)*p);
@@ -27,6 +28,7 @@ inline char* strlwr(char* text) {
 		*p = (char)tolower((unsigned char)*p);
 	return text;
 }
+#endif
 
 // Preserve the DirectInput scan-code ABI used by state.dat and replay-era
 // configuration. These are data-format constants, not SDL key codes.

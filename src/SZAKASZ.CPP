@@ -112,11 +112,11 @@ szakaszok::~szakaszok( void ) {
 		delete[] tomb;
 #else
 	if( tomb ) {
-		DELETE tomb; }
+		DELETE[] tomb; }
 	}
 #endif
 	if( tertomb ) {
-		DELETE tertomb; }
+		DELETE[] tertomb; }
 	}
 	deleteallnodes();
 }

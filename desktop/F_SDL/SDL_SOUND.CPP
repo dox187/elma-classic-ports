@@ -134,7 +134,12 @@ void hang() {
 #if SDL_MAJOR_VERSION >= 2
     while (SDL_GetQueuedAudioSize(device) < queued_bytes_target) {
         CustomMixer(block, sizeof(block), NULL, 0, 1);
-        SDL_QueueAudio(device, block, sizeof(block));
+        if (SDL_QueueAudio(device, block, sizeof(block)) != 0) {
+            // In particular, allocation failure must not trap the main thread
+            // in an unbounded refill loop on memory-constrained consoles.
+            fprintf(stderr, "SDL audio queue: %s\n", SDL_GetError());
+            break;
+        }
     }
 #else
     while (true) {

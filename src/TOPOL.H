@@ -147,7 +147,7 @@ public:
 	kerek* legkozkerek( double x, double y, double* ptav = NULL );
 	sprite* legkozsprite( double x, double y, double* ptav = NULL );
 	// Ha saveidok hivja meg, csak akkor nem kell check:
-	void save( char* filenev, int nemkellcheck  = 0 );
+	int save( char* filenev, int nemkellcheck  = 0 );
 	// Csak eredetileg beolvasott filenev-vel szabad meghivni:
 	void saveidok( char* filenev );
 	void kirajzol( void );

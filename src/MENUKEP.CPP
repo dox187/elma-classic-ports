@@ -1,3 +1,6 @@
+#ifdef ELMA_PS3
+#include "PS3_CONTROLS.H"
+#endif
 #include	"all.h"
 
 pic8* Buffsima = NULL;
@@ -111,7 +114,7 @@ szoveglista::szoveglista( void ) {
 szoveglista::~szoveglista( void ) {
 	if( !sorok )
 		hiba( "szoveglista::~szoveglista !sorok!" );
-	delete sorok;
+	delete[] sorok;
 	sorok = NULL;
 }
 
@@ -400,6 +403,9 @@ void szoveglista::kirajzol( int nemkellgolyo,
 
 	//Tmpbuffer->save( "kezdszov.pcx", Menupaltomb );
 	//hiba( "kezdszov.pcx kiirva!" );
+	#ifdef ELMA_PS3
+	ps3_controls_overlay( Tmpbuffer );
+#endif
 	bltfront( Tmpbuffer );
 }
 

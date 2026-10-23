@@ -1,4 +1,5 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
 
 // Ha ez define-olva van, akkor titkositani fog.
 // (Igy kell eloallitani titkosito exe-t.)
@@ -25,26 +26,26 @@ void titkositreadme( void ) {
 		hiba( "9gp89hg4tvupg" );
 
 	int hossz = 0;
-	if( fwrite( &hossz, 1, 4, hout ) != 4 )
+	if( elma_write( &hossz, 1, 4, hout ) != 4 )
 		hiba( "678tf87tr" );
 
 	int szamlalo = 0;
 	while( 1 ) {
 		unsigned char c;
-		if( fread( &c, 1, 1, h ) != 1 )
+		if( elma_read( &c, 1, 1, h ) != 1 )
 			break; // befejezodott:
 		// Kodol:
 		c = c ^ Readmesor[szamlalo];
 		szamlalo++;
 		if( szamlalo >= 20 )
 			szamlalo = 0;
-		if( fwrite( &c, 1, 1, hout ) != 1 )
+		if( elma_write( &c, 1, 1, hout ) != 1 )
 			hiba( "uiwfy78ytf8" );
 		hossz++;
 	}
 
 	fseek( hout, 0, SEEK_SET );
-	if( fwrite( &hossz, 1, 4, hout ) != 4 )
+	if( elma_write( &hossz, 1, 4, hout ) != 4 )
 		hiba( "978gfy78" );
 
 	fclose( h );
@@ -75,11 +76,11 @@ static void beirnevet( FILE* h ) {
 	nev[10] = 'c';
 
 	char c = ',';
-	fwrite( &c, 1, 1, h );
+	elma_write( &c, 1, 1, h );
 	c = ' ';
-	fwrite( &c, 1, 1, h );
+	elma_write( &c, 1, 1, h );
 	for( int i = 0; i < 15; i++ )
-		fwrite( nev+i, 1, 1, h );
+		elma_write( nev+i, 1, 1, h );
 
 	// Toroljuk nevet:
 	strcpy( nev, "                " );
@@ -131,7 +132,7 @@ void kimentreadme( void ) {
 
 	// Atkonvertalas:
 	int hossz = 0;
-	if( fread( &hossz, 1, 4, h ) != 4 )
+	if( elma_read( &hossz, 1, 4, h ) != 4 )
 		hiba( "Hiba 21" );
 
 	int szamlalo = 0;
@@ -148,12 +149,12 @@ void kimentreadme( void ) {
 		}
 		if( igaziszamlalo == szamzero+33 ) {
 			c = 0xd; // sort emelunk
-			fwrite( &c, 1, 1, hout );
+			elma_write( &c, 1, 1, hout );
 			c = 0xa;
-			fwrite( &c, 1, 1, hout );
+			elma_write( &c, 1, 1, hout );
 		}
 
-		if( fread( &c, 1, 1, h ) != 1 )
+		if( elma_read( &c, 1, 1, h ) != 1 )
 			hiba( "Hiba 22" );
 		// Kodol:
 		c = c ^ Readmesor[szamlalo];
@@ -168,10 +169,10 @@ void kimentreadme( void ) {
 		if( szamlalo >= 20 )
 			szamlalo = 0;
 		igaziszamlalo++;
-		if( fwrite( &c, 1, 1, hout ) != 1 )
+		if( elma_write( &c, 1, 1, hout ) != 1 )
 			uzenet( "Maybe writeprotected files 2!" );
 		if( verziotjavit )
-			fwrite( &c, 1, 1, hout );
+			elma_write( &c, 1, 1, hout );
 	}
 
 	qclose( h );

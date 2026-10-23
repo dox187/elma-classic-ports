@@ -5,6 +5,7 @@
 #include "PUBGOLY.H"
 #include "GOLYOK.H"
 #include "F_SDL/SDL_SETTINGS.H"
+#include "MEMORY_BUDGET.H"
 
 double K_pip2 = std::acos(-1.0)/2;
 void golyofalak(int, int);
@@ -44,6 +45,16 @@ int main() {
     menu_view_size(3840, 2160, &w, &h);
     require(w == 1920 && h == 1080, "Explicit 2x menu scale was ignored");
     unsetenv("ELMA_MENU_SCALE");
+
+    const int scanouts[][2]={{720,480},{720,576},{1280,720},{1920,1080}};
+    for(const auto& output:scanouts){
+        game_view_size_at_resolution(ASPECT_SCREEN,output[0],output[1],RESOLUTION_NATIVE,&w,&h);
+        require(elma_framebuffer_fits(w,h,640*480,480,64u*1024u*1024u),"Supported native scanout rejected by PS3 framebuffer budget");
+    }
+    game_view_size_at_resolution(ASPECT_SCREEN,1920,1080,2400,&w,&h);
+    require(!elma_framebuffer_fits(w,h,0,0,256u*1024u*1024u),"Unsafe numeric resolution admitted");
+    game_view_size_at_resolution(ASPECT_SCREEN,1920,1080,RESOLUTION_ORIGINAL,&w,&h);
+    require(w==854 && h==480,"Original fallback changes logical field of view");
 
     initgolyo();
     // Resize after the simulation has cached future collisions, then run

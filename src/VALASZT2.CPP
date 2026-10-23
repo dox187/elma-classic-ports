@@ -65,9 +65,9 @@ valaszt2::valaszt2( void ) {
 
 valaszt2::~valaszt2( void ) {
 	if( rubrikak )
-		delete rubrikak;
+		delete[] rubrikak;
 	if( rubrikak_tab )
-		delete rubrikak_tab;
+		delete[] rubrikak_tab;
 	if( pszovlist )
 		delete pszovlist;
 

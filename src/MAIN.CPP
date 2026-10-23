@@ -103,7 +103,7 @@ void mv_main( void ) {
 			}
 		}
 		for( i = 0; i < memkell; i++ )
-			DELETE tomb[i]; }
+			DELETE[] tomb[i]; }
 	}
 
 	if( access( "otszor.inf", 0 ) == 0 )

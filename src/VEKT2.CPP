@@ -1,4 +1,5 @@
 #include	"all.h"
+#include "PHYSICS_MATH.H"
 
 vekt2 Vekt2i( 1.0, 0.0 ), Vekt2j( 0.0, 1.0 ), Vekt2null( 0.0, 0.0 );
 double Pi = 3.141592;
@@ -37,8 +38,8 @@ double vekt2::operator % ( vekt2 b ) {
 }
 
 void vekt2::forgatas( double alfa ) {
-	double a = sin( alfa );
-	double b = cos( alfa );
+	double a = ELMA_PHYSICS_SIN( alfa );
+	double b = ELMA_PHYSICS_COS( alfa );
 	double xo = x;
 	x = b*x-a*y;
 	y = a*xo+b*y;

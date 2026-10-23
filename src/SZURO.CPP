@@ -1,6 +1,8 @@
 #include	"all.h"
+#include "MEMORY_BUDGET.H"
 #include	"hqx/hqx.h"
 #include	<vector>
+#include <new>
 
 // A picture in 8-bit RGB with transparency (0 or 255, in-between after
 // filtering), row by row, top to bottom:
@@ -180,9 +182,17 @@ static void szintablakell( unsigned char* paltomb ) {
 	Vanszintabla = 1;
 }
 
-pic8* atmeretez_szurovel( pic8* ps, int ujxsize, int ujysize, int szuro,
+static pic8* atmeretez_szurovel_belso( pic8* ps, int ujxsize, int ujysize, int szuro,
 						  unsigned char* paltomb, int atlatszo, int ismetlodo ) {
 	int xs = ps->getxsize(), ys = ps->getysize();
+#ifdef ELMA_PS3
+    int scale=1;
+    if(szuro==SZURO_HQX && (xs<ujxsize || ys<ujysize)) {
+        while(scale<4 && (xs*scale<ujxsize || ys*scale<ujysize)) ++scale;
+    }
+    if(!elma_memory_fits(elma_filter_peak(xs,ys,ujxsize,ujysize,scale),ps3_memory_available()))
+        szuro=SZURO_LEGKOZELEBBI;
+#endif
 	// At a whole-number factor, even with the plain filter pixels repeat exactly:
 	int egesz = ujxsize % xs == 0 && ujysize % ys == 0 && ujxsize/xs == ujysize/ys;
 	if( szuro == SZURO_LEGKOZELEBBI || !paltomb || (szuro == SZURO_SIMA && egesz) )
@@ -231,4 +241,19 @@ pic8* atmeretez_szurovel( pic8* ps, int ujxsize, int ujysize, int szuro,
 		}
 	}
 	return pd;
+}
+
+// A fragmented heap can fail even after the conservative budget check.
+// Destroy all filter temporaries before attempting the lower-memory path.
+pic8* atmeretez_szurovel(pic8* ps,int dx,int dy,int filter,
+                          unsigned char* palette,int transparent,int repeat) {
+#ifdef ELMA_PS3
+    try {
+        return atmeretez_szurovel_belso(ps,dx,dy,filter,palette,transparent,repeat);
+    } catch(const std::bad_alloc&) {
+        return atmeretez(ps,dx,dy);
+    }
+#else
+    return atmeretez_szurovel_belso(ps,dx,dy,filter,palette,transparent,repeat);
+#endif
 }

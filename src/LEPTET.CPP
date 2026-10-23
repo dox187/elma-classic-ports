@@ -1,4 +1,5 @@
 #include    "all.h"
+#include    "PHYSICS_MATH.H"
  
 static void surlodasverseny( motorst* pmot, vekt2 fgumi, vekt2 sebesseg );
 
@@ -94,7 +95,7 @@ void resetleptet( motorst* pmot ) {
 
 // Kor1-bol eloallitja Fejr-et!:
 void szamitfejr( motorst* pmot ) {
-    vekt2 i( cos( pmot->kor1.alfa ), sin( pmot->kor1.alfa ) );
+    vekt2 i( ELMA_PHYSICS_COS( pmot->kor1.alfa ), ELMA_PHYSICS_SIN( pmot->kor1.alfa ) );
     vekt2 j = forgatas90fokkal( i );
 
     if( pmot->hatra_f )
@@ -107,7 +108,7 @@ void leptet( motorst* pmot, double most, double dt, int gaz, int fek,
                                     int ugrik1, int ugrik2 ) {
     Maxsurlodas = 0;
 
-    vekt2 i1( cos( pmot->kor1.alfa ), sin( pmot->kor1.alfa ) );
+    vekt2 i1( ELMA_PHYSICS_COS( pmot->kor1.alfa ), ELMA_PHYSICS_SIN( pmot->kor1.alfa ) );
     vekt2 j1 = forgatas90fokkal( i1 );
 
     // Fek, gaz:
@@ -326,7 +327,7 @@ int elsomegoltemasodikat( motorst* pmot1, motorst* pmot2 ) {
 static double Oszto = 1.0/1.0;
 
 static void surlodasverseny( motorst* pmot, vekt2 fgumi_v, vekt2 sebesseg_v ) {
-    vekt2 joirany( cos( pmot->kor1.alfa-K_pip2 ), sin( pmot->kor1.alfa-K_pip2 ) );
+    vekt2 joirany( ELMA_PHYSICS_COS( pmot->kor1.alfa-K_pip2 ), ELMA_PHYSICS_SIN( pmot->kor1.alfa-K_pip2 ) );
     double fgumi = joirany*fgumi_v;
     double sebesseg = joirany*sebesseg_v;
     if( fgumi <= 0 || sebesseg <= 0 )

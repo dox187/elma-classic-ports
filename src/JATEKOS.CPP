@@ -62,6 +62,11 @@ static int bevesznevet( char* nev, int visszater ) {
 			nev[i] = 0;
 
 			szovlist.addszoveg_kozep( "Please enter your name:", 320, 180 );
+#ifdef ELMA_PS3
+            szovlist.addszoveg_kozep("Up / Down: change letter",320,305);
+            szovlist.addszoveg_kozep("Right: add; Left: delete",320,340);
+            szovlist.addszoveg_kozep(visszater ? "Cross: accept; Circle: back" : "Cross: accept",320,375);
+#endif
 			//szovlist.addszoveg_kozep( "Press ESC to exit", 320, 300 );
 		}
 		szovlist.kirajzol();
@@ -70,8 +75,10 @@ static int bevesznevet( char* nev, int visszater ) {
 
 void newjatekos( int A, int visszater ) {
 	// Ellenorzes:
-	if( State->jatekosokszama >= MAXJATEKOS-1 )
+	if( State->jatekosokszama >= MAXJATEKOS-1 ) {
 		uzenet( "Sorry, no more players can get onto the list!" );
+        return;
+    }
 	int maxrub = Maxrubrikaszam;
 	if( MAXJATEKOS > maxrub )
 		hiba( "MAXJATEKOS > Maxrubrikaszam!" );
@@ -91,7 +98,7 @@ void newjatekos( int A, int visszater ) {
 			if( State->jatekosokszama == 1 )
 				strcpy( State->jatekosa, State->jatekosb );
 		}
-		#ifdef ELMA_PSX
+		#if defined(ELMA_PSX) || defined(ELMA_PS3)
 		State->save();
 		#endif
 	}
@@ -109,6 +116,24 @@ void newjatekos( int A, int visszater ) {
 
 	mainmenu();
 }
+
+#ifdef ELMA_PS3
+static int choose_player_to_delete() {
+    valaszt2 choose;choose.egykepen=LISTegykepen;choose.x0=LISTx0;
+    choose.y0=LISTy0;choose.dy=LISTdy;choose.escelheto=1;
+    strcpy(choose.cim,"Delete Player");
+    for(int i=0;i<State->jatekosokszama;++i)strcpy(Rubrikak[i],State->jatekosok[i].nev);
+    choose.bead(State->jatekosokszama);
+    int selected=choose.valassz();if(selected<0)return -1;
+    valaszt2 confirm;confirm.kur=0;confirm.egykepen=2;confirm.x0=85;
+    confirm.y0=185;confirm.dy=65;confirm.escelheto=1;
+    sprintf(confirm.cim,"Delete %s?",State->jatekosok[selected].nev);
+    strcpy(Rubrikak[0],"Cancel");
+    strcpy(Rubrikak[1],"Delete player and progress");
+    confirm.bead(2);
+    return confirm.valassz()==1 ? selected : -1;
+}
+#endif
 
 void jatekosvalasztas( int A, int visszater ) {
 	// Valasztas:
@@ -141,7 +166,16 @@ void jatekosvalasztas( int A, int visszater ) {
 			pval->kur = i+1;
 	}
 
+#ifdef ELMA_PS3
+    int delete_row=-1;
+    if(visszater && State->jatekosokszama>1) {
+        delete_row=State->jatekosokszama+1;
+        strcpy(Rubrikak[delete_row],"Delete Player ...");
+    }
+    pval->bead(State->jatekosokszama+1+(delete_row>=0));
+#else
 	pval->bead( State->jatekosokszama + 1 );
+#endif
 
 	RECidokellhet = 1;
 	RECidokellis = 0;
@@ -149,6 +183,14 @@ void jatekosvalasztas( int A, int visszater ) {
 	RECidokellhet = 0;
 
 	delete pval; pval = NULL;
+#ifdef ELMA_PS3
+    if(eredmeny==delete_row && delete_row>=0) {
+        int selected=choose_player_to_delete();
+        if(selected<0)return;
+        eredmeny=selected+1;
+        RECidokellis=1;
+    }
+#endif
 
 	if( eredmeny < 0 ) {
 #ifndef ELMA_PSX
@@ -189,20 +231,20 @@ void jatekosvalasztas( int A, int visszater ) {
 		if( btorlodott )
 			strcpy( State->jatekosb, State->jatekosok[0].nev );
 
-		#ifdef ELMA_PSX
+		#if defined(ELMA_PSX) || defined(ELMA_PS3)
 		State->save();
 		#endif
 		return;
 	}
 
-	#ifdef ELMA_PSX
+	#if defined(ELMA_PSX) || defined(ELMA_PS3)
 	int changed = strcmp( eddigjatekos, State->jatekosok[eredmeny-1].nev ) != 0;
 	#endif
 	if( A )
 		strcpy( State->jatekosa, State->jatekosok[eredmeny-1].nev );
 	else
 		strcpy( State->jatekosb, State->jatekosok[eredmeny-1].nev );
-	#ifdef ELMA_PSX
+	#if defined(ELMA_PSX) || defined(ELMA_PS3)
 	if( changed )
 		State->save();
 	#endif

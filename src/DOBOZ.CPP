@@ -119,13 +119,10 @@ void egysor( unsigned char lyuk,  short szam,
 // szam is a picture row's piece (can be longer than 255 pixel on a zoomed motorbike):
 void egysor( unsigned char lyuk, int szam, unsigned char* sor,
 		unsigned char* tomb, long futox, long futoy, long dx, long dy ) {
-	short* pf_futox = (short*)(&futox);
-	pf_futox++;
-	short* pf_futoy = (short*)(&futoy);
-	pf_futoy++;
+	// Numerical16.16 extraction is independent of host byte order/long width.
 	for( int x = 0; x < szam; x++ ) {
-		unsigned short fx = *pf_futox;
-		unsigned short fy = *pf_futoy;
+		unsigned short fx = static_cast<unsigned short>(static_cast<uint32_t>(futox)>>16);
+		unsigned short fy = static_cast<unsigned short>(static_cast<uint32_t>(futoy)>>16);
 		fy = (unsigned short)((fy << 8) + fx);
 
 		unsigned char c = tomb[fy];
@@ -143,15 +140,12 @@ void egysor( unsigned char lyuk, int szam, unsigned char* sor,
 void egysor( unsigned char lyuk, int szam, unsigned char* sor,
 		unsigned char* tomb, long futox, long futoy, long dx, long dy,
 		int xhossz ) {
-	short* pf_futox = (short*)(&futox);
-	pf_futox++;
-	short* pf_futoy = (short*)(&futoy);
-	pf_futoy++;
+	// Numerical16.16 extraction is independent of host byte order/long width.
 	for( int x = 0; x < szam; x++ ) {
 		if( x >= xhossz )
 			return;
-		unsigned short fx = *pf_futox;
-		unsigned short fy = *pf_futoy;
+		unsigned short fx = static_cast<unsigned short>(static_cast<uint32_t>(futox)>>16);
+		unsigned short fy = static_cast<unsigned short>(static_cast<uint32_t>(futoy)>>16);
 		fy = (unsigned short)((fy << 8) + fx);
 
 		unsigned char c = tomb[fy];

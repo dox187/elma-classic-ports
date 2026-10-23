@@ -1,4 +1,12 @@
 #include    "all.h"
+#include "LE_STRUCT.H"
+#ifdef ELMA_PS3
+#include "SPRITE_STREAM.H"
+#endif
+#include "MEMORY_BUDGET.H"
+#ifdef ELMA_PS3
+#include "ATOMIC_FILE.H"
+#endif
 #ifdef ELMA_PSX
 #include "pcx_decode.h"
 #endif
@@ -48,6 +56,13 @@ int pic8::lefoglal( long xsizep, long ysizep ) {
         hiba( "sizep tul pici pic8::lefoglalban!" );
         return 0;
     }
+#ifdef ELMA_PS3
+    const uint64_t required=uint64_t(xsizep)*uint64_t(ysizep)+uint64_t(ysizep)*2*sizeof(void*)+65536;
+    if(!elma_memory_fits(required,ps3_memory_available())) {
+        hiba("Image exceeds available PS3 memory. Reduce resolution or zoom.");
+        return 0;
+    }
+#endif
     long egyszegben = 0x0ff00l/long(xsizep); // Nehogy szegmens merete
                 // megkozelitse 65536-ot
     if( egyszegben < 1 ) // a picture wider than 65280: one segment per row
@@ -114,13 +129,13 @@ pic8::~pic8( void ) {
     if( nemdestrukt )
         return;
     if( sormuttomb )
-        DELETE sormuttomb; }
+        DELETE[] sormuttomb; }
     if( szegmuttomb )
         for( int i = 0; i < szegnum; i++ )
-            DELETE szegmuttomb[i]; }
-    DELETE szegmuttomb; }
+            DELETE[] szegmuttomb[i]; }
+    DELETE[] szegmuttomb; }
     if( sprite )
-        DELETE sprite; }
+        DELETE[] sprite; }
 }
 
 #ifdef ELMA_PSX
@@ -383,7 +398,7 @@ void pic8::spritebeolvas( char* nev, FILE* h ) {
         }
     }
     unsigned char c = 0;
-    if( fread( &c, 1, 1, h ) != 1 ) {
+    if( elma_read( &c, 1, 1, h ) != 1 ) {
         hiba( "Nem tudott olvasni file-bol!: ", nev );
         if( !volth ) qclose( h );
         return;
@@ -395,7 +410,7 @@ void pic8::spritebeolvas( char* nev, FILE* h ) {
     }
 
 	unsigned short xsize_s = -1, ysize_s = -1;
-	if( fread( &xsize_s, 2, 1, h ) != 1 || fread( &ysize_s, 2, 1, h ) != 1 ) {
+	if( elma_read( &xsize_s, 2, 1, h ) != 1 || elma_read( &ysize_s, 2, 1, h ) != 1 ) {
         hiba( "Nem tudott olvasni SPRITE file-bol!: ", nev );
         if( !volth ) qclose( h );
         return;
@@ -412,7 +427,7 @@ void pic8::spritebeolvas( char* nev, FILE* h ) {
 
     for( int y = 0; y < ysize; y++ ) {
         // Egy sor beolvasasa:
-        if( fread( sormuttomb[y], xsize, 1, h ) != 1 ) {
+        if( elma_read( sormuttomb[y], xsize, 1, h ) != 1 ) {
             hiba( "Nem tudott olvasni SPRITE file-bol!: ", nev );
             if( !volth ) qclose( h );
             return;
@@ -421,7 +436,7 @@ void pic8::spritebeolvas( char* nev, FILE* h ) {
 
     // SPRITE reszek beolvasasa:
     char tmp[10] = "";
-    if( fread( tmp, 7, 1, h ) != 1 ) {
+    if( elma_read( tmp, 7, 1, h ) != 1 ) {
         hiba( "Nem tudott olvasni SPRITE file-bol!: ", nev );
         if( !volth ) qclose( h );
         return;
@@ -433,7 +448,7 @@ void pic8::spritebeolvas( char* nev, FILE* h ) {
     }
 
     spritehossz = -1;
-    if( fread( &spritehossz, 2, 1, h ) != 1 ) {
+    if( elma_read( &spritehossz, 2, 1, h ) != 1 ) {
         hiba( "Nem tudott olvasni SPRITE file-bol!: ", nev );
         if( !volth ) qclose( h );
         return;
@@ -452,11 +467,19 @@ void pic8::spritebeolvas( char* nev, FILE* h ) {
         if( !volth ) qclose( h );
         return;
     }
-    if( fread( sprite, spritehossz, 1, h ) != 1 ) {
+    if( elma_read( sprite, spritehossz, 1, h ) != 1 ) {
         hiba( "Nem tudott olvasni SPRITE file-bol sprite-ot!: ", nev );
         if( !volth ) qclose( h );
         return;
     }
+#ifdef ELMA_PS3
+    if(!elma_sprite_stream_valid(sprite,spritehossz,xsize,ysize)) {
+        success=0;
+        hiba("Invalid SPRITE command stream!",nev);
+        if(!volth)qclose(h);
+        return;
+    }
+#endif
     if( !volth )
         qclose( h );
     success = 1;
@@ -473,9 +496,9 @@ int pic8::spritesave( char* nev, FILE* h ) {
         }
     }
     unsigned char c = 0x2d;
-    if( fwrite( &c, 1, 1, h ) != 1 ||
-        fwrite( &xsize, 2, 1, h ) != 1 ||
-        fwrite( &ysize, 2, 1, h ) != 1 ) {
+    if( elma_write( &c, 1, 1, h ) != 1 ||
+        elma_write( &xsize, 2, 1, h ) != 1 ||
+        elma_write( &ysize, 2, 1, h ) != 1 ) {
         hiba( "pic8::spritesave-ben nem tud irni file-ba!: ", nev );
         if( !volth ) fclose( h );
         return 0;
@@ -483,7 +506,7 @@ int pic8::spritesave( char* nev, FILE* h ) {
 
     for( int y = 0; y < ysize; y++ ) {
         // Egy sor kiirasa:
-        if( fwrite( sormuttomb[y], xsize, 1, h ) != 1 ) {
+        if( elma_write( sormuttomb[y], xsize, 1, h ) != 1 ) {
             hiba( "Nem tudott irni SPRITE file-ba!: ", nev );
 			if( !volth ) fclose( h );
 			return 0;
@@ -491,9 +514,9 @@ int pic8::spritesave( char* nev, FILE* h ) {
 	}
 
 	// Sprite resz kiirasa:
-	if( fwrite( "SPRITE", 7, 1, h ) != 1 ||
-		fwrite( &spritehossz, 2, 1, h ) != 1 ||
-		fwrite( sprite, spritehossz, 1, h ) != 1 ) {
+	if( elma_write( "SPRITE", 7, 1, h ) != 1 ||
+		elma_write( &spritehossz, 2, 1, h ) != 1 ||
+		elma_write( sprite, spritehossz, 1, h ) != 1 ) {
 		hiba( "Nem tudott irni SPRITE file-ba!: ", nev );
 		if( !volth ) fclose( h );
 		return 0;
@@ -519,6 +542,9 @@ struct  pcxdescriptor {
 	unsigned char   Padding[127-70+1];
 };
 
+static_assert(sizeof(pcxdescriptor)==128,"Legacy PCX header layout changed");
+inline void elma_swap(pcxdescriptor& p) { elma_swap(p.Xmin);elma_swap(p.Ymin);elma_swap(p.Xmax);elma_swap(p.Ymax);elma_swap(p.HorRes);elma_swap(p.VertRes);elma_swap(p.BytesPerScanLine);elma_swap(p.PaletteInf); }
+
 void pic8::pcxbeolvas( char* nev, FILE* h ) {
 	// Gany:
 	success = 1;
@@ -531,7 +557,7 @@ void pic8::pcxbeolvas( char* nev, FILE* h ) {
 			hiba( "Nem nyilik PCX file!: ", nev );
 	}
 	pcxdescriptor   desc;
-	if( fread( &desc, sizeof( desc ), 1, h ) != 1 )
+	if( elma_read( &desc, sizeof( desc ), 1, h ) != 1 )
 		hiba( "Nem olvas PCX file-bol!: ", nev );
 	if( (desc.VersionNum != 5)    ||
 		(desc.ManufactId != 10)   ||
@@ -539,6 +565,8 @@ void pic8::pcxbeolvas( char* nev, FILE* h ) {
 		(desc.BitsPerPlane != 8 ) ||
 		(desc.NumberOfBitPlanes != 1 ) )
 			hiba( "\nNem megfelelo PCX file header!", nev );
+	if(desc.BytesPerScanLine<=0 || desc.BytesPerScanLine<desc.Xmax-desc.Xmin+1)
+		hiba("Invalid PCX row length!",nev);
 	//if( !lefoglal( desc.Xmax-desc.Xmin+1, desc.Ymax-desc.Ymin+1 ) ) {
 	if( !lefoglal( desc.Xmax-desc.Xmin+1, desc.Ymax-desc.Ymin+1 ) )
 		hiba( "pcx !lefoglal!" );
@@ -548,18 +576,18 @@ void pic8::pcxbeolvas( char* nev, FILE* h ) {
 #else
 	for( int y = 0; y < ysize; y++ ) {
 		// Egy sor beolvasasa:
-		short nnn = 0, ccc, iii;
+		int nnn = 0, ccc, iii;
 
 		do {
 			unsigned char szin;
-			long l = fread( &szin, 1, 1, h );
+			long l = elma_read( &szin, 1, 1, h );
 			ccc = szin;
 			if( l != 1 )
 				hiba( "\nNem tud olvasni PCX-ben", nev );
 
 			if( (ccc & 0xc0) == 0xc0 ) {
 				iii = ccc & (short)0x3f;
-				l = fread( &szin, 1, 1, h );
+				l = elma_read( &szin, 1, 1, h );
 				ccc = szin;
 				if( l != 1 )
 					hiba( "\nNem tud olvasni PCX-ben", nev );
@@ -584,122 +612,55 @@ void pic8::pcxbeolvas( char* nev, FILE* h ) {
 		qclose( h );
 }
 
-static int numberofrepeats( pic8* ppic, int x, int y, int xsize ) {
-	unsigned char szin = ppic->gpixel( x, y );
-	x++;
-	int db = 1;
-    while( x < xsize && ppic->gpixel( x, y ) == szin ) {
-        x++;
-        db++;
+// Stream a bounded run at a time; no second full-size screenshot is allocated.
+static bool write_pcx(pic8* image, unsigned char* pal, FILE* h) {
+    const int width=image->getxsize(), height=image->getysize();
+    pcxdescriptor desc={};
+    desc.ManufactId=10; desc.VersionNum=5; desc.EncodingTech=1; desc.BitsPerPlane=8;
+    desc.Xmax=short(width-1); desc.Ymax=short(height-1);
+    desc.HorRes=10; desc.VertRes=10; desc.NumberOfBitPlanes=1;
+    // PCX scanlines must have an even byte count, independently of image width.
+    desc.BytesPerScanLine=static_cast<unsigned short>((width+1)&~1);
+    desc.PaletteInf=1;
+    if(elma_write(&desc,sizeof(desc),1,h)!=1)return false;
+    for(int y=0;y<height;++y) {
+        for(int x=0;x<width;) {
+            const unsigned char color=image->gpixel(x,y);
+            int count=1;
+            while(count<63 && x+count<width && image->gpixel(x+count,y)==color)++count;
+            if(count>1 || color>=0xc0) {
+                const unsigned char marker=static_cast<unsigned char>(0xc0|count);
+                if(elma_write(&marker,1,1,h)!=1)return false;
+            }
+            if(elma_write(&color,1,1,h)!=1)return false;
+            x+=count;
+        }
+        if(width&1) {const unsigned char padding=0;if(elma_write(&padding,1,1,h)!=1)return false;}
     }
-    return db;
+    const unsigned char palette_marker=0x0c;
+    if(elma_write(&palette_marker,1,1,h)!=1)return false;
+    for(int i=0;i<768;++i) {
+        const unsigned char color=pal?static_cast<unsigned char>(pal[i]<<2):static_cast<unsigned char>(i/3);
+        if(elma_write(&color,1,1,h)!=1)return false;
+    }
+    return true;
 }
 
-int pic8::pcxsave( char *nev, unsigned char* pal ) {
-    FILE* h = fopen( nev, "wb" );
-    if( !h ) {
-        hiba( "pcxsave-ben nem nyilik file!: ", nev );
+int pic8::pcxsave(char* nev, unsigned char* pal) {
+#ifdef ELMA_PS3
+    elma_atomic_file output(nev);
+    FILE* h=output.file();
+    if(!h || !output.commit(write_pcx(this,pal,h))) {
+        uzenet("Could not save screenshot: ",nev);
         return 0;
     }
-    pcxdescriptor   desc;
-    desc.ManufactId         = 10;
-    desc.VersionNum         = 5;
-    desc.EncodingTech       = 1;
-    desc.BitsPerPlane       = 8;
-    desc.Xmin = desc.Ymin   = 0;
-    desc.Xmax               = (short)(xsize-1);
-    desc.Ymax               = (short)(ysize-1);
-    desc.HorRes             = 10;
-    desc.VertRes            = 10;
-    desc.Reserved           = 0;
-    desc.NumberOfBitPlanes  = 1;
-	desc.BytesPerScanLine   = (unsigned short)xsize;
-    desc.PaletteInf         = 1;
-    if( fwrite( &desc, sizeof( desc ), 1, h ) != 1 ) {
-        hiba( "pcxsave-ben sikertelen iras!: ", nev );
-        fclose( h );
-        return 0;
-    }
-    for( int y = 0; y < ysize; y++ ) {
-        int x = 0;
-        while( x < xsize ) {
-            int i = numberofrepeats( this, x, y, xsize );
-            if( i > 1 ) {
-                if( i > 63 )
-                    i = 63;
-                unsigned char controll = (unsigned char)(i+192);
-                if( fwrite( &controll, 1, 1, h ) != 1 ) {
-                    hiba( "pcxsave-ben nem ir!: ", nev );
-                    fclose( h );
-                    return 0;
-                }
-                unsigned char szin = gpixel( x, y );
-                if( fwrite( &szin, 1, 1, h ) != 1 ) {
-                    hiba( "pcxsave-ben nem ir!: ", nev );
-                    fclose( h );
-                    return 0;
-                }
-                x += i;
-            }
-            else {
-                unsigned char szin = gpixel( x, y );
-                if( szin < 64 ) {
-                    if( fwrite( &szin, 1, 1, h ) != 1 ) {
-                        hiba( "pcxsave-ben nem ir!: ", nev );
-                        fclose( h );
-                        return 0;
-                    }
-                }
-                else {
-                    unsigned char controll = 193;
-                    if( fwrite( &controll, 1, 1, h ) != 1 ) {
-                        hiba( "pcxsave-ben nem ir!: ", nev );
-                        fclose( h );
-                        return 0;
-                    }
-                    szin = gpixel( x, y );
-                    if( fwrite( &szin, 1, 1, h ) != 1 ) {
-                        hiba( "pcxsave-ben nem ir!: ", nev );
-                        fclose( h );
-                        return 0;
-                    }
-                }
-                x++;
-            }
-        }
-    }
-    unsigned char magikus = 0x0c;
-    if( fwrite( &magikus, 1, 1, h ) != 1 ) {
-        hiba( "pcxsave-ben nem ir!: ", nev );
-        fclose( h );
-        return 0;
-    }
-    if( pal ) {
-        // Van paletta!:
-        for( int i = 0; i < 768; i++ ) {
-            unsigned char c = (unsigned char)(pal[i]<<2);
-            if( fwrite( &c, 1, 1, h ) != 1 ) {
-                hiba( "pcxsave-ben nem ir!: ", nev );
-                fclose( h );
-                return 0;
-            }
-        }
-    }
-    else {
-        // Nincs paletta megadva!
-        for( int i = 0; i < 256; i++ ) {
-            unsigned char c = (unsigned char)i;
-            for( int j = 0; j < 3; j++ ) {
-                if( fwrite( &c, 1, 1, h ) != 1 ) {
-                    hiba( "pcxsave-ben nem ir!: ", nev );
-                    fclose( h );
-                    return 0;
-                }
-            }
-        }
-    }
-
-    fclose( h );
+#else
+    FILE* h=fopen(nev,"wb");
+    if(!h) {hiba("pcxsave-ben nem nyilik file!: ",nev);return 0;}
+    bool ok=write_pcx(this,pal,h);
+    if(fclose(h)!=0)ok=false;
+    if(!ok) {hiba("pcxsave-ben sikertelen iras!: ",nev);return 0;}
+#endif
     return 1;
 }
 
@@ -932,7 +893,7 @@ int pcxtopal( char* nev, unsigned char* pal ) {
         return 0;
     }
     char c;
-    l = fread( &c, 1, 1, h );
+    l = elma_read( &c, 1, 1, h );
     if( l != 1 ) {
         hiba( "Nem tud olvasni PCX-ben!:", nev );
         qclose( h );
@@ -943,7 +904,7 @@ int pcxtopal( char* nev, unsigned char* pal ) {
         qclose( h );
         return 0;
     }
-    if( fread( pal, 768, 1, h ) != 1 ) {
+    if( elma_read( pal, 768, 1, h ) != 1 ) {
         hiba( "Nem tud olvasni PCX-ben!: ", nev );
         qclose( h );
         return 0;

@@ -1,4 +1,8 @@
 
+#ifdef ELMA_PS3
+class kerek;
+#endif
+
 struct hanginfo {
 	double frekvencia;
 	char gaz;
@@ -88,6 +92,9 @@ public:
 
 	int gettag( void );
 	void settag( int tag_p );
+#ifdef ELMA_PS3
+    bool objects_exist(kerek* const* objects) const;
+#endif
 };
 #endif
 
@@ -97,6 +104,9 @@ extern recorder *Prec1, *Prec2;
 extern int Multirec;
 long loadrecek( char* nev, int demo );
 void saverecek( char* nev, long belyeg, int tag );
+#ifdef ELMA_PS3
+bool ps3_replay_loaded();
+#endif
 
 void startwavegyujto( int wavazonosito, double hangero, int objszam );
 void resetwavegyujto( void );

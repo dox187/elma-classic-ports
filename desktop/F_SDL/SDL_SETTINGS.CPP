@@ -5,6 +5,9 @@
 #include <vector>
 #include "all.h"
 #include "SDL_SETTINGS.H"
+#ifdef ELMA_PS3
+#include "ATOMIC_FILE.H"
+#endif
 
 namespace {
 const char config_name[] = "elma.cfg";
@@ -54,6 +57,9 @@ void config_load() {
     has_byte_order_mark = false;
     newline = "\n";
     loaded = false;
+#ifdef ELMA_PS3
+    elma_restore_save(config_name);
+#endif
     FILE* h = fopen(config_name, "rb");
     if (!h) return;
     loaded = true;
@@ -115,18 +121,35 @@ void config_save() {
     std::string content = has_byte_order_mark ? byte_order_mark : "";
     for (size_t i = 0; i < lines.size(); ++i)
         content += lines[i].text + (lines[i].ending.empty() ? newline : lines[i].ending);
+#ifdef ELMA_PS3
+    elma_atomic_file transaction(config_name);
+    FILE* h=transaction.file();
+    bool written=h && fwrite(content.data(),1,content.size(),h)==content.size();
+    bool saved=h && transaction.commit(written);
+    printf("elma: config save %s: %u bytes, %s, errno=%d\n",config_name,
+           unsigned(content.size()),saved?"saved":"FAILED",transaction.error());
+    if(!saved)uzenet("Could not save configuration. The previous file is kept.",
+                     "Check storage space and permissions before leaving the game.");
+#else
     // A new file, or a plain file of this very name, is written next to it
     // and then put in its place, so that an interrupted save keeps the old
     // settings. A file found under another case (Elma.cfg) or a link is
     // written in place.
     struct stat status;
+#ifdef ELMA_PS3
+    // PS3 has no filesystem links here, and its stat wrapper requires an
+    // absolute path. The shared file layer resolves the working directory.
+    const bool replace = elma_access(config_name, 0) == 0 || !loaded;
+#else
     const bool replace = lstat(config_name, &status) == 0 ? S_ISREG(status.st_mode) : !loaded;
+#endif
     const std::string temporary = std::string(config_name) + ".tmp";
     FILE* h = fopen(replace ? temporary.c_str() : config_name, "wb");
     if (!h) return;
     const bool written = fwrite(content.data(), 1, content.size(), h) == content.size();
     if (fclose(h) == 0 && written && (!replace || rename(temporary.c_str(), config_name) == 0)) return;
     if (replace) remove(temporary.c_str());
+#endif
 }
 
 namespace {
@@ -154,7 +177,7 @@ int current_resolution = RESOLUTION_AUTO;
 int config_resolution() {
     if (!resolution_read) {
         resolution_read = true;
-#ifdef ELMA_HANDHELD
+#if defined(ELMA_HANDHELD) || defined(ELMA_PS3)
         current_resolution = RESOLUTION_ORIGINAL; // the CPU draws every pixel
 #endif
         const char* value = config_get("resolution", NULL);
@@ -216,11 +239,10 @@ void base_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
     }
 }
 
-void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
+void game_view_size_at_resolution(Aspect aspect, int out_w, int out_h, int resolution, int* w, int* h) {
     base_view_size(aspect, out_w, out_h, w, h);
     if (out_w <= 0 || out_h <= 0) return;
     // More pixels for the same part of the level:
-    const int resolution = config_resolution();
     if (resolution == RESOLUTION_ORIGINAL) return;
     const int base_w = *w, base_h = *h;
     double scale = double(out_w) / base_w < double(out_h) / base_h ? double(out_w) / base_w
@@ -232,6 +254,11 @@ void game_view_size(Aspect aspect, int out_w, int out_h, int* w, int* h) {
     if (scale <= 1.0) return;
     *w = 2 * int(base_w * scale / 2);
     *h = int(base_h * scale);
+}
+
+void game_view_size(Aspect aspect,int out_w,int out_h,int* w,int* h) {
+    game_view_size_at_resolution(aspect,out_w,out_h,
+        out_w>0 && out_h>0 ? config_resolution() : RESOLUTION_ORIGINAL,w,h);
 }
 
 void menu_view_size(int out_w, int out_h, int* w, int* h) {

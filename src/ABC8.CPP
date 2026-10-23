@@ -1,4 +1,5 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
 
 static int Hibaismeretlenkar = 0;
 
@@ -35,7 +36,7 @@ abc8::abc8( char* nev ) {
 		return;
 	}
 	char tmp[20];
-	if( fread( tmp, 4, 1, h ) != 1 ) {
+	if( elma_read( tmp, 4, 1, h ) != 1 ) {
 		hiba( "Nem tudja olvasni abc-t!: ", nev );
 		qclose( h );
 		return;
@@ -46,7 +47,7 @@ abc8::abc8( char* nev ) {
 		return;
 	}
 	short darabszam = 0;
-	if( fread( &darabszam, 2, 1, h ) != 1 ) {
+	if( elma_read( &darabszam, 2, 1, h ) != 1 ) {
 		hiba( "Nem tudja olvasni abc-t!: ", nev );
 		qclose( h );
 		return;
@@ -55,7 +56,7 @@ abc8::abc8( char* nev ) {
 		hiba( "abc file darabszama nem stimmel!" );
 	for( int kkk = 0; kkk < darabszam; kkk++ ) {
 		// Sorban beolvassa betuk spritejait:
-		if( fread( tmp, 7, 1, h ) != 1 ) {
+		if( elma_read( tmp, 7, 1, h ) != 1 ) {
 			hiba( "Nem tudja olvasni abc-t!: ", nev );
 			qclose( h );
 			return;
@@ -66,12 +67,12 @@ abc8::abc8( char* nev ) {
 			return;
 		}
 		unsigned char c = -1;
-		if( fread( &c, 1, 1, h ) != 1 ) {
+		if( elma_read( &c, 1, 1, h ) != 1 ) {
 			hiba( "Nem tudja olvasni abc-t!: ", nev );
 			qclose( h );
 			return;
 		}
-		if( fread( &ytomb[c], 2, 1, h ) != 1 ) {
+		if( elma_read( &ytomb[c], 2, 1, h ) != 1 ) {
 			hiba( "Nem tudja olvasni abc-t!: ", nev );
 			qclose( h );
 			return;
@@ -98,11 +99,11 @@ abc8::~abc8( void ) {
 				ppsprite[i] = NULL;
 			}
 		}
-		DELETE ppsprite; }
+		DELETE[] ppsprite; }
 		ppsprite = NULL;
 	}
 	if( ytomb ) {
-		DELETE ytomb; }
+		DELETE[] ytomb; }
 		ytomb = NULL;
 	}
 }

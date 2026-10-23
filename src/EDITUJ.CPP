@@ -650,11 +650,15 @@ void editor( void ) {
 					// Kiirjuk kepet:
 					int i = 0;
 					while( 1 ) {
-						char filenev[20];
+						char filenev[40];
+#ifdef ELMA_PS3
+						snprintf(filenev,sizeof(filenev),"snaps/snap%02d.pcx",i);
+#else
 						if( i < 10 )
 							sprintf( filenev, "snap0%d.pcx", i );
 						else
 							sprintf( filenev, "snap%d.pcx", i );
+#endif
 						if( access( filenev, 0 ) != 0 ) {
 							// Ez a nev nem foglalt:
 							//forditkepet( ppic );

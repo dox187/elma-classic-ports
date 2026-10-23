@@ -1,4 +1,10 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
+#ifdef ELMA_PS3
+#include "ATOMIC_FILE.H"
+static bool StateWriteFailed=false;
+static bool StateReadFailed=false;
+#endif
 
 #ifdef BUTITOTT
 	int Palyaszam = 2;
@@ -17,9 +23,14 @@ int getstatesoundon( void ) {
 }
 
 // Van ugyanilyen neven topol.cpp-ben is ket fv.:
-static void titkosread( void* mut, int hossz, FILE* h, char* nev ) {
-	if( fread( mut, 1, hossz, h ) != hossz )
-		uzenet( "Corrupt file, please delete it!", nev );
+template<class T> static void titkosread( T* mut, int hossz, FILE* h, char* nev ) {
+	if( fread( mut, 1, hossz, h ) != hossz ) {
+#ifdef ELMA_PS3
+        StateReadFailed=true;memset(mut,0,hossz);return;
+#else
+        uzenet("Corrupt file, please delete it!",nev);
+#endif
+    }
 	unsigned char* pc = (unsigned char*)mut;
 	short a = 23, b = 9782, c = 3391;
 
@@ -29,9 +40,12 @@ static void titkosread( void* mut, int hossz, FILE* h, char* nev ) {
 		b += a*c;
 		a = 31*b+c;
 	}
+    elma_convert(mut,hossz);
+
 }
 
-static void titkoswrite( void* mut, int hossz, FILE* h ) {
+template<class T> static void titkoswrite( T* mut, int hossz, FILE* h ) {
+    elma_convert(mut,hossz);
 	unsigned char* pc = (unsigned char*)mut;
 	short a = 23, b = 9782, c = 3391;
 
@@ -41,8 +55,13 @@ static void titkoswrite( void* mut, int hossz, FILE* h ) {
 		b += a*c;
 		a = 31*b+c;
 	}
-	if( fwrite( mut, 1, hossz, h ) != hossz )
+	if( fwrite( mut, 1, hossz, h ) != hossz ) {
+#ifdef ELMA_PS3
+        StateWriteFailed=true;
+#else
 		hiba( "Nem ment iras state file-ba!" );
+#endif
+    }
 	a = 23; b = 9782; c = 3391;
 
 	for( int i = 0; i < hossz; i++ ) {
@@ -51,6 +70,8 @@ static void titkoswrite( void* mut, int hossz, FILE* h ) {
 		b += a*c;
 		a = 31*b+c;
 	}
+    elma_convert(mut,hossz);
+
 }
 
 static int Checknumber_state_s = 123432112;
@@ -85,6 +106,9 @@ state_s::state_s( char* nev ) {
 	if( !nev )
 		nev = Statenev;
 
+#ifdef ELMA_PS3
+    elma_restore_save(nev);
+#endif
 	if( access( nev, 0 ) != 0 ) {
 		// Nem letezik state.dat:
 		#ifndef ELMA_PSX
@@ -93,10 +117,18 @@ state_s::state_s( char* nev ) {
 		return;
 	}
 
+#ifdef ELMA_PS3
+    unsigned char defaults[sizeof(*this)];memcpy(defaults,this,sizeof(*this));StateReadFailed=false;
+#endif
 	// Itt hagyni kell fopen-t!!!!!!!!!!!!!!!!!!!!:
 	FILE* h = fopen( nev, "rb" );
-	if( !h )
-		hiba( "Nem nyilik state file!: ", nev );
+	if( !h ) {
+#ifdef ELMA_PS3
+        uzenet("Could not read player state. Default settings are used.",nev);return;
+#else
+        hiba("Nem nyilik state file!: ",nev);
+#endif
+    }
 
 	int verzio = 0;
 	titkosread( &verzio, 4, h, nev );
@@ -133,7 +165,7 @@ state_s::state_s( char* nev ) {
 
 	// Magic number:
 	int32_t checknumber = 0;
-	if( fread( &checknumber, 1, sizeof( checknumber ), h ) !=
+	if( elma_read( &checknumber, 1, sizeof( checknumber ), h ) !=
 					sizeof( checknumber ) )
 		uzenet( "Corrupt file, please rename it!", nev );
 	if( Sarvari ) {
@@ -147,6 +179,23 @@ state_s::state_s( char* nev ) {
 	}
 
 	fclose( h );
+#ifdef ELMA_PS3
+    bool valid=!StateReadFailed && verzio==200 &&
+        (checknumber==Checknumber_state_s || (!Sarvari && checknumber==Checknumber_state_r)) &&
+        jatekosokszama>=0 && jatekosokszama<MAXJATEKOS;
+    for(int i=0;i<MAXPALYASZAM;++i){
+        palyaegyfeleidok* tables[2]={&palyakidejei[i].singleidok,&palyakidejei[i].multiidok};
+        for(int p=0;p<2;++p){palyaegyfeleidok& table=*tables[p];
+            if(table.idokszama<0 || table.idokszama>MAXIDOK)valid=false;
+            for(int j=0;j<MAXIDOK;++j){table.nevek1[j][JATEKOSNEVHOSSZ]=0;table.nevek2[j][JATEKOSNEVHOSSZ]=0;}}
+    }
+    for(int i=0;i<MAXJATEKOS;++i){jatekosok[i].nev[sizeof(jatekosok[i].nev)-1]=0;
+        if(i<jatekosokszama && (jatekosok[i].jelenlegipalya< -1 || jatekosok[i].jelenlegipalya>=MAXPALYASZAM ||
+           jatekosok[i].sikerespalyakszama<0 || jatekosok[i].sikerespalyakszama>MAXPALYASZAM))valid=false;}
+    jatekosa[JATEKOSNEVHOSSZ]=jatekosb[JATEKOSNEVHOSSZ]=0;
+    editfilenev[sizeof(editfilenev)-1]=playextfilenev[sizeof(playextfilenev)-1]=0;
+    if(!valid){memcpy(this,defaults,sizeof(*this));uzenet("Corrupt player state. Default settings are used.",nev);}
+#endif
 }
 
 void idothuz( int* pi ) {
@@ -155,12 +204,18 @@ void idothuz( int* pi ) {
 
 void state_s::reloadidok( void ) {
 	char* nev = Statenev;
+#ifdef ELMA_PS3
+    elma_restore_save(nev);
+#endif
 
 	//if( access( nev, 0 ) != 0 )
 	//	return;
 
 	// Itt hagyni kell fopen-t!!!!!!!!!!!!!!!!!!!!:
 	FILE* h = fopen( nev, "rb" );
+#ifdef ELMA_PS3
+    if(!h){uzenet("Could not reload saved times. Current times are kept.",nev);return;}
+#endif
 	while( !h ) {
 		// Var egy kicsit:
 		int a = 0;
@@ -170,6 +225,10 @@ void state_s::reloadidok( void ) {
 		FILE* h = fopen( nev, "rb" );
 	}
 
+#ifdef ELMA_PS3
+    unsigned char saved_times[sizeof(palyakidejei)];memcpy(saved_times,palyakidejei,sizeof(palyakidejei));
+    StateReadFailed=false;
+#endif
 	int verzio = 0;
 	titkosread( &verzio, 4, h, nev );
 	if( verzio != 200 )
@@ -180,6 +239,16 @@ void state_s::reloadidok( void ) {
 	titkosread( palyakidejei, sizeof( palyakidejei ), h, nev );
 
 	fclose( h );
+#ifdef ELMA_PS3
+    bool valid=!StateReadFailed && verzio==200;
+    for(int i=0;i<MAXPALYASZAM;++i){
+        palyaegyfeleidok* tables[2]={&palyakidejei[i].singleidok,&palyakidejei[i].multiidok};
+        for(int p=0;p<2;++p){palyaegyfeleidok& table=*tables[p];
+            if(table.idokszama<0 || table.idokszama>MAXIDOK)valid=false;
+            for(int j=0;j<MAXIDOK;++j){table.nevek1[j][JATEKOSNEVHOSSZ]=0;table.nevek2[j][JATEKOSNEVHOSSZ]=0;}}
+    }
+    if(!valid){memcpy(palyakidejei,saved_times,sizeof(palyakidejei));uzenet("Corrupt saved times. Current times are kept.",nev);}
+#endif
 }
 
 state_s::~state_s( void ) {
@@ -187,9 +256,16 @@ state_s::~state_s( void ) {
 
 void state_s::save( void ) {
 	// Itt hagyni kell fopen-t!!!!!!!!!!!!!!!!!!!!:
+#ifdef ELMA_PS3
+    elma_atomic_file transaction(Statenev);
+    FILE* h=transaction.file();StateWriteFailed=false;
+#else
 	FILE* h = fopen( Statenev, "wb" );
-	if( !h )
+#endif
+	if( !h ) {
 		uzenet( "Could not open for write file!: ", Statenev );
+        return;
+    }
 
 	int verzio = 200;
 	titkoswrite( &verzio, 4, h );
@@ -222,11 +298,20 @@ void state_s::save( void ) {
 	int32_t checknumber = Checknumber_state_r;
 	if( Sarvari )
 		checknumber = Checknumber_state_s;
-	if( fwrite( &checknumber, 1, sizeof( checknumber ), h ) !=
-					sizeof( checknumber ) )
+	if( elma_write( &checknumber, 1, sizeof( checknumber ), h ) !=
+					sizeof( checknumber ) ) {
+#ifdef ELMA_PS3
+        StateWriteFailed=true;
+#else
 		hiba( "Nem megy beolvasas state file-ba!: ", Statenev );
-
+#endif
+    }
+#ifdef ELMA_PS3
+    if(!transaction.commit(!StateWriteFailed))
+        uzenet("Could not save player state. The previous save is kept.",Statenev);
+#else
 	fclose( h );
+#endif
 #ifdef ELMA_PSX
 	// The memory card is written at the next menu:
 	void psx_state_saved( void );

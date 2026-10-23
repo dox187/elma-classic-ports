@@ -1,4 +1,7 @@
 #include "all.h"
+#ifdef ELMA_PS3
+#include "PS3_CONTROLS.H"
+#endif
 
 #ifdef ELMA_PSX
 #include "psx_controls.h"
@@ -183,7 +186,11 @@ static void gombotvalaszt( int rubrikaszam, billmuttomb bmuttomb, int sorszam ) 
 	val.dy = 40;
 	val.escelheto = 1;
 
-	strcpy( val.cim, "Customize controls" );
+	#ifdef ELMA_PS3
+    strcpy(val.cim,"Keyboard Controls");
+#else
+    strcpy( val.cim, "Customize controls" );
+#endif
 	strcpy( Rubrikak_tab[sorszam], "_" );
 
 	val.bead( rubrikaszam, 1 ); // tab-os kiiras
@@ -205,6 +212,11 @@ static void gombotvalaszt( int rubrikaszam, billmuttomb bmuttomb, int sorszam ) 
 	// Megnezzuk milyen gombot nyomott le:
 	while( 1 ) {
 		mv_check( /*"cust.cpp"*/ );	
+#ifdef ELMA_PS3
+        // Pad back emits a menu character, not a physical USB key state.
+        // Keep binding capture escapable when no keyboard is connected.
+        while(mk_kbhit())if(mk_getextchar()==MK_ESC)return;
+#endif
 		for( int i = 1; i < 256; i++ ) {
 			if( mk_getstate( MK_ESC ) )
 				return;
@@ -228,7 +240,7 @@ static void gombotvalaszt( int rubrikaszam, billmuttomb bmuttomb, int sorszam ) 
 			// Most meg van nyomva egy gomb:
 			// Kiszedjuk mindenhonnan mashonnan ezt a billt:
 			int j;
-			for( j = 3; j < Rubrikaszam0; j++ ) { // 1-tol megy
+			for( j = 3; j < 6; j++ ) { // 1-tol megy
 				if( *Pbilltomb0[j] == i )
 					*Pbilltomb0[j] = 0;
 			}
@@ -282,7 +294,11 @@ static void customizeplayer( billmuttomb bmuttomb,
 		val.dy = 40;
 		val.escelheto = 1;
 
-		strcpy( val.cim, "Customize Player " );
+		#ifdef ELMA_PS3
+        strcpy(val.cim,"Keyboard Player ");
+#else
+        strcpy( val.cim, "Customize Player " );
+#endif
 		strcat( val.cim, ABjel );
 
 		bejegyez12( bmuttomb, pjatopc );
@@ -299,7 +315,11 @@ static void customizeplayer( billmuttomb bmuttomb,
 	}
 }
 
+#ifdef ELMA_PS3
+static void customize_keyboard( void ) {
+#else
 void customize( void ) {
+#endif
 	bejegyez12( Pbilltomb1, &State->opciok1 );
 	bejegyez12( Pbilltomb2, &State->opciok2 );
 
@@ -314,7 +334,11 @@ void customize( void ) {
 		val.dy = 40;
 		val.escelheto = 1;
 
-		strcpy( val.cim, "Customize controls" );
+		#ifdef ELMA_PS3
+    strcpy(val.cim,"Keyboard Controls");
+#else
+    strcpy( val.cim, "Customize controls" );
+#endif
 
 		bejegyez0();
 
@@ -338,10 +362,27 @@ void customize( void ) {
 		if( kurrens == 2 )
 			customizeplayer( Pbilltomb2, &State->opciok2, "B" );
 
-		if( kurrens >= 3 && kurrens < Rubrikaszam0 )
+		if( kurrens >= 3 && kurrens < 6 )
 			gombotvalaszt( Rubrikaszam0, Pbilltomb0, kurrens );
 	}
 }
+
+#ifdef ELMA_PS3
+void customize() {
+    int current=0;
+    while(1) {
+        valaszt2 v;v.kur=current;v.egykepen=3;v.x0=110;v.y0=145;v.dy=65;v.escelheto=1;
+        strcpy(v.cim,"Customize Controls");
+        strcpy(Rubrikak[0],"PS3 Controller Controls ...");
+        strcpy(Rubrikak[1],"PS3 Controller Guide ...");
+        strcpy(Rubrikak[2],"Keyboard Controls ...");
+        v.bead(3);current=v.valassz();if(current<0)return;
+        if(current==0)ps3_controller_customize();
+        if(current==1)ps3_controller_help();
+        if(current==2)customize_keyboard();
+    }
+}
+#endif
 
 #endif
 

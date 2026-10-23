@@ -1,0 +1,8 @@
+!!VP2.0
+OPTION NV_vertex_program3;
+MOV result.position, vertex.position;
+MOV result.texcoord[0], vertex.texcoord[0];
+MOV result.texcoord[1], vertex.texcoord[1];
+MOV result.texcoord[2], vertex.texcoord[2];
+MOV result.texcoord[3], vertex.texcoord[3];
+END

@@ -1,4 +1,5 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
 
 static char Plnev[] = "pictures.lst";
 
@@ -173,40 +174,45 @@ piclist::piclist( void ) {
 piclist::piclist( FILE* h ) {
 	// Elso verzio 1002
 	int verzio = 0;
-	if( fread( &verzio, 1, 4, h ) != 4 )
-		uzenet( "Cannot read pictures.lst information!" );
+	kepszam=0;
+	if( elma_read( &verzio, 1, 4, h ) != 4 )
+		hiba( "Cannot read pictures.lst information!" );
 	if( verzio != 1002 )
-		uzenet( "In LGR file the pictures.lst information has illegal version!" );
-	if( fread( &kepszam, 1, 4, h ) != 4 )
-		uzenet( "Cannot read pictures.lst information!" );
-	if( fread( nevek, 1, kepszam*10, h ) != kepszam*10 )
-		uzenet( "Cannot read pictures.lst information!" );
-	if( fread( tipusok, 1, kepszam*4, h ) != kepszam*4 )
-		uzenet( "Cannot read pictures.lst information!" );
-	if( fread( tavolsagok, 1, kepszam*4, h ) != kepszam*4 )
-		uzenet( "Cannot read pictures.lst information!" );
-	if( fread( hatarolok, 1, kepszam*4, h ) != kepszam*4 )
-		uzenet( "Cannot read pictures.lst information!" );
-	if( fread( atlatszosagok, 1, kepszam*4, h ) != kepszam*4 )
-		uzenet( "Cannot read pictures.lst information!" );
+		hiba( "In LGR file the pictures.lst information has illegal version!" );
+	if( elma_read( &kepszam, 1, 4, h ) != 4 )
+		hiba( "Cannot read pictures.lst information!" );
+	if(kepszam<0 || kepszam>MAXPICLISTKEPSZAM)
+		hiba("Invalid picture count in LGR pictures.lst information!");
+	if( elma_read( nevek, 1, kepszam*10, h ) != kepszam*10 )
+		hiba( "Cannot read pictures.lst information!" );
+	for(int i=0;i<kepszam;++i)
+		if(!memchr(nevek+i*10,0,10))hiba("Unterminated picture name in LGR file!");
+	if( elma_read( tipusok, 1, kepszam*4, h ) != kepszam*4 )
+		hiba( "Cannot read pictures.lst information!" );
+	if( elma_read( tavolsagok, 1, kepszam*4, h ) != kepszam*4 )
+		hiba( "Cannot read pictures.lst information!" );
+	if( elma_read( hatarolok, 1, kepszam*4, h ) != kepszam*4 )
+		hiba( "Cannot read pictures.lst information!" );
+	if( elma_read( atlatszosagok, 1, kepszam*4, h ) != kepszam*4 )
+		hiba( "Cannot read pictures.lst information!" );
 }
 
 // Binaris formatumba:
 void piclist::save( FILE* h ) {
 	int verzio = 1002;
-	if( fwrite( &verzio, 1, 4, h ) != 4 )
+	if( elma_write( &verzio, 1, 4, h ) != 4 )
 		uzenet( "Cannot write pictures.lst information!" );
-	if( fwrite( &kepszam, 1, 4, h ) != 4 )
+	if( elma_write( &kepszam, 1, 4, h ) != 4 )
 		uzenet( "Cannot write pictures.lst information!" );
-	if( fwrite( nevek, 1, kepszam*10, h ) != kepszam*10 )
+	if( elma_write( nevek, 1, kepszam*10, h ) != kepszam*10 )
 		uzenet( "Cannot write pictures.lst information!" );
-	if( fwrite( tipusok, 1, kepszam*4, h ) != kepszam*4 )
+	if( elma_write( tipusok, 1, kepszam*4, h ) != kepszam*4 )
 		uzenet( "Cannot write pictures.lst information!" );
-	if( fwrite( tavolsagok, 1, kepszam*4, h ) != kepszam*4 )
+	if( elma_write( tavolsagok, 1, kepszam*4, h ) != kepszam*4 )
 		uzenet( "Cannot write pictures.lst information!" );
-	if( fwrite( hatarolok, 1, kepszam*4, h ) != kepszam*4 )
+	if( elma_write( hatarolok, 1, kepszam*4, h ) != kepszam*4 )
 		uzenet( "Cannot write pictures.lst information!" );
-	if( fwrite( atlatszosagok, 1, kepszam*4, h ) != kepszam*4 )
+	if( elma_write( atlatszosagok, 1, kepszam*4, h ) != kepszam*4 )
 		uzenet( "Cannot write pictures.lst information!" );
 }
 

@@ -1,0 +1,48 @@
+{
+  "composition": "Exact screenshot crop and original splash title cutout, scaled and overlaid; no redrawn game sprites or invented lettering.",
+  "gameplay": {
+    "source": "console/ps3/build/final-sdl-release/14-riding.png",
+    "source_sha256": "2fcf468324eb752fd9c8a2e2b9524e06c1f34ce30c0e1cfa1e93fa9f0222d097",
+    "crop_xywh": [
+      174,
+      80,
+      640,
+      352
+    ],
+    "asset": "icon-gameplay.png",
+    "asset_sha256": "6ddf0833d582f7229e4967b557af5ce1b812b86b15a44322d4e1906fd7dee428"
+  },
+  "title": {
+    "source": "console/ps3/build/final-sdl-release/04-splash.png",
+    "source_sha256": "6f5bd70cae7a8e606c225e38c4ea4d3d8cc00193c704e2b09e1883549518ac91",
+    "crop_xywh": [
+      183,
+      54,
+      592,
+      363
+    ],
+    "transparency": "Exact black becomes transparent; original colored pixels retained.",
+    "asset": "icon-title.png",
+    "asset_sha256": "4140313a379efd858a21bd3bd249b6bd995187e739bbf88225a781315622dda1"
+  },
+  "layout": {
+    "canvas": [
+      320,
+      176
+    ],
+    "gameplay": [
+      0,
+      0,
+      320,
+      176
+    ],
+    "title": [
+      8,
+      5,
+      114,
+      70
+    ]
+  },
+  "render_command": "console/ps3/tools/render_icon.sh",
+  "output_sha256": "544a537fe4875eefdcac06cc8dc4c153e1a0fa55518352da65661e718f43dcdb"
+}

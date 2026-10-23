@@ -188,6 +188,9 @@ void replay( void ) {
 				Pmenupal->set();
 				kiirloading();
 				long belyeg = loadrecek( tmp, 0 );
+#ifdef ELMA_PS3
+                if(!ps3_replay_loaded())break;
+#endif
 				if( access_topol( Prec1->palyanev ) != 0 ) {
 					int c = dialog320( "Cannot find the lev file that corresponds",
 							   "to the record file!", tmp, Prec1->palyanev );
@@ -195,7 +198,7 @@ void replay( void ) {
 						return;
 				}
 				else {
-					floadlevel_p( Prec1->palyanev );
+					if(!floadlevel_p( Prec1->palyanev ))break;
 					if( Ptop->belyeg != belyeg ) {
 						int c = dialog320( "The level file has changed since the",
 								   "saving of the record file!", tmp, Prec1->palyanev );
@@ -218,6 +221,9 @@ void replay( void ) {
 			strcat( tmp, ".REC" );
 			kiirloading();
 			long belyeg = loadrecek( tmp, 0 );
+#ifdef ELMA_PS3
+            if(!ps3_replay_loaded())continue;
+#endif
 			if( RECidokellis ) {
 				// loadrecek beallitotta Multirec-et.
 				int ido = Prec1->betoltve;
@@ -248,7 +254,7 @@ void replay( void ) {
 				//	return;
 			}
 			else {
-				floadlevel_p( Prec1->palyanev );
+				if(!floadlevel_p( Prec1->palyanev ))continue;
 				if( Ptop->belyeg != belyeg ) {
 
 					////////////
@@ -302,9 +308,12 @@ static void demo( void ) {
 
 		kiirloading();
 		long belyeg = loadrecek( demonevek[demo], 1 );
+#ifdef ELMA_PS3
+        if(!ps3_replay_loaded())return;
+#endif
 		if( access_topol( Prec1->palyanev ) != 0 )
 			hiba( "783654" );
-		floadlevel_p( Prec1->palyanev );
+		if(!floadlevel_p( Prec1->palyanev ))return;
 		if( Ptop->belyeg != belyeg )
 			hiba( "6734654" );
 		Prec1->rewind();

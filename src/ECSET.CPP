@@ -429,6 +429,9 @@ void ecset::mutatotlanit( void ) {
 	Osszegszam += szam;
 	// Most lefoglaljuk uj egybefuggo tombot:
 	nagydarabtomb = new darab[szam+10];
+#ifdef ELMA_PS3
+	memory_flat_count=szam+10;
+#endif
 	if( !nagydarabtomb )
 		hibanincsmem();
 	int szammost = 0;
@@ -1276,6 +1279,9 @@ ecset::ecset( int view_p ) {
 	tombbenkov = 0;
 
 	nagydarabtomb = NULL;
+#ifdef ELMA_PS3
+	memory_flat_count=0;
+#endif
 
 	xsizedb = ysizedb = 0.0;
 	maxx = sorszam = 0;
@@ -1374,6 +1380,9 @@ ecset::ecset( ecset* pold ) {
 	tombbenkov = 0;
 
 	nagydarabtomb = NULL;
+#ifdef ELMA_PS3
+	memory_flat_count=0;
+#endif
 
 	view = 0;
 	xsizedb = ysizedb = 0.0;
@@ -1420,8 +1429,11 @@ ecset::~ecset( void ) {
 		hiba( "ecset::~ecset elsotomb" );
 	if( !nagydarabtomb )
 		hiba( "ecset::~ecset !nagydarabtomb!" );
-	delete nagydarabtomb;
+	delete[] nagydarabtomb;
 	nagydarabtomb = NULL;
+#ifdef ELMA_PS3
+	memory_flat_count=0;
+#endif
 	delete[] msorok;
 	delete[] sorok;
 	delete[] kurxposok_A;
@@ -2255,6 +2267,33 @@ void ecset::foltoz( void ) {
 }
 
 
+#ifdef ELMA_PS3
+static unsigned long long BrushPeak=0;
+static double BrushZoom=1;
+unsigned long long ecset::memory_bytes() const {
+    unsigned long long total=sizeof(*this)+unsigned(sortombmeret)*(4*sizeof(void*)+2*sizeof(int));
+    for(mdarabtomb* t=elsotomb;t;t=t->kovtomb)total+=sizeof(mdarabtomb);
+    if(nagydarabtomb)total+=unsigned(memory_flat_count)*sizeof(darab);
+    return total;
+}
+unsigned long long ps3_brush_memory_bytes() {
+    unsigned long long total=0;
+    if(Pecsetalso)total+=Pecsetalso->memory_bytes();
+    if(Pecsetfelso)total+=Pecsetfelso->memory_bytes();
+    if(Pecsetview)total+=Pecsetview->memory_bytes();
+    return total;
+}
+static void sample_brush_memory() {
+    const unsigned long long total=ps3_brush_memory_bytes();
+    if(total>BrushPeak)BrushPeak=total;
+}
+unsigned long long ps3_brush_peak_bytes(){return BrushPeak;}
+double ps3_brush_effective_zoom(){return BrushZoom;}
+#define SAMPLE_BRUSH_MEMORY() sample_brush_memory()
+#else
+#define SAMPLE_BRUSH_MEMORY() ((void)0)
+#endif
+
 void betoltecseteket( void ) {
 	Plgr->betolthattereket();
 
@@ -2270,13 +2309,19 @@ void betoltecseteket( void ) {
 		delete Pecsetview;
 	Pecsetview = NULL;
 
+#ifdef ELMA_PS3
+    BrushPeak=0;BrushZoom=kepnagyitas();
+#endif
 	Pecsetalso = new ecset( 0 );
+	SAMPLE_BRUSH_MEMORY();
 	if( !Pecsetalso )
 		hiba( "Nincs eleg memoria Pecsetalso-nak!" );
 
 	Pecsetalso->foltoz();
+	SAMPLE_BRUSH_MEMORY();
 
 	Pecsetfelso = new ecset( Pecsetalso );
+	SAMPLE_BRUSH_MEMORY();
 	if( !Pecsetfelso )
 		hiba( "Nincs eleg memoria Pecsetfelso-nak!" );
 
@@ -2303,24 +2348,29 @@ void betoltecseteket( void ) {
 	}
 
 	// Rovid folddarabokat atalakitja konkret mutatova:
+	SAMPLE_BRUSH_MEMORY();
 	Pecsetalso->foldmutatocsere();
 	// Egymas utani ket azonos texturat
 	// lecsereli egyre (mar beepiteskor is megtortenik nemileg):
 	Pecsetalso->duplaeliminacio();
 	Pecsetalso->textura2mutato(); // Lecsereli textura indexeket mutatokka
-	Pecsetalso->mutatotlanit();   // mdarab lancolt listabol tombot csinal
+	Pecsetalso->mutatotlanit();
+	SAMPLE_BRUSH_MEMORY();   // mdarab lancolt listabol tombot csinal
 	Pecsetalso->deletemdarabok(); // Torli lancolt listat:
 
 	Pecsetfelso->duplaeliminacio();
 	Pecsetfelso->textura2mutato();
 	Pecsetfelso->mutatotlanit();
+	SAMPLE_BRUSH_MEMORY();
 	Pecsetfelso->deletemdarabok();
 
 	// View ecset:
 	Pecsetview = new ecset( 1 );
+	SAMPLE_BRUSH_MEMORY();
 	if( !Pecsetview )
 		hiba( "Nincs eleg memoria Pecsetview-nak!" );
 	Pecsetview->mutatotlanit();
+	SAMPLE_BRUSH_MEMORY();
 	Pecsetview->deletemdarabok();
 
 	// Kajak egesz koordjainak kitoltese:

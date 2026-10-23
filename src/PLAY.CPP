@@ -106,6 +106,11 @@ static int bevesznevet( char* nev ) {
 			nev[i] = 0;
 
 			szovlist.addszoveg_kozep( "Please enter the filename:", 320, 180 );
+#ifdef ELMA_PS3
+            szovlist.addszoveg_kozep("Up / Down: change letter",320,305);
+            szovlist.addszoveg_kozep("Right: add; Left: delete",320,340);
+            szovlist.addszoveg_kozep("Cross: accept; Circle: back",320,375);
+#endif
 			//szovlist.addszoveg_kozep( "Press ESC to exit", 320, 300 );
 		}
 		szovlist.kirajzol();
@@ -418,7 +423,11 @@ void idoelintezes( long ido, char* valasz, int level, char* filenev ) {
 
 #ifndef ELMA_PSX
 void replayprec( void ) {
+#ifdef ELMA_PS3
+    if(!floadlevel_p(Prec1->palyanev)){Pmenupal->set();return;}
+#else
 	floadlevel_p( Prec1->palyanev );
+#endif
 	int elso = 1;
 	while( 1 ) {
 		Prec1->rewind();
@@ -717,6 +726,11 @@ int afterplay( int level, int nextdefault, char* idoeredmeny, char* filenev,
 #ifndef ELMA_PSX
 		if( eredmeny == 2 ) {
 			replayprec();
+#ifdef ELMA_PS3
+            // A refused reload may have discarded the former topology and
+            // collision map. Leave this menu before Save Replay uses them.
+            if(!Ptop || !Pszak)return 0;
+#endif
 			Pmenupal->set();
 		}
 		if( eredmeny == 3 ) {
@@ -759,7 +773,11 @@ static void playlevel( int level ) {
 				sprintf( tmpnev, "QWQUU%d.LEV", level+1 );
 		}
 		kiirloading();
+#ifdef ELMA_PS3
+        if(!floadlevel_p(tmpnev)){Pmenupal->set();return;}
+#else
 		floadlevel_p( tmpnev );
+#endif
 
 		int parreplay = 0;
 		Prec1->erase( tmpnev );

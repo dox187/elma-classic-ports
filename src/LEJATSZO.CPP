@@ -1,4 +1,9 @@
 #include	"all.h"
+#ifdef ELMA_PS3
+#include "PS3_PLATFORM.H"
+#include "PS3_UI_LATCH.H"
+#include "PS3_CONTROLS.H"
+#endif
 #ifdef ELMA_PSX
 #include "sound/psx_sound.h"
 #endif
@@ -93,6 +98,10 @@ static void nagyitobillentyuk( int* pnagyitnyomva, int* pkicsinyitnyomva ) {
 	int kicsinyitkod = nagyitobillentyu( 0 );
 	int nagyit = nagyitkod && mk_getstate( nagyitkod );
 	int kicsinyit = kicsinyitkod && mk_getstate( kicsinyitkod );
+#ifdef ELMA_PS3
+    nagyit=ps3_zoom_down(true,nagyit!=0);
+    kicsinyit=ps3_zoom_down(false,kicsinyit!=0);
+#endif
 	int irany = 0;
 	if( nagyit && !*pnagyitnyomva )
 		irany++;
@@ -114,6 +123,12 @@ static void nagyitobillentyuk( int* pnagyitnyomva, int* pkicsinyitnyomva ) {
 		uj = NAGYITASMAX;
 	if( uj == regi )
 		return;
+#ifdef ELMA_PS3
+    mv_pausestopper(1);
+    int admitted=ps3_zoom_admissible(uj);
+    mv_pausestopper(0);
+    if(!admitted)return;
+#endif
 	dd_set_zoom( uj );
 	nagyitasvaltas();
 }
@@ -224,7 +239,13 @@ static void belsoresz( motorst* pmot, jatekosopciok* popciok,
 
 			// Valtozok inicializalasa:
 			int showkep = pvalt->showkep;
+#ifdef ELMA_PS3
+            const Ps3UiLatchSnapshot ui_latches(*pvalt);
+#endif
 			BYTESET( pvalt, 0, sizeof( valtozok ) );
+#ifdef ELMA_PS3
+            ui_latches.restore(*pvalt);
+#endif
 			pvalt->baljobbv_f.ucsoford    = -1000.0;
 			pvalt->baljobbv_f.ucsoforgas  = -1000.0;
 			pvalt->baljobbv_h.ucsoford    = -1000.0;
@@ -392,6 +413,9 @@ int Masodikmenet = 0;
 
 // Idot adja vissza szazadmasodpercben:
 long lejatszo( char* filenev ) {
+#ifdef ELMA_PS3
+    Ps3DiagnosticScope diagnostics("game");
+#endif
 	//hiba( "Ezegyhosszusor,szetkellvagnibiztosanhibaEzegy hosszu sor, szet kell vagni biztosan!",
 	//	"Ez egy masik hosszu sor, szet kell vagni biztosan!" );
 
@@ -836,6 +860,19 @@ static int Elozoshowkep1 = 1, Elozoshowkep2 = 1;
 
 // Termeszetes befejezes eseten 0-t ad vissza:
 long lejatszo_r( char* filenev, int showkepmarad ) {
+#ifdef ELMA_PS3
+    if(!Ptop)return 1;
+    // Sound/object events refer to the same sorted object indices as play.
+    // Check before flipping the level or starting audio so refusal leaves
+    // the browser/editor's topology in its normal orientation.
+    Ptop->killerekelore();
+    if(!Prec1->objects_exist(Ptop->kerektomb)
+       || (Multirec && !Prec2->objects_exist(Ptop->kerektomb))){
+        uzenet("This replay refers to objects missing from the level.");
+        return 1;
+    }
+    Ps3DiagnosticScope diagnostics("replay");
+#endif
 	Kitoltestmegrak = 3; // kirajz meg 3x kirakja keretet
 
 	// Jatekmod eldontese:

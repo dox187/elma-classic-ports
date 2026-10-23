@@ -1,4 +1,5 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
 
 // Ha ez define-olva van, Billint-et 0-ra kell allitani:
 // Ezzel lehet allitani hogy kulonallo upg file maker legyen-e:
@@ -30,7 +31,7 @@ static void beirxor40ezret( FILE* hout, FILE* hin, char* oldresnev ) {
 
 		int b = a1 ^ a2;
 
-		if( fwrite( &b, 1, 1, hout ) != 1 )
+		if( elma_write( &b, 1, 1, hout ) != 1 )
 			hiba( "78946682354" );
 	}
 
@@ -72,7 +73,7 @@ void makeupgradefile( void ) {
 		hiba( "Nem nyilik elmaupg.res makeupgradefile!" );
 
 	// Beirjuk elma.res hosszat elso negy byte-ba:
-	if( fwrite( &elmareshossz, 1, 4, helmaupg ) != 4 )
+	if( elma_write( &elmareshossz, 1, 4, helmaupg ) != 4 )
 		hiba( "867567325" );
 
 	// Most elma.res elso 40.000 byte-jat xor-olva reg.res 1.600.000-nal
@@ -90,7 +91,7 @@ void makeupgradefile( void ) {
 		int c = fgetc( helma );
 		if( c == EOF )
 			hiba( "97824656745" );
-		if( fwrite( &c, 1, 1, helmaupg ) != 1 )
+		if( elma_write( &c, 1, 1, helmaupg ) != 1 )
 			hiba( "65246542674" );
 	}
 
@@ -133,7 +134,7 @@ void upgradehakell( void ) {
 	int bytetomb[8] = { 0x6e, 0, 0, 0, 0x41, 0x71, 0x4a, 0x7b };
 	for( int i = 0; i < 8; i++ ) {
 		int c = 0;
-		if( fread( &c, 1, 1, holdres ) != 1 )
+		if( elma_read( &c, 1, 1, holdres ) != 1 )
 			uzenet( "Read error from file, across.res!" );
 		if( c != bytetomb[i] )
 			uzenet( "The version of the across.res file is invalid.",
@@ -143,7 +144,7 @@ void upgradehakell( void ) {
 	// Megallapitjuk, hogy registered, vagy upgrade old res file:
 	fseek( holdres, 2020, SEEK_SET );
 	int c = 0;
-	if( fread( &c, 1, 1, holdres ) != 1 )
+	if( elma_read( &c, 1, 1, holdres ) != 1 )
 		uzenet( "Read error from file, across.res!" );
 	if( c != 61 && c != 58 )
 		uzenet( "The version of the across.res file is invalid.",
@@ -164,7 +165,7 @@ void upgradehakell( void ) {
 				"While upgrading." );
 
 	int elmareshossz = 0;
-	if( fread( &elmareshossz, 1, 4, helmaupg ) != 4 )
+	if( elma_read( &elmareshossz, 1, 4, helmaupg ) != 4 )
 		uzenet( "Read error from file, elmaupg.res!",
 				"While upgrading." );
 
@@ -186,7 +187,7 @@ void upgradehakell( void ) {
 
 		int b = a1 ^ a2;
 
-		if( fwrite( &b, 1, 1, helma ) != 1 )
+		if( elma_write( &b, 1, 1, helma ) != 1 )
 			uzenet( "Write error on file, elma.res!",
 					"While upgrading." );
 	}
@@ -200,7 +201,7 @@ void upgradehakell( void ) {
 		if( c == EOF )
 			uzenet( "Read error from file, elmaupg.res!",
 					"While upgrading." );
-		if( fwrite( &c, 1, 1, helma ) != 1 )
+		if( elma_write( &c, 1, 1, helma ) != 1 )
 			uzenet( "Write error on file, elma.res!",
 					"While upgrading." );
 	}

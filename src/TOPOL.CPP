@@ -1,4 +1,11 @@
 #include    "all.h"
+#include "LE_STRUCT.H"
+#ifdef ELMA_PS3
+#include "ATOMIC_FILE.H"
+#define ELMA_LEVEL_WRITE_ERROR(message) return
+#else
+#define ELMA_LEVEL_WRITE_ERROR(message) hiba(message)
+#endif
 
 #define DEFAULTSIZE (20.0)
 
@@ -122,7 +129,7 @@ static char Sor[110];
 // Van ugyanilyen neven state.cpp-ben is ket fv.:
 
 // Sikerest adja vissza:
-static int titkosread( void* mut, int hossz, FILE* h ) {
+template<class T> static int titkosread( T* mut, int hossz, FILE* h ) {
     if( fread( mut, 1, hossz, h ) != hossz )
         return 0;
     unsigned char* pc = (unsigned char*)mut;
@@ -134,11 +141,14 @@ static int titkosread( void* mut, int hossz, FILE* h ) {
         b += a*c;
         a = 31*b+c;
     }
+
+    elma_convert(mut,hossz);
     return 1;
 }
 
 // Sikerest adja vissza:
-static int titkoswrite( void* mut, int hossz, FILE* h ) {
+template<class T> static int titkoswrite( T* mut, int hossz, FILE* h ) {
+    elma_convert(mut,hossz);
     unsigned char* pc = (unsigned char*)mut;
     short a = 21, b = 9783, c = 3389;
 
@@ -148,8 +158,7 @@ static int titkoswrite( void* mut, int hossz, FILE* h ) {
         b += a*c;
         a = 31*b+c;
     }
-    if( fwrite( mut, 1, hossz, h ) != hossz )
-        return 0;
+    const bool written=fwrite(mut,1,hossz,h)==size_t(hossz);
     a = 21, b = 9783, c = 3389;
 
     for( int i = 0; i < hossz; i++ ) {
@@ -158,7 +167,9 @@ static int titkoswrite( void* mut, int hossz, FILE* h ) {
         b += a*c;
         a = 31*b+c;
     }
-    return 1;
+
+    elma_convert(mut,hossz);
+    return written;
 }
 
 char* getleveldescription( int level ) {
@@ -256,36 +267,36 @@ void kerek::kirajzol( void ) {
 }
 
 kerek::kerek( FILE* h, int verzio ) {
-    if( fread( &r.x, 1, sizeof( r.x ), h ) != sizeof( r.x ) )
+    if( elma_read( &r.x, 1, sizeof( r.x ), h ) != sizeof( r.x ) )
         hiba( "Nem olvas file-bol kerek::kerek-ben!" );
-    if( fread( &r.y, 1, sizeof( r.y ), h ) != sizeof( r.y ) )
+    if( elma_read( &r.y, 1, sizeof( r.y ), h ) != sizeof( r.y ) )
         hiba( "Nem olvas file-bol kerek::kerek-ben!" );
-    if( fread( &tipus, 1, sizeof( tipus ), h ) != sizeof( tipus ) )
+    if( elma_read( &tipus, 1, sizeof( tipus ), h ) != sizeof( tipus ) )
         hiba( "Nem olvas file-bol kerek::kerek-ben!" );
 
     kajatipus = 0;
     if( verzio >= 9 )
-        if( fread( &kajatipus, 1, 4, h ) != 4 )
+        if( elma_read( &kajatipus, 1, 4, h ) != 4 )
             hiba( "Nem olvas file-bol kerek::kerek-ben!" );
     foodsorszam = 0;
     if( verzio >= 11 )
-        if( fread( &foodsorszam, 1, 4, h ) != 4 )
+        if( elma_read( &foodsorszam, 1, 4, h ) != 4 )
             hiba( "Nem olvas file-bol kerek::kerek-ben!" );
     if( foodsorszam < 0 || foodsorszam > 8 )
         hiba( "65767yr" );
 }
 
 void kerek::save( FILE* h ) {
-    if( fwrite( &r.x, 1, sizeof( r.x ), h ) != sizeof( r.x ) )
-        hiba( "Nem ir file-ba kerek::save-ben!" );
-    if( fwrite( &r.y, 1, sizeof( r.y ), h ) != sizeof( r.y ) )
-        hiba( "Nem ir file-ba kerek::save-ben!" );
-    if( fwrite( &tipus, 1, sizeof( tipus ), h ) != sizeof( tipus ) )
-        hiba( "Nem ir file-ba kerek::save-ben!" );
-    if( fwrite( &kajatipus, 1, 4, h ) != 4 )
-        hiba( "Nem ir file-ba kerek::save-ben!" );
-    if( fwrite( &foodsorszam, 1, 4, h ) != 4 )
-        hiba( "Nem ir file-ba kerek::save-ben!" );
+    if( elma_write( &r.x, 1, sizeof( r.x ), h ) != sizeof( r.x ) )
+        ELMA_LEVEL_WRITE_ERROR( "Nem ir file-ba kerek::save-ben!" );
+    if( elma_write( &r.y, 1, sizeof( r.y ), h ) != sizeof( r.y ) )
+        ELMA_LEVEL_WRITE_ERROR( "Nem ir file-ba kerek::save-ben!" );
+    if( elma_write( &tipus, 1, sizeof( tipus ), h ) != sizeof( tipus ) )
+        ELMA_LEVEL_WRITE_ERROR( "Nem ir file-ba kerek::save-ben!" );
+    if( elma_write( &kajatipus, 1, 4, h ) != 4 )
+        ELMA_LEVEL_WRITE_ERROR( "Nem ir file-ba kerek::save-ben!" );
+    if( elma_write( &foodsorszam, 1, 4, h ) != 4 )
+        ELMA_LEVEL_WRITE_ERROR( "Nem ir file-ba kerek::save-ben!" );
 }
 
 double kerek::belyegszamitas( void ) {
@@ -379,41 +390,41 @@ sprite::sprite( FILE* h ) {
     if( meret != 4 )
         hiba( "sprite::sprite-ban sizeof( tavolsag ) != 4!" );
 
-    if( fread( kepnev, 1, 10, h ) != 10 )
+    if( elma_read( kepnev, 1, 10, h ) != 10 )
         hiba( "Nemo sp!" );
-    kepnev[10] = 0; // Csak biztonsagert
-    if( fread( texturanev, 1, 10, h ) != 10 )
+    kepnev[sizeof(kepnev)-1] = 0; // Csak biztonsagert
+    if( elma_read( texturanev, 1, 10, h ) != 10 )
         hiba( "Nemo sp!" );
-    texturanev[10] = 0; // Csak biztonsagert
-    if( fread( maszknev, 1, 10, h ) != 10 )
+    texturanev[sizeof(texturanev)-1] = 0; // Csak biztonsagert
+    if( elma_read( maszknev, 1, 10, h ) != 10 )
         hiba( "Nemo sp!" );
-    maszknev[10] = 0; // Csak biztonsagert
+    maszknev[sizeof(maszknev)-1] = 0; // Csak biztonsagert
 
-    if( fread( &r.x, 1, sizeof( r.x ), h ) != sizeof( r.x ) )
+    if( elma_read( &r.x, 1, sizeof( r.x ), h ) != sizeof( r.x ) )
         hiba( "Nem olvas file-bol sprite::sprite-ban!" );
-    if( fread( &r.y, 1, sizeof( r.y ), h ) != sizeof( r.y ) )
+    if( elma_read( &r.y, 1, sizeof( r.y ), h ) != sizeof( r.y ) )
         hiba( "Nem olvas file-bol sprite::sprite-ban!" );
-    if( fread( &tavolsag, 1, sizeof( tavolsag ), h ) != sizeof( tavolsag ) )
+    if( elma_read( &tavolsag, 1, sizeof( tavolsag ), h ) != sizeof( tavolsag ) )
         hiba( "Nem olvas file-bol sprite::sprite-ban!" );
-    if( fread( &hatarol, 1, sizeof( hatarol ), h ) != sizeof( hatarol ) )
+    if( elma_read( &hatarol, 1, sizeof( hatarol ), h ) != sizeof( hatarol ) )
         hiba( "Nem olvas file-bol sprite::sprite-ban!" );
 }
 
 void sprite::save( FILE* h ) {
-    if( fwrite( kepnev, 1, 10, h ) != 10 )
-        hiba( "Nir sp!" );
-    if( fwrite( texturanev, 1, 10, h ) != 10 )
-        hiba( "Nir sp!" );
-    if( fwrite( maszknev, 1, 10, h ) != 10 )
-        hiba( "Nir sp!" );
-    if( fwrite( &r.x, 1, sizeof( r.x ), h ) != sizeof( r.x ) )
-        hiba( "Nir sp!" );
-    if( fwrite( &r.y, 1, sizeof( r.y ), h ) != sizeof( r.y ) )
-        hiba( "Nir sp!" );
-    if( fwrite( &tavolsag, 1, sizeof( tavolsag ), h ) != sizeof( tavolsag ) )
-        hiba( "Nir sp!" );
-    if( fwrite( &hatarol, 1, sizeof( hatarol ), h ) != sizeof( hatarol ) )
-        hiba( "Nir sp!" );
+    if( elma_write( kepnev, 1, 10, h ) != 10 )
+        ELMA_LEVEL_WRITE_ERROR( "Nir sp!" );
+    if( elma_write( texturanev, 1, 10, h ) != 10 )
+        ELMA_LEVEL_WRITE_ERROR( "Nir sp!" );
+    if( elma_write( maszknev, 1, 10, h ) != 10 )
+        ELMA_LEVEL_WRITE_ERROR( "Nir sp!" );
+    if( elma_write( &r.x, 1, sizeof( r.x ), h ) != sizeof( r.x ) )
+        ELMA_LEVEL_WRITE_ERROR( "Nir sp!" );
+    if( elma_write( &r.y, 1, sizeof( r.y ), h ) != sizeof( r.y ) )
+        ELMA_LEVEL_WRITE_ERROR( "Nir sp!" );
+    if( elma_write( &tavolsag, 1, sizeof( tavolsag ), h ) != sizeof( tavolsag ) )
+        ELMA_LEVEL_WRITE_ERROR( "Nir sp!" );
+    if( elma_write( &hatarol, 1, sizeof( hatarol ), h ) != sizeof( hatarol ) )
+        ELMA_LEVEL_WRITE_ERROR( "Nir sp!" );
 }
 
 double sprite::belyegszamitas( void ) {
@@ -797,6 +808,9 @@ int access_topol( char* filenev ) {
         return 0;
     char tmp[30];
     sprintf( tmp, "lev\\%s", filenev );
+#ifdef ELMA_PS3
+    elma_restore_save(tmp);
+#endif
     return access( tmp, 0 );
 }
 
@@ -962,6 +976,9 @@ void topol::loadkulso( char* filenev ) {
     if( !gyujtemenybol ) {
 		char tmpnev[40];
         sprintf( tmpnev, "lev\\%s", filenev );
+#ifdef ELMA_PS3
+        elma_restore_save(tmpnev);
+#endif
         h = fopen( tmpnev, "rb" );
         if( !h )
             hiba( "topol::topol-ban nem tudta nyitni file-t!: ", tmpnev );
@@ -976,7 +993,7 @@ void topol::loadkulso( char* filenev ) {
 
     // Verzio beolvasasa:
     char tmp[10] = "AAAAA";
-    if( fread( tmp, 1, 5, h ) != 5 )
+    if( elma_read( tmp, 1, 5, h ) != 5 )
 		hiba( "Nem tudott olvasni txt file-bol!" );
     if( strncmp( tmp, "POT", 3 ) != 0 )
         hiba( "topol::topol( char* filenev )-ben nem stimmel eleje!" );
@@ -1004,20 +1021,20 @@ void topol::loadkulso( char* filenev ) {
 
     int dummy;
 	if( verzio >= 13 ) {
-		if( fread( &dummy, 1, 2, h ) != 2 )
+		if( elma_read( &dummy, 1, 2, h ) != 2 )
 			hiba( "Nem tudott olvasni lev file-bol!" );
 	}
 
     // Belyeg:
-    if( fread( &belyeg, 1, 4, h ) != 4 )
+    if( elma_read( &belyeg, 1, 4, h ) != 4 )
         hiba( "Nem tudott olvasni lev file-bol!" );
 
-    if( fread( &belyeg_d, 1, sizeof( belyeg_d ), h ) != sizeof( double ) )
+    if( elma_read( &belyeg_d, 1, sizeof( belyeg_d ), h ) != sizeof( double ) )
         hiba( "Nem tudott olvasni lev file-bol double belyeget!" );
 
     // Beolvassuk hogy shareware-e:
     double sarvarertek;
-	if( fread( &sarvarertek, 1, sizeof( sarvarertek ), h ) != sizeof( sarvarertek ) )
+	if( elma_read( &sarvarertek, 1, sizeof( sarvarertek ), h ) != sizeof( sarvarertek ) )
 		hiba( "Nem tudott olvasni lev file-bol!" );
 	if( sarvarertek + belyeg_d < 9786.0 ||
 		sarvarertek + belyeg_d > 36546.0 )
@@ -1039,7 +1056,7 @@ void topol::loadkulso( char* filenev ) {
 
     // Beolvassuk hogy hibas-e:
     double hibaertek;
-    if( fread( &hibaertek, 1, sizeof( hibaertek ), h ) != sizeof( hibaertek ) )
+    if( elma_read( &hibaertek, 1, sizeof( hibaertek ), h ) != sizeof( hibaertek ) )
         hiba( "Nem tudott olvasni lev file-bol!" );
     if( hibaertek + belyeg_d < 9786.0 ||
         hibaertek + belyeg_d > 36546.0 )
@@ -1049,7 +1066,7 @@ void topol::loadkulso( char* filenev ) {
 
     // Beolvassuk hogy lezart-e:
     double lezartertek;
-    if( fread( &lezartertek, 1, sizeof( lezartertek ), h ) != sizeof( lezartertek ) )
+    if( elma_read( &lezartertek, 1, sizeof( lezartertek ), h ) != sizeof( lezartertek ) )
 		hiba( "Nem tudott olvasni lev file-bol!" );
     if( lezartertek + belyeg_d < 9875.0 ||
         lezartertek + belyeg_d > 32345.0 )
@@ -1063,21 +1080,21 @@ void topol::loadkulso( char* filenev ) {
     int tmpnamehossz = LEVELNAMEHOSSZ;
     if( verzio < 14 )
         tmpnamehossz = 14;
-    fread( levelname, 1, tmpnamehossz+1, h );
+    elma_read( levelname, 1, tmpnamehossz+1, h );
     levelname[tmpnamehossz] = 0; // Ez csak biztonsagert
 
     // Beolvassuk lgr nevet:
     if( verzio > 6 ) {
-        fread( lgrnev, 1, 16, h );
+        elma_read( lgrnev, 1, 16, h );
         lgrnev[15] = 0; // Ez csak biztonsagert
 	}
     else
         strcpy( lgrnev, "default" );
 
 	if( verzio >= 8 ) {
-		fread( fgnev, 1, 10, h );
+		elma_read( fgnev, 1, 10, h );
         lgrnev[10] = 0; // Ez csak biztonsagert
-        fread( bgnev, 1, 10, h );
+        elma_read( bgnev, 1, 10, h );
         lgrnev[10] = 0; // Ez csak biztonsagert
     }
     else {
@@ -1104,7 +1121,7 @@ void topol::loadkulso( char* filenev ) {
     }
 
     double gyuruolvszam = 0;
-    if( fread( &gyuruolvszam, 1, sizeof( gyuruolvszam ), h ) != sizeof( gyuruolvszam ) )
+    if( elma_read( &gyuruolvszam, 1, sizeof( gyuruolvszam ), h ) != sizeof( gyuruolvszam ) )
         hiba( "topol::topol-ban nem tudta olvasni lebego gyuruszamot!" );
 
     int gyuruszam = gyuruolvszam;
@@ -1154,7 +1171,7 @@ void topol::loadkulso( char* filenev ) {
 
     // Kerekek szama:
     double kerekolvszam = 0;
-    if( fread( &kerekolvszam, 1, sizeof( kerekolvszam ), h ) != sizeof( kerekolvszam ) )
+    if( elma_read( &kerekolvszam, 1, sizeof( kerekolvszam ), h ) != sizeof( kerekolvszam ) )
         hiba( "topol::topol-ban nem tudta olvasni lebego kerekszamot!" );
 
     int kerekszam = kerekolvszam;
@@ -1184,7 +1201,7 @@ void topol::loadkulso( char* filenev ) {
 		// Most van SPRITE beolvasas is:
         // Kerekek szama:
         double spriteolvszam = 0;
-        if( fread( &spriteolvszam, 1, sizeof( spriteolvszam ), h ) != sizeof( spriteolvszam ) )
+        if( elma_read( &spriteolvszam, 1, sizeof( spriteolvszam ), h ) != sizeof( spriteolvszam ) )
             hiba( "topol::topol-ban nem tudta olvasni lebego spriteszamot!" );
 
         int spriteszam = spriteolvszam;
@@ -1217,14 +1234,14 @@ void topol::loadkulso( char* filenev ) {
             hiba( "dddhhhew" );
 
         int tmpszam = 0;
-        if( fread( &tmpszam, 1, 4, h ) != 4 ||
+        if( elma_read( &tmpszam, 1, 4, h ) != 4 ||
             tmpszam != IDOEGYEDISZAM1 ) {
             //if( verzio >= 10 )
             //  uzenet( "Corrupt file:", filenev );
 		}
         else {
             if( !titkosread( &idok, sizeof( idok ), h ) ||
-                fread( &tmpszam, 1, 4, h ) != 4 ||
+                elma_read( &tmpszam, 1, 4, h ) != 4 ||
                 tmpszam != IDOEGYEDISZAM2 ) {
                 memset( &idok, 0, sizeof( idok ) );
                 //uzenet( "Corrupt file:", filenev );
@@ -1272,7 +1289,7 @@ void topol::loadbelso( char* filenev ) {
 
     // Verzio beolvasasa:
     char tmp[10] = "AAAAA";
-    if( fread( tmp, 1, 5, h ) != 5 )
+    if( elma_read( tmp, 1, 5, h ) != 5 )
         hiba( "Nem tudott olvasni txt file-bol!" );
     if( strncmp( tmp, "@@^!@", 3 ) != 0 )
         hiba( "topol::topol( char* filenev )-ben nem stimmel eleje!" );
@@ -1300,20 +1317,20 @@ void topol::loadbelso( char* filenev ) {
 
     int dummy;
     if( verzio >= 13 ) {
-        if( fread( &dummy, 1, 2, h ) != 2 )
+        if( elma_read( &dummy, 1, 2, h ) != 2 )
             hiba( "Nem tudott olvasni lev file-bol!" );
     }
 
     // Belyeg:
-    if( fread( &belyeg, 1, 4, h ) != 4 )
+    if( elma_read( &belyeg, 1, 4, h ) != 4 )
         hiba( "Nem tudott olvasni lev file-bol!" );
 
-    if( fread( &belyeg_d, 1, sizeof( belyeg_d ), h ) != sizeof( double ) )
+    if( elma_read( &belyeg_d, 1, sizeof( belyeg_d ), h ) != sizeof( double ) )
         hiba( "Nem tudott olvasni lev file-bol double belyeget!" );
 
     // Beolvassuk hogy shareware-e:
     double sarvarertek;
-    if( fread( &sarvarertek, 1, sizeof( sarvarertek ), h ) != sizeof( sarvarertek ) )
+    if( elma_read( &sarvarertek, 1, sizeof( sarvarertek ), h ) != sizeof( sarvarertek ) )
         hiba( "Nem tudott olvasni lev file-bol!" );
     if( sarvarertek + belyeg_d < 9786.0 ||
         sarvarertek + belyeg_d > 36546.0 )
@@ -1329,7 +1346,7 @@ void topol::loadbelso( char* filenev ) {
 
     // Beolvassuk hogy hibas-e:
     double hibaertek;
-    if( fread( &hibaertek, 1, sizeof( hibaertek ), h ) != sizeof( hibaertek ) )
+    if( elma_read( &hibaertek, 1, sizeof( hibaertek ), h ) != sizeof( hibaertek ) )
         hiba( "Nem tudott olvasni lev file-bol!" );
     if( hibaertek + belyeg_d < 9786.0 ||
         hibaertek + belyeg_d > 36546.0 )
@@ -1339,7 +1356,7 @@ void topol::loadbelso( char* filenev ) {
 
     // Beolvassuk hogy lezart-e:
     double lezartertek;
-    if( fread( &lezartertek, 1, sizeof( lezartertek ), h ) != sizeof( lezartertek ) )
+    if( elma_read( &lezartertek, 1, sizeof( lezartertek ), h ) != sizeof( lezartertek ) )
         hiba( "Nem tudott olvasni lev file-bol!" );
     if( lezartertek + belyeg_d < 9875.0 ||
         lezartertek + belyeg_d > 32345.0 )
@@ -1358,21 +1375,21 @@ void topol::loadbelso( char* filenev ) {
     int tmpnamehossz = LEVELNAMEHOSSZ;
     if( verzio < 14 )
         tmpnamehossz = 14;
-    fread( levelname, 1, tmpnamehossz+1, h );
+    elma_read( levelname, 1, tmpnamehossz+1, h );
     levelname[tmpnamehossz] = 0; // Ez csak biztonsagert
 
     // Beolvassuk lgr nevet:
     if( verzio > 6 ) {
-        fread( lgrnev, 1, 16, h );
+        elma_read( lgrnev, 1, 16, h );
         lgrnev[15] = 0; // Ez csak biztonsagert
     }
     else
         strcpy( lgrnev, "default" );
 
     if( verzio >= 8 ) {
-        fread( fgnev, 1, 10, h );
+        elma_read( fgnev, 1, 10, h );
         lgrnev[10] = 0; // Ez csak biztonsagert
-        fread( bgnev, 1, 10, h );
+        elma_read( bgnev, 1, 10, h );
         lgrnev[10] = 0; // Ez csak biztonsagert
     }
     else {
@@ -1384,7 +1401,7 @@ void topol::loadbelso( char* filenev ) {
     if( verzio < 14 )
         qseek( h, 100, SEEK_SET );
     double gyuruolvszam = 0;
-    if( fread( &gyuruolvszam, 1, sizeof( gyuruolvszam ), h ) != sizeof( gyuruolvszam ) )
+    if( elma_read( &gyuruolvszam, 1, sizeof( gyuruolvszam ), h ) != sizeof( gyuruolvszam ) )
         hiba( "topol::topol-ban nem tudta olvasni lebego gyuruszamot!" );
 
     int gyuruszam = gyuruolvszam;
@@ -1395,7 +1412,7 @@ void topol::loadbelso( char* filenev ) {
 
     // Kerekek szama:
     double kerekolvszam = 0;
-    if( fread( &kerekolvszam, 1, sizeof( kerekolvszam ), h ) != sizeof( kerekolvszam ) )
+    if( elma_read( &kerekolvszam, 1, sizeof( kerekolvszam ), h ) != sizeof( kerekolvszam ) )
         hiba( "topol::topol-ban nem tudta olvasni lebego kerekszamot!" );
 
     int kerekszam = kerekolvszam;
@@ -1416,7 +1433,7 @@ void topol::loadbelso( char* filenev ) {
         // Most van SPRITE beolvasas is:
         // Kerekek szama:
         double spriteolvszam = 0;
-        if( fread( &spriteolvszam, 1, sizeof( spriteolvszam ), h ) != sizeof( spriteolvszam ) )
+        if( elma_read( &spriteolvszam, 1, sizeof( spriteolvszam ), h ) != sizeof( spriteolvszam ) )
             hiba( "topol::topol-ban nem tudta olvasni lebego spriteszamot!" );
 
         int spriteszam = spriteolvszam;
@@ -1454,17 +1471,24 @@ static long longosit( double belyeg ) {
 
     belyeg = sin( belyeg );
     belyeg *= (belyeg+1.0001)*40000;
-    unsigned long l = belyeg;
+    // The stamp transform is bounded, but may be negative. Truncate in
+    // a signed type first; converting negative double directly to unsigned
+    // is undefined. Only the low 16 bits are stored below.
+    uint32_t l = static_cast<uint32_t>(static_cast<int32_t>(belyeg));
 
     unsigned long belyeg_l = ( l & 0x0000ffff ) |
                              ( veletlen & 0xffff0000 );
     return belyeg_l;
 }
 
-void topol::save( char* filenev, int nemkellcheck ) {
+int topol::save( char* filenev, int nemkellcheck ) {
 #ifdef BUTITOTT
 	uzenet( "Menteni most nem szabad!" );
+    return 0;
 #else
+#ifdef ELMA_PS3
+    const palyaidok previous_times=idok;
+#endif
 	memset( &idok, 0, sizeof( idok ) );
     //if( lezart )
     //  hiba( "topol::save-ben lezart!" );
@@ -1483,12 +1507,22 @@ void topol::save( char* filenev, int nemkellcheck ) {
         if( hibas && lezart ) {
             dialog( "You cannot save this file as a locked file because there are",
                     "some topology errors in the design and you could not play on it!" );
-            return;
+#ifdef ELMA_PS3
+            idok=previous_times;
+#endif
+            return 0;
 		}
     }
 
     char tmpnev[40];
+#ifdef ELMA_PS3
+    const int path_size=snprintf(tmpnev,sizeof(tmpnev),"lev/%s",filenev);
+    if(path_size<0 || size_t(path_size)>=sizeof(tmpnev)){
+        idok=previous_times;uzenet("Level filename is too long.");return 0;
+    }
+#else
     sprintf( tmpnev, "lev\\%s", filenev );
+#endif
     #ifdef BELSOTIR
         if( !strstr( tmpnev, ".lev" ) && !strstr( tmpnev, ".LEV" ) )
             hiba( "78t4678r4" );
@@ -1497,24 +1531,29 @@ void topol::save( char* filenev, int nemkellcheck ) {
         if( strstr( tmpnev, ".LEV" ) )
             strcpy( strstr( tmpnev, ".LEV" ), ".leb" );
     #endif
+#ifdef ELMA_PS3
+    elma_atomic_file transaction(tmpnev);FILE* h=transaction.file();
+    if(!h){idok=previous_times;uzenet("Could not save level. The previous file is kept.",tmpnev);return 0;}
+#else
     FILE* h = fopen( tmpnev, "wb" );
     if( !h )
         hiba( "topol::save-ben nem tudta nyitni file-t!: ", tmpnev );
+#endif
 
     #ifdef BELSOTIR
-        fwrite( "@@^!@", 1, 5, h );
+        elma_write( "@@^!@", 1, 5, h );
     #else
-		fwrite( "POT14", 1, 5, h );
+		elma_write( "POT14", 1, 5, h );
     #endif
 
     // Kiszamitjuk es kiirjuk ketfele belyeget:
     double belyeg_d = belyegszamitas( 1 );
     belyeg = longosit( belyeg_d );
 
-    fwrite( &belyeg, 1, 2, h ); // Kiirunk ket tetszoleges byte-ot
+    elma_write( &belyeg, 1, 2, h ); // Kiirunk ket tetszoleges byte-ot
 
-    fwrite( &belyeg, 1, 4, h );
-    fwrite( &belyeg_d, 1, sizeof( belyeg_d ), h );
+    elma_write( &belyeg, 1, 4, h );
+    elma_write( &belyeg_d, 1, sizeof( belyeg_d ), h );
 
     // Kiirjuk hogy sarvari-e:
     // Ha sarvarertek + double(belyeg_l) > 20000.0, akkor sarvari:
@@ -1529,20 +1568,20 @@ void topol::save( char* filenev, int nemkellcheck ) {
         sarvarertek = 20961.0 + s_random( 4982 ) - belyeg_d;
     #endif
 
-    fwrite( &sarvarertek, 1, sizeof( sarvarertek ), h );
+    elma_write( &sarvarertek, 1, sizeof( sarvarertek ), h );
 
     // Kiirjuk hogy hibas-e:
     // Ha hibaertek + double(belyeg_l) > 20000.0, akkor hibas:
     double hibaertek = 11877.0 + s_random( 5871 ) - belyeg_d;
     if( hibas ) // ezt mar elejen meghataroztuk
         hibaertek = 20961.0 + s_random( 4982 ) - belyeg_d;
-    fwrite( &hibaertek, 1, sizeof( hibaertek ), h );
+    elma_write( &hibaertek, 1, sizeof( hibaertek ), h );
 
     // Kiirjuk hogy lezart-e:
     double lezartertek = 12112.0 + s_random( 6102 ) - belyeg_d;
     if( lezart )
         lezartertek = 23090.0 + s_random( 6310 ) - belyeg_d;
-    fwrite( &lezartertek, 1, sizeof( hibaertek ), h );
+    elma_write( &lezartertek, 1, sizeof( hibaertek ), h );
 
 	// Kiirjuk level nevet:
 	#ifdef BELSOTIR
@@ -1550,13 +1589,13 @@ void topol::save( char* filenev, int nemkellcheck ) {
 		for( int iiii = 0; iiii < LEVELNAMEHOSSZ; iiii++ )
 			levelname[iiii] = 0;
 	#endif
-	fwrite( levelname, 1, LEVELNAMEHOSSZ+1, h );
+	elma_write( levelname, 1, LEVELNAMEHOSSZ+1, h );
 
     // Kiirjuk level nevet:
-    fwrite( lgrnev, 1, 16, h );
+    elma_write( lgrnev, 1, 16, h );
     // Kiirjuk hatter es eloter nevet:
-    fwrite( fgnev, 1, 10, h );
-    fwrite( bgnev, 1, 10, h );
+    elma_write( fgnev, 1, 10, h );
+    elma_write( bgnev, 1, 10, h );
 
     // Megszamoljuk gyuruket es kerekeket:
     // fseek( h, 100, SEEK_SET ); 14-es verzio ota mar nem seek-el
@@ -1576,11 +1615,11 @@ void topol::save( char* filenev, int nemkellcheck ) {
     double kerekirtszam = kerekszam+0.4643643;
 
     // Kimentjuk gyuruk szamat elejetol kezdve 100 byte utan:
-    fwrite( &gyuruirtszam, 1, sizeof( gyuruirtszam ), h );
+    elma_write( &gyuruirtszam, 1, sizeof( gyuruirtszam ), h );
 
     // Ha belso file-kent mentjuk, most megy kerekek szama:
     #ifdef BELSOTIR
-        fwrite( &kerekirtszam, 1, sizeof( kerekirtszam ), h );
+        elma_write( &kerekirtszam, 1, sizeof( kerekirtszam ), h );
     #endif
 
     // Kimentjuk sok gyurut:
@@ -1591,7 +1630,7 @@ void topol::save( char* filenev, int nemkellcheck ) {
 
 	// Ha kulso file-kent mentjuk, most megy kerekek szama:
     #ifndef BELSOTIR
-        fwrite( &kerekirtszam, 1, sizeof( kerekirtszam ), h );
+        elma_write( &kerekirtszam, 1, sizeof( kerekirtszam ), h );
     #endif
 
     // Kimentjuk sok kereket:
@@ -1606,7 +1645,7 @@ void topol::save( char* filenev, int nemkellcheck ) {
             spriteszam++;
     }
     double spriteirtszam = spriteszam+0.2345672;
-    fwrite( &spriteirtszam, 1, sizeof( spriteirtszam ), h );
+    elma_write( &spriteirtszam, 1, sizeof( spriteirtszam ), h );
     for( int i = 0; i < MAXSPRITE; i++ ) {
         if( spritetomb[i] )
 			spritetomb[i]->save( h );
@@ -1614,12 +1653,18 @@ void topol::save( char* filenev, int nemkellcheck ) {
 
     // Kiirjuk ido tablat:
     int tmpszo = IDOEGYEDISZAM1;
-    fwrite( &tmpszo, 1, 4, h );
+    elma_write( &tmpszo, 1, 4, h );
     titkoswrite( &idok, sizeof( idok ), h );
     tmpszo = IDOEGYEDISZAM2;
-    fwrite( &tmpszo, 1, 4, h );
+    elma_write( &tmpszo, 1, 4, h );
 
-    fclose( h );
+#ifdef ELMA_PS3
+    if(!transaction.commit()){
+        idok=previous_times;uzenet("Could not save level. The previous file is kept.",tmpnev);return 0;
+    }
+#else
+    fclose(h);
+#endif
 
     if( hibas ) {
         #ifdef BELSOTIR
@@ -1630,6 +1675,7 @@ void topol::save( char* filenev, int nemkellcheck ) {
                 "problems are, please push the Check Topology button in the editor." );
 	}
 	#endif
+    return 1;
 }
 
 // Csak eredetileg beolvasott filenev-vel szabad meghivni:
@@ -1645,6 +1691,23 @@ void topol::saveidok( char* filenev_p ) {
     char filenev[40];
     sprintf( filenev, "lev\\%s", filenev_p );
 
+#ifdef ELMA_PS3
+    elma_restore_save(filenev);
+    FILE* source=fopen(filenev,"rb");
+    if(!source){uzenet("Could not save level times. The previous file is kept.",filenev);return;}
+    elma_atomic_file transaction(filenev);FILE* h=transaction.file();
+    bool okay=h!=NULL;unsigned char copy[16384];size_t copied=0;
+    while(okay){size_t n=fread(copy,1,sizeof(copy),source);if(!n){okay=!ferror(source);break;}
+        copied+=n;okay=fwrite(copy,1,n,h)==n;}
+    if(fclose(source)!=0)okay=false;
+    if(okay)okay=size_t(idokhelye)<=copied && fseek(h,idokhelye,SEEK_SET)==0;
+    int tmpszo=IDOEGYEDISZAM1;
+    if(okay)okay=elma_write(&tmpszo,1,4,h)==4;
+    if(okay)okay=titkoswrite(&idok,sizeof(idok),h)!=0;
+    tmpszo=IDOEGYEDISZAM2;
+    if(okay)okay=elma_write(&tmpszo,1,4,h)==4;
+    if(!transaction.commit(okay))uzenet("Could not save level times. The previous file is kept.",filenev);
+#else
     FILE* h = fopen( filenev, "r+b" );
     if( !h )
         uzenet( "Could not open file!", filenev );
@@ -1652,15 +1715,16 @@ void topol::saveidok( char* filenev_p ) {
     if( fseek( h, idokhelye, SEEK_SET ) != 0 )
         uzenet( "Could not write to file:", filenev );
     int tmpszo = IDOEGYEDISZAM1;
-    if( fwrite( &tmpszo, 1, 4, h ) != 4 )
+    if( elma_write( &tmpszo, 1, 4, h ) != 4 )
         uzenet( "Could not write file:", filenev );
     if( !titkoswrite( &idok, sizeof( idok ), h ) )
         uzenet( "Could not write file:", filenev );
     tmpszo = IDOEGYEDISZAM2;
-    if( fwrite( &tmpszo, 1, 4, h ) != 4 )
+    if( elma_write( &tmpszo, 1, 4, h ) != 4 )
         uzenet( "Could not write file:", filenev );
 
     fclose( h );
+#endif
 }
 
 void topol::getminmax( double* px1, double* py1, double* px2, double* py2,
@@ -1774,8 +1838,8 @@ unsigned long getbelyeg( char* nev ) {
     if( !h )
         return 1;
     unsigned long l = 0;
-    int siker = fread( &l, 1, 1, h ) == 1 && fread( &l, 1, 4, h ) == 4 &&
-                fread( &l, 1, 4, h ) == 4;
+    int siker = elma_read( &l, 1, 1, h ) == 1 && elma_read( &l, 1, 4, h ) == 4 &&
+                elma_read( &l, 1, 4, h ) == 4;
     if( gyujtemenybol )
         qclose( h );
     else
@@ -1815,7 +1879,7 @@ unsigned long getbelyeg( char* nev ) {
         return NULL;
     }
 
-    if( fread( levelnamebuffer, 1, LEVELNAMEHOSSZ+1, h ) != LEVELNAMEHOSSZ+1 ) {
+    if( elma_read( levelnamebuffer, 1, LEVELNAMEHOSSZ+1, h ) != LEVELNAMEHOSSZ+1 ) {
         fclose( h );
         return NULL;
     }

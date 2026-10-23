@@ -7,6 +7,14 @@
 #include <deque>
 #include <string>
 #include <vector>
+#ifdef ELMA_PS3
+#include "PS3_PLATFORM.H"
+#include "PS3_MEMORY.H"
+#include "PS3_CONTROLS.H"
+#include "PS3_INPUT_CONTEXT.H"
+#include "PAUSE_CLOCK.H"
+#include "MEMORY_BUDGET.H"
+#endif
 
 // SDL 2 is used on desktops and on most handhelds; SDL 1.2 on devices that
 // only ship that, such as the Miyoo Mini.
@@ -38,10 +46,14 @@ std::array<BYTE, 256> keys;
 std::deque<int> chars;
 bool locked = false;
 bool running = true;
+#ifdef ELMA_PS3
+elma_pause_clock<std::chrono::steady_clock> stopper_clock;
+#else
 std::chrono::steady_clock::time_point stopper_start;
+#endif
 
 bool fullscreen() {
-#ifdef ELMA_HANDHELD
+#if defined(ELMA_HANDHELD) || defined(ELMA_PS3)
     return config_flag("fullscreen", true);
 #else
     return config_flag("fullscreen", false);
@@ -122,16 +134,40 @@ Picture* shown = &ui_picture;
 Aspect aspect = ASPECT_SCREEN;
 SDL_RendererInfo renderer_info;
 bool targets = false; // the renderer can draw into textures
+#ifdef ELMA_PS3
+bool editor_input = false;
+unsigned text_input_depth = 0;
+int safe_percent() {
+    int w = 0, h = 0;
+    if (renderer) SDL_GetRendererOutputSize(renderer, &w, &h);
+    const char* configured = config_get("safe_area", h <= 576 ? "5" : "2");
+    char* end = NULL;
+    long value = strtol(configured, &end, 10);
+    return *configured && !*end ? int(std::max(0L, std::min(10L, value))) : 2;
+}
+void view_output_size(int* w, int* h) {
+    int physical_w = 0, physical_h = 0;
+    if (renderer) SDL_GetRendererOutputSize(renderer, &physical_w, &physical_h);
+    ps3_display_size(physical_w, physical_h, w, h);
+    const int safe = safe_percent();
+    *w -= 2 * (*w * safe / 100);
+    *h -= 2 * (*h * safe / 100);
+}
+#endif
 // The largest texture that sharp scaling draws into, in pixels. It is
 // lowered when the renderer cannot make one that large.
+#ifdef ELMA_PS3
+const int target_pixels = 4 * 1024 * 1024;
+#else
 const int target_pixels = 16 * 1024 * 1024;
+#endif
 int max_target_pixels = target_pixels;
 
 // The filter of a texture is taken from the hint when the texture is made;
 // the override is stronger than SDL_RENDER_SCALE_QUALITY in the environment.
-// Every SDL 2 reads it (SDL_SetTextureScaleMode needs 2.0.12), and pixel art
-// is only reached through it: sdl2-compat on SDL 3.4 and later turns "2" into
-// the pixel art filter of SDL 3, while SDL 2 itself filters linearly then.
+// Every SDL 2 reads it (SDL_SetTextureScaleMode needs 2.0.12). Quality "2"
+// selects true Pixel Art in the patched PS3 renderer and sdl2-compat on
+// SDL 3.4+; stock SDL 2 uses linear filtering for that hint.
 SDL_Texture* create_texture(int w, int h, int access, Filter filter) {
     static const char* const hints[] = { "0", "1", "2" };
     SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, hints[filter], SDL_HINT_OVERRIDE);
@@ -156,12 +192,19 @@ void reset_textures() {
 }
 
 void Picture::resize(int width, int height) {
+#ifdef ELMA_PS3
+    if(!elma_framebuffer_fits(width,height,pixels.capacity(),rows.capacity(),
+                             renderer?ps3_memory_available():UINT64_MAX))
+        hiba("Framebuffer exceeds the PS3 memory budget. Use Original resolution.");
+#endif
     reset_textures(*this);
     w = width;
     h = height;
     pixels.assign(size_t(w) * h, 0);
     rows.assign(h, NULL);
+#ifndef ELMA_PS3
     rgba.assign(size_t(w) * h, 0);
+#endif
     place.x = place.y = 0;
     place.w = w;
     place.h = h;
@@ -176,6 +219,11 @@ void layout(Picture& picture) {
         out_w = w;
         out_h = h;
     }
+#ifdef ELMA_PS3
+    const int physical_w = out_w, physical_h = out_h;
+    view_output_size(&out_w, &out_h);
+    if (out_w <= 0 || out_h <= 0) { out_w = w; out_h = h; }
+#endif
     SDL_Rect& place = picture.place;
     if (out_w * h > out_h * w) {
         place.h = out_h;
@@ -227,6 +275,16 @@ void layout(Picture& picture) {
     }
     place.x = (out_w - place.w) / 2;
     place.y = (out_h - place.h) / 2;
+#ifdef ELMA_PS3
+    const int inset_x = physical_w * safe_percent() / 100;
+    const int inset_y = physical_h * safe_percent() / 100;
+    const int usable_w = physical_w - 2 * inset_x;
+    const int usable_h = physical_h - 2 * inset_y;
+    place.x = inset_x + place.x * usable_w / out_w;
+    place.y = inset_y + place.y * usable_h / out_h;
+    place.w = place.w * usable_w / out_w;
+    place.h = place.h * usable_h / out_h;
+#endif
 
     if (!picture.texture || picture.filter != filter) {
         destroy(picture.texture);
@@ -269,7 +327,7 @@ void drawable_ratio(double* x, double* y) {
     *y = window_h > 0 && out_h > 0 ? double(out_h) / window_h : 1.0;
 }
 
-#ifndef ELMA_HANDHELD
+#if !defined(ELMA_HANDHELD) && !defined(ELMA_PS3)
 void toggle_fullscreen() {
     const bool on = !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN);
     if (SDL_SetWindowFullscreen(window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) != 0) return;
@@ -541,7 +599,7 @@ void key_event(const SDL_KeyboardEvent& event, bool down, bool repeat) {
         return;
     }
 #endif
-#if !defined(ELMA_SDL1) && !defined(ELMA_HANDHELD)
+#if !defined(ELMA_SDL1) && !defined(ELMA_HANDHELD) && !defined(ELMA_PS3)
     // Alt+Enter and F11 switch between the window and full screen; the game
     // does not get these presses. Ctrl+Alt+Enter is left to the menus, which
     // save the times of a replay with it.
@@ -566,6 +624,108 @@ void key_event(const SDL_KeyboardEvent& event, bool down, bool repeat) {
 
 void present();
 
+#ifdef ELMA_PS3
+unsigned pad_previous[2] = {};
+Uint32 pad_repeat[PS3_BUTTON_COUNT] = {};
+double pad_mouse_x = 320, pad_mouse_y = 240;
+bool pad_mouse_used = false;
+Uint32 pad_mouse_time = 0;
+bool pad_pause = false;
+unsigned pad_ui_buttons = 0;
+
+void pad_key(int key) { if (key > 0 && key < 256) button_keys[key] = 1; }
+
+void ps3_input() {
+    ps3_poll();
+    button_keys.fill(0);
+    if (ps3_exit_requested()) { running = false; return; }
+    const Uint32 now = SDL_GetTicks();
+    const bool game = shown == &game_picture;
+    const bool editor = editor_input && !game && text_input_depth == 0;
+    const bool system_menu = ps3_system_menu();
+    const bool capture = ps3_controls_capturing();
+    static Ps3InputContext context_gate;
+    unsigned raw_masks[2]={system_menu?0:ps3_button_mask(0),system_menu?0:ps3_button_mask(1)};
+    unsigned menu_navigation=raw_masks[0];
+    if(!game && !system_menu && !capture) {
+        if(ps3_axis(0,0)<-64)menu_navigation|=1u<<PS3_LEFT;
+        if(ps3_axis(0,0)>64)menu_navigation|=1u<<PS3_RIGHT;
+        if(ps3_axis(0,1)<-64)menu_navigation|=1u<<PS3_UP;
+        if(ps3_axis(0,1)>64)menu_navigation|=1u<<PS3_DOWN;
+    }
+    const int input_context=(game ? 1 : editor_input ? 2+text_input_depth : 0)+(system_menu?1024:0)+(capture?2048:0);
+    context_gate.update(input_context,game?raw_masks[0]:menu_navigation,raw_masks[1]);
+    if(capture) {
+        pad_ui_buttons=0;
+        for(int p=0;p<2;++p)pad_previous[p]=raw_masks[p];
+        for(int b=0;b<PS3_BUTTON_COUNT;++b)pad_repeat[b]=0;
+        return;
+    }
+    pad_ui_buttons=game?0:context_gate.fresh(0,raw_masks[0]);
+    for (int p = 0; p < 2; ++p) {
+        const unsigned mask = raw_masks[p];
+        const unsigned fresh_mask=context_gate.fresh(p,mask);
+        const unsigned pressed = mask & ~pad_previous[p];
+        pad_previous[p] = mask;
+        if (game) {
+            for (int action = 0; action < PS3_CONTROL_COUNT; ++action) {
+                const int button = ps3_binding(p, action);
+                if (button >= 0 && (mask & (1u << button))) {
+                    pad_key(ps3_action_key(p, action));
+                    if (action == PS3_ALOVOLT) pad_key(ps3_action_key(p, PS3_ROTATE_RIGHT));
+                }
+            }
+            if (fresh_mask & (1u << PS3_SELECT)) pad_key(DIK_ESCAPE);
+            if (pressed & fresh_mask & (1u << PS3_START)) pad_pause = true;
+            continue;
+        }
+        if (p != 0) continue; // Controller 1 owns menus and the editor.
+        unsigned navigation = context_gate.fresh(0,menu_navigation);
+        static const int menu_keys[PS3_BUTTON_COUNT] = {
+            MK_ESC, 0, 0, MK_ENTER, MK_UP, MK_RIGHT, MK_DOWN, MK_LEFT,
+            0, 0, MK_PGUP, MK_PGDOWN, 0, MK_ESC, MK_ENTER, MK_BACKSPACE
+        };
+        for (int b = 0; b < PS3_BUTTON_COUNT; ++b) {
+            const bool down = (navigation & (1u << b)) != 0;
+            if (!down) { pad_repeat[b] = 0; continue; }
+            if (editor && (b == PS3_CROSS || b == PS3_SQUARE || b == PS3_L1 || b == PS3_R1)) continue;
+            // Editor dialogs retain their clickable SAVE/LOCKED buttons.
+            // Start accepts typed text; Cross and Square remain mouse clicks.
+            if (editor_input && text_input_depth && (b == PS3_CROSS || b == PS3_SQUARE)) continue;
+            const bool repeats = b >= PS3_UP && b <= PS3_LEFT;
+            if (!pad_repeat[b] || (repeats && Sint32(now - pad_repeat[b]) >= 0)) {
+                int c = menu_keys[b];
+                if (editor) {
+                    if (b == PS3_SELECT) c = 'x';
+                    if (b == PS3_START) c = 'p';
+                    if (b == PS3_TRIANGLE) c = ' ';
+                    if (b == PS3_R3) c = MK_ENTER;
+                    if (b == PS3_L2) c = 'z';
+                    if (b == PS3_R2) c = 'i';
+                }
+                if (c) chars.push_back(c);
+                pad_repeat[b] = now + (pad_repeat[b] ? 90 : 350);
+            }
+        }
+        if (editor_input && !game && !system_menu) {
+            if (mask & (1u << PS3_L1)) pad_key(DIK_LCONTROL);
+            if (mask & (1u << PS3_R1)) pad_key(DIK_LSHIFT);
+            const double dt = std::min(0.05, (now - pad_mouse_time) / 1000.0);
+            const int rx = ps3_axis(0, 2), ry = ps3_axis(0, 3);
+            if (abs(rx) > 20 || abs(ry) > 20) {
+                pad_mouse_used = true;
+                const double speed = mask & (1u << PS3_R1) ? 85 : 350;
+                if (abs(rx) > 20) pad_mouse_x += dt * speed * rx / 128;
+                if (abs(ry) > 20) pad_mouse_y += dt * speed * ry / 128;
+                pad_mouse_x = std::max(0.0, std::min(639.0, pad_mouse_x));
+                pad_mouse_y = std::max(0.0, std::min(479.0, pad_mouse_y));
+            }
+        }
+    }
+    pad_mouse_time = now;
+}
+#endif
+
 void events() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -579,6 +739,7 @@ void events() {
         case SDL_KEYDOWN: case SDL_KEYUP:
             key_event(event.key, event.type == SDL_KEYDOWN, event.key.repeat != 0);
             break;
+#ifndef ELMA_PS3
         case SDL_CONTROLLERDEVICEADDED:
             SDL_GameControllerOpen(event.cdevice.which);
             break;
@@ -593,6 +754,11 @@ void events() {
         case SDL_CONTROLLERAXISMOTION:
             controller_axis(event.caxis.axis, event.caxis.value);
             break;
+#else
+        case SDL_MOUSEMOTION:
+            pad_mouse_used = false;
+            break;
+#endif
         case SDL_WINDOWEVENT:
             // The menus keep their place for the mouse; the game view gets
             // its new size with the next frame.
@@ -610,6 +776,32 @@ void events() {
 #endif
         }
     }
+#ifdef ELMA_PS3
+    ps3_input();
+    if (ps3_system_menu() && running && !locked) {
+        const bool paused_here=!stopper_clock.paused();
+        if(paused_here)mv_pausestopper(1);
+        nullazhangot();
+        while (ps3_system_menu() && !ps3_exit_requested()) {
+            SDL_PumpEvents();
+            present();
+        }
+        if(paused_here)mv_pausestopper(0);
+        ps3_input();
+        chars.clear();
+    }
+    if (pad_pause && running && !locked) {
+        pad_pause = false;
+        const bool paused_here=!stopper_clock.paused();
+        if(paused_here)mv_pausestopper(1);
+        nullazhangot();
+        ps3_message("Paused\n\nPress Cross to continue.", present);
+        if(paused_here)mv_pausestopper(0);
+        ps3_poll();
+        for (int p = 0; p < 2; ++p) pad_previous[p] = ps3_button_mask(p);
+        chars.clear();
+    }
+#endif
     if (!running) mv_exit();
 }
 
@@ -651,9 +843,23 @@ void present() {
 // Draws the frame without showing it.
 void draw_frame() {
     Picture& picture = *shown;
+#ifdef ELMA_PS3
+    layout(picture);
+    void* pixels_out = NULL;
+    int pitch = 0;
+    if (SDL_LockTexture(picture.texture, NULL, &pixels_out, &pitch) != 0)
+        hiba((char*)"Cannot upload the picture", (char*)SDL_GetError());
+    for (int y = 0; y < picture.h; ++y) {
+        uint32_t* line = reinterpret_cast<uint32_t*>(static_cast<Uint8*>(pixels_out) + y * pitch);
+        const unsigned char* source = picture.pixels.data() + size_t(y) * picture.w;
+        for (int x = 0; x < picture.w; ++x) line[x] = palette[source[x]];
+    }
+    SDL_UnlockTexture(picture.texture);
+#else
     for (size_t i = 0; i < picture.pixels.size(); ++i) picture.rgba[i] = palette[picture.pixels[i]];
     layout(picture);
     SDL_UpdateTexture(picture.texture, NULL, picture.rgba.data(), picture.w * sizeof(uint32_t));
+#endif
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
     draw(picture);
@@ -662,22 +868,78 @@ void draw_frame() {
 // A frame at the refresh rate of the display that the window is on, a
 // little shorter so that the wait never makes a frame miss the display.
 Uint32 frame_time() {
+#ifdef ELMA_PS3
+    return 900 / ps3_refresh_rate();
+#else
     int rate = 60;
     SDL_DisplayMode mode;
     const int display = SDL_GetWindowDisplayIndex(window);
     if (display >= 0 && SDL_GetDesktopDisplayMode(display, &mode) == 0 && mode.refresh_rate > 0)
         rate = mode.refresh_rate;
     return 900 / rate;
+#endif
 }
 
 void present() {
+#ifdef ELMA_PS3
+    const bool diagnostics = config_flag("ps3_diagnostics", false);
+    ps3_set_diagnostics(diagnostics);
+    SDL_SetHint("ELMA_PS3_SDL_PROFILE", diagnostics ? "1" : "0");
+    const Uint32 draw_started = SDL_GetTicks();
+#endif
     draw_frame();
+#ifdef ELMA_PS3
+    const Uint32 draw_ms = SDL_GetTicks() - draw_started;
+#endif
     SDL_RenderPresent(renderer);
+#ifdef ELMA_PS3
+    const Uint32 flip_finished = SDL_GetTicks();
+#endif
     // Whether presenting waits for the display is not known: the software
     // renderer of SDL 2.0.18 and later reports vertical sync even where it
     // cannot wait.
     wait_for_frame(frame_time());
+#ifdef ELMA_PS3
+    const Uint32 frame_finished = SDL_GetTicks();
+    static Uint32 previous_frame_finished = 0;
+    const Uint32 outside_ms = previous_frame_finished ? draw_started - previous_frame_finished : 0;
+    previous_frame_finished = frame_finished;
+    if (config_flag("ps3_diagnostics", false)) {
+        static unsigned frames = 0, draw_total = 0, flip_total = 0, cap_total = 0, outside_total = 0;
+        static Uint32 started = draw_started;
+        draw_total += draw_ms;
+        flip_total += flip_finished - draw_started - draw_ms;
+        cap_total += frame_finished - flip_finished;
+        outside_total += outside_ms;
+        if (++frames == 300) {
+            const Uint32 elapsed = frame_finished - started;
+            const Ps3RsxMemory rsx = ps3_rsx_memory();
+            printf("ELMA PS3 frame: %dx%d, %.1f fps, frame %.2f ms, upload/draw %.2f ms, "
+                   "flip/rewind %.2f ms, cap %.2f ms, engine/events %.2f ms, refresh=%d Hz, free RAM=%u KiB, "
+                   "RSX used=%u bytes, peak=%u bytes, allocations=%u, complete=%d, failures=%u\n",
+                   shown->w, shown->h, elapsed ? frames * 1000.0 / elapsed : 0,
+                   double(elapsed) / frames, double(draw_total) / frames,
+                   double(flip_total) / frames, double(cap_total) / frames,
+                   double(outside_total) / frames, ps3_refresh_rate(), ps3_memory_available() / 1024,
+                   rsx.used, rsx.peak, rsx.allocations, rsx.complete, rsx.failures);
+            started = frame_finished;
+            frames = draw_total = flip_total = cap_total = outside_total = 0;
+        }
+    }
+#endif
 }
+#ifdef ELMA_PS3
+// A failed texture allocation/upload must not recurse through draw_frame()
+// while trying to report the failure. Native dialogs only need scanout flips.
+void present_dialog_backdrop() {
+    if (!renderer) return;
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderPresent(renderer);
+    wait_for_frame(frame_time());
+}
+#endif
 #endif
 }
 
@@ -731,13 +993,18 @@ void ddinit() {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         exit(1);
     }
+#ifdef ELMA_PS3
+    ps3_platform_init();
+    ps3_controls_load();
+#else
     // Game pads are optional; the connected ones arrive as device events.
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0)
         SDL_GameControllerAddMappingsFromFile("gamecontrollerdb.txt");
+#endif
     scale = configured_scale();
     aspect = config_aspect();
     int width = 640, height = 480;
-#ifndef ELMA_HANDHELD
+#if !defined(ELMA_HANDHELD) && !defined(ELMA_PS3)
     // The window starts at the largest whole multiple of the game view that
     // fits on the screen with room for the title bar and the window frame,
     // with the aspect ratio of the screen (or 4:3).
@@ -757,6 +1024,13 @@ void ddinit() {
     }
 #endif
     Uint32 flags = SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
+#ifdef ELMA_PS3
+    SDL_DisplayMode output_mode;
+    if (SDL_GetDesktopDisplayMode(0, &output_mode) == 0) {
+        width = output_mode.w; height = output_mode.h;
+    }
+    flags = SDL_WINDOW_FULLSCREEN_DESKTOP;
+#endif
     if (fullscreen()) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     window = SDL_CreateWindow("Elasto Mania", SDL_WINDOWPOS_CENTERED,
                               SDL_WINDOWPOS_CENTERED, width, height, flags);
@@ -765,7 +1039,7 @@ void ddinit() {
         SDL_Quit();
         exit(1);
     }
-#ifndef ELMA_HANDHELD
+#if !defined(ELMA_HANDHELD) && !defined(ELMA_PS3)
     SDL_SetWindowMinimumSize(window, 320, 240);
 #endif
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -775,6 +1049,15 @@ void ddinit() {
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (renderer) {
         SDL_GetRendererInfo(renderer, &renderer_info);
+#ifdef ELMA_PS3
+        printf("ELMA PS3 video: %dx%d, renderer=%s, free RAM=%u KiB\n",
+               width, height, renderer_info.name, ps3_memory_available() / 1024);
+        #ifdef ELMA_CLASSIC_X87
+        printf("ELMA PS3 physics: classic_x87 (experimental)\n");
+        #else
+        printf("ELMA PS3 physics: sdl\n");
+        #endif
+#endif
         targets = SDL_RenderTargetSupported(renderer) == SDL_TRUE;
         max_target_pixels = target_pixels;
         layout(ui_picture);
@@ -784,21 +1067,48 @@ void ddinit() {
         SDL_Quit();
         exit(1);
     }
-#ifdef ELMA_HANDHELD
+#if defined(ELMA_HANDHELD) || defined(ELMA_PS3)
     SDL_ShowCursor(SDL_DISABLE);
+#endif
+#ifdef ELMA_PS3
+    ps3_install_memory_handler(present_dialog_backdrop);
 #endif
     Margrafikus = 1;
 }
 
 void ddfinish() {
+#ifdef ELMA_PS3
+    ps3_platform_finish();
+#endif
     reset_textures();
     if (renderer) SDL_DestroyRenderer(renderer);
     if (window) SDL_DestroyWindow(window);
     renderer = NULL; window = NULL;
     SDL_Quit();
+#ifdef ELMA_PS3
+    ps3_diagnostic_checkpoint("shutdown", false);
+#endif
 }
 
 const char* dd_scale_name() { return scale_names[scale]; }
+#ifdef ELMA_PS3
+void ps3_text_input(bool enabled) {
+    if (enabled) ++text_input_depth;
+    else if (text_input_depth) --text_input_depth;
+    chars.clear();
+}
+const char* dd_ps3_safe_name() {
+    static char text[24];
+    snprintf(text, sizeof(text), "%d%%", safe_percent());
+    return text;
+}
+void dd_ps3_next_safe() {
+    char text[12];
+    snprintf(text, sizeof(text), "%d", (safe_percent() + 1) % 11);
+    config_set("safe_area", text); config_save();
+    layout(ui_picture); layout(game_picture);
+}
+#endif
 
 void dd_next_scale() {
     scale = Scale((scale + 1) % SCALE_COUNT);
@@ -820,7 +1130,29 @@ void dd_next_aspect() {
 // The game view takes the new size with its next frame, the next level is
 // drawn in its detail.
 const char* dd_resolution_name() { return resolution_name(config_resolution()); }
+#ifdef ELMA_PS3
+static bool picture_fits(const Picture& picture,int w,int h) {
+    return elma_framebuffer_fits(w,h,picture.pixels.capacity(),picture.rows.capacity(),ps3_memory_available());
+}
+static void frame_memory_warning(const char* text) {
+    const bool paused_here=!stopper_clock.paused();
+    if(paused_here)mv_pausestopper(1);
+    printf("elma: framebuffer admission refused: %s; available %u KiB\n",text,ps3_memory_available()/1024);
+    ps3_message(text,present_dialog_backdrop);
+    if(paused_here)mv_pausestopper(0);
+}
+void dd_next_resolution() {
+    const int next=next_resolution_option(config_resolution());
+    int out_w=0,out_h=0,w=0,h=0;view_output_size(&out_w,&out_h);
+    game_view_size_at_resolution(aspect,out_w,out_h,next,&w,&h);
+    if(!picture_fits(game_picture,w,h)){
+        frame_memory_warning("This resolution exceeds the PS3 framebuffer budget. The current resolution is kept. Choose Original or a lower zoom.");return;
+    }
+    set_config_resolution(next);
+}
+#else
 void dd_next_resolution() { set_config_resolution(next_resolution_option(config_resolution())); }
+#endif
 
 // The next level is loaded with the new zoom.
 const char* dd_zoom_name() { return zoom_name(config_zoom()); }
@@ -886,8 +1218,25 @@ void resize_game_view() {
     if (game_locked) return;
     int out_w = 0, out_h = 0;
     if (!renderer || SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0) out_w = out_h = 0;
+#ifdef ELMA_PS3
+    view_output_size(&out_w, &out_h);
+#endif
     int w, h;
     game_view_size(aspect, out_w, out_h, &w, &h);
+#ifdef ELMA_PS3
+    static int refused_w=0,refused_h=0;
+    if((w!=game_picture.w || h!=game_picture.h) && !picture_fits(game_picture,w,h)) {
+        if(w==refused_w && h==refused_h)return;
+        // An unsafe hand-edited config must not produce the same failure on
+        // every frame or next boot. Keep the allocated viewport while falling
+        // back once to the original logical resolution.
+        set_config_resolution(RESOLUTION_ORIGINAL);
+        frame_memory_warning("The configured resolution exceeds the PS3 framebuffer budget. Original resolution has been selected and saved.");
+        game_view_size(aspect,out_w,out_h,&w,&h);
+        if(!picture_fits(game_picture,w,h)){refused_w=w;refused_h=h;return;}
+    }
+    refused_w=refused_h=0;
+#endif
     if (w != game_picture.w || h != game_picture.h) game_picture.resize(w, h);
 }
 }
@@ -920,7 +1269,18 @@ unsigned char** lockfrontbuffer() {
 void dd_menumeret(int* w, int* h) {
     int out_w = 0, out_h = 0;
     if (!renderer || SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0) out_w = out_h = 0;
+#ifdef ELMA_PS3
+    view_output_size(&out_w, &out_h);
+#endif
     menu_view_size(out_w, out_h, w, h);
+#ifdef ELMA_PS3
+    static int refused_w=0,refused_h=0;
+    if((*w!=ui_picture.w || *h!=ui_picture.h) && !picture_fits(ui_picture,*w,*h)) {
+        if(*w!=refused_w || *h!=refused_h){refused_w=*w;refused_h=*h;
+            frame_memory_warning("The menu framebuffer needs more PS3 memory. Its current size is kept.");}
+        *w=ui_picture.w;*h=ui_picture.h;
+    }else {refused_w=refused_h=0;}
+#endif
 }
 
 void frontbuffermeret(int w, int h) {
@@ -953,6 +1313,9 @@ ddpal::ddpal(unsigned char* colors) {
 ddpal::~ddpal() { delete static_cast<std::array<uint32_t, 256>*>(pddpal); }
 void ddpal::set() {
     palette = *static_cast<std::array<uint32_t, 256>*>(pddpal);
+#ifdef ELMA_PS3
+    editor_input = Pal_editor && this == Pal_editor;
+#endif
 #ifdef ELMA_SDL1
     map_palette();
 #endif
@@ -967,7 +1330,8 @@ int mk_getstate(int code) {
     if (code < 0 || code >= 256) return 0;
     return keys[code] || button_keys[code] ? 0x80 : 0;
 }
-int controlaltnyomva() { return keys[DIK_LMENU] && keys[DIK_LCONTROL]; }
+int controlaltnyomva() { return (keys[DIK_LMENU] || button_keys[DIK_LMENU]) &&
+                              (keys[DIK_LCONTROL] || button_keys[DIK_LCONTROL]); }
 
 void di_reset_state(state_s* state) {
     state->opciok1.billgaz = DIK_UP; state->opciok1.billfek = DIK_DOWN;
@@ -983,11 +1347,65 @@ void di_reset_state(state_s* state) {
 
 char* kodtobillnev(int code) {
     static char name[32];
+#ifdef ELMA_PS3
+    const int letters[]={DIK_A,DIK_B,DIK_C,DIK_D,DIK_E,DIK_F,DIK_G,DIK_H,DIK_I,
+        DIK_J,DIK_K,DIK_L,DIK_M,DIK_N,DIK_O,DIK_P,DIK_Q,DIK_R,DIK_S,DIK_T,
+        DIK_U,DIK_V,DIK_W,DIK_X,DIK_Y,DIK_Z};
+    for(int i=0;i<26;++i) if(code==letters[i]) {name[0]='A'+i;name[1]=0;return name;}
+    if(code>=DIK_1 && code<=DIK_0) {name[0]="1234567890"[code-DIK_1];name[1]=0;return name;}
+    const char* label=NULL;
+    switch(code) {
+    case 0:label="Unassigned";break;
+    case DIK_UP:label="Up";break;case DIK_DOWN:label="Down";break;
+    case DIK_LEFT:label="Left";break;case DIK_RIGHT:label="Right";break;
+    case DIK_ESCAPE:label="Esc";break;case DIK_RETURN:label="Enter";break;
+    case DIK_SPACE:label="Space";break;case DIK_TAB:label="Tab";break;
+    case DIK_BACK:label="Backspace";break;case DIK_DELETE:label="Delete";break;
+    case DIK_PRIOR:label="Page Up";break;case DIK_NEXT:label="Page Down";break;
+    case DIK_HOME:label="Home";break;case DIK_END:label="End";break;
+    case DIK_INSERT:label="Insert";break;case DIK_MINUS:label="Minus (-)";break;
+    case DIK_EQUALS:label="Equals (+)";break;case DIK_LCONTROL:label="Left Ctrl";break;
+    case DIK_RCONTROL:label="Right Ctrl";break;case DIK_LSHIFT:label="Left Shift";break;
+    case DIK_RSHIFT:label="Right Shift";break;case DIK_LMENU:label="Left Alt";break;
+    case DIK_RMENU:label="Right Alt";break;case DIK_NUMPAD0:label="Numpad 0";break;
+    case DIK_NUMPAD1:label="Numpad 1";break;case DIK_NUMPAD2:label="Numpad 2";break;
+    case DIK_NUMPAD3:label="Numpad 3";break;case DIK_NUMPAD4:label="Numpad 4";break;
+    case DIK_NUMPAD5:label="Numpad 5";break;case DIK_NUMPAD6:label="Numpad 6";break;
+    case DIK_NUMPAD7:label="Numpad 7";break;case DIK_NUMPAD8:label="Numpad 8";break;
+    case DIK_NUMPAD9:label="Numpad 9";break;case DIK_NUMPADENTER:label="Numpad Enter";break;
+    case DIK_ADD:label="Numpad +";break;case DIK_SUBTRACT:label="Numpad -";break;
+    case DIK_F11:label="F11";break;case DIK_F12:label="F12";break;
+    case DIK_F13:label="F13";break;case DIK_F14:label="F14";break;case DIK_F15:label="F15";break;
+    case DIK_LBRACKET:label="Left Bracket";break;case DIK_RBRACKET:label="Right Bracket";break;
+    case DIK_SEMICOLON:label="Semicolon";break;case DIK_APOSTROPHE:label="Apostrophe";break;
+    case DIK_GRAVE:label="Backtick";break;case DIK_BACKSLASH:label="Backslash";break;
+    case DIK_COMMA:label="Comma";break;case DIK_PERIOD:label="Period";break;
+    case DIK_SLASH:label="Slash";break;case DIK_CAPITAL:label="Caps Lock";break;
+    case DIK_NUMLOCK:label="Num Lock";break;case DIK_SCROLL:label="Scroll Lock";break;
+    case DIK_DECIMAL:label="Numpad Decimal";break;case DIK_DIVIDE:label="Numpad /";break;
+    case DIK_MULTIPLY:label="Numpad *";break;case DIK_SYSRQ:label="Print Screen";break;
+    case DIK_LWIN:label="Left Super";break;case DIK_RWIN:label="Right Super";break;
+    case DIK_APPS:label="Menu";break;
+    }
+    if(label) {snprintf(name,sizeof(name),"%s",label);return name;}
+    if(code>=DIK_F1 && code<=DIK_F10) {snprintf(name,sizeof(name),"F%d",code-DIK_F1+1);return name;}
+    if(code>=0xED && code<=0xFF) {snprintf(name,sizeof(name),"Controller only");return name;}
+#endif
     snprintf(name, sizeof(name), "KEY %02X", code);
     return name;
 }
 
 void mv_check(int) { hang(); events(); }
+#ifdef ELMA_PS3
+void mv_startstopper() { stopper_clock.reset(std::chrono::steady_clock::now()); }
+void mv_pausestopper(int pause) {
+    stopper_clock.pause(pause != 0, std::chrono::steady_clock::now());
+}
+double mv_stopperido() {
+    const std::chrono::duration<double> elapsed = stopper_clock.elapsed(std::chrono::steady_clock::now());
+    return elapsed.count() * 182.0;
+}
+#else
 void mv_startstopper() { stopper_start = std::chrono::steady_clock::now(); }
 // The time between the two calls moves the start of the stopper on.
 void mv_pausestopper(int pause) {
@@ -1002,6 +1420,7 @@ double mv_stopperido() {
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - stopper_start;
     return elapsed.count() * 182.0;
 }
+#endif
 void getbiostort(unsigned short* bios, unsigned short* fraction) {
     const uint64_t ticks = std::chrono::steady_clock::now().time_since_epoch().count();
     *bios = static_cast<unsigned short>(ticks >> 16);
@@ -1016,6 +1435,9 @@ void setmou(int x, int y) { SDL_WarpMouse(x, y); }
 // The game gets the mouse in the 640x480 picture of the menus and the
 // editor, wherever that is shown.
 void getmou(int* x, int* y) {
+#ifdef ELMA_PS3
+    if (pad_mouse_used && editor_input) { *x = int(pad_mouse_x); *y = int(pad_mouse_y); return; }
+#endif
     int window_x = 0, window_y = 0;
     SDL_GetMouseState(&window_x, &window_y);
     const Picture& picture = ui_picture;
@@ -1026,9 +1448,15 @@ void getmou(int* x, int* y) {
     *y = place.h > 0 ? int(((window_y + 0.5) * ratio_y - place.y) * picture.h / place.h) : 0;
     *x = std::max(0, std::min(picture.w - 1, *x));
     *y = std::max(0, std::min(picture.h - 1, *y));
+#ifdef ELMA_PS3
+    pad_mouse_x = *x; pad_mouse_y = *y;
+#endif
 }
 
 void setmou(int x, int y) {
+#ifdef ELMA_PS3
+    pad_mouse_x = x; pad_mouse_y = y;
+#endif
     const Picture& picture = ui_picture;
     const SDL_Rect& place = picture.place;
     double ratio_x, ratio_y;
@@ -1037,8 +1465,18 @@ void setmou(int x, int y) {
                           int((place.y + (y + 0.5) * place.h / picture.h) / ratio_y));
 }
 #endif
-int getbutbmou() { return SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_LEFT); }
-int getbutjmou() { return SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_RIGHT); }
+int getbutbmou() {
+#ifdef ELMA_PS3
+    if (editor_input && !ps3_system_menu() && (pad_ui_buttons & (1u << PS3_CROSS))) return 1;
+#endif
+    return SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_LEFT);
+}
+int getbutjmou() {
+#ifdef ELMA_PS3
+    if (editor_input && !ps3_system_menu() && (pad_ui_buttons & (1u << PS3_SQUARE))) return 1;
+#endif
+    return SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_RIGHT);
+}
 
 static std::string message(char* a, char* b, char* c) {
     std::string text = a ? a : "";
@@ -1056,22 +1494,50 @@ void uzenet(char* a, char* b, char* c) { fprintf(stderr, "%s\n", message(a, b, c
 void hiba(char* a, char* b, char* c) {
     const std::string text = message(a, b, c);
     fprintf(stderr, "%s\n", text.c_str());
-    if (window) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Elasto Mania", text.c_str(), window);
+    if (window) {
+#ifdef ELMA_PS3
+        ps3_message(text.c_str(), present_dialog_backdrop);
+#else
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Elasto Mania", text.c_str(), window);
+#endif
+    }
     ddfinish(); exit(1);
 }
 void uzenet(char* a, char* b, char* c) {
     const std::string text = message(a, b, c);
-    if (window) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Elasto Mania", text.c_str(), window);
+    if (window) {
+#ifdef ELMA_PS3
+        ps3_message(text.c_str(), locked ? present_dialog_backdrop : present);
+#else
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Elasto Mania", text.c_str(), window);
+#endif
+    }
     else fprintf(stderr, "%s\n", text.c_str());
 }
 #endif
-void mv_exit(char*) { ddfinish(); exit(0); }
+void mv_exit(char*) {
+#ifdef ELMA_PS3
+    // XMB Exit Game bypasses the shared menu's save path. Commit preferences
+    // before destroying the renderer, while storage errors can still display.
+    static bool exiting=false;
+    if(!exiting){exiting=true;if(State)State->save();}
+#endif
+    ddfinish();exit(0);
+}
 
-int main(int, char**) {
+int main(int argc, char** argv) {
     void upgradehakell(); void initqopen();
     void initmenukep1(); void initmenukep2();
+#ifdef ELMA_PS3
+    ps3_prepare(argc, argv);
+#endif
     config_load();
+#ifdef ELMA_PS3
+    ddinit(); // Show native error dialogs even when game data is missing.
+    upgradehakell(); initqopen(); mk_init(); initmenukep1(); initmenukep2(); mv_main();
+#else
     upgradehakell(); initqopen(); mk_init(); initmenukep1();
     ddinit(); initmenukep2(); mv_main();
+#endif
     return 0;
 }

@@ -1,4 +1,7 @@
 #include	"all.h"
+#ifdef ELMA_PS3
+#include "PS3_TEXT.H"
+#endif
 
 // Ez igaz, ha editorban van vezerles:
 int Editorban_dialnak = 0;
@@ -44,6 +47,9 @@ int dialog( char* text1, char* text2, char* text3,
 			 char* text16, char* text17, char* text18,
 			 char* text19, char* text20, char* text21,
 			 char* text22, char* text23, char* text24 ) {
+#ifdef ELMA_PS3
+    Ps3TextInputScope dialog_pad_scope;
+#endif
 	char* texttomb[30] = { text1, text2, text3, text4, text5, text6,
 					   text7, text8, text9, text10, text11, text12,
 					   text13, text14, text15, text16, text17, text18,
@@ -146,6 +152,13 @@ int dialog( char* text1, char* text2, char* text3,
 		Pabc2->writekozep( Buffsima, (gx2tomb[i]+gx1tomb[i])/2, gy1+14, gombtomb[i] );
 	}
 
+#ifdef ELMA_PS3
+    int pad_focus=gombszam-1;
+    if(gombszam>1) {
+        Buffsima->line(gx1tomb[pad_focus]+2,gy1+2,gx2tomb[pad_focus]-2,gy1+2,Feherszin);
+        Buffsima->line(gx1tomb[pad_focus]+2,gy2-2,gx2tomb[pad_focus]-2,gy2-2,Feherszin);
+    }
+#endif
 	bltfront( Buffsima );
 	pop();
 
@@ -167,6 +180,25 @@ int dialog( char* text1, char* text2, char* text3,
 	while( 1 ) {
 		while( mk_kbhit() ) {
 			int c = mk_getextchar();
+#ifdef ELMA_PS3
+            if(gombszam>1) {
+                if(c==MK_ENTER || c==MK_ESC) {
+                    if(!Editorban_dialnak)push();
+                    return c==MK_ENTER ? pad_focus : gombszam-1;
+                }
+                if(c==MK_LEFT || c==MK_RIGHT || c==MK_UP || c==MK_DOWN) {
+                    pad_focus=(pad_focus+((c==MK_LEFT || c==MK_UP)?gombszam-1:1))%gombszam;
+                    push();
+                    for(int b=0;b<gombszam;++b) {
+                        kirajzbox(Buffsima,gx1tomb[b],gy1,gx2tomb[b],gy2,Buttonszin,Dialogszelszin);
+                        Pabc2->writekozep(Buffsima,(gx1tomb[b]+gx2tomb[b])/2,gy1+14,gombtomb[b]);
+                    }
+                    Buffsima->line(gx1tomb[pad_focus]+2,gy1+2,gx2tomb[pad_focus]-2,gy1+2,Feherszin);
+                    Buffsima->line(gx1tomb[pad_focus]+2,gy2-2,gx2tomb[pad_focus]-2,gy2-2,Feherszin);
+                    bltfront(Buffsima);pop();continue;
+                }
+            }
+#endif
 			if( gombszam == 1 ) {
 				if( c == MK_ESC || c == MK_ENTER ) {
 					if( !Editorban_dialnak )

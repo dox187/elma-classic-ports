@@ -1,0 +1,794 @@
+--- a/src/render/psl1ght/SDL_PSL1GHTrender.c
++++ b/src/render/psl1ght/SDL_PSL1GHTrender.c
+@@ -23,6 +23,9 @@
+ #if SDL_VIDEO_RENDER_PSL1GHT
+ 
+ #include "../SDL_sysrender.h"
++#include <ppu-asm.h>
++#include "SDL_hints.h"
++#include "SDL_timer.h"
+ #include "../../video/SDL_sysvideo.h"
+ #include "../../video/psl1ght/SDL_PSL1GHTvideo.h"
+ 
+@@ -35,7 +38,42 @@
+ 
+ #include <rsx/rsx.h>
+ #include <unistd.h>
++#include <malloc.h>
+ #include <assert.h>
++
++
++/* Elma original passthrough shaders, assembled with PSL1GHT cgcomp -a.
++   VP: MOV result.position, vertex.position; MOV result.texcoord[0], vertex.texcoord[0];
++   FP: TEX result.color, fragment.texcoord[0], texture[0], 2D; */
++static const unsigned char elma_vp[] __attribute__((aligned(16))) = {
++    0x56,0x50,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x24,
++    0x00,0x00,0x00,0x24,0x00,0x00,0x00,0x30,0x00,0x00,0x01,0x01,0x00,0x00,0x40,0x00,
++    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x00,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0x80,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x08,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0x9d,
++};
++static const unsigned char elma_fp[] __attribute__((aligned(16))) = {
++    0x46,0x50,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x24,
++    0x00,0x00,0x00,0x24,0x00,0x00,0x00,0x30,0x00,0x00,0x00,0x40,0x00,0x01,0x00,0x00,
++    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
++    0x9e,0x01,0x17,0x00,0xc8,0x01,0x1c,0x9d,0xc8,0x00,0x00,0x01,0xc8,0x00,0x3f,0xe1,
++};
++
++
++static const unsigned char elma_solid_vp[] __attribute__((aligned(16))) = {
++    0x56,0x50,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x24,
++    0x00,0x00,0x00,0x24,0x00,0x00,0x00,0x30,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,0x25,
++    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x00,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0x80,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x03,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0x84,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x01,0x00,0x01,0x06,0xc0,0x83,0x60,0x41,0xff,0x99,
++};
++static const unsigned char elma_solid_fp[] __attribute__((aligned(16))) = {
++    0x46,0x50,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x24,
++    0x00,0x00,0x00,0x24,0x00,0x00,0x00,0x30,0x00,0x00,0x00,0x40,0x00,0x00,0x00,0x00,
++    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
++    0x3e,0x01,0x01,0x00,0xc8,0x01,0x1c,0x9d,0xc8,0x00,0x00,0x01,0xc8,0x00,0x00,0x01,
++};
+ 
+ /* SDL surface based renderer implementation */
+ 
+@@ -94,8 +132,55 @@
+      0}
+ };
+ 
++/* Pixel Art UV reconstruction adapted from SDL3 SDL_shaders_gl.c,
++   Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>, under the zlib
++   license printed above. Altered RSX assembly supplies axis-aligned footprint
++   from rectangle sizes instead of derivatives. See SDL3_PIXELART_LICENSE.txt. */
++static const unsigned char elma_pixelart_vp[] __attribute__((aligned(16))) = {
++    0x56,0x50,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x05,0x00,0x00,0x00,0x24,
++    0x00,0x00,0x00,0x24,0x00,0x00,0x00,0x30,0x00,0x00,0x0f,0x01,0x00,0x03,0xc0,0x00,
++    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x00,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0x80,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x08,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0x9c,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x09,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0xa0,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x0a,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0xa4,
++    0x40,0x1f,0x9c,0x6c,0x00,0x40,0x0b,0x0d,0x81,0x06,0xc0,0x83,0x60,0x41,0xff,0xa9,
++};
++static const unsigned char elma_pixelart_fp[] __attribute__((aligned(16))) = {
++    0x46,0x50,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x24,
++    0x00,0x00,0x00,0x24,0x00,0x00,0x00,0x30,0x00,0x00,0x00,0x40,0x00,0x0f,0x00,0x00,
++    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
++    0xbe,0x06,0x01,0x00,0xc8,0x01,0x1c,0x9d,0xc8,0x00,0x00,0x01,0xc8,0x00,0x3f,0xe1,
++    0xde,0x08,0x01,0x00,0xc8,0x01,0x1c,0x9d,0xc8,0x00,0x00,0x01,0xc8,0x00,0x3f,0xe1,
++    0xfe,0x0a,0x01,0x00,0xc8,0x01,0x1c,0x9d,0xc8,0x00,0x00,0x01,0xc8,0x00,0x3f,0xe1,
++    0x86,0x00,0x02,0x00,0xc8,0x01,0x1c,0x9d,0xc8,0x0c,0x00,0x01,0xc8,0x00,0xbf,0xe1,
++    0x06,0x00,0x04,0x00,0xc8,0x10,0x1c,0x9f,0x00,0x14,0x00,0x00,0xc8,0x00,0x00,0x01,
++    0x06,0x02,0x10,0x00,0xc8,0x00,0x1c,0x9d,0xc8,0x00,0x00,0x01,0xc8,0x00,0x00,0x01,
++    0x06,0x00,0x03,0x00,0xc8,0x00,0x1c,0x9d,0xc8,0x04,0x00,0x03,0xc8,0x00,0x00,0x01,
++    0x06,0x02,0x03,0x00,0xc8,0x04,0x1c,0x9d,0xc8,0x10,0x00,0x01,0xc8,0x00,0x00,0x01,
++    0x06,0x02,0x03,0x00,0xc8,0x04,0x1c,0x9d,0xaa,0x14,0x00,0x02,0xc8,0x00,0x00,0x01,
++    0x06,0x02,0x82,0x00,0xc8,0x04,0x1c,0x9d,0xdc,0x10,0x00,0x01,0xc8,0x00,0x00,0x01,
++    0x06,0x04,0x02,0x00,0xc8,0x04,0x1c,0x9d,0xc8,0x04,0x00,0x01,0xc8,0x00,0x00,0x01,
++    0x06,0x02,0x04,0x00,0xc8,0x04,0x1c,0x9f,0x54,0x14,0x00,0x01,0xfe,0x14,0x00,0x01,
++    0x06,0x00,0x04,0x00,0xc8,0x08,0x1c,0x9d,0xc8,0x04,0x00,0x01,0xc8,0x00,0x00,0x01,
++    0x06,0x00,0x03,0x00,0xc8,0x00,0x1c,0x9d,0x00,0x14,0x00,0x00,0xc8,0x00,0x00,0x01,
++    0x06,0x00,0x02,0x00,0xc8,0x00,0x1c,0x9d,0xdc,0x0c,0x00,0x01,0xc8,0x00,0x00,0x01,
++    0x1e,0x01,0x17,0x00,0xc8,0x00,0x1c,0x9d,0xc8,0x00,0x00,0x01,0xc8,0x00,0x00,0x01,
++};
++
+ typedef struct
+ {
++    void *readback;
++    u32 readback_offset;
++    SDL_bool quad_unavailable;
++    SDL_bool gpu_pending;
++    u32 fence_serial;
++    void *pixelart_fragment;
++    u32 pixelart_fragment_offset;
++    void *solid_fragment;
++    u32 solid_fragment_offset;
++    void *quad_fragment;
++    u32 quad_fragment_offset;
+     bool first_fb; // Is this the first flip ?
+     int current_screen;
+     SDL_Surface *screens[3];
+@@ -122,7 +207,200 @@
+ {
+     PSL1GHT_RenderData *data = (PSL1GHT_RenderData *) renderer->driverdata;
+ 
+-    return data->screens[data->current_screen];
++    return renderer->target ? (SDL_Surface *)renderer->target->driverdata :
++                              data->screens[data->current_screen];
++}
++
++
++/* PSL1GHT is fixed to the selected physical video mode, even if a caller
++   requested a different SDL window size. Report the actual renderable extent. */
++static int PSL1GHT_GetOutputSize(SDL_Renderer *renderer,int *w,int *h)
++{
++    PSL1GHT_RenderData *data=(PSL1GHT_RenderData *)renderer->driverdata;
++    if(w) *w=data->screens[0]->w;
++    if(h) *h=data->screens[0]->h;
++    return 0;
++}
++
++/* Label 254 is reserved by this renderer; the SDL PSL1GHT video driver uses
++   no labels. A backend release waits for render writes, unlike a FIFO REF. */
++#define ELMA_BACKEND_LABEL 254
++static u32 PSL1GHT_BackendBarrier(PSL1GHT_RenderData *data)
++{
++    const u32 value=++data->fence_serial;
++    rsxSetWriteBackendLabel(data->context,ELMA_BACKEND_LABEL,value);
++    rsxSetWaitLabel(data->context,ELMA_BACKEND_LABEL,value);
++    return value;
++}
++static void PSL1GHT_Finish(PSL1GHT_RenderData *data)
++{
++    if (data->gpu_pending) {
++        const u32 value=PSL1GHT_BackendBarrier(data);
++        rsxFlushBuffer(data->context);
++        while(*(vu32 *)gcmGetLabelAddress(ELMA_BACKEND_LABEL)!=value) usleep(30);
++        data->gpu_pending=SDL_FALSE;
++    }
++}
++
++/* Rasterize directly into the same linear ARGB surfaces. No depth allocation is
++   needed: depth/stencil tests and writes are disabled. Keep the old 2D transfer
++   path as an explicit diagnostic fallback and on tiny shader allocation failure. */
++static SDL_bool PSL1GHT_QuadReady(PSL1GHT_RenderData *data)
++{
++    if (SDL_GetHintBoolean("ELMA_PS3_SDL_2D", SDL_FALSE)) return SDL_FALSE;
++    if(data->quad_unavailable) return SDL_FALSE;
++    if (!data->quad_fragment) {
++        void *ucode; u32 size;
++        rsxFragmentProgramGetUCode((const rsxFragmentProgram *)elma_fp, &ucode, &size);
++        data->quad_fragment = rsxMemalign(64, size);
++        if (!data->quad_fragment) {data->quad_unavailable=SDL_TRUE;return SDL_FALSE;}
++        SDL_memcpy(data->quad_fragment, ucode, size);
++        rsxAddressToOffset(data->quad_fragment, &data->quad_fragment_offset);
++        rsxFragmentProgramGetUCode((const rsxFragmentProgram *)elma_solid_fp,&ucode,&size);
++        data->solid_fragment=rsxMemalign(64,size);
++        if(!data->solid_fragment) {
++            rsxFree(data->quad_fragment);data->quad_fragment=NULL;
++            data->quad_unavailable=SDL_TRUE;return SDL_FALSE;
++        }
++        SDL_memcpy(data->solid_fragment,ucode,size);
++        rsxAddressToOffset(data->solid_fragment,&data->solid_fragment_offset);
++        rsxFragmentProgramGetUCode((const rsxFragmentProgram *)elma_pixelart_fp,&ucode,&size);
++        data->pixelart_fragment=rsxMemalign(64,size);
++        if(!data->pixelart_fragment) {
++            rsxFree(data->solid_fragment);data->solid_fragment=NULL;
++            rsxFree(data->quad_fragment);data->quad_fragment=NULL;
++            data->quad_unavailable=SDL_TRUE;return SDL_FALSE;
++        }
++        SDL_memcpy(data->pixelart_fragment,ucode,size);
++        rsxAddressToOffset(data->pixelart_fragment,&data->pixelart_fragment_offset);
++    }
++    return SDL_TRUE;
++}
++
++static void PSL1GHT_QuadSurface(PSL1GHT_RenderData *data, SDL_Surface *dst)
++{
++    gcmContextData *c=data->context;
++    gcmSurface sf; f32 scale[4]={dst->w*.5f, dst->h*-.5f, .5f, 0};
++    f32 offset[4]={dst->w*.5f, dst->h*.5f, .5f, 0}; int i;
++    SDL_zero(sf);
++    sf.colorFormat=GCM_SURFACE_A8R8G8B8; sf.colorTarget=GCM_SURFACE_TARGET_0;
++    for(i=0;i<4;++i) {sf.colorLocation[i]=GCM_LOCATION_RSX;sf.colorPitch[i]=64;}
++    rsxAddressToOffset(dst->pixels, &sf.colorOffset[0]); sf.colorPitch[0]=dst->pitch;
++    sf.depthFormat=GCM_SURFACE_ZETA_Z24S8;sf.depthLocation=GCM_LOCATION_RSX;sf.depthPitch=64;
++    sf.type=GCM_SURFACE_TYPE_LINEAR;sf.antiAlias=GCM_SURFACE_CENTER_1;
++    sf.width=dst->w;sf.height=dst->h;
++    rsxSetSurface(c,&sf);
++    rsxSetColorMask(c,GCM_COLOR_MASK_R|GCM_COLOR_MASK_G|GCM_COLOR_MASK_B|GCM_COLOR_MASK_A);
++    rsxSetColorMaskMrt(c,0); rsxSetDepthTestEnable(c,GCM_FALSE);rsxSetDepthWriteEnable(c,GCM_FALSE);
++    rsxSetStencilTestEnable(c,GCM_FALSE);rsxSetAlphaTestEnable(c,GCM_FALSE);
++    rsxSetBlendEnable(c,GCM_FALSE);rsxSetCullFaceEnable(c,GCM_FALSE);
++    rsxSetShadeModel(c,GCM_SHADE_MODEL_SMOOTH);
++    rsxSetViewport(c,0,0,dst->w,dst->h,0,1,scale,offset);
++    rsxSetScissor(c,0,0,dst->w,dst->h);
++}
++
++static void PSL1GHT_QuadCopy(PSL1GHT_RenderData *data, SDL_Surface *src, SDL_Surface *dst,
++                            const SDL_Rect *source, const SDL_Rect *dest,
++                            const SDL_Rect *clip, SDL_ScaleMode filter, SDL_bool source_target)
++{
++    gcmContextData *c=data->context;gcmTexture tex;void *vp;u32 size;int i;
++    const SDL_bool pixelart=filter==SDL_ScaleModeBest;
++    const f32 dimensions[4]={src->w,src->h,1.f/src->w,1.f/src->h};
++    const f32 bx=SDL_max(1e-5f,SDL_min(1.f,(f32)source->w/dest->w));
++    const f32 by=SDL_max(1e-5f,SDL_min(1.f,(f32)source->h/dest->h));
++    const f32 footprint[4]={bx,by,1.f/bx,1.f/by};
++    const f32 constants[4]={.5f,1.f,2.f,3.f};
++    const int corners[6]={0,1,2,0,2,3};
++    const f32 x[4]={dest->x,dest->x+dest->w,dest->x+dest->w,dest->x};
++    const f32 y[4]={dest->y,dest->y,dest->y+dest->h,dest->y+dest->h};
++    const f32 u[4]={source->x,source->x+source->w,source->x+source->w,source->x};
++    const f32 v[4]={source->y,source->y,source->y+source->h,source->y+source->h};
++    PSL1GHT_QuadSurface(data,dst);
++    rsxSetScissor(c,clip->x,clip->y,clip->w,clip->h);
++    SDL_zero(tex);tex.format=GCM_TEXTURE_FORMAT_A8R8G8B8|GCM_TEXTURE_FORMAT_LIN;
++    tex.mipmap=1;tex.dimension=GCM_TEXTURE_DIMS_2D;tex.depth=1;
++    tex.remap=((GCM_TEXTURE_REMAP_TYPE_REMAP<<GCM_TEXTURE_REMAP_TYPE_B_SHIFT)|
++      (GCM_TEXTURE_REMAP_TYPE_REMAP<<GCM_TEXTURE_REMAP_TYPE_G_SHIFT)|
++      (GCM_TEXTURE_REMAP_TYPE_REMAP<<GCM_TEXTURE_REMAP_TYPE_R_SHIFT)|
++      (GCM_TEXTURE_REMAP_TYPE_REMAP<<GCM_TEXTURE_REMAP_TYPE_A_SHIFT)|
++      (GCM_TEXTURE_REMAP_COLOR_B<<GCM_TEXTURE_REMAP_COLOR_B_SHIFT)|
++      (GCM_TEXTURE_REMAP_COLOR_G<<GCM_TEXTURE_REMAP_COLOR_G_SHIFT)|
++      (GCM_TEXTURE_REMAP_COLOR_R<<GCM_TEXTURE_REMAP_COLOR_R_SHIFT)|
++      (GCM_TEXTURE_REMAP_COLOR_A<<GCM_TEXTURE_REMAP_COLOR_A_SHIFT));
++    tex.width=src->w;tex.height=src->h;tex.pitch=src->pitch;tex.location=GCM_LOCATION_RSX;
++    rsxAddressToOffset(src->pixels,&tex.offset);
++    /* Sharp samples an earlier render target in the same command buffer.
++       Order backend color writes before invalidating and reading its texels. */
++    /* Streaming/static textures cannot be render targets. Clearing a different
++       destination creates no dependency on a CPU-uploaded source. Target sources
++       retain the conservative backend barrier; cache invalidation is always
++       required, including after CPU texture uploads. */
++    if(data->gpu_pending && source_target) PSL1GHT_BackendBarrier(data);
++    rsxInvalidateTextureCache(c,GCM_INVALIDATE_TEXTURE);
++    rsxLoadTexture(c,0,&tex);
++    rsxTextureControl(c,0,GCM_TRUE,0,0,GCM_TEXTURE_MAX_ANISO_1);
++    const u32 mode=filter==SDL_ScaleModeNearest?GCM_TEXTURE_NEAREST:GCM_TEXTURE_LINEAR;
++    rsxTextureFilter(c,0,0,mode,mode,GCM_TEXTURE_CONVOLUTION_QUINCUNX);
++    rsxTextureWrapMode(c,0,GCM_TEXTURE_CLAMP_TO_EDGE,GCM_TEXTURE_CLAMP_TO_EDGE,GCM_TEXTURE_CLAMP_TO_EDGE,0,GCM_TEXTURE_ZFUNC_LESS,0);
++    const rsxVertexProgram *vertex=(const rsxVertexProgram *)(pixelart?elma_pixelart_vp:elma_vp);
++    rsxVertexProgramGetUCode(vertex,&vp,&size);rsxLoadVertexProgram(c,vertex,vp);
++    rsxLoadFragmentProgramLocation(c,(const rsxFragmentProgram *)(pixelart?elma_pixelart_fp:elma_fp),
++                                  pixelart?data->pixelart_fragment_offset:data->quad_fragment_offset,GCM_LOCATION_RSX);
++    rsxDrawVertexBegin(c,GCM_TYPE_TRIANGLES);
++    for(i=0;i<6;++i) {
++        const int k=corners[i];f32 uv[2]={u[k]/src->w,v[k]/src->h};
++        f32 position[4]={2*x[k]/dst->w-1,1-2*y[k]/dst->h,0,1};
++        if(pixelart) {
++            rsxDrawVertex4f(c,9,dimensions);rsxDrawVertex4f(c,10,footprint);rsxDrawVertex4f(c,11,constants);
++        }
++        rsxDrawVertex2f(c,8,uv);rsxDrawVertex4f(c,0,position);
++    }
++    rsxDrawVertexEnd(c);
++    data->gpu_pending=SDL_TRUE;
++}
++
++/* Keep framebuffer primitives on the GPU. Mixing PPU writes into a cached 3D
++   render target cannot guarantee visibility to later draws or readback. */
++static SDL_bool PSL1GHT_SolidBegin(SDL_Renderer *renderer)
++{
++    PSL1GHT_RenderData *data=(PSL1GHT_RenderData *)renderer->driverdata;
++    SDL_Surface *dst=PSL1GHT_ActivateRenderer(renderer);
++    SDL_Rect bounds={0,0,dst->w,dst->h},clip=renderer->viewport;
++    void *vp;u32 size;
++    if(!PSL1GHT_QuadReady(data)) return SDL_FALSE;
++    SDL_IntersectRect(&clip,&bounds,&clip);
++    if(renderer->clipping_enabled) {
++        SDL_Rect user=renderer->clip_rect;
++        user.x+=renderer->viewport.x;user.y+=renderer->viewport.y;
++        SDL_IntersectRect(&clip,&user,&clip);
++    }
++    if(clip.w<=0||clip.h<=0) return SDL_FALSE;
++    PSL1GHT_QuadSurface(data,dst);
++    rsxSetScissor(data->context,clip.x,clip.y,clip.w,clip.h);
++    rsxVertexProgramGetUCode((const rsxVertexProgram *)elma_solid_vp,&vp,&size);
++    rsxLoadVertexProgram(data->context,(const rsxVertexProgram *)elma_solid_vp,vp);
++    rsxLoadFragmentProgramLocation(data->context,(const rsxFragmentProgram *)elma_solid_fp,
++                                   data->solid_fragment_offset,GCM_LOCATION_RSX);
++    if(renderer->blendMode!=SDL_BLENDMODE_NONE) {
++        u32 srgb=GCM_SRC_ALPHA,drgb=GCM_ONE_MINUS_SRC_ALPHA,sa=GCM_ONE,da=GCM_ONE_MINUS_SRC_ALPHA;
++        if(renderer->blendMode==SDL_BLENDMODE_ADD) {drgb=GCM_ONE;sa=GCM_ZERO;da=GCM_ONE;}
++        else if(renderer->blendMode==SDL_BLENDMODE_MOD) {srgb=GCM_ZERO;drgb=GCM_SRC_COLOR;sa=GCM_ZERO;da=GCM_ONE;}
++        else if(renderer->blendMode==SDL_BLENDMODE_MUL) {srgb=GCM_DST_COLOR;drgb=GCM_ONE_MINUS_SRC_ALPHA;sa=GCM_ZERO;da=GCM_ONE;}
++        rsxSetBlendEnable(data->context,GCM_TRUE);
++        rsxSetBlendEquation(data->context,GCM_FUNC_ADD,GCM_FUNC_ADD);
++        rsxSetBlendFunc(data->context,srgb,drgb,sa,da);
++    }
++    return SDL_TRUE;
++}
++static void PSL1GHT_SolidVertex(SDL_Renderer *renderer, float x, float y)
++{
++    PSL1GHT_RenderData *data=(PSL1GHT_RenderData *)renderer->driverdata;
++    SDL_Surface *dst=PSL1GHT_ActivateRenderer(renderer);
++    f32 position[4]={2*(x+renderer->viewport.x)/dst->w-1,
++                    1-2*(y+renderer->viewport.y)/dst->h,0,1};
++    f32 color[4]={renderer->r/255.f,renderer->g/255.f,renderer->b/255.f,renderer->a/255.f};
++    const f32 weight[4]={1,0,0,0};rsxDrawVertex4f(data->context,1,weight);
++    rsxDrawVertex4f(data->context,3,color);rsxDrawVertex4f(data->context,0,position);
+ }
+ 
+ SDL_Renderer *
+@@ -157,11 +435,13 @@
+     }
+     
+     SDL_zerop(data);
++    renderer->driverdata = data; /* Permit cleanup on every allocation failure. */
+     
+     deprintf (1, "\tMem allocated\n");
+     
+     // Get a copy of the command buffer
+     data->context = ((SDL_DeviceData*) display->device->driverdata)->_CommandBuffer;
++    data->fence_serial=*(vu32 *)gcmGetLabelAddress(ELMA_BACKEND_LABEL);
+     data->current_screen = 0;
+     data->first_fb = true;
+     
+@@ -216,6 +496,7 @@
+     renderer->WindowEvent = PSL1GHT_WindowEvent;
+     renderer->SupportsBlendMode = PSL1GHT_SupportsBlendMode;
+     renderer->CreateTexture = PSL1GHT_CreateTexture;
++    renderer->GetOutputSize = PSL1GHT_GetOutputSize;
+     renderer->UpdateTexture = PSL1GHT_UpdateTexture;
+     renderer->UpdateTextureYUV = PSL1GHT_UpdateTextureYUV;
+     renderer->LockTexture = PSL1GHT_LockTexture;
+@@ -235,7 +516,7 @@
+     renderer->DestroyTexture = PSL1GHT_DestroyTexture;
+     renderer->DestroyRenderer = PSL1GHT_DestroyRenderer;
+     renderer->info = PSL1GHT_RenderDriver.info;
+-    renderer->info.flags = (SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
++    renderer->info.flags = (SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE | SDL_RENDERER_PRESENTVSYNC);
+     renderer->driverdata = data;
+     renderer->window = window;
+ 
+@@ -271,21 +552,20 @@
+     }
+ 
+     // Allocate GFX memory for textures
+-    pitch = texture->w * SDL_BYTESPERPIXEL(texture->format);
++    pitch = (texture->w * SDL_BYTESPERPIXEL(texture->format) + 63) & ~63;
+     pixels = rsxMemalign(64, texture->h * pitch);
++    if (!pixels) return SDL_OutOfMemory();
+ 
+     texture->driverdata =
+         SDL_CreateRGBSurfaceFrom(pixels, texture->w, texture->h, bpp, pitch,
+                             Rmask, Gmask, Bmask, Amask);
+ 
++    if (!texture->driverdata) { rsxFree(pixels); return -1; }
+     SDL_SetSurfaceColorMod(texture->driverdata, texture->r, texture->g,
+                            texture->b);
+     SDL_SetSurfaceAlphaMod(texture->driverdata, texture->a);
+     SDL_SetSurfaceBlendMode(texture->driverdata, texture->blendMode);
+ 
+-    if (!texture->driverdata) {
+-        return -1;
+-    }
+     return 0;
+ }
+ 
+@@ -293,6 +573,7 @@
+ PSL1GHT_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
+                  const SDL_Rect * rect, const void *pixels, int pitch)
+ {
++    PSL1GHT_Finish((PSL1GHT_RenderData *)renderer->driverdata);
+     SDL_Surface *surface = (SDL_Surface *) texture->driverdata;
+     Uint8 *src, *dst;
+     int row;
+@@ -325,6 +606,7 @@
+ PSL1GHT_LockTexture(SDL_Renderer * renderer, SDL_Texture * texture,
+                const SDL_Rect * rect, void **pixels, int *pitch)
+ {
++    PSL1GHT_Finish((PSL1GHT_RenderData *)renderer->driverdata);
+     SDL_Surface *surface = (SDL_Surface *) texture->driverdata;
+ 
+     *pixels =
+@@ -366,25 +648,17 @@
+ static int
+ PSL1GHT_UpdateViewport(SDL_Renderer * renderer)
+ {
+-    PSL1GHT_RenderData *data = (PSL1GHT_RenderData *) renderer->driverdata;
+-    SDL_Surface *surface = data->screens[0];
+-
+-    if (!renderer->viewport.w && !renderer->viewport.h) {
+-        /* There may be no window, so update the viewport directly */
+-        renderer->viewport.w = surface->w;
+-        renderer->viewport.h = surface->h;
+-    }
+-
+-    /* Center drawable region on screen */
+-    if (renderer->window && surface->w > renderer->window->w) {
+-        renderer->viewport.x += (surface->w - renderer->window->w)/2;
+-    }
+-    if (renderer->window && surface->h > renderer->window->h) {
+-        renderer->viewport.y += (surface->h - renderer->window->h)/2;
+-    }
+-    
+-    SDL_SetClipRect(data->screens[0], &renderer->viewport);
+-    SDL_SetClipRect(data->screens[1], &renderer->viewport);
++    SDL_Surface *surface = PSL1GHT_ActivateRenderer(renderer);
++    SDL_Rect bounds = {0, 0, surface->w, surface->h}, clip = renderer->viewport;
++    if (!clip.w && !clip.h) clip = bounds;
++    SDL_IntersectRect(&clip, &bounds, &clip);
++    if (renderer->clipping_enabled) {
++        SDL_Rect user_clip = renderer->clip_rect;
++        user_clip.x += renderer->viewport.x;
++        user_clip.y += renderer->viewport.y;
++        SDL_IntersectRect(&clip, &user_clip, &clip);
++    }
++    SDL_SetClipRect(surface, &clip);
+     return 0;
+ }
+ 
+@@ -402,6 +676,16 @@
+     color = SDL_MapRGBA(surface->format,
+                         renderer->r, renderer->g, renderer->b, renderer->a);
+ 
++    PSL1GHT_RenderData *data=(PSL1GHT_RenderData *)renderer->driverdata;
++    if (PSL1GHT_QuadReady(data)) {
++        PSL1GHT_QuadSurface(data,surface);
++        rsxSetClearColor(data->context,color);
++        rsxClearSurface(data->context,GCM_CLEAR_R|GCM_CLEAR_G|GCM_CLEAR_B|GCM_CLEAR_A);
++        data->gpu_pending=SDL_TRUE;
++        return 0;
++    }
++
++    PSL1GHT_Finish(data);
+     /* By definition the clear ignores the clip rect */
+     clip_rect = surface->clip_rect;
+     SDL_SetClipRect(surface, NULL);
+@@ -431,6 +715,19 @@
+ PSL1GHT_RenderDrawPoints(SDL_Renderer * renderer, const SDL_Point * points,
+                     int count)
+ {
++    if(PSL1GHT_SolidBegin(renderer)) {
++        PSL1GHT_RenderData *data=(PSL1GHT_RenderData *)renderer->driverdata;
++        /* Pixel quads give exact integer coverage independently of RSX point-size state. */
++        rsxDrawVertexBegin(data->context,GCM_TYPE_TRIANGLES);
++        for(int i=0;i<count;++i) {
++            const float x=points[i].x,y=points[i].y;
++            PSL1GHT_SolidVertex(renderer,x,y);PSL1GHT_SolidVertex(renderer,x+1,y);PSL1GHT_SolidVertex(renderer,x+1,y+1);
++            PSL1GHT_SolidVertex(renderer,x,y);PSL1GHT_SolidVertex(renderer,x+1,y+1);PSL1GHT_SolidVertex(renderer,x,y+1);
++        }
++        rsxDrawVertexEnd(data->context);data->gpu_pending=SDL_TRUE;return 0;
++    }
++
++    PSL1GHT_Finish((PSL1GHT_RenderData *)renderer->driverdata);
+     SDL_Surface *surface = PSL1GHT_ActivateRenderer(renderer);
+     SDL_Point *temp = NULL;
+     int status;
+@@ -447,7 +744,7 @@
+         temp = SDL_stack_alloc(SDL_Point, count);
+         for (i = 0; i < count; ++i) {
+             temp[i].x = x + points[i].x;
+-            temp[i].y = y + points[i].x;
++            temp[i].y = y + points[i].y;
+         }
+         points = temp;
+     }
+@@ -476,6 +773,16 @@
+ PSL1GHT_RenderDrawLines(SDL_Renderer * renderer, const SDL_Point * points,
+                    int count)
+ {
++    if(PSL1GHT_SolidBegin(renderer)) {
++        PSL1GHT_RenderData *data=(PSL1GHT_RenderData *)renderer->driverdata;
++        rsxDrawVertexBegin(data->context,GCM_TYPE_LINE_STRIP);
++        for(int i=0;i<count;++i) PSL1GHT_SolidVertex(renderer,points[i].x+.5f,points[i].y+.5f);
++        rsxDrawVertexEnd(data->context);
++        if(count>0) PSL1GHT_RenderDrawPoints(renderer,points+count-1,1);
++        data->gpu_pending=SDL_TRUE;return 0;
++    }
++
++    PSL1GHT_Finish((PSL1GHT_RenderData *)renderer->driverdata);
+     SDL_Surface *surface = PSL1GHT_ActivateRenderer(renderer);
+     SDL_Point *temp = NULL;
+     int status;
+@@ -535,7 +842,6 @@
+         outRects[i].h = rects[i].h;
+     }
+     
+-    SDL_memcpy(outRects, rects, outLen);
+ 
+     return 0;
+ }
+@@ -543,6 +849,19 @@
+ static int
+ PSL1GHT_RenderFillRects(SDL_Renderer * renderer, const SDL_Rect * rects, int count)
+ {
++    if(PSL1GHT_SolidBegin(renderer)) {
++        PSL1GHT_RenderData *data=(PSL1GHT_RenderData *)renderer->driverdata;
++        rsxDrawVertexBegin(data->context,GCM_TYPE_TRIANGLES);
++        for(int i=0;i<count;++i) {
++            const float x=rects[i].x,y=rects[i].y,w=rects[i].w,h=rects[i].h;
++            if(w<=0||h<=0) continue;
++            PSL1GHT_SolidVertex(renderer,x,y);PSL1GHT_SolidVertex(renderer,x+w,y);PSL1GHT_SolidVertex(renderer,x+w,y+h);
++            PSL1GHT_SolidVertex(renderer,x,y);PSL1GHT_SolidVertex(renderer,x+w,y+h);PSL1GHT_SolidVertex(renderer,x,y+h);
++        }
++        rsxDrawVertexEnd(data->context);data->gpu_pending=SDL_TRUE;return 0;
++    }
++
++    PSL1GHT_Finish((PSL1GHT_RenderData *)renderer->driverdata);
+     SDL_Surface *surface = PSL1GHT_ActivateRenderer(renderer);
+     SDL_Rect *temp = NULL;
+     int status;
+@@ -632,24 +951,40 @@
+     scale.conversion = GCM_TRANSFER_CONVERSION_TRUNCATE;
+     scale.format = GCM_TRANSFER_SCALE_FORMAT_A8R8G8B8;
+     scale.operation = GCM_TRANSFER_OPERATION_SRCCOPY;
+-    scale.clipX = final_rect.x;
+-    scale.clipY = final_rect.y;
+-    scale.clipW = final_rect.w;
+-    scale.clipH = final_rect.h;
+-    scale.outX = final_rect.x;
+-    scale.outY = final_rect.y;
+-    scale.outW = final_rect.w;
+-    scale.outH = final_rect.h;
+-    scale.ratioX = (srcrect->w << 20) / final_rect.w;
+-    scale.ratioY = (srcrect->h << 20) / final_rect.h;
+-    scale.inX = srcrect->x;
+-    scale.inY = srcrect->y;
++    SDL_Rect bounds = {0, 0, dst->w, dst->h}, clip = final_rect;
++    SDL_IntersectRect(&clip, &bounds, &clip);
++    SDL_IntersectRect(&clip, &renderer->viewport, &clip);
++    if (renderer->clipping_enabled) {
++        SDL_Rect user_clip = renderer->clip_rect;
++        user_clip.x += renderer->viewport.x;
++        user_clip.y += renderer->viewport.y;
++        SDL_IntersectRect(&clip, &user_clip, &clip);
++    }
++    if (clip.w <= 0 || clip.h <= 0 || final_rect.w <= 0 || final_rect.h <= 0) return 0;
++    if (PSL1GHT_QuadReady(data)) {
++        PSL1GHT_QuadCopy(data,src,dst,srcrect,&final_rect,&clip,texture->scaleMode,texture->access==SDL_TEXTUREACCESS_TARGET?SDL_TRUE:SDL_FALSE);
++        return 0;
++    }
++    scale.clipX = clip.x;
++    scale.clipY = clip.y;
++    scale.clipW = clip.w;
++    scale.clipH = clip.h;
++    scale.outX = clip.x;
++    scale.outY = clip.y;
++    scale.outW = clip.w;
++    scale.outH = clip.h;
++    scale.ratioX = ((u64)srcrect->w << 20) / final_rect.w;
++    scale.ratioY = ((u64)srcrect->h << 20) / final_rect.h;
++    /* RSX input origin uses 12.4 fixed-point pixel coordinates. */
++    scale.inX = (srcrect->x << 4) + (clip.x-final_rect.x) * (srcrect->w << 4) / final_rect.w;
++    scale.inY = (srcrect->y << 4) + (clip.y-final_rect.y) * (srcrect->h << 4) / final_rect.h;
+     scale.inW = srcrect->w;
+     scale.inH = srcrect->h;
+     scale.offset = src_offset;
+     scale.pitch = src->pitch;
+     scale.origin = GCM_TRANSFER_ORIGIN_CORNER;
+-    scale.interp = GCM_TRANSFER_INTERPOLATOR_NEAREST;
++    scale.interp = texture->scaleMode == SDL_ScaleModeNearest ?
++        GCM_TRANSFER_INTERPOLATOR_NEAREST : GCM_TRANSFER_INTERPOLATOR_LINEAR;
+ 
+     gcmTransferSurface surface;
+     surface.format = GCM_TRANSFER_SURFACE_FORMAT_A8R8G8B8;
+@@ -659,6 +994,7 @@
+     // Hardware accelerated blit with scaling
+     rsxSetTransferScaleMode(data->context, GCM_TRANSFER_LOCAL_TO_LOCAL, GCM_TRANSFER_SURFACE);
+     rsxSetTransferScaleSurface(data->context, &scale, &surface);
++    data->gpu_pending=SDL_TRUE;
+ 
+     // TODO: Blending / clipping
+ 
+@@ -676,21 +1012,33 @@
+ static int
+ PSL1GHT_RunCommandQueue(SDL_Renderer * renderer, SDL_RenderCommand *cmd, void *vertices, size_t vertsize)
+ {
++    const Uint8 saved_r=renderer->r, saved_g=renderer->g, saved_b=renderer->b, saved_a=renderer->a;
++    const SDL_Rect saved_viewport=renderer->viewport, saved_clip=renderer->clip_rect;
++    const SDL_bool saved_clipping=renderer->clipping_enabled;
+     while (cmd) {
+         switch (cmd->command) {
+             case SDL_RENDERCMD_SETDRAWCOLOR: {
++                renderer->r = cmd->data.color.r; renderer->g = cmd->data.color.g;
++                renderer->b = cmd->data.color.b; renderer->a = cmd->data.color.a;
+                 break;
+             }
+ 
+             case SDL_RENDERCMD_SETVIEWPORT: {
++                renderer->viewport = cmd->data.viewport.rect;
++                PSL1GHT_UpdateViewport(renderer);
+                 break;
+             }
+ 
+             case SDL_RENDERCMD_SETCLIPRECT: {
++                renderer->clipping_enabled = cmd->data.cliprect.enabled;
++                renderer->clip_rect = cmd->data.cliprect.rect;
++                PSL1GHT_UpdateViewport(renderer);
+                 break;
+             }
+ 
+             case SDL_RENDERCMD_CLEAR: {
++                renderer->r=cmd->data.color.r; renderer->g=cmd->data.color.g;
++                renderer->b=cmd->data.color.b; renderer->a=cmd->data.color.a;
+                 PSL1GHT_RenderClear(renderer);
+                 break;
+             }
+@@ -740,6 +1088,9 @@
+         cmd = cmd->next;
+     }
+ 
++    renderer->r=saved_r; renderer->g=saved_g; renderer->b=saved_b; renderer->a=saved_a;
++    renderer->viewport=saved_viewport; renderer->clip_rect=saved_clip;
++    renderer->clipping_enabled=saved_clipping;
+     return 0;
+ }
+ 
+@@ -749,35 +1100,66 @@
+ {
+     SDL_Surface *surface = PSL1GHT_ActivateRenderer(renderer);
+     Uint32 src_format;
+-    void *src_pixels;
+-    SDL_Rect final_rect;
+ 
+     if (!surface) {
+         return -1;
+     }
+ 
+-    if (renderer->viewport.x || renderer->viewport.y) {
+-        final_rect.x = renderer->viewport.x + rect->x;
+-        final_rect.y = renderer->viewport.y + rect->y;
+-        final_rect.w = rect->w;
+-        final_rect.h = rect->h;
+-        rect = &final_rect;
+-    }
+-
++    /* SDL_RenderReadPixels already supplies absolute target coordinates. */
+     if (rect->x < 0 || rect->x+rect->w > surface->w ||
+         rect->y < 0 || rect->y+rect->h > surface->h) {
+         SDL_SetError("Tried to read outside of surface bounds");
+         return -1;
+     }
+ 
+-    src_format = surface->format->format;
+-    src_pixels = (void*)((Uint8 *) surface->pixels +
+-                    rect->y * surface->pitch +
+-                    rect->x * surface->format->BytesPerPixel);
+-
+-    return SDL_ConvertPixels(rect->w, rect->h,
+-                             src_format, src_pixels, surface->pitch,
+-                             format, pixels, pitch);
++    /* Read via the RSX DMA path. Direct PPU reads of a render-target's VRAM
++       pointer need not observe the color buffer cache (including RPCS3's host
++       render targets). This lazy 1 MiB staging area also bounds screenshot RAM. */
++    PSL1GHT_RenderData *data=(PSL1GHT_RenderData *)renderer->driverdata;
++    const u32 capacity=1024*1024;
++    const u32 rowbytes=rect->w*surface->format->BytesPerPixel;
++    const u32 rowpitch=(rowbytes+63)&~63u;
++    u32 source_offset, row=0;
++    if(!rowbytes || !rect->h) return 0;
++    if(rowpitch>capacity) return SDL_SetError("RSX readback row too wide");
++    PSL1GHT_Finish(data);
++    if(!data->readback) {
++        data->readback=memalign(capacity,capacity);
++        if(!data->readback) return SDL_OutOfMemory();
++        if(gcmMapMainMemory(data->readback,capacity,&data->readback_offset)!=0) {
++            free(data->readback);data->readback=NULL;
++            return SDL_SetError("RSX readback mapping failed");
++        }
++    }
++    PSL1GHT_Finish(data);
++    rsxAddressToOffset(surface->pixels,&source_offset);
++    source_offset+=rect->y*surface->pitch+rect->x*surface->format->BytesPerPixel;
++    src_format=surface->format->format;
++    while(row<(u32)rect->h) {
++        u32 count=SDL_min((u32)rect->h-row,SDL_min(capacity/rowpitch,2047u));
++        /* A surface-aware image transfer resolves a cached render target;
++           raw M2MF copies may only see its previous VRAM backing store. */
++        gcmTransferScale scale;gcmTransferSurface output;
++        SDL_zero(scale);SDL_zero(output);
++        scale.conversion=GCM_TRANSFER_CONVERSION_TRUNCATE;
++        scale.format=GCM_TRANSFER_SCALE_FORMAT_A8R8G8B8;
++        scale.operation=GCM_TRANSFER_OPERATION_SRCCOPY;
++        scale.clipW=scale.outW=rect->w;scale.clipH=scale.outH=count;
++        scale.ratioX=scale.ratioY=1<<20;
++        scale.inX=rect->x<<4;scale.inY=(rect->y+row)<<4;
++        scale.inW=surface->w;scale.inH=surface->h;
++        rsxAddressToOffset(surface->pixels,&scale.offset);scale.pitch=surface->pitch;
++        scale.origin=GCM_TRANSFER_ORIGIN_CORNER;scale.interp=GCM_TRANSFER_INTERPOLATOR_NEAREST;
++        output.format=GCM_TRANSFER_SURFACE_FORMAT_A8R8G8B8;
++        output.pitch=rowpitch;output.offset=data->readback_offset;
++        rsxSetTransferScaleMode(data->context,GCM_TRANSFER_LOCAL_TO_MAIN,GCM_TRANSFER_SURFACE);
++        rsxSetTransferScaleSurface(data->context,&scale,&output);
++        rsxFinish(data->context,++data->fence_serial);
++        if(SDL_ConvertPixels(rect->w,count,src_format,data->readback,rowpitch,
++                             format,(Uint8 *)pixels+row*pitch,pitch)!=0) return -1;
++        row+=count;
++    }
++    return 0;
+ }
+ 
+ static void
+@@ -790,13 +1172,41 @@
+         gcmResetFlipStatus();
+     }
+ 
++    const SDL_bool profile = SDL_GetHintBoolean("ELMA_PS3_SDL_PROFILE", SDL_FALSE);
++    const Uint32 flip_started = profile ? SDL_GetTicks() : 0;
++    if(data->gpu_pending) PSL1GHT_BackendBarrier(data);
+     gcmSetFlip(data->context, data->current_screen);
+     rsxFlushBuffer(data->context);
+ 
+-    gcmSetWaitFlip(data->context);
+-
++    /* CPU waits for this flip before reusing either its pixels or ring.
++       Do not enqueue a second GPU semaphore wait for this synchronous path. */
+     waitFlip();
+-
++    data->gpu_pending=SDL_FALSE;
++    const Uint32 flip_finished = profile ? SDL_GetTicks() : 0;
++
++    /* Reuse only an empty, consumed command ring. The old firmware callback
++       deadlocks when this small 64 KiB default buffer wraps during a blit. */
++    {
++        u32 begin_offset = 0;
++        gcmControlRegister volatile *ctrl = gcmGetControlRegister(data->context);
++        gcmAddressToOffset(data->context->begin, &begin_offset);
++        rsxSetJumpCommand(data->context, begin_offset);
++        __sync();
++        ctrl->put = begin_offset;
++        while (ctrl->get != begin_offset) usleep(30);
++        data->context->current = data->context->begin;
++    }
++
++    if (profile) {
++        static Uint32 count = 0, flip_ms = 0, rewind_ms = 0;
++        flip_ms += flip_finished - flip_started;
++        rewind_ms += SDL_GetTicks() - flip_finished;
++        if (++count == 300) {
++            printf("ELMA SDL present: flip %.2f ms, rewind %.2f ms\n",
++                   (double)flip_ms/count, (double)rewind_ms/count);
++            count=flip_ms=rewind_ms=0;
++        }
++    }
+     data->first_fb = false;
+ 
+     // Update the flipping chain, if any
+@@ -813,7 +1223,7 @@
+         return;
+     }
+ 
+-    // TODO: Wait for the DMA transfer to complete
++    PSL1GHT_Finish((PSL1GHT_RenderData *)renderer->driverdata);
+     rsxFree(surface->pixels);
+     SDL_FreeSurface(surface);
+ }
+@@ -827,6 +1237,11 @@
+     deprintf (1, "SDL_PSL1GHT_DestroyRenderer()\n");
+ 
+     if (data) {
++        PSL1GHT_Finish(data);
++        if(data->quad_fragment) rsxFree(data->quad_fragment);
++        if(data->solid_fragment) rsxFree(data->solid_fragment);
++        if(data->pixelart_fragment) rsxFree(data->pixelart_fragment);
++        if(data->readback) {gcmUnmapEaIoAddress(data->readback);free(data->readback);}
+         for (i = 0; i < SDL_arraysize(data->screens); ++i) {
+             if (data->screens[i]) {
+                SDL_FreeSurface(data->screens[i]);
+--- a/src/video/psl1ght/SDL_PSL1GHTmodes.c
++++ b/src/video/psl1ght/SDL_PSL1GHTmodes.c
+@@ -37,7 +37,7 @@
+     PSL1GHT_DisplayModeData *modedata;
+     videoState state;
+ 
+-    modedata = (PSL1GHT_DisplayModeData *) SDL_malloc(sizeof(*modedata));
++    modedata = (PSL1GHT_DisplayModeData *) SDL_calloc(1, sizeof(*modedata));
+     if (!modedata) {
+         return;
+     }
+@@ -55,6 +55,12 @@
+     mode.w = res.width;
+     mode.h = res.height;
+ 
++    /* Preserve the firmware-selected television shape. AUTO is the only
++       fallback for an unknown value; never pass uninitialized reserved bytes. */
++    modedata->vconfig.aspect =
++        state.displayMode.aspect == VIDEO_ASPECT_4_3 ||
++        state.displayMode.aspect == VIDEO_ASPECT_16_9 ?
++        state.displayMode.aspect : VIDEO_ASPECT_AUTO;
+     modedata->vconfig.resolution = state.displayMode.resolution;
+     modedata->vconfig.format = VIDEO_BUFFER_FORMAT_XRGB;
+     modedata->vconfig.pitch = res.width * 4;

@@ -18,6 +18,56 @@ static int  Fiben = 0;
 
 #elif defined(ELMA_POSIX)
 
+#ifdef ELMA_PS3
+// PSL1GHT glob cannot enumerate bracket-expanded absolute device paths.
+// Resolve the directory directly and match the engine's DOS-style names.
+#include <dirent.h>
+static void native_path(const char*, char*, int);
+static DIR* FiDir = NULL;
+static char FiPattern[256];
+static bool fiwild(const char* pattern,const char* name) {
+    while(*pattern) {
+        if(*pattern=='*') {
+            while(*pattern=='*')++pattern;
+            if(!*pattern)return true;
+            do { if(fiwild(pattern,name))return true; }while(*name++);
+            return false;
+        }
+        if(!*name || (*pattern!='?' && tolower((unsigned char)*pattern)!=tolower((unsigned char)*name)))return false;
+        ++pattern;++name;
+    }
+    return !*name;
+}
+int finext(char* filenev) {
+    if(!Fiben)hiba("8794t");
+    if(FiDir)while(dirent* ent=readdir(FiDir)) {
+        const char* name=ent->d_name;
+        if(name[0]=='.' || strlen(name)>12 || !fiwild(FiPattern,name))continue;
+        const char* dot=strchr(name,'.');
+        if((dot ? size_t(dot-name) : strlen(name))>8)continue;
+        strcpy(filenev,name);return 0;
+    }
+    filenev[0]=0;return 1;
+}
+int fifirst(char* minta,char* filenev) {
+    if(Fiben)hiba("fifirst");
+    Fiben=1;
+    char path[1024];snprintf(path,sizeof(path),"%s",minta);
+    for(char* p=path;*p;++p)if(*p=='\\')*p='/';
+    char* slash=strrchr(path,'/');
+    snprintf(FiPattern,sizeof(FiPattern),"%s",slash?slash+1:path);
+    if(slash==path)slash[1]=0;else if(slash)*slash=0;else strcpy(path,".");
+    char dir[1024];native_path(path,dir,sizeof(dir));
+    FiDir=opendir(dir);
+    return finext(filenev);
+}
+void ficlose() {
+    if(!Fiben)hiba("908uy6");
+    if(FiDir)closedir(FiDir);
+    FiDir=NULL;Fiben=0;
+}
+#else
+
 #include <glob.h>
 
 static glob_t Figlob;
@@ -89,6 +139,8 @@ void ficlose( void ) {
 	Fiben = 0;
 }
 
+#endif // ELMA_PS3 directory enumeration
+
 // A jatek Windows-hoz hasonloan kis/nagybetutol fuggetlenul nevezi meg
 // file-jait (elma.res, lgr\default.lgr). Kis/nagybetu erzekeny
 // file-rendszeren a nem letezo utvonal-elemeket kis/nagybetutol
@@ -99,6 +151,10 @@ void ficlose( void ) {
 
 #undef fopen
 #undef access
+#ifdef ELMA_PS3
+#undef remove
+#undef rename
+#endif
 
 static void utvonalhozfuz( const char* dir, const char* nev,
 						   char* ki, int meret ) {
@@ -114,6 +170,13 @@ static void utvonalhozfuz( const char* dir, const char* nev,
 static void native_path( const char* path, char* ki, int meret ) {
 	char utvonal[1024];
 	int n = 0;
+#ifdef ELMA_PS3
+	if( path[0] != '/' ) {
+		if( !getcwd( utvonal, sizeof(utvonal) ) ) utvonal[0] = 0;
+		n = strlen(utvonal);
+		if( n && utvonal[n-1] != '/' ) utvonal[n++] = '/';
+	}
+#endif
 	for( const char* p = path; *p && n < (int)sizeof(utvonal)-1; ++p )
 		utvonal[n++] = *p == '\\' ? '/' : *p;
 	utvonal[n] = 0;
@@ -165,6 +228,20 @@ FILE* elma_fopen( const char* path, const char* mode ) {
 	native_path( path, nativ, sizeof( nativ ) );
 	return fopen( nativ, mode );
 }
+
+#ifdef ELMA_PS3
+int elma_remove( const char* path ) {
+	char native[1024];
+	native_path(path, native, sizeof(native));
+	return remove(native);
+}
+int elma_rename( const char* from, const char* to ) {
+	char source[1024], target[1024];
+	native_path(from, source, sizeof(source));
+	native_path(to, target, sizeof(target));
+	return rename(source, target);
+}
+#endif
 
 int elma_access( const char* path, int mode ) {
 	char nativ[1024];

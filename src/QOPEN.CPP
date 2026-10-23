@@ -1,4 +1,5 @@
 #include	"all.h"
+#include "LE_STRUCT.H"
 
 static int Egybol = 1;
 
@@ -12,6 +13,9 @@ struct fileleiro {
 		int32_t hossz, kezdet;
 	#endif
 };
+
+static_assert(sizeof(fileleiro)==24,"Legacy resource descriptor layout changed");
+inline void elma_swap(fileleiro& p) { elma_swap(p.kezdet);elma_swap(p.hossz); }
 
 static fileleiro* Leirotomb = NULL;
 
@@ -53,7 +57,7 @@ static int vanmagicnumber( FILE* h, int leiroszam ) {
 	int32_t magicnumber = 0;
 	if( fseek( h, 4+leiroszam*long(sizeof( fileleiro )), SEEK_SET ) != 0 )
 		return 0;
-	if( fread( &magicnumber, 1, 4, h ) != 4 )
+	if( elma_read( &magicnumber, 1, 4, h ) != 4 )
 		return 0;
 	return magicnumber == AZONNUMBER;
 }
@@ -72,9 +76,9 @@ void initqopen( void ) {
 
 	FILE* h = fopen( Nagyfilenev, "rb" );
 	if( !h )
-		uzenet( "Missing file!: ", Nagyfilenev );
+		hiba( "Missing file!: ", Nagyfilenev );
 
-	if( fread( &Fileszam, 1, 4, h ) != 4 )
+	if( elma_read( &Fileszam, 1, 4, h ) != 4 )
 		hiba( "initqopen-ben nem sikerult olvasni!" );
 
 	// The location of the magic number after it shows Leirotomb's size:
@@ -86,16 +90,17 @@ void initqopen( void ) {
 
 	{ Leirotomb = NEW(fileleiro*) fileleiro[Leiroszam]; }
 	if( !Leirotomb )
-		uzenet( "initqopen-ben memory!" );
+		hiba( "initqopen-ben memory!" );
 	long hossz = Leiroszam*long(sizeof( fileleiro ));
 	if( fseek( h, 4, SEEK_SET ) != 0 )
 		hiba( "initqopen-ben nem sikerult olvasni!" );
 	if( fread( Leirotomb, 1, unsigned(hossz), h ) != hossz )
 		hiba( "initqopen-ben nem sikerult olvasni!" );
 	titkosit();
+	elma_convert(Leirotomb,Leiroszam*sizeof(fileleiro));
 
 	int32_t magicnumber = 0;
-	if( fread( &magicnumber, 1, 4, h ) != 4 )
+	if( elma_read( &magicnumber, 1, 4, h ) != 4 )
 		hiba( "initqopen-ben nem sikerult olvasni!" );
 	if( magicnumber != AZONNUMBER )
 		hiba( "initqopen-ben nem stimmel magicnumber!" );
@@ -132,17 +137,17 @@ void becsomagol( void ) {
 		hiba( "becsomagol-ban nem sikerult megnyitni!" );
 
 	Fileszam = 0;
-	if( fwrite( &Fileszam, 1, 4, h ) != 4 )
+	if( elma_write( &Fileszam, 1, 4, h ) != 4 )
 		hiba( "becsomagol-ban nem sikerult irni!" );
 
 	long hossz = sizeof( fileleiro[FILESZAM] );
 	if( hossz > 64000l )
 		hiba( "Tul hosszu Leirotomb initqopen-ben!" );
-	if( fwrite( Leirotomb, 1, unsigned(hossz), h ) != hossz )
+	if( elma_write( Leirotomb, 1, unsigned(hossz), h ) != hossz )
 		hiba( "becsomagol-ban nem sikerult irni!" );
 
 	long azonnumber = AZONNUMBER;
-	if( fwrite( &azonnumber, 1, 4, h ) != 4 )
+	if( elma_write( &azonnumber, 1, 4, h ) != 4 )
 		hiba( "becsomagol-ban nem sikerult irni!" );
 
 	finame fname;
@@ -162,10 +167,10 @@ void becsomagol( void ) {
 			hiba( "becsomagolban nem nyilik file!: ", fname );
 		// Masolas:
 		while( 1 ) {
-			long hossz = fread( Csomagbuffer, 1, 60000u, hs );
+			long hossz = elma_read( Csomagbuffer, 1, 60000u, hs );
 			if( !hossz )
 				break;
-			if( fwrite( Csomagbuffer, 1, unsigned(hossz), h ) != hossz )
+			if( elma_write( Csomagbuffer, 1, unsigned(hossz), h ) != hossz )
 				hiba( "Nem megy iras becsomagolban!" );
 		}
 		fclose( hs );
@@ -183,13 +188,15 @@ void becsomagol( void ) {
 	if( fseek( h, 0, SEEK_SET ) != 0 )
 		hiba( "fseek 0-t adott vissza!" );
 	Fileszam = kov;
-	if( fwrite( &Fileszam, 1, 4, h ) != 4 )
+	if( elma_write( &Fileszam, 1, 4, h ) != 4 )
 		hiba( "becsomagol-ban nem sikerult irni!" );
 
+	elma_convert(Leirotomb,Leiroszam*sizeof(fileleiro));
 	titkosit();
 	if( fwrite( Leirotomb, 1, unsigned(hossz), h ) != hossz )
 		hiba( "becsomagol-ban nem sikerult irni!" );
 	titkosit();
+	elma_convert(Leirotomb,Leiroszam*sizeof(fileleiro));
 
 	fclose( h );
 
