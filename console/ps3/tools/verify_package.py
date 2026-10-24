@@ -51,12 +51,16 @@ sfo=(stage/'PARAM.SFO').read_bytes()
 magic, fmt, keys, values, count=struct.unpack_from('<4s4I',sfo)
 if magic!=b'\0PSF': errors.append('invalid PARAM.SFO magic')
 entries={}
+key_order=[]
 for i in range(count):
     key_offset, data_format, length, maximum, data_offset=struct.unpack_from('<HHIII',sfo,20+i*16)
     key=sfo[keys+key_offset:].split(b'\0',1)[0].decode()
+    key_order.append(key)
     data=sfo[values+data_offset:values+data_offset+length]
     if data_format==0x0204: entries[key]=data.rstrip(b'\0').decode()
     elif data_format==0x0404 and length==4: entries[key]=struct.unpack('<I',data)[0]
+if key_order!=sorted(set(key_order)): errors.append('PARAM.SFO keys must be unique and alphabetically sorted for XMB')
+if entries.get('CATEGORY')!='HG' or entries.get('BOOTABLE')!=1: errors.append('PARAM.SFO must describe a bootable HDD game')
 major,minor,patch=map(int,m['version'].split('.'))
 expected_version=f'{major:02d}.{minor:02d}'
 for key in ('APP_VER','VERSION'):

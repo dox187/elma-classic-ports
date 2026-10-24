@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Package only user-supplied game data; no proprietary data is downloaded.
 set -euo pipefail
+# Keep macOS resource forks/extended attributes out of portable source archives.
+export COPYFILE_DISABLE=1
 source "$(dirname -- "$0")/env.sh"
 data="${1:-}"
 if [[ -n "$data" && ( ! -d "$data" || ! -f "$data/elma.res" ) ]]; then
@@ -105,6 +107,8 @@ tree = ET.parse(source)
 for value in tree.getroot():
     if value.get('name') in ('APP_VER','VERSION'): value.text = app_ver
     if value.get('name') == 'TITLE': value.text = 'Elasto Mania Classic '+version
+# The SDK preserves XML order; the PS3 requires alphabetically sorted SFO keys.
+tree.getroot()[:] = sorted(tree.getroot(), key=lambda value: value.get('name'))
 tree.write(dest, encoding='utf-8', xml_declaration=True)
 PYSFO
 sfo -f "$out/$name.sfo.xml" "$stage/PARAM.SFO"

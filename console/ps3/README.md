@@ -18,7 +18,8 @@ version 0.9.0 in RPCS3 at 1280×720. Click an image to view it at full size.
 
 ## Build
 
-On Linux x86_64 with CMake, Make, Python 3, patch, curl, tar, gzip and sha256sum:
+On Linux x86_64 or macOS (Apple Silicon/Intel), with CMake, Make, Python 3,
+patch, curl, tar, gzip and either sha256sum or shasum:
 
 ```sh
 console/ps3/tools/bootstrap.sh
@@ -28,13 +29,19 @@ console/ps3/tools/package.sh /path/to/installed/ElastoMania
 
 `bootstrap.sh` verifies a pinned SHA-256 of the official ps3dev
 [nightly-2026-10-12 release](https://github.com/ps3dev/ps3dev/releases/tag/nightly-2026-10-12).
-It installs entirely under ignored `.toolchain/` and rebuilds the pinned PS3
+It selects the native archive for the host OS/CPU, installs entirely under
+ignored `.toolchain/` and rebuilds the pinned PS3
 SDL2 port with `sdk/sdl2-render-targets.patch`. The SDK includes GCC 13.2.0,
 PSL1GHT f649a08fd536a9e27c08c7db2d93a2d7ee4c3bbe and SDL2 2.0.13.
 Set `PS3DEV` before building to use an existing compatible SDK. Build options
 can be passed to `build.sh`, for example `-DELMA_REGISTERED=OFF` for shareware.
 Builds use at most four concurrent compiler processes by default; set `JOBS`
 to override this.
+
+On macOS, install the host tools with `brew install cmake python coreutils`
+and ensure the Xcode Command Line Tools are installed (`xcode-select -p`).
+The build scripts use the workspace SDK automatically; no shell profile changes
+or Linux virtual machine are needed.
 
 The selected release physics reference is **this project’s PC SDL version**.
 Use the explicit `OFF` setting above even when reusing a build directory.
@@ -203,6 +210,9 @@ Elasto Mania splash lettering. It contains no timer or minimap. The editable
 320×176 PNG from the two cropped source images. Package SFO `APP_VER`/`VERSION` use the required
 two-digit major/minor form (`0.9.0` → `00.09`); the full semantic version is
 preserved in the title, splash, filenames and manifest.
+SFO keys must be unique and alphabetically sorted for the PS3 XMB. The SDK's
+`sfo` writer preserves XML order, so packaging explicitly sorts them. Unsorted
+metadata can appear as “Corrupted Data” on hardware even if RPCS3 reads the title.
 
 After packaging, verify each manifest with `tools/verify_package.py`. The check
 validates artifact and staged-file hashes, current ELF/library freshness,

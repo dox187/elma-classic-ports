@@ -10,8 +10,8 @@ if [[ ! -f "$archive" ]]; then
     curl -fL --retry 3 "https://github.com/shagkur/SDL_PSL1GHT/archive/$commit.tar.gz" -o "$archive.part"
     mv "$archive.part" "$archive"
 fi
-printf '%s  %s\n' 4f5d3fc55aa048b9ffc0d2960e324f5cf73857a5a51ad3dd71fbbc788c4c4e97 "$archive" | sha256sum -c -
-stamp="$(sha256sum "$patch_file" | cut -d ' ' -f1)"
+printf '%s  %s\n' 4f5d3fc55aa048b9ffc0d2960e324f5cf73857a5a51ad3dd71fbbc788c4c4e97 "$archive" | elma_ps3_sha256 -c -
+stamp="$(elma_ps3_sha256 "$patch_file" | cut -d ' ' -f1)"
 if [[ ! -f "$sdl_source/.elma-patch" || "$(cat "$sdl_source/.elma-patch")" != "$stamp" ]]; then
     rm -rf "$sdl_source"
     mkdir -p "$sdl_source"
@@ -27,12 +27,11 @@ CC=ppu-gcc CXX=ppu-g++ AR=ppu-ar RANLIB=ppu-ranlib \
     ./configure --prefix="$PS3DEV/portlibs/ppu" --host=powerpc64-ps3-elf \
     --disable-shared --enable-static --enable-atomic=yes --enable-video-psl1ght=yes \
     --enable-joystick=yes --enable-audio=yes
-build_jobs="${JOBS:-$(nproc)}"
-if [[ -z "${JOBS:-}" && "$build_jobs" -gt 4 ]]; then build_jobs=4; fi
+build_jobs="$(elma_ps3_build_jobs)"
 make -j"$build_jobs"
 make install
 mkdir -p "$PS3DEV/portlibs/ppu/share/elma"
 printf '%s\n' "SDL2_PSL1GHT $commit" "archive-sha256 4f5d3fc55aa048b9ffc0d2960e324f5cf73857a5a51ad3dd71fbbc788c4c4e97" "patch-sha256 $stamp" > "$PS3DEV/portlibs/ppu/share/elma/sdl2-build.txt"
 for shader in "$ELMA_PS3_DIR"/sdk/elma_*.vp "$ELMA_PS3_DIR"/sdk/elma_*.fp "$ELMA_PS3_DIR/sdk/SDL3_PIXELART_LICENSE.txt"; do
-    printf 'shader-sha256 %s %s\n' "$(sha256sum "$shader" | cut -d ' ' -f1)" "$(basename "$shader")" >> "$PS3DEV/portlibs/ppu/share/elma/sdl2-build.txt"
+    printf 'shader-sha256 %s %s\n' "$(elma_ps3_sha256 "$shader" | cut -d ' ' -f1)" "$(basename "$shader")" >> "$PS3DEV/portlibs/ppu/share/elma/sdl2-build.txt"
 done
