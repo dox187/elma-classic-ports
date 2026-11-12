@@ -43,8 +43,8 @@ motorcycle physics form its basis.
   and started through actual menu input; this does not establish that every
   level can be completed. Extend contact, high-speed and long-route testing,
   and compare the riding behavior with the original game.
-- **Test real Game Boy Color hardware and cartridges.** Current verification
-  uses emulation; hardware behavior and timing remain unverified.
+- **Measure frame timing on a real Game Boy Color.** Current timing figures
+  come from emulation.
 - **Add persistent saves and replay support.** These are unimplemented, as is
   an editor. Cartridge RAM currently serves only as graphics scratch space.
 - **Improve audio fidelity.** The current effects are synthesized GBC APU
@@ -63,10 +63,10 @@ verification limits are described below.
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
-- Target a cartridge image of **at most 2 MiB**. The current ROM is **8 MiB**;
-  the available cartridge/writer setup has only been tried with images up to
-  2 MiB, so compatibility with larger images still needs verification. Confirm
-  its mapper, flash and RAM support before fixing the final hardware profile.
+- Reduce the cartridge image size. The **8 MiB** ROM boots and plays on the
+  tested cartridge, but its size frequently leaves graphics garbled or missing.
+  Flash a **4 MiB** build to the same cartridge and check that graphics display
+  correctly during play. If 4 MiB is still too large, target **2 MiB**.
 - Measure graphics storage and compression options first, including shared
   patterns and tile-map encoding, together with their runtime CPU and RAM
   costs. Keep all 54 levels and the current physics; discuss any necessary

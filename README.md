@@ -34,9 +34,10 @@ collisions. Apples are red and flower petals white. The target is direct
 control at nominal 30 FPS; assembly and scrolling optimizations are still in
 progress because some updates exceed that budget. Version 0.4 adds an
 original-artwork title screen, separate main/pause menus, Controls and native
-GBC engine/event sounds. Saves and music remain unimplemented, and real
-hardware remains untested. The current 8 MiB ROM is targeted for reduction to
-at most 2 MiB in a future version.
+GBC engine/event sounds. Saves and music remain unimplemented. The 8 MiB ROM
+runs on the tested cartridge, but its size causes missing or garbled graphics.
+A 4 MiB build is planned for testing on the same cartridge, with 2 MiB as a
+fallback.
 
 [Status, build, controls and physics differences →](console/gbc/README.md)
 
