@@ -1,5 +1,8 @@
 # Elasto Mania for Game Boy Color
 
+Current version: **0.3 — development prototype**. The port version is kept in
+[`VERSION`](VERSION).
+
 An early native Game Boy Color version built with
 [GBDK-2020](https://gbdk.org/docs/api/index.html), C and SM83 assembly.
 **All 54 registered internal levels are selectable:** ride, brake, volt, turn
@@ -7,13 +10,46 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-The default profile targets stable **30 FPS**, preserving as much of the original
-physics as practical, with direct controls and no additional frame queue.
-Assembly and scrolling optimizations are still in progress: some complete-game
-updates exceed the two-display-frame budget (about 29.86 updates per second).
-All levels have been selected and started through actual menu input, but this
-does not establish that every level can be completed. Real hardware is untested.
-Sound, saves, replay support and an editor remain unimplemented.
+## What works in 0.3
+
+- A native menu with all **54 registered internal levels**, their original names
+  and order, page navigation, pause/resume and restart.
+- Riding, acceleration, braking, volts and turning around, with suspension,
+  rider movement, **32-bit linear velocities** and swept head collisions.
+- Apple collection, gravity-changing apples, killers, crash detection, flower
+  completion and advancing to the next course. The HUD shows remaining apples,
+  elapsed time and ride status.
+- Original level geometry and LGR artwork, streamed terrain, independently
+  positioned wheels and head, **red apples and white flower petals**.
+- Head pattern buffering to prevent uploads from changing the head still on
+  screen, and separate terrain/background reduction to avoid invented sky
+  colors at terrain edges.
+- A reproducible GBDK build and emulator checks for arithmetic, physics state,
+  menu navigation, all 54 course starts, scrolling VRAM and protected colors.
+
+## Remaining work and known limits
+
+- **Finish stable 30 FPS.** Some complete-game updates still exceed the
+  two-display-frame budget (about 29.86 updates per second). Continue assembly
+  and scrolling optimization while preserving direct controls, the current
+  physics model and no additional frame queue.
+- **Verify complete rides on every course.** All 54 levels have been selected
+  and started through actual menu input; this does not establish that every
+  level can be completed. Extend contact, high-speed and long-route testing,
+  and compare the riding behavior with the original game.
+- **Test real Game Boy Color hardware and cartridges.** Current verification
+  uses emulation; hardware behavior and timing remain unverified.
+- **Add sound, persistent saves and replay support.** These are unimplemented,
+  as is an editor. Cartridge RAM currently serves only as graphics scratch space.
+- **Review further graphics and animation improvements.** Object animation
+  currently uses its first frame; the sky has no parallax and foreground
+  pictures do not occlude the rider. Crowded object sprites can flicker under
+  the hardware scanline limit, as accepted for this version. Trees, flags and
+  barrels are intentionally omitted from rendering.
+
+The physics is adapted from the original-derived fixed-point core; it is not
+trajectory-identical to the PC integrator. The detailed differences and
+verification limits are described below.
 
 ## Build and run
 
@@ -185,8 +221,6 @@ trajectory parity.
 A pans faster, B mirrors the illustration, Select hides/shows it and Start
 returns to the start. Its static `VIEW` scene is separate from the playable ROM.
 
-Next work is to finish the 30 FPS optimization, test more contact configurations
-and compare riding behavior with the original, then discuss remaining choices for
-graphics detail, animation, sound and saves. Toolchain references are the
+Toolchain references are the
 [GBDK coding guidelines](https://gbdk.org/docs/api/docs_coding_guidelines.html)
 and [Pan Docs](https://gbdev.io/pandocs/).
