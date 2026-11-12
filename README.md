@@ -25,15 +25,18 @@ platform's README covers requirements, building and use.
 
 ## Console ports
 
-### Game Boy Color prototype
+### Game Boy Color prototype 0.4
 
 All 54 registered internal levels are selectable from a native GBDK menu,
 using original level geometry and LGR artwork. The riding engine includes
 32-bit linear velocities, suspension, braking, rider movement and swept head
 collisions. Apples are red and flower petals white. The target is direct
 control at nominal 30 FPS; assembly and scrolling optimizations are still in
-progress because some updates exceed that budget. There is no sound or save
-system yet, and real hardware remains untested.
+progress because some updates exceed that budget. Version 0.4 adds an
+original-artwork title screen, separate main/pause menus, Controls and native
+GBC engine/event sounds. Saves and music remain unimplemented, and real
+hardware remains untested. The current 8 MiB ROM is targeted for reduction to
+at most 2 MiB in a future version.
 
 [Status, build, controls and physics differences →](console/gbc/README.md)
 

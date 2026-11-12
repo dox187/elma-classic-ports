@@ -34,7 +34,7 @@ def main():
     d.p.hook_register(address>>16,address&65535,physics_entry,d)
     report={'status':'running','rom_sha256':d.rom_sha256,'real_rom':str(args.rom.resolve())}
     try:
-        d.ready();names=[record['name']for record in d.level_manifest['levels']]
+        d.ready();d.level_menu();names=[record['name']for record in d.level_manifest['levels']]
         assert names[43].lower()=='freefall','original course order changed'
         for _ in range(4):d.pulse('right')
         for _ in range(7):d.pulse('down')

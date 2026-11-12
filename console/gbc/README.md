@@ -1,6 +1,6 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.3 — development prototype**. The port version is kept in
+Current version: **0.4 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
 
 An early native Game Boy Color version built with
@@ -10,10 +10,14 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.3
+## What works in 0.4
 
-- A native menu with all **54 registered internal levels**, their original names
-  and order, page navigation, pause/resume and restart.
+- An original-artwork title screen with the port version and a fresh A/Start
+  press to continue, followed by a separate main menu and Controls screen.
+- A level selector with all **54 registered internal levels**, their original
+  names and order, page navigation, pause/resume and explicit restart actions.
+- Native GBC engine sound reacting to throttle, braking and wheel speed, plus
+  menu, apple, crash and finish effects. Pausing silences the engine.
 - Native **CG Pixel 3x5 Mono** text in the level selector and HUD, with a
   four-pixel character advance and no downscaling of the original PC font.
 - Riding, acceleration, braking, volts and turning around, with suspension,
@@ -41,8 +45,10 @@ motorcycle physics form its basis.
   and compare the riding behavior with the original game.
 - **Test real Game Boy Color hardware and cartridges.** Current verification
   uses emulation; hardware behavior and timing remain unverified.
-- **Add sound, persistent saves and replay support.** These are unimplemented,
-  as is an editor. Cartridge RAM currently serves only as graphics scratch space.
+- **Add persistent saves and replay support.** These are unimplemented, as is
+  an editor. Cartridge RAM currently serves only as graphics scratch space.
+- **Improve audio fidelity.** The current effects are synthesized GBC APU
+  adaptations rather than the original PCM samples; music is unimplemented.
 - **Review further graphics and animation improvements.** Object animation
   currently uses its first frame; the sky has no parallax and foreground
   pictures do not occlude the rider. Crowded object sprites can flicker under
@@ -94,15 +100,23 @@ arithmetic without changing its results.
 | B | Brake |
 | Left / Right | Volt left / right |
 | Up | Turn around |
-| Select | Open the level menu and pause the current ride; press again to resume |
+| Select | Open the pause menu; press again to resume |
 | Start | Restart the current level, including after a crash or finish |
 
-In the menu, Up/Down select a course, Left/Right change page, and A/Start
-launch it. B resumes a paused ride. After finishing, A starts the next course;
-after a crash or finish, B or Select opens the course menu.
+In Level Select, Up/Down select a course, Left/Right change page, and A/Start
+launch it. On the title screen, a fresh A/Start press enters the main menu.
+Choose Play, Level Select or Controls; the pause menu offers Resume, Restart,
+Level Select and Controls. B returns from a sub-screen, then resumes a paused
+ride from the main menu. After finishing, A starts the next course;
+after a crash or finish, B or Select opens the main menu.
 
 The HUD shows apples remaining and elapsed time, then crash, pause or finish
 status. Volts are triggered by a new button press and have a cooldown.
+
+Audio uses the GBC pulse and noise channels, serviced by the existing main
+loop without a streaming interrupt. The engine responds to driven-wheel speed;
+short effects have finite durations and hardware length limits. There is no
+background music or playback of the original digitized sound samples.
 
 `make bootstrap` installs pinned GBDK **4.5.0**, with SHA-256 verification,
 under ignored `.toolchain/`. It supports macOS arm64/x86_64 and Linux
@@ -229,6 +243,11 @@ not a comparison against the PC integrator. Separate real-ROM checks select
 all 54 courses through buttons and verify starts, object metadata, HUD, actual
 VRAM, scenery palettes and moving head buffers. A diagnostic run with an
 explicitly relaxed deadline budget is marked as failing the performance target.
+
+Separate title and audio fixtures verify the complete splash framebuffer,
+fresh button presses, audible PCM output, pitch changes, finite effects,
+pause muting and ROM-bank restoration. The complete-ROM frontend check covers
+title-to-menu navigation, Controls, course selection, pause/resume and restart.
 
 Results, ROM hashes, timing traces and screenshots are written under
 `build/playtest/`; conversion and diagnostic results use
