@@ -1,0 +1,192 @@
+# Elasto Mania for Game Boy Color
+
+An early native Game Boy Color version built with
+[GBDK-2020](https://gbdk.org/docs/api/index.html), C and SM83 assembly.
+**All 54 registered internal levels are selectable:** ride, brake, volt, turn
+around, collect apples and reach the flower. Original level geometry, LGR
+artwork and an adaptation of the existing original-derived fixed-point
+motorcycle physics form its basis.
+
+The default profile targets stable **30 FPS**, preserving as much of the original
+physics as practical, with direct controls and no additional frame queue.
+Assembly and scrolling optimizations are still in progress: some complete-game
+updates exceed the two-display-frame budget (about 29.86 updates per second).
+All levels have been selected and started through actual menu input, but this
+does not establish that every level can be completed. Real hardware is untested.
+Sound, saves, replay support and an editor remain unimplemented.
+
+## Build and run
+
+Requirements: Make, Bash, Python 3, a host C compiler for tests, curl and tar,
+plus `elma.res` and `default.lgr` from your own copy of the game. The converters
+use numpy and Pillow, and the emulator tests use PyBoy. From this directory:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-test.txt
+make bootstrap
+make ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
+```
+
+The defaults are `PHYS_HZ=30 DAMPER=exponential`.
+
+Open **`build/elma-gbc.gbc`** in a Game Boy Color emulator. It is a CGB-only
+MBC5 cartridge, not a Game Boy Advance program, and does not support monochrome
+Game Boy hardware. The ROM occupies 8 MiB and requires an MBC5 cartridge with
+128 KiB RAM. Cartridge RAM is scratch space for the graphics cache; it does
+not contain persistent saves. Exact mathematical tables accelerate fixed-point
+arithmetic without changing its results.
+
+| Button | Riding action |
+|---|---|
+| A | Gas |
+| B | Brake |
+| Left / Right | Volt left / right |
+| Up | Turn around |
+| Select | Open the level menu and pause the current ride; press again to resume |
+| Start | Restart the current level, including after a crash or finish |
+
+In the menu, Up/Down select a course, Left/Right change page, and A/Start
+launch it. B resumes a paused ride. After finishing, A starts the next course;
+after a crash or finish, B or Select opens the course menu.
+
+The HUD shows apples remaining and elapsed time, then crash, pause or finish
+status. Volts are triggered by a new button press and have a cooldown.
+
+`make bootstrap` installs pinned GBDK **4.5.0**, with SHA-256 verification,
+under ignored `.toolchain/`. It supports macOS arm64/x86_64 and Linux
+aarch64/x86_64 and does not modify the shell profile. `GBDK_HOME=/path/to/gbdk`
+selects an existing SDK. The Makefile supports macOS Make 3.81 and prefers
+`.venv/bin/python`; override it with `PYTHON=/path/to/python` if needed.
+
+Without explicit data paths, it looks for `../../elma.res` and
+`../../lgr/default.lgr`. Keep the SDK, virtual environment, generated assets,
+original game data and ROMs out of source commits; their working directories
+are ignored by Git.
+
+## Original data and graphics
+
+The host converters reuse the existing readers and PC rendering models under
+[`../snes/tools`](../snes/tools). All internal levels present in the resource
+file are preserved in `build/gen/levels.json`, including original polygon,
+object and picture records. Registered data supplies all 54 playable runtime
+levels, in their original order and with their original names.
+
+Collisions use the original non-grass polygon edges, subdivided for local
+fixed-point contact queries and indexed by spatial cells. Dense cells receive
+an additional subdivision without dropping edges. Collision queries use the
+original geometry independently of the visual tile map. Source exports use
+Q16.16 meters with y pointing upward.
+
+The scenery reconstructs the PC graphics at 48 pixels per meter and reduces
+them to a provisional **12 pixels per meter**, using seven four-color background
+palettes. Foreground and background are reduced separately so terrain edges do
+not invent a third sky color. Lossless horizontal/vertical flip deduplication
+reduces storage; a **444-pattern cache** streams entering strips while retaining
+all patterns still visible. Idle CPU time prepares the next offscreen row or
+column, retaining the same 399 current cells until the camera enters the new
+tile. Temporary references cover at most 438 cells; reversal discards the
+prediction safely. This preparation adds no simulation or presentation frame.
+Raw banked tile maps avoid decompression stalls. The remaining bank0 patterns
+hold the killer sprites.
+
+Trees (`tree1`–`tree5`), flags and barrels are omitted from rendering. The original
+picture records remain in the exported source data, as do the original polygons
+and game objects. Grass, bushes and terrain texture/mask records are retained.
+The sky is currently baked, without parallax or foreground-picture occlusion.
+
+The menu uses the original font, background texture and helmet cursor. The
+motorcycle and rider are rendered from the original LGR parts at **32
+angles, three rider-compression poses and two facing directions**. The wheels
+and head follow their independent physical positions; changed patterns are
+uploaded through CGB DMA. The head updates every physics step with half-pixel
+animation phases and separate front/back patterns so an upload cannot alter
+the head still displayed at the previous position. This discrete animation is
+an approximation of the original articulation. Global 8×16 sprite mode leaves
+13 OAM entries for the bike and 26 for course objects. The riding VRAM layout is:
+
+| VRAM allocation | Pattern indices |
+|---|---|
+| Background, bank 0 | 0–251 |
+| Killers, bank 0 | 252–255 |
+| Background, bank 1 | 0–191 |
+| Bike body, wheels and head buffers, bank 1 | 192–219 |
+| HUD glyphs, bank 1 | 220–247 |
+| Apple and flower, bank 1 | 248–255 |
+
+**Apples must be red and flower petals must be white.** They retain their
+original outlines with dedicated object palettes, protected from scenery palette
+fitting. Their first animation frames are used for now. Objects remain separate
+sprites. Crowded areas cycle their sprite priority and can flicker at the
+hardware's ten-sprites-per-scanline limit.
+
+## Physics and the 30 FPS profile
+
+The riding engine adapts the complete fixed-point C core of the existing NES
+version, itself derived from `LEPTET.CPP`, `BEALLIT.CPP` and the original contact
+code. It includes the body and both wheels, suspension, motor/brake reactions,
+rolling contacts, rider movement and swept head-collision death. Linear
+velocities retain 32-bit precision for fast courses such as Freefall. The GBC adaptation
+uses banked code, cell-indexed collision data, SM83 arithmetic and exact lookup
+tables; the tables accelerate products without approximating their results.
+
+The **exponential damper** profile integrates the isolated suspension damper's
+velocity impulse over the longer update interval. It retains the suspension
+spring coefficient, physical damping coefficient and masses, applying the
+corresponding reaction to the body. It is not an exact solution of the complete
+coupled motorcycle and is numerically different from the PC integrator. Fixed
+point, coarser stepping and the inherited discrete brake/contact solver also
+mean PC trajectory equivalence is not claimed.
+
+The original clock is **182 ticks per second scaled by `0.0024`** to obtain
+target simulation time. Its solver uses a **`0.0055` step cap with a shorter
+final step**, not a fixed 182 Hz physics rate. The GBC profile advances the same
+game-time scale at nominal 30 updates per second, synchronized to every other
+display frame (about 29.86 Hz on the GBC clock).
+
+`PHYS_HZ=60 DAMPER=explicit` remains available as a comparison profile. Selecting
+it is not a claim that the complete game meets a 60 FPS budget. The standalone
+`physics-probe.gbc` is an older suspension diagnostic, not the riding solver or
+a measure of full-game performance.
+
+## Verification
+
+```sh
+make check ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
+```
+
+`make check` builds the playable and diagnostic ROMs, checks conversion, ROM
+metadata, actual scrolling VRAM, protected object colors and the diagnostic
+arithmetic. Native SM83 tests check the production multiplication, coefficient,
+division, square-root, coordinate-bound and video helpers against independent
+references, including lookup-table bytes and ROM-bank restoration.
+
+The final controller-only regression exercises controls, braking, pause,
+head-collision death and restart, then collects the apple and reaches the
+unlocked flower alive. It verifies actual tile, attribute and pattern VRAM across
+map/chunk boundaries. It defaults to **zero allowed deadline misses** and does
+not inject completion or object state into game RAM.
+
+The native trajectory fixture compares all 109 internal and 52 public state
+bytes after each call against the HOST implementation and a frozen reference.
+It covers a Warm Up completion, fast Freefall and braking. This establishes
+that arithmetic optimizations preserve the selected fixed-point model; it is
+not a comparison against the PC integrator. Separate real-ROM checks select
+all 54 courses through buttons and verify starts, object metadata, HUD, actual
+VRAM, scenery palettes and moving head buffers. A diagnostic run with an
+explicitly relaxed deadline budget is marked as failing the performance target.
+
+Results, ROM hashes, timing traces and screenshots are written under
+`build/playtest/`; conversion and diagnostic results use
+`build/verification.json`. Emulator results do not establish complete PC
+trajectory parity.
+
+`build/elma-gbc-viewer.gbc` remains as a graphics inspection ROM: D-pad pans,
+A pans faster, B mirrors the illustration, Select hides/shows it and Start
+returns to the start. Its static `VIEW` scene is separate from the playable ROM.
+
+Next work is to finish the 30 FPS optimization, test more contact configurations
+and compare riding behavior with the original, then discuss remaining choices for
+graphics detail, animation, sound and saves. Toolchain references are the
+[GBDK coding guidelines](https://gbdk.org/docs/api/docs_coding_guidelines.html)
+and [Pan Docs](https://gbdev.io/pandocs/).

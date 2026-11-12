@@ -1,0 +1,4 @@
+/.toolchain/
+/.venv/
+/build/
+__pycache__/

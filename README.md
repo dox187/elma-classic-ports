@@ -20,10 +20,22 @@ https://elastomania.com
 # Elma Ports
 
 Ports of the original game for desktops, Linux handhelds and PlayStation,
-plus separate NES and SNES versions. Each platform's README covers
-requirements, building and use.
+plus separate NES and SNES versions and a Game Boy Color prototype. Each
+platform's README covers requirements, building and use.
 
 ## Console ports
+
+### Game Boy Color prototype
+
+All 54 registered internal levels are selectable from a native GBDK menu,
+using original level geometry and LGR artwork. The riding engine includes
+32-bit linear velocities, suspension, braking, rider movement and swept head
+collisions. Apples are red and flower petals white. The target is direct
+control at nominal 30 FPS; assembly and scrolling optimizations are still in
+progress because some updates exceed that budget. There is no sound or save
+system yet, and real hardware remains untested.
+
+[Status, build, controls and physics differences →](console/gbc/README.md)
 
 ### NES demake
 
@@ -143,6 +155,7 @@ Screenshots captured with the Half Blocks renderer.
 | [`desktop/F_CLI`](desktop/F_CLI/README.md) | Terminal display and input |
 | [`desktop/F_WIN`](desktop/F_WIN) | Original Windows DirectX layer, not built |
 | [`handheld`](handheld/README.md) | Toolchains, launchers and package build script |
+| [`console/gbc`](console/gbc/README.md) | Game Boy Color port with all 54 internal levels, menu and diagnostic ROMs |
 | [`console/nes`](console/nes/README.md) | NES demake, a separate program |
 | [`console/snes`](console/snes/README.md) | SNES demake, a separate program |
 | [`console/psx`](console/psx/README.md) | PlayStation port, using the shared game code with console physics and rendering |

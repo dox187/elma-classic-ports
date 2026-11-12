@@ -1,0 +1,164 @@
+/* Continuous head capsule against the original fixed-point polygon edges.
+ * Geometry uses exact32-bit integer products after bounded8m path pieces.
+ */
+#ifdef __SDCC
+#pragma bank 4
+#endif
+#include "physics_core.h"
+#include "physics_math.h"
+
+extern uint8_t Seg_subcell;
+#if R_HEAD+2 > R_WHEEL
+#error Cached wheel boxes must contain the swept head radius
+#endif
+
+#define minimum(a,b) ((int16_t)((a)<(b)?(a):(b)))
+#define maximum(a,b) ((int16_t)((a)>(b)?(a):(b)))
+#define absolute(x) ((int16_t)((x)<0?-(x):(x)))
+static int32_t cross(int16_t ax,int16_t ay,int16_t bx,int16_t by){return mul16(ax,by)-mul16(ay,bx);}
+static uint8_t straddles(int32_t a,int32_t b){return(a<=0&&b>=0)||(a>=0&&b<=0);}
+static uint8_t close_point(int16_t x,int16_t y,uint16_t radius,uint32_t radius2){
+    if(x>=(int16_t)radius||x<=-(int16_t)radius||y>=(int16_t)radius||y<=-(int16_t)radius)return 0;
+    return(uint32_t)(mul16(x,x)+mul16(y,y))<radius2;
+}
+
+/* Exact squared-distance comparison without a64-bit multiplication:
+ * |cross|=q*R+r. Only the ambiguous q^2<=L^2<(q+1)^2 case needs
+ * 2*R*q*r+r^2 < R^2*(L^2-q^2). Both sides fit32 for these8m pieces.
+ */
+static uint8_t close_segment(int16_t px,int16_t py,int16_t ax,int16_t ay,
+                            int16_t dx,int16_t dy,uint32_t length2,
+                            uint16_t radius,uint32_t radius2){
+    int16_t x=px-ax,y=py-ay,adx,ady;
+    int32_t dot,c;
+    uint32_t distance,q2,delta,left,right;
+    uint16_t q,r;
+    if(!length2)return close_point(x,y,radius,radius2);
+    dot=mul16(x,dx)+mul16(y,dy);
+    if(dot<=0)return close_point(x,y,radius,radius2);
+    if((uint32_t)dot>=length2)return close_point(x-dx,y-dy,radius,radius2);
+    c=cross(x,y,dx,dy);distance=c<0?(uint32_t)(-c):(uint32_t)c;
+    adx=absolute(dx);ady=absolute(dy);
+    if(distance<(uint32_t)mul16(radius,maximum(adx,ady)))return 1;
+    if(distance>=(uint32_t)mul16(radius,adx+ady))return 0;
+    q=riding_div_u32_u16(distance,radius);
+    q2=(uint32_t)mul16(q,q);
+    if(q2>=length2)return 0;
+    if(q2+2UL*q+1<=length2)return 1;
+    r=(uint16_t)(distance-(uint32_t)mul16(q,radius));
+    delta=length2-q2;
+    left=(uint32_t)mul16(q,r)*(uint32_t)(2*radius)+(uint32_t)mul16(r,r);
+    right=(uint32_t)mul16((int16_t)delta,(int16_t)radius2);
+    if(radius2&32768UL)right+=delta<<16;
+    return left<right;
+}
+
+static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
+                       int16_t ax,int16_t ay,int16_t ex,int16_t ey,uint16_t radius){
+    int16_t bx=ax+ex,by=ay+ey,dx=qx-px,dy=qy-py;
+    uint32_t d2,e2,r2;
+    int32_t c1,c2,c3,c4;
+    if(maximum(px,qx)+(int16_t)radius<=minimum(ax,bx)||minimum(px,qx)-(int16_t)radius>=maximum(ax,bx)
+       ||maximum(py,qy)+(int16_t)radius<=minimum(ay,by)||minimum(py,qy)-(int16_t)radius>=maximum(ay,by))return 0;
+    if(maximum(px,qx)>=minimum(ax,bx)&&minimum(px,qx)<=maximum(ax,bx)
+       &&maximum(py,qy)>=minimum(ay,by)&&minimum(py,qy)<=maximum(ay,by)){
+        c1=cross(dx,dy,ax-px,ay-py);c2=cross(dx,dy,bx-px,by-py);
+        if(straddles(c1,c2)){
+            c3=cross(ex,ey,px-ax,py-ay);c4=cross(ex,ey,qx-ax,qy-ay);
+            if(straddles(c3,c4))return 1;
+        }
+    }
+    d2=(uint32_t)(mul16(dx,dx)+mul16(dy,dy));
+    e2=(uint32_t)(mul16(ex,ex)+mul16(ey,ey));r2=(uint32_t)mul16(radius,radius);
+    if(close_segment(px,py,ax,ay,ex,ey,e2,radius,r2))return 1;
+    if(close_segment(qx,qy,ax,ay,ex,ey,e2,radius,r2))return 1;
+    if(close_segment(ax,ay,px,py,dx,dy,d2,radius,r2))return 1;
+    return close_segment(bx,by,px,py,dx,dy,d2,radius,r2);
+}
+
+/* A center path entirely outside the radius-expanded infinite edge line
+ * cannot hit its finite segment. Stored length is nearest-integer, so len+1
+ * bounds the exact integer-vector length from above without a square root. */
+static uint8_t outside_line(int16_t px,int16_t py,int16_t qx,int16_t qy,
+                            const seg_t *s,uint16_t radius){
+    int32_t c0=cross(px-s->px,py-s->py,s->dx,s->dy);
+    int32_t limit=mul16((int16_t)radius,s->len+1),c1;
+    if(c0<limit && c0>-limit)return 0;
+    c1=c0+cross(qx-px,qy-py,s->dx,s->dy);
+    return c0>=limit ? c1>=limit : c1<=-limit;
+}
+
+/* Cached wheel-expanded boxes conservatively contain the smaller head
+ * capsule. Reject distant records before constructing the exact predicate. */
+static uint8_t scan(int16_t px,int16_t py,int16_t qx,int16_t qy,uint16_t radius){
+    uint8_t x0=seg_box1(minimum(px,qx)),x1=seg_box1(maximum(px,qx));
+    uint8_t y0=seg_box1(minimum(py,qy)),y1=seg_box1(maximum(py,qy));
+    const seg_t *s;
+    while((s=seg_next())){
+        if(x1<s->x0||x0>s->x1||y1<s->y0||y0>s->y1)continue;
+        if(!outside_line(px,py,qx,qy,s,radius) && capsule(px,py,qx,qy,s->px,s->py,s->dx,s->dy,radius))return 1;
+    }
+    return 0;
+}
+
+static uint8_t piece(int32_t px,int32_t py,int32_t qx,int32_t qy,uint16_t radius){
+    int32_t minx=px<qx?px:qx,maxx=px>qx?px:qx,miny=py<qy?py:qy,maxy=py>qy?py:qy;
+    int32_t x0=(riding_sra8(minx)>>4),x1=(riding_sra8(maxx)>>4),y0=(riding_sra8(miny)>>4),y1=(riding_sra8(maxy)>>4),bx,by,v;
+    uint8_t cx,cy,sx,sy,sx0,sx1,sy0,sy1;
+    if(x1<0||y1<0||x0>254||y0>254)return 0;
+    if(x0<0)x0=0;if(y0<0)y0=0;if(x1>254)x1=254;if(y1>254)y1=254;
+    for(cy=(uint8_t)y0;cy<=(uint8_t)y1;++cy)for(cx=(uint8_t)x0;cx<=(uint8_t)x1;++cx){
+        bx=(int32_t)cx*4096L;by=(int32_t)cy*4096L;
+        v=minx-bx;sx0=v<=0?0:(uint8_t)(v>>10);
+        v=maxx-bx;sx1=v>=4095?3:(uint8_t)(v>>10);
+        v=miny-by;sy0=v<=0?0:(uint8_t)(v>>10);
+        v=maxy-by;sy1=v>=4095?3:(uint8_t)(v>>10);
+        for(sy=sy0;sy<=sy1;++sy)for(sx=sx0;sx<=sx1;++sx){
+            seg_query(cx,cy,(sy<<2)|sx);
+            if(scan((int16_t)(px-bx),(int16_t)(py-by),(int16_t)(qx-bx),(int16_t)(qy-by),radius))return 1;
+            if(Seg_subcell==255)goto next_cell;
+        }
+next_cell:;
+    }
+    return 0;
+}
+
+uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED {
+    /* Most frames stay in one convex4m cell. Unsplit cells, or one1m leaf,
+     * already contain every possible hit for the whole center segment. */
+    if((((uint32_t)px^(uint32_t)qx)|((uint32_t)py^(uint32_t)qy))<4096UL){
+        uint8_t cx=seg_cell(px),cy=seg_cell(py);
+        if(cx!=255&&cy!=255){
+            int16_t x0=(int16_t)((uint16_t)px&4095),y0=(int16_t)((uint16_t)py&4095);
+            int16_t x1=(int16_t)((uint16_t)qx&4095),y1=(int16_t)((uint16_t)qy&4095);
+            uint8_t a=(uint8_t)((x0>>10)|((y0>>8)&12));
+            uint8_t b=(uint8_t)((x1>>10)|((y1>>8)&12));
+            seg_query(cx,cy,b);
+            if(Seg_subcell==255||a==b)return scan(x0,y0,x1,y1,R_HEAD);
+        }
+    }
+    int32_t dx=qx-px,dy=qy-py,sx,sy,nx,ny;
+    uint32_t ax=dx<0?(uint32_t)-dx:(uint32_t)dx,ay=dy<0?(uint32_t)-dy:(uint32_t)dy;
+    uint16_t count=(uint16_t)(((ax>ay?ax:ay)+8191)>>13),i,rx,ry,errx=0,erry=0;
+    int8_t signx=dx<0?-1:1,signy=dy<0?-1:1;
+    if(count<=1)return piece(px,py,qx,qy,R_HEAD);
+    /* Integer DDA vertices deviate by less than sqrt(2)u from the original
+     * line. Only this >8m-per-frame fallback enlarges the radius by2u. */
+    sx=dx/count;sy=dy/count;rx=(uint16_t)(ax%count);ry=(uint16_t)(ay%count);
+    for(i=0;i<count;++i){
+        nx=px+sx;ny=py+sy;errx+=rx;erry+=ry;
+        if(errx>=count){nx+=signx;errx-=count;}if(erry>=count){ny+=signy;erry-=count;}
+        if(piece(px,py,nx,ny,R_HEAD+2))return 1;px=nx;py=ny;
+    }
+    return 0;
+}
+
+#ifdef PHYSICS_SWEEP_TEST
+uint8_t riding_capsule_test(int16_t px,int16_t py,int16_t qx,int16_t qy,
+ int16_t ax,int16_t ay,int16_t ex,int16_t ey,uint16_t radius) PH_BANKED {
+    seg_t s;
+    s.px=ax;s.py=ay;s.dx=ex;s.dy=ey;
+    s.len=(int16_t)isqrt32((uint32_t)(mul16(ex,ex)+mul16(ey,ey)));
+    return !outside_line(px,py,qx,qy,&s,radius) && capsule(px,py,qx,qy,ax,ay,ex,ey,radius);
+}
+#endif
