@@ -53,6 +53,19 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
+## Planned after 0.4
+
+- Bring the menu closer to the original game's layout, colors and functions,
+  while retaining readable native pixel text on the 160x144 display.
+- Target a cartridge image of **at most 2 MiB**. The current ROM is **8 MiB**;
+  the available cartridge/writer setup has only been tried with images up to
+  2 MiB, so compatibility with larger images still needs verification. Confirm
+  its mapper, flash and RAM support before fixing the final hardware profile.
+- Measure graphics storage and compression options first, including shared
+  patterns and tile-map encoding, together with their runtime CPU and RAM
+  costs. Keep all 54 levels and the current physics; discuss any necessary
+  graphics or gameplay simplifications before choosing a compromise.
+
 ## Build and run
 
 Requirements: Make, Bash, Python 3, a host C compiler for tests, curl and tar,
