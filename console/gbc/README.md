@@ -14,6 +14,8 @@ motorcycle physics form its basis.
 
 - A native menu with all **54 registered internal levels**, their original names
   and order, page navigation, pause/resume and restart.
+- Native **CG Pixel 3x5 Mono** text in the level selector and HUD, with a
+  four-pixel character advance and no downscaling of the original PC font.
 - Riding, acceleration, braking, volts and turning around, with suspension,
   rider movement, **32-bit linear velocities** and swept head collisions.
 - Apple collection, gravity-changing apples, killers, crash detection, flower
@@ -131,7 +133,9 @@ picture records remain in the exported source data, as do the original polygons
 and game objects. Grass, bushes and terrain texture/mask records are retained.
 The sky is currently baked, without parallax or foreground-picture occlusion.
 
-The menu uses the original font, background texture and helmet cursor. The
+The menu retains the original background texture and helmet cursor. Text uses
+[CG Pixel 3x5 Mono](fonts/README.md) at its native pixel size, with two characters
+per tile. The HUD uploads only character pairs that changed. The
 motorcycle and rider are rendered from the original LGR parts at **32
 angles, three rider-compression poses and two facing directions**. The wheels
 and head follow their independent physical positions; changed patterns are
@@ -147,7 +151,8 @@ an approximation of the original articulation. Global 8×16 sprite mode leaves
 | Killers, bank 0 | 252–255 |
 | Background, bank 1 | 0–191 |
 | Bike body, wheels and head buffers, bank 1 | 192–219 |
-| HUD glyphs, bank 1 | 220–247 |
+| HUD text cells, bank 1 | 220–239 |
+| Reserved, bank 1 | 240–247 |
 | Apple and flower, bank 1 | 248–255 |
 
 **Apples must be red and flower petals must be white.** They retain their

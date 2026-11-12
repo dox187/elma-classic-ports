@@ -51,7 +51,6 @@ static uint8_t previous, hud_counter, last_hud_state;
 static uint8_t volt_wait,objects_valid,objects_apples,objects_used,object_phase;
 static uint8_t visible_objects[LEVEL_OBJECT_MAX],visible_count;
 static uint16_t objects_camera_x,objects_camera_y;
-static uint8_t tiles[21], attrs[21];
 static bike_screen_t screen;
 static int16_t body_world[2];
 #define body_world_x body_world[0]
@@ -59,30 +58,10 @@ static int16_t body_world[2];
 static uint16_t clock_fraction;
 static uint8_t clock_digits[6];
 static const uint16_t hud_palette[] = {RGB_BLACK, RGB_BLACK, RGB_WHITE, RGB_WHITE};
-/* 28 small glyphs fit the bank1 space between bike parts and object patterns. */
-static const uint8_t glyph_tile[128] = {
-    220,220,220,220,220,220,220,220,220,220,220,220,220,220,220,220,
-    220,220,220,220,220,220,220,220,220,220,220,220,220,220,220,220,
-    220,220,220,220,220,220,220,220,220,220,220,220,220,220,232,220,
-    221,222,223,224,225,226,227,228,229,230,231,220,220,220,220,220,
-    220,233,220,234,246,235,236,220,237,238,220,220,239,220,240,220,
-    241,220,242,243,244,245,220,220,220,247,220,220,220,220,220,220,
-    220,220,220,220,220,220,220,220,220,220,220,220,220,220,220,220,
-    220,220,220,220,220,220,220,220,220,220,220,220,220,220,220,220,
-};
-static const uint8_t glyphs[][7] = {
-    {0,0,0,0,0,0,0},
-    {14,17,19,21,25,17,14},{4,12,4,4,4,4,14},{14,17,1,2,4,8,31},
-    {30,1,1,14,1,1,30},{2,6,10,18,31,2,2},{31,16,16,30,1,1,30},
-    {6,8,16,30,17,17,14},{31,1,2,4,8,8,8},{14,17,17,14,17,17,14},
-    {14,17,17,15,1,2,12},{0,4,4,0,4,4,0},{0,0,0,0,0,4,4},
-    {14,17,17,31,17,17,17},{14,17,16,16,16,17,14},
-    {31,16,16,30,16,16,31},{31,16,16,30,16,16,16},
-    {17,17,17,31,17,17,17},{14,4,4,4,4,4,14},{16,16,16,16,16,16,31},
-    {17,25,25,21,19,19,17},{30,17,17,30,16,16,16},{30,17,17,30,20,18,17},
-    {15,16,16,14,1,1,30},{31,4,4,4,4,4,4},{17,17,17,17,17,17,14},
-    {30,17,17,17,17,17,30},{17,17,10,4,4,4,4}
-};
+#include "ui_font.h"
+/* Each HUD cell owns a pattern; upload only character pairs that changed. */
+static uint8_t hud_characters[40],hud_pattern[16];
+const uint8_t game_hud_font_advance=4;
 
 void gbc_video_body_world(int16_t *dest) __sdcccall(0);
 
@@ -185,44 +164,45 @@ static void clock_tick(void) BANKED {
 }
 
 static void hud_text(const char *text,uint8_t width) {
-    uint8_t i,c;
+    uint8_t i,left,right;
+    width>>=1;
     for(i=0;i<width;++i) {
-        c=(uint8_t)*text;
-        tiles[i]=c<128?glyph_tile[c]:220;
-        if(c)++text;
+        left=(uint8_t)*text;if(left)++text;
+        right=(uint8_t)*text;if(right)++text;
+        if(left==hud_characters[i*2] && right==hud_characters[i*2+1])continue;
+        hud_characters[i*2]=left;hud_characters[i*2+1]=right;
+        ui_font_pair(left,right,hud_pattern);
+        VBK_REG=1;set_bkg_data(220+i,1,hud_pattern);
     }
     VBK_REG=0;
-    set_win_tiles(0,0,width,1,tiles);
 }
 
 static void draw_hud(void) {
-    uint8_t i,width=last_hud_state==game_state?12:20;
+    uint8_t width=last_hud_state==game_state?14:40;
+    char text[15]="A:00 00:00.00";
     last_hud_state=game_state;
-    if(game_state==DEAD){hud_text("CRASH START RETRY",20);return;}
-    if(game_state==FINISHED){hud_text("FINISHED START RETRY",20);return;}
-    if(game_state==PAUSED){hud_text("PAUSED SELECT",20);return;}
-    /* Normal HUD uses fixed glyphs and six BCD digits: no text scan. */
-    tiles[0]=233;tiles[1]=231;tiles[2]=game_apples_left>=10?221+game_apples_left/10:220;tiles[3]=221+game_apples_left%10;
-    tiles[4]=221+clock_digits[0];tiles[5]=221+clock_digits[1];tiles[6]=231;
-    tiles[7]=221+clock_digits[2];tiles[8]=221+clock_digits[3];tiles[9]=232;
-    tiles[10]=221+clock_digits[4];tiles[11]=221+clock_digits[5];
-    for(i=12;i<width;++i)tiles[i]=220;
-    VBK_REG=0;set_win_tiles(0,0,width,1,tiles);
+    if(game_state==DEAD){hud_text("CRASH START RETRY",40);return;}
+    if(game_state==FINISHED){hud_text("FINISHED START RETRY",40);return;}
+    if(game_state==PAUSED){hud_text("PAUSED SELECT",40);return;}
+    text[2]='0'+game_apples_left/10;text[3]='0'+game_apples_left%10;
+    text[5]='0'+clock_digits[0];text[6]='0'+clock_digits[1];
+    text[8]='0'+clock_digits[2];text[9]='0'+clock_digits[3];
+    text[11]='0'+clock_digits[4];text[12]='0'+clock_digits[5];
+    hud_text(text,width);
 }
 
 static void video_init(void) {
-    uint8_t i,row,col,attribute=143;
+    uint8_t i,col,attribute=143;
     LCDC_REG|=LCDCF_BG8000;
     world_game_assets();set_bkg_palette(7,1,hud_palette);
+    ui_font_pair(0,0,hud_pattern);
     VBK_REG=1;
-    for(i=0;i<sizeof(glyphs)/7;++i) {
-        for(row=0;row<8;++row) {
-            tiles[row*2]=255;tiles[row*2+1]=(row<7?glyphs[i][row]<<1:0);
-        }
-        set_bkg_data(220+i,1,tiles);
+    for(i=0;i<20;++i)set_bkg_data(220+i,1,hud_pattern);
+    for(i=0;i<40;++i)hud_characters[i]=0;
+    for(col=0;col<20;++col) {
+        VBK_REG=1;set_win_tiles(col,0,1,1,&attribute);
+        i=220+col;VBK_REG=0;set_win_tiles(col,0,1,1,&i);
     }
-    VBK_REG=1;
-    for(col=0;col<20;++col)set_win_tiles(col,0,1,1,&attribute);
     VBK_REG=0;move_win(7,136);
     bike_render_init();SPRITES_8x16;SHOW_BKG;SHOW_WIN;SHOW_SPRITES;
 }

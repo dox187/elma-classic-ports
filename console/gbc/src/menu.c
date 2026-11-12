@@ -2,47 +2,47 @@
 #include <gb/cgb.h>
 #include "menu_assets.h"
 #pragma bank 7
+#include "ui_font.h"
 
 void world_level_name(uint8_t index,char *out);
 
 static uint8_t selected_level,resume_allowed,repeat_key,repeat_timer;
 static char name_buffer[32];
 static uint8_t row_tiles[20],row_attrs[20];
-
-static uint8_t glyph(uint8_t c) {
-    if(c>='a' && c<='z')c-='a'-'A';
-    return c>=32 && c<=95 ? c-32 : 0;
-}
+static uint8_t text_pattern[16];
+static const uint8_t blank_pattern[16]={0};
 
 static void text(uint8_t x,uint8_t y,const char *s,uint8_t width) {
-    uint8_t i,c;
-    for(i=0;i<width;++i) {
-        c=(uint8_t)*s;
-        row_tiles[i]=glyph(c);row_attrs[i]=0;
-        if(c)++s;
+    uint8_t i,left,right,count=width>>1;
+    for(i=0;i<count;++i) {
+        left=(uint8_t)*s;if(left)++s;
+        right=(uint8_t)*s;if(right)++s;
+        ui_font_pair(left,right,text_pattern);
+        row_tiles[i]=y*10+i;row_attrs[i]=8;
+        VBK_REG=1;set_bkg_data(row_tiles[i],1,text_pattern);
     }
-    VBK_REG=1;set_bkg_tiles(x,y,width,1,row_attrs);
-    VBK_REG=0;set_bkg_tiles(x,y,width,1,row_tiles);
+    VBK_REG=1;set_bkg_tiles(x,y,count,1,row_attrs);
+    VBK_REG=0;set_bkg_tiles(x,y,count,1,row_tiles);
 }
 
 static void draw_list(void) {
-    uint8_t page=selected_level/9,first=page*9,row,index,i;
+    uint8_t page=selected_level/9,first=page*9,row,index,cursor,attribute;
     char heading[12]="LEVEL 00/00";
     heading[6]='0'+(selected_level+1)/10;
     heading[7]='0'+(selected_level+1)%10;
     heading[9]='0'+MENU_LEVEL_COUNT/10;
     heading[10]='0'+MENU_LEVEL_COUNT%10;
-    text(4,2,heading,12);
+    text(7,2,heading,12);
     for(row=0;row<9;++row) {
         index=first+row;
-        for(i=0;i<20;++i){row_tiles[i]=0;row_attrs[i]=0;}
         if(index<MENU_LEVEL_COUNT) {
             world_level_name(index,name_buffer);
-            for(i=0;i<18 && name_buffer[i];++i)row_tiles[2+i]=glyph((uint8_t)name_buffer[i]);
-            if(index==selected_level){row_tiles[0]=240;row_attrs[0]=2;}
+            text(2,4+row,name_buffer,18);
         }
-        VBK_REG=1;set_bkg_tiles(0,4+row,20,1,row_attrs);
-        VBK_REG=0;set_bkg_tiles(0,4+row,20,1,row_tiles);
+        cursor=index==selected_level?240:241;
+        attribute=index==selected_level?2:0;
+        VBK_REG=1;set_bkg_tiles(0,4+row,1,1,&attribute);
+        VBK_REG=0;set_bkg_tiles(0,4+row,1,1,&cursor);
     }
 }
 
@@ -55,15 +55,15 @@ void menu_open(uint8_t selected,uint8_t can_resume) BANKED {
     LCDC_REG|=LCDCF_BG8000;
     set_bkg_palette(0,3,menu_palettes);
     VBK_REG=0;
-    set_bkg_data(0,64,menu_font);
     set_bkg_data(64,MENU_BG_PATTERN_COUNT,menu_background);
     set_bkg_data(240,1,menu_cursor);
+    set_bkg_data(241,1,blank_pattern);
     set_bkg_tiles(0,0,20,18,menu_background_map);
     VBK_REG=1;
     for(i=0;i<20;++i)row_attrs[i]=1;
     for(i=0;i<18;++i)set_bkg_tiles(0,i,20,1,row_attrs);
     VBK_REG=0;move_bkg(0,0);
-    text(4,0,"ELASTO MANIA",12);
+    text(7,0,"ELASTO MANIA",12);
     text(0,15,"A/START PLAY",20);
     text(0,16,resume_allowed ? "B RESUME   L/R PAGE" : "L/R PAGE",20);
     text(0,17,"UP/DOWN SELECT",20);

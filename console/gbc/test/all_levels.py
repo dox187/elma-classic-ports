@@ -124,18 +124,54 @@ class HeadVerifier:
             self.counts['source_pose_phase_matches']+=1
 
 
+_font_pixels={}
+
+
+def font_pixels(text):
+    # Read the source bitmap independently of the converter's generated header.
+    if not _font_pixels:
+        source=BASE/'fonts/CG-pixel-3x5-mono.bdf'
+        for block in source.read_text().split('STARTCHAR ')[1:]:
+            lines=block.splitlines()
+            code=int(next(line.split()[1]for line in lines if line.startswith('ENCODING ')))
+            if not 32<=code<=95:continue
+            w,h,x,y=map(int,next(line for line in lines if line.startswith('BBX ')).split()[1:])
+            bitmap=np.zeros((8,4),dtype=np.uint8);start=lines.index('BITMAP')+1
+            for row,raw in enumerate(lines[start:start+h]):
+                bits=bin(int(raw,16))[2:].zfill(len(raw)*4)
+                for col in range(w):bitmap[6-h-y+row,x+col]=int(bits[col])
+            _font_pixels[chr(code)]=bitmap
+    return np.concatenate([_font_pixels[c]for c in text.upper()],axis=1)
+
+
+def ui_pixels(d,x,y,characters,window=False):
+    lcd=d.p.memory[0xff40]
+    assert lcd&16,'UI must use unsigned tile addresses'
+    base=(0x9c00 if lcd&64 else 0x9800)if window else(0x9c00 if lcd&8 else 0x9800)
+    result=[]
+    for col in range((characters+1)//2):
+        address=base+y*32+x+col
+        tile,attr=d.p.memory[0,address],d.p.memory[1,address]
+        raw=bytes(d.p.memory[1 if attr&8 else 0,0x8000+tile*16:0x8010+tile*16])
+        pixels=tile_pixels(raw)
+        if attr&32:pixels=pixels[:,::-1]
+        if attr&64:pixels=pixels[::-1]
+        assert set(np.unique(pixels))<={1,3},'UI contains blended font pixels'
+        result.append((pixels==3).astype(np.uint8))
+    return np.concatenate(result,axis=1)[:,:characters*4]
+
+
 def menu_check(d,selected,names):
     assert d.byte('game_state') in (MENU,PAUSED),'level menu is not active'
     assert not d.p.memory[0xff40]&0x22,'menu must hide sprites and window'
-    heading=''.join(chr(d.p.memory[0,0x9800+2*32+4+i]+32)for i in range(12))
-    assert heading[:11]=='LEVEL %02d/54'%(selected+1),(selected,heading)
+    heading='LEVEL %02d/54 '%(selected+1)
+    assert np.array_equal(ui_pixels(d,7,2,12),font_pixels(heading)),('menu heading',selected)
     first=(selected//9)*9
     for row in range(9):
         address=0x9800+(4+row)*32
         expected=names[first+row].upper().ljust(18)
-        actual=''.join(chr(d.p.memory[0,address+2+i]+32)for i in range(18))
-        assert actual==expected,('menu name',first+row,actual,expected)
-        assert d.p.memory[0,address]==(240 if first+row==selected else 0),'menu cursor'
+        assert np.array_equal(ui_pixels(d,2,4+row,18),font_pixels(expected)),('menu name',first+row,expected)
+        assert d.p.memory[0,address]==(240 if first+row==selected else 241),'menu cursor'
     return 9
 
 
@@ -207,6 +243,14 @@ def palette_check(d,source):
 
 def hud_count_check(d,record):
     if d.byte('game_state')!=RIDING:return None
+    if d.rom_constant('game_hud_font_advance',8)==4:
+        actual=ui_pixels(d,0,0,4,window=True)
+        matches=[n for n in range(100)if np.array_equal(actual,font_pixels('A:%02d'%n))]
+        assert len(matches)==1,'HUD apple count must be readable in native3x5 pixels'
+        count=matches[0]
+        initial=sum(o[2]==2 for o in record['objects'])
+        assert count in(initial,d.byte('game_apples_left')),'HUD lost a two-digit apple count'
+        return count
     font=220 if d.rom_constant('game_sprite_height',8)==16 else 217
     base=0x9c00 if d.p.memory[0xff40]&64 else 0x9800
     assert d.p.memory[0,base]==font+13 and d.p.memory[0,base+1]==font+11,'riding HUD prefix'
