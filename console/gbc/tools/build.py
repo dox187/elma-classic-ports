@@ -38,7 +38,7 @@ def main():
     compile_flags=['-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000',
                    '-I'+str(a.gen),'-I'+str(BASE/'src')]
     link_flags=['-msm83:gb','-Wm-yC','-Wm-yt0x1A','-Wm-ya16','-Wm-yoA','-Wm-ynELMA-GBC','-Wl-m','-Wl-j']
-    names=['play.c','world.c','world_dma.c','world_memory.s','world_retire_fast.s','world_alloc_fast.s','world_acquire_fast.s','menu.c','bike_render16.c','physics.c','physics_core.c',
+    names=['play.c','splash.c','audio.c','world.c','world_dma.c','world_memory.s','world_retire_fast.s','world_alloc_fast.s','world_acquire_fast.s','menu.c','bike_render16.c','physics.c','physics_core.c',
            'physics_contacts.c','physics_collision.c','physics_sweep.c','physics_math.c','physics_math32.c','mul16.s','video.s','video_screen_fast.s','video_strip_pair.s','object16.s','objects_touch_fast.s','objects_draw_fast.s','objects_bounds_fast.s']
     sources=[BASE/'src'/name for name in names]
     if a.sweep_source:
@@ -49,7 +49,7 @@ def main():
     for pattern in ('physics_quarter_*.c','physics_scale_*.c','physics_sine_*.c','physics_coefficient_*.c','physics_bank_*.c','level_bank_*.c','riding16_body_*.c'):
         sources+=sorted(a.gen.glob(pattern))
     sources.append(a.gen/'physics_coefficient_calls.s')
-    sources += [a.gen/name for name in ('level_catalogue.c','menu_assets.c','physics_level_data.c','riding16_parts.c','riding_meta.c')]
+    sources += [a.gen/name for name in ('level_catalogue.c','menu_assets.c','splash_assets.c','physics_level_data.c','riding16_parts.c','riding_meta.c')]
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
     for name in ('lcc','sdcc','sdasgb','sdldgb'):

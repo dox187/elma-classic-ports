@@ -30,7 +30,7 @@ def angle_delta(a, b):
 
 
 class Driver:
-    def __init__(self, rom, out, gen=None):
+    def __init__(self, rom, out, gen=None, sound=False):
         self.out = out
         self.out.mkdir(parents=True, exist_ok=True)
         rom_bytes = rom.read_bytes()
@@ -74,7 +74,7 @@ class Driver:
         missing = [name for name in required if '_'+name not in self.symbols]
         if missing:
             raise AssertionError('Missing runtime symbols: '+', '.join(missing))
-        self.p = PyBoy(str(rom), window='null', sound_emulated=False, cgb=True)
+        self.p = PyBoy(str(rom), window='null', sound_emulated=sound, cgb=True)
         self.p.set_emulation_speed(0)
         self.physics_entries = 0
         self.observer_errors = []
@@ -174,10 +174,29 @@ class Driver:
     def ready(self):
         for _ in range(100):
             self.tick(5)
+            splash=self.symbols.get('_splash_active')
+            if splash is not None and self.p.memory[splash]:
+                self.p.screen.image.save(self.out/'splash.png')
+                self.tick(5,('start',));self.tick(5)
             if self.byte('game_ready'):
                 self.last_viewport = None
                 return
         raise AssertionError('Game did not become ready')
+
+    def level_menu(self):
+        if self.byte('game_state')not in(MENU,PAUSED):self.pulse('select')
+        screen=self.symbols.get('_menu_screen')
+        if screen is None:return
+        if self.p.memory[screen]==2:self.pulse('b')
+        if self.p.memory[screen]==0:
+            target=2 if self.byte('game_state')==PAUSED else 1
+            selected=self.symbols['_menu_selection']
+            for _ in range(5):
+                if self.p.memory[selected]==target:break
+                self.pulse('down')
+            assert self.p.memory[selected]==target,'Level Select is missing from main menu'
+            self.pulse('a')
+        assert self.p.memory[screen]==1,'course list did not open'
 
     def snapshot(self, name):
         record = {'name':name,'display_frame':self.p.frame_count,

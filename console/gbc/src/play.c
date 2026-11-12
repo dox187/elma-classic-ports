@@ -7,6 +7,9 @@
 #include "riding_constants.h"
 #include "world.h"
 #include "menu.h"
+#include "physics_core.h"
+#include "splash.h"
+#include "audio.h"
 #pragma bank 5
 
 #ifndef GAME_FRAME_INTERVAL
@@ -144,8 +147,9 @@ static void check_objects(void) BANKED {
             game_object_active[i]=0;
             if(game_apples_left)--game_apples_left;
             if(object->gravity)physics_set_gravity(object->gravity);
-        } else if(object->kind==1 && !game_apples_left)game_state=FINISHED;
-        else if(object->kind==3){gbc_bike.alive=0;game_state=DEAD;}
+            audio_effect(FX_APPLE);
+        } else if(object->kind==1 && !game_apples_left){game_state=FINISHED;audio_effect(FX_FINISH);}
+        else if(object->kind==3){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
     }
 }
 
@@ -218,6 +222,7 @@ static void restore_game(void) BANKED {
 
 static void start_game(void) BANKED {
     uint8_t i;
+    audio_init();
     game_ready=0;DISPLAY_OFF;
     world_select(game_level_index);physics_select_level(game_level_index);physics_reset_current();
     game_state=RIDING;game_apples_left=0;game_time_frames=0;clock_fraction=0;volt_wait=0;
@@ -287,15 +292,22 @@ static void prepare_next_view(uint16_t start) BANKED {
 void main(void) NONBANKED {
     uint8_t keys,pressed,input,substep,tick,action,line;
     uint16_t start,now;
+    int16_t wheel_speed;
     DISPLAY_OFF;cpu_fast();game_state=MENU;game_level_index=0;
-    menu_open(0,0);game_ready=1;
+    audio_init();splash_show();
+    menu_open(0,0);previous=joypad();game_ready=1;
     while(1) {
         vsync();__critical {start=sys_time;}
         keys=joypad();pressed=keys&~previous;previous=keys;
+        wheel_speed=Bike.wheel[Bike.turned?0:1].omega;
+        audio_update(game_state==RIDING,keys&J_A,keys&J_B,
+                     wheel_speed<0?(uint16_t)-wheel_speed:(uint16_t)wheel_speed);
         if(game_state==MENU || game_state==PAUSED) {
+            if(pressed)audio_effect(FX_MENU);
             if(game_state==PAUSED && (pressed&J_SELECT))action=MENU_RESUME;
             else action=menu_tick(keys,pressed);
             if(action<LEVEL_COUNT){game_level_index=action;start_game();}
+            else if(action==MENU_RESTART)start_game();
             else if(action==MENU_RESUME){game_state=RIDING;last_hud_state=255;restore_game();}
             ++game_frames;continue;
         }
@@ -303,6 +315,7 @@ void main(void) NONBANKED {
         if(pressed&J_SELECT || ((game_state==DEAD || game_state==FINISHED) && (pressed&J_B))) {
             action=game_state==RIDING;
             game_state=action?PAUSED:MENU;
+            audio_update(0,0,0,0);audio_effect(FX_MENU);
             menu_open(game_level_index,action);++game_frames;continue;
         }
         if(game_state==FINISHED && (pressed&J_A)) {
@@ -324,11 +337,12 @@ void main(void) NONBANKED {
                 }
                 physics_step(input);++game_steps;game_time_frames+=60/PH_HZ;
                 for(tick=0;tick<60/PH_HZ;++tick)clock_tick();
-                if(!gbc_bike.alive || !gbc_bike_bounded()){gbc_bike.alive=0;game_state=DEAD;}
+                if(!gbc_bike.alive || !gbc_bike_bounded()){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
                 else check_objects();
                 input&=GBC_GAS|GBC_BRAKE;
             }
         }
+        if(game_state!=RIDING)audio_update(0,0,0,0);
         if(game_state==RIDING) {
             __critical {now=sys_time;line=LY_REG;if(IF_REG&VBL_IFLAG)++now;}
             if(now==start || ((uint16_t)(now-start)==1 && (line<108 || line>=144)))

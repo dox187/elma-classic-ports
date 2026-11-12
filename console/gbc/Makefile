@@ -26,6 +26,7 @@ assets: FORCE
 	$(PYTHON) tools/physics_level.py --res "$(ELMA_RES)" --out $(GEN) --hz $(PHYS_HZ) --damper $(DAMPER)
 	$(PYTHON) tools/levels.py --res "$(ELMA_RES)" --lgr "$(ELMA_LGR)" --out $(GEN)
 	$(PYTHON) tools/menu_assets.py --res "$(ELMA_RES)" --out $(GEN)
+	$(PYTHON) tools/splash_assets.py --res "$(ELMA_RES)" --out $(GEN)
 	$(PYTHON) tools/bike_frames.py --lgr "$(ELMA_LGR)" --out $(GEN)
 	$(PYTHON) tools/bike_frames16.py --source $(GEN) --out $(GEN)
 	$(PYTHON) tools/mul_table.py --out $(GEN)
@@ -44,6 +45,8 @@ build/physics-probe.gbc: assets src/physics_probe.c src/suspension.c src/suspens
 
 check: all
 	$(PYTHON) test/check.py --gen $(GEN)
+	$(PYTHON) test/check_splash.py --res "$(ELMA_RES)"
+	$(PYTHON) test/check_audio.py
 	$(PYTHON) test/check_riding_math.py
 	$(PYTHON) test/check_riding_mul9.py
 	$(PYTHON) test/check_riding_division.py
@@ -75,6 +78,7 @@ check: all
 	$(PYTHON) test/check_world_alloc.py
 	$(PYTHON) test/check_world_acquire.py
 	$(PYTHON) test/check_world_cache.py --gen $(GEN)
+	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/all_levels.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/all-levels --idle-updates 12
 	$(PYTHON) test/freefall.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/freefall
 	$(PYTHON) test/play.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/check

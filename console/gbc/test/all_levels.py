@@ -164,6 +164,7 @@ def ui_pixels(d,x,y,characters,window=False):
 def menu_check(d,selected,names):
     assert d.byte('game_state') in (MENU,PAUSED),'level menu is not active'
     assert not d.p.memory[0xff40]&0x22,'menu must hide sprites and window'
+    if '_menu_screen'in d.symbols:assert d.byte('menu_screen')==1,'expected the course list'
     heading='LEVEL %02d/54 '%(selected+1)
     assert np.array_equal(ui_pixels(d,7,2,12),font_pixels(heading)),('menu heading',selected)
     first=(selected//9)*9
@@ -302,23 +303,25 @@ def main():
     names=[r['name']for r in manifest['levels']];results=[];menu_rows=0
     report={'status':'running','rom_sha256':d.rom_sha256,'hardware_tested':False}
     try:
-        d.ready();assert d.byte('game_state')==MENU;menu_rows+=menu_check(d,0,names)
+        d.ready();assert d.byte('game_state')==MENU;d.level_menu();menu_rows+=menu_check(d,0,names)
         d.snapshot('menu-first');d.pulse('up');menu_rows+=menu_check(d,53,names);d.snapshot('menu-last')
         d.pulse('down');menu_rows+=menu_check(d,0,names)
         for index,record in enumerate(manifest['levels']):
             if index:
-                d.pulse('select');assert d.byte('game_state')in(MENU,PAUSED)
+                d.level_menu();assert d.byte('game_state')in(MENU,PAUSED)
                 d.pulse('down');menu_rows+=menu_check(d,index,names)
             d.phase='all-levels';d.pulse('a');d.ready()
             source=d.level_source(index);details=world_check(d,index,record,physics[index])
             details.update({'index':index,'name':record['name'],'palette':palette_check(d,source),
                             'hud_apple_count':hud_count_check(d,record),'overruns':d.word('game_overruns')})
             if index==0:
-                d.advance_physics(30);d.pulse('select');assert d.byte('game_state')==PAUSED
+                d.advance_physics(30);d.level_menu();assert d.byte('game_state')==PAUSED
                 frozen=(d.time_frames(),d.bike(),d.word('game_steps'))
                 d.tick(20);assert frozen==(d.time_frames(),d.bike(),d.word('game_steps'))
                 d.pulse('down');menu_rows+=menu_check(d,1,names)
-                d.pulse('b');assert d.byte('game_state')==RIDING and d.level_index()==0
+                d.pulse('b')
+                if '_menu_screen'in d.symbols:d.pulse('b')
+                assert d.byte('game_state')==RIDING and d.level_index()==0
                 assert d.time_frames()>=frozen[0],'menu resume reset the race timer'
                 d.visible_vram(force=True);palette_check(d,source)
             idle_steps=d.word('game_steps')
@@ -329,7 +332,7 @@ def main():
                             'overruns':d.word('game_overruns')})
             d.snapshot('level-%02d'%(index+1));results.append(details)
             print('%02d %-18s state%d objects%d cache%d'% (index+1,record['name'],d.byte('game_state'),details['objects'],d.word('world_cache_failures')),flush=True)
-        d.pulse('select');d.pulse('down');menu_rows+=menu_check(d,0,names)
+        d.level_menu();d.pulse('down');menu_rows+=menu_check(d,0,names)
         d.pulse('up');menu_rows+=menu_check(d,53,names)
         d.pulse('left');menu_rows+=menu_check(d,44,names)
         d.pulse('right');menu_rows+=menu_check(d,53,names)
