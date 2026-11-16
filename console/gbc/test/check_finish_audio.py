@@ -62,10 +62,10 @@ def main():
         assert any(r['channels']&8 and r['level']>0 for r in active if r['age']<4), 'finish onset is silent'
         assert any(r['level']>0 for r in active if 12<=r['age']<24), 'finish body is missing'
         assert any(r['level']>0 for r in active if 32<=r['age']<44), 'finish tail is missing'
-        assert all(not r['channels']&4 for r in active if r['age']>1), 'engine continued after finish'
+        assert all(not r['channels']&5 for r in active if r['age']>1), 'an engine channel continued after finish'
         # Original siker.wav is 8460 samples at the mixer rate 11025 Hz:
         # 46 CGB VBlanks. Allow the main loop two updates to publish its stop.
-        assert all(not r['channels']&14 and r['level']==0 for r in active if r['age']>=50), 'finish effect remained audible'
+        assert all(not r['channels']&15 and r['level']==0 for r in active if r['age']>=50), 'finish effect remained audible'
         pcm = np.concatenate(samples).astype(np.int16)*256
         with wave.open(str(args.out/'finish.wav'), 'wb') as output:
             output.setnchannels(2)

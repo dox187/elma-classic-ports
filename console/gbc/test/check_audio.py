@@ -144,7 +144,10 @@ const void * const audio_state_addresses[] = {
     transition_cycles = []
     starts = []
     return_hooks = set()
-    register_writes = {'wave_bytes': 0, 'triggers': 0, 'levels': 0}
+    register_writes = {'wave_bytes': 0, 'triggers': 0, 'levels': 0,
+                       'pulse_triggers': 0, 'pulse_envelopes': 0}
+    period_low = {'wave': 0, 'pulse': 0}
+    apu_periods = {'wave': None, 'pulse': None}
     loaded_wave = bytearray(16)
     hook_failures = []
 
@@ -152,6 +155,8 @@ const void * const audio_state_addresses[] = {
         if starts and starts[-1][0] == p.register_file.SP - 2:
             _, started, engine_only, transition = starts.pop()
             elapsed = p._cycles() - started
+            if get('riding') and apu_periods['wave'] != apu_periods['pulse']:
+                hook_failures.append(('engine channels have different period registers', dict(apu_periods)))
             cycles.append(elapsed)
             if transition:
                 transition_cycles.append(elapsed)
@@ -180,9 +185,18 @@ const void * const audio_state_addresses[] = {
                     hook_failures.append('wave RAM written with DAC enabled')
                 register_writes['wave_bytes'] += 1
                 loaded_wave[address-0xFF30] = p.register_file.A
-        elif kind == 'trigger':
-            register_writes['triggers'] += bool(p.register_file.A & 0x80)
-        else:
+        elif kind in ('wave_low', 'pulse_low'):
+            period_low[kind.split('_')[0]] = p.register_file.A
+        elif kind in ('wave_high', 'pulse_high'):
+            channel = kind.split('_')[0]
+            register_writes['triggers' if channel == 'wave' else 'pulse_triggers'] += bool(p.register_file.A & 0x80)
+            apu_periods[channel] = ((p.register_file.A & 7) << 8) | period_low[channel]
+        elif kind == 'pulse_envelope':
+            register_writes['pulse_envelopes'] += 1
+        elif kind == 'sweep':
+            if p.register_file.A:
+                hook_failures.append('CH1 hardware sweep enabled')
+        elif kind == 'level':
             register_writes['levels'] += 1
 
     # Decode only the two straight machine-code function ranges; hooks on
@@ -204,7 +218,9 @@ const void * const audio_state_addresses[] = {
         elif opcode == 0x12:
             kind = 'wave_de'
         elif opcode == 0xE0:
-            kind = {0x1E: 'trigger', 0x1C: 'level'}.get(rom_bytes[offset + 1])
+            kind = {0x10: 'sweep', 0x12: 'pulse_envelope',
+                    0x13: 'pulse_low', 0x14: 'pulse_high',
+                    0x1D: 'wave_low', 0x1E: 'wave_high', 0x1C: 'level'}.get(rom_bytes[offset + 1])
         if kind:
             p.hook_register(3, address, apu_write, kind)
         address += 3 if opcode in three_bytes else 2 if opcode in two_bytes else 1
@@ -226,7 +242,7 @@ const void * const audio_state_addresses[] = {
             if capture:
                 chunk = p.sound.ndarray.copy()
                 if engine_min_level:
-                    assert p.memory[0xFF26] & 4, 'engine channel dropped out'
+                    assert p.memory[0xFF26] & 5 == 5, 'an engine channel dropped out'
                     level = int(np.ptp(chunk[:, 0].astype(np.int16)))
                     assert level >= engine_min_level, ('engine PCM dropped out between updates', level)
                 chunks.append(chunk)
@@ -246,7 +262,16 @@ const void * const audio_state_addresses[] = {
         # Discard transition frames, then require over one second of audible
         # PCM on every VBlank while software services the engine at 30 Hz.
         frames(2)
-        return frames(72, engine_min_level=minimum_level)
+        mixed = frames(72, engine_min_level=minimum_level)
+        # Isolate CH3 in this APU fixture to check the original cycle/pitch
+        # independently of the new pulse's stronger higher harmonics.
+        # Both generators keep running; production never changes routing.
+        p.memory[0xFF25] = 0x44
+        frames(2)
+        wave = frames(72, engine_min_level=3)
+        p.memory[0xFF25] = 0xFF
+        frames(2)
+        return mixed, wave
 
     def silent():
         # Ignore the transition frame and measure AC, not PyBoy's DC bias.
@@ -277,46 +302,50 @@ const void * const audio_state_addresses[] = {
             if get('ready'):
                 break
         assert get('ready'), 'driver did not boot'
-        assert p.memory[0xFF24] == 0x55 and p.memory[0xFF25] == 0xEE
+        assert p.memory[0xFF24] == 0x55 and p.memory[0xFF25] == 0xFF
         assert p.memory[0xFF26] & 0x80
         assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave[0], 'initial wave differs from idle cycle'
         assert register_writes['wave_bytes'] == 16, register_writes
         silent()
         put('riding', 1)
         put('half_rate', 1)
-        idle = engine_segment()
+        idle, idle_wave = engine_segment()
+        assert p.memory[0xFF12] == 0x60, 'idle exhaust volume'
         assert get('engine_mode') == 0
         assert len(idle) >= p.sound.sample_rate, 'idle capture shorter than one second'
         put('gas', 1)
-        low = engine_segment()
+        low, low_wave = engine_segment()
+        assert p.memory[0xFF12] == 0xF0, 'loaded exhaust volume'
         # CGB active wave RAM reads alias the byte being played. Inspect the
         # actual DAC-off writes, then independently verify emitted PCM below.
         assert get('engine_mode') == 1 and bytes(loaded_wave) == expected_wave[1]
         put('speed', 16000, 2)
-        high = engine_segment()
+        high, high_wave = engine_segment()
         put('brake', 1)
-        brake = engine_segment(2)
+        brake, brake_wave = engine_segment()
         put('gas', 0)
         put('brake', 0)
-        coast = engine_segment()
+        coast, coast_wave = engine_segment()
         assert get('engine_mode') == 0 and bytes(loaded_wave) == expected_wave[0]
         put('brake', 1)
-        brake_idle = engine_segment()
+        brake_idle, brake_idle_wave = engine_segment()
         put('brake', 0)
         put('gas', 1)
-        resumed = engine_segment()
+        resumed, resumed_wave = engine_segment()
         assert register_writes['triggers'] == 4, ('engine retriggered without a mode change', register_writes)
         assert register_writes['levels'] == 5, ('unnecessary level writes', register_writes)
         assert register_writes['wave_bytes'] == 64, ('wave rewritten without a mode change', register_writes)
-        content_correlation = waveform_correlation(high, int(periods[16000 >> 6]), 1, 0)
+        assert register_writes['pulse_triggers'] == 4, ('exhaust retriggered on a speed update', register_writes)
+        assert register_writes['pulse_envelopes'] == 5, ('unexpected exhaust envelope writes', register_writes)
+        content_correlation = waveform_correlation(high_wave, int(periods[16000 >> 6]), 1, 0)
         assert content_correlation > .98, ('PCM does not reproduce the original cycle', content_correlation)
-        idle_correlation = waveform_correlation(idle, engine['idle_period'], 0, 1)
+        idle_correlation = waveform_correlation(idle_wave, engine['idle_period'], 0, 1)
         assert idle_correlation > .98, ('idle PCM differs from its recorded cycle', idle_correlation)
         assert len(np.unique(high[:, 0])) >= 6, 'engine is still a two-level pulse'
         pitches = {name: fundamental(data) for name, data in
-                   [('idle', idle), ('gas_idle', low), ('gas_fast', high),
-                    ('brake_fast', brake), ('coast_fast', coast),
-                    ('brake_no_gas', brake_idle), ('gas_resumed', resumed)]}
+                   [('idle', idle_wave), ('gas_idle', low_wave), ('gas_fast', high_wave),
+                    ('brake_fast', brake_wave), ('coast_fast', coast_wave),
+                    ('brake_no_gas', brake_idle_wave), ('gas_resumed', resumed_wave)]}
         levels = {name: int(np.ptp(data[:, 0].astype(np.int16))) for name, data in
                   [('idle', idle), ('gas_idle', low), ('gas_fast', high),
                    ('brake_fast', brake), ('coast_fast', coast), ('brake_no_gas', brake_idle),
@@ -329,9 +358,11 @@ const void * const audio_state_addresses[] = {
         assert abs(pitches['gas_fast']-reference_hz[16000]) < 1, pitches
         assert abs(pitches['brake_fast']-pitches['gas_fast']) < 1, pitches
         assert abs(pitches['gas_resumed'] - pitches['gas_fast']) < 1, pitches
-        assert 6 <= levels['idle'] < levels['gas_idle'] and levels['gas_idle'] >= 14, levels
-        assert levels['idle'] == levels['coast_fast'] == levels['brake_no_gas'], levels
-        assert levels['gas_fast'] == levels['gas_resumed'] > levels['idle'], levels
+        assert 6 <= levels['idle'] < levels['gas_idle'] and levels['gas_idle'] >= 20, levels
+        # CH1's duty position survives retriggers, so relative phase and peak
+        # sums may differ after a mode change. Check both layers separately.
+        assert np.ptp(idle_wave[:, 0]) == np.ptp(coast_wave[:, 0]) == np.ptp(brake_idle_wave[:, 0]) == 7
+        assert levels['gas_fast'] >= 20 and levels['gas_resumed'] >= 20, levels
         assert np.array_equal(high[:, 0], high[:, 1]), 'stereo routing differs'
         report['engine_hz'] = pitches
         report['engine_pcm_peak_to_peak'] = levels
@@ -343,12 +374,27 @@ const void * const audio_state_addresses[] = {
         report['engine_wave_sha256'] = {name: details['wave_sha256'] for name, details in engine['loops'].items()}
         report['steady_engine_register_writes'] = dict(register_writes)
         write_wav('engine-example.wav', np.concatenate([idle, low, high, coast]))
+        # Inspect native CH1 PCM: a 12.5% pulse exactly one octave above the
+        # source cycle, with no sweep, clipping or automatic volume decay.
+        p.memory[0xFF25] = 0x11
+        frames(2)
+        pulse = frames(72, engine_min_level=15)
+        p.memory[0xFF25] = 0xFF
+        frames(2)
+        # A narrow pulse's second FFT harmonic can win by bin alignment.
+        # Measure actual rising-edge spacing instead of its loudest bin.
+        edges = np.flatnonzero((pulse[:-1, 0] == 0) & (pulse[1:, 0] > 0))
+        pulse_hz = float(p.sound.sample_rate / np.mean(np.diff(edges)))
+        pulse_duty = float(np.count_nonzero(pulse[:, 0]) / len(pulse))
+        assert abs(pulse_hz-2*65536/(2048-int(periods[16000 >> 6]))) < 1, pulse_hz
+        assert .12 < pulse_duty < .13 and set(np.unique(pulse[:, 0])) == {0, 15}, pulse_duty
+        report['exhaust_pulse'] = {'hz': pulse_hz, 'duty_fraction': pulse_duty, 'volume': 15}
         # Observe low/mid/high speed bins and the entire argument boundary.
         # The reference uses original radians/model-second, not LUT indices.
         for speed in (0, 63, 64, 255, 1024, 4096, 8192, 16781, 32767, 32768, 65535):
             put('speed', speed, 2)
-            data = engine_segment()
-            assert abs(fundamental(data) - reference_hz[speed]) < 1.3, speed
+            data, wave_pcm = engine_segment()
+            assert abs(fundamental(wave_pcm) - reference_hz[speed]) < 1.3, speed
             if speed == 16781:
                 write_wav('engine-wheel-cap.wav', data)
         # Apple feedback shares the mixer with a running engine. Include
@@ -358,7 +404,7 @@ const void * const audio_state_addresses[] = {
         put('half_rate', 0)
         put('fx', 1)
         frames(2)
-        assert p.memory[0xFF26] & 6 == 6, 'apple did not coexist with engine'
+        assert p.memory[0xFF26] & 7 == 7, 'apple did not coexist with both engine channels'
         # Include the worst combination: a new effect control point and a
         # throttle-mode switch in the same update, in both directions.
         for mode in (0, 1) * 4:
@@ -369,7 +415,7 @@ const void * const audio_state_addresses[] = {
         put('riding', 0)
         frames(3)
         silent()
-        assert not (p.memory[0xFF26] & 4), 'pause left engine active'
+        assert not (p.memory[0xFF26] & 5), 'pause left an engine channel active'
         assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave[1], 'loaded wave corrupted during playback'
         # Resume/restart and coast must retrigger a valid channel.
         put('reset_request', 1)
@@ -387,6 +433,7 @@ const void * const audio_state_addresses[] = {
             assert get('engine_mode') == mode
             assert bytes(loaded_wave) == expected_wave[mode]
         assert register_writes['triggers']-before['triggers'] == 24
+        assert register_writes['pulse_triggers']-before['pulse_triggers'] == 24
         assert register_writes['wave_bytes']-before['wave_bytes'] == 24*16
         put('riding', 0)
         frames(2)
@@ -433,7 +480,7 @@ const void * const audio_state_addresses[] = {
         report['noise_step_pcm_peak_to_peak'] = noise_activity
         reference = effect_pcm[0]
         assert int(np.ptp(reference[:, 0].astype(np.int16))) == 8, 'menu beep level changed'
-        assert rms(low) > rms(reference) > rms(idle), 'engine still underuses its output range'
+        assert rms(low) > rms(reference) and rms(low) > rms(idle), 'engine still underuses its output range'
         hpf_reference = cgb_hpf_rms(reference, p.sound.sample_rate)
         relative = {}
         for name, data in [('idle', idle), ('gas_idle', low), ('gas_fast', high),
@@ -444,8 +491,9 @@ const void * const audio_state_addresses[] = {
                               'cgb_hpf_proxy_db_vs_menu': round(20 * math.log10(filtered / hpf_reference), 2)}
         # Guard the corrected mix with one common gain. Never normalize
         # individual clips, which would hide the hardware volume regression.
-        assert relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'] > -14, relative
-        assert relative['gas_fast']['cgb_hpf_proxy_db_vs_menu'] > -10, relative
+        assert relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'] > -2, relative
+        assert relative['gas_fast']['cgb_hpf_proxy_db_vs_menu'] > 0, relative
+        assert -8 < relative['idle']['cgb_hpf_proxy_db_vs_menu'] < relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'], relative
         # The old crash measured about -17.7 dB over this whole capture;
         # require at least roughly 6 dB improvement, beyond gain alone.
         assert relative['crash']['cgb_hpf_proxy_db_vs_menu'] > -12, relative
@@ -493,13 +541,13 @@ const void * const audio_state_addresses[] = {
         frames(3)
         put('hold', 1)
         stopped_after = 0
-        while p.memory[0xFF26] & 4:
+        while p.memory[0xFF26] & 5:
             frames(1)
             stopped_after += 1
             assert stopped_after <= 16, 'engine watchdog exceeded 250 ms'
         assert 13 <= stopped_after <= 16, stopped_after
         silent()
-        assert not (p.memory[0xFF26] & 4), 'engine watchdog did not expire'
+        assert not (p.memory[0xFF26] & 5), 'an engine watchdog did not expire'
         put('hold', 0)
         assert audible(frames(5)), 'expired watchdog did not restart'
         # sys_time wrap must not extend an effect beyond its specified duration.

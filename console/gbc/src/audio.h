@@ -14,6 +14,8 @@ enum { FX_MENU, FX_APPLE, FX_CRASH, FX_FINISH };
  * riding=0 immediately mutes the engine; short effects can finish in menus.
  * CH3 uses separate original idle/load cycles and the original saturating
  * 1..2 playback-rate curve. Brake affects pitch through physical speed.
+ * CH1 reinforces the exhaust at twice CH3's base rate with a 12.5% pulse,
+ * volume 6 at idle / 15 under load. Both engine channels stop together.
  * Wave RAM changes only on init or throttle-mode changes, with its DAC off.
  * Effects use offline CH2/CH4 contours; no PCM streaming or music is added.
  */

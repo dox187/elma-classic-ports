@@ -40,7 +40,7 @@ def main():
             d.tick(4,keys)
             for _ in range(60):
                 d.tick(1,keys);chunk=d.p.sound.ndarray.copy()
-                assert d.p.memory[0xff26]&4,'real riding wave engine dropped out'
+                assert d.p.memory[0xff26]&5==5,'a real riding engine channel dropped out'
                 assert np.ptp(chunk[:,0].astype(np.int16))>2,'real riding engine PCM is silent'
                 chunks.append(chunk);audio.append(chunk)
             return np.concatenate(chunks)
@@ -50,18 +50,23 @@ def main():
             return np.fft.rfftfreq(len(samples),1/d.p.sound.sample_rate)[peak]
         idle=engine_segment(())
         assert d.p.memory[0xff1c]&0x60==0x40,'no-throttle wave engine is not quiet'
+        assert d.p.memory[0xff12]==0x60,'idle exhaust pulse volume'
         assert 100<engine_pitch(idle)<106,'no-throttle engine is not at its original-cycle pitch'
         for _ in range(30):
             d.tick(1,('a',));audio.append(d.p.sound.ndarray.copy())
         assert any(np.any(chunk)for chunk in audio),'real riding ROM is silent'
-        assert d.p.memory[0xff26]&4,'riding wave engine is disabled'
+        assert d.p.memory[0xff26]&5==5,'a riding engine channel is disabled'
         assert d.p.memory[0xff1c]&0x60==0x20,'throttle did not increase wave engine volume'
+        assert d.p.memory[0xff12]==0xf0,'loaded exhaust pulse volume'
         coast=engine_segment(())
         assert d.p.memory[0xff1c]&0x60==0x40,'releasing throttle did not lower wave engine volume'
+        assert d.p.memory[0xff12]==0x60,'coasting did not lower exhaust pulse volume'
         assert abs(engine_pitch(coast)-engine_pitch(idle))<1,'coasting did not return to idle pitch'
-        assert np.ptp(coast[:,0].astype(np.int16))==np.ptp(idle[:,0].astype(np.int16))
+        # Pulse phase survives retriggers; the combined peak need not match
+        # after coasting, while both channel volumes must return to idle.
+        assert 6<=np.ptp(coast[:,0].astype(np.int16))<=13
         d.pulse('select');assert d.byte('game_state')==PAUSED and d.byte('menu_screen')==0
-        assert not d.p.memory[0xff26]&4,'pause left the wave engine running'
+        assert not d.p.memory[0xff26]&5,'pause left an engine channel running'
         frozen=(d.time_frames(),d.bike(),d.word('game_steps'))
         d.tick(60);assert frozen==(d.time_frames(),d.bike(),d.word('game_steps'))
         d.snapshot('paused')
@@ -79,7 +84,7 @@ def main():
             output.writeframes((pcm.astype(np.int16)+128).astype(np.uint8).tobytes())
         report={'status':'passed','version':version,'rom_sha256':d.rom_sha256,
                 'checks':['title input','main menu version','controls/back','course selection persistence',
-                          'continuous quiet CH3 idle PCM','CH3 throttle volume','coast returns to idle',
+                          'continuous CH1+CH3 idle PCM','both engine throttle volumes','coast returns to idle',
                           'real engine PCM','pause mutes engine','pause freezes ride',
                           'resume preserves current course','restart resets current course','restored VRAM'],
                 'display_overruns':d.word('game_overruns'),'hardware_tested':False}

@@ -1,7 +1,8 @@
 """Derive idle/load engine cycles and native effect contours from elma.res.
 
 No PCM is streamed by the cartridge. Two 16-byte CH3 waves, an original
-wheel-speed/pitch lookup, and short CH2/CH4 controls are emitted. WAVs stay local.
+wheel-speed/pitch lookup, and short CH2/CH4 controls are emitted. CH1 reinforces
+the engine with a native pulse at the same period register. WAVs stay local.
 """
 import argparse
 import hashlib
@@ -265,9 +266,15 @@ def generate(res_path, out, constants=None):
                    'loops': loops, 'pitch_formula': '65536 / (2048 - period)',
                    'idle_hz': idle_hz, 'idle_period': idle_period, 'load_base_hz': load_hz,
                    'curve': curve,
+                   'pulse_layer': {'channel': 1, 'duty_percent': 12.5,
+                                   'idle_volume': 6, 'load_volume': 15,
+                                   'frequency_ratio_to_wave': 2,
+                                   'method': 'Native exhaust reinforcement; unchanged CH3 source cycles, '
+                                             'shared period register, no steady-state pulse retriggers.'},
                    'wave_switch': 'Only at throttle-mode changes, with CH3 DAC off; no active wave RAM writes.'},
         'effects': effects,
         'limitations': ['Representative periodic engine cycles cannot reproduce the complete changing recordings or their start/rev transition.',
+                       'The CH1 exhaust pulse improves speaker audibility but adds a synthesized timbre to the original-derived CH3 cycles.',
                        'Native pulse/noise effect contours are approximations, not the original PCM.',
                        'No music is added. No listening or physical-hardware validation is implied.'],
     }

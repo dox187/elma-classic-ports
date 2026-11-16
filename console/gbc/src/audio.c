@@ -2,9 +2,10 @@
 #include "audio.h"
 #include "riding_constants.h"
 
-/* CH3 has separate original idle/load cycles; CH2/CH4 use source-derived
- * effect contours. No sample streaming, interrupt handler, division or
- * physics work. Hardware lengths bound every sound if servicing stops.
+/* CH3 has separate original idle/load cycles. CH1 adds a narrow exhaust
+ * pulse; CH2/CH4 use source-derived effect contours. No sample streaming,
+ * interrupt handler, division or physics work. Hardware lengths bound
+ * every sound if servicing stops.
  */
 typedef struct {
     uint16_t pitch;
@@ -27,6 +28,7 @@ static uint16_t audio_now(void) {
 static void engine_stop(void) {
     if(engine_volume) {
         NR30_REG=0;
+        NR12_REG=0;
         engine_volume=0;
     }
 }
@@ -67,7 +69,7 @@ void audio_init(void) BANKED {
     uint8_t i;
     NR52_REG=0;
     NR52_REG=0x80;
-    NR51_REG=0xEE; /* CH2, CH3, CH4 centered in both speakers. */
+    NR51_REG=0xFF; /* All four channels centered in both speakers. */
     NR50_REG=0x55; /* 6/8 master level; no external VIN. */
     NR10_REG=0;
     NR12_REG=0;
@@ -83,7 +85,7 @@ void audio_init(void) BANKED {
 }
 
 void audio_update(uint8_t riding,uint8_t gas,uint8_t brake,uint16_t speed) BANKED {
-    uint8_t mode,volume,trigger,i;
+    uint8_t mode,volume,trigger,pulse_trigger,i;
     uint16_t pitch;
     const uint8_t *wave;
     effect_tick(audio_now());
@@ -107,10 +109,20 @@ void audio_update(uint8_t riding,uint8_t gas,uint8_t brake,uint16_t speed) BANKE
     volume=mode?0x20:0x40;
     pitch=mode?engine_pitch[speed>=32768U?511:(speed>>6)]:AUDIO_IDLE_PERIOD;
     trigger=!(NR52_REG&4);
+    pulse_trigger=(NR52_REG&1)?0:0x80;
     if(volume!=engine_volume) {
         NR32_REG=volume;
         engine_volume=volume;
+        NR12_REG=mode?0xF0:0x60;
+        pulse_trigger=0x80; /* A changed pulse envelope needs one trigger. */
     }
+    /* CH1 at the same period is exactly CH3's second harmonic. Its narrow
+     * 12.5% pulse adds audible exhaust harmonics without transposing CH3.
+     * Refresh the 64/256 s watchdog, but preserve phase on speed updates.
+     * Sweep and automatic volume envelopes remain disabled. */
+    NR11_REG=0;
+    NR13_REG=(uint8_t)pitch;
+    NR14_REG=0x40|(uint8_t)(pitch>>8)|pulse_trigger;
     /* NR31 refreshes a 64/256 s watchdog without resetting sample phase.
      * A period change does not need a trigger. Restart only after a wave
      * switch, stop or expired watchdog; active wave RAM is never accessed. */
