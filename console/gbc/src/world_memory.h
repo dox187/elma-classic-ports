@@ -8,9 +8,12 @@
 #define WORLD_MEMORY_CALL
 #endif
 
-/* Scratch SRAM: 4096 little-endian words per 8 KiB RAM bank. Clear enables
- * cartridge RAM; keep it enabled while using get/set. Every call leaves RAM
- * bank zero selected. No persistent save records share this scratch space. */
+/* Compact SRAM bank0 lookup: 1024 bucket heads at A000-A7FF and 444
+ * slot-indexed {id,next} entries at A800-AEEF. IDs span all 16 bits; slots
+ * are 0..443 or FFFF to remove an ID. Remove a slot's previous ID before
+ * reusing it. get returns FFFF for an absent ID. Clear ignores count and
+ * resets the fixed table, enabling RAM. Keep RAM enabled for get/set.
+ * Every call leaves RAM bank0 selected; AEF0 onward and banks1..3 survive. */
 uint16_t world_lookup_get(uint16_t id) WORLD_MEMORY_CALL;
 void world_lookup_set(uint16_t id,uint16_t slot) WORLD_MEMORY_CALL;
 void world_lookup_clear(uint16_t count) WORLD_MEMORY_CALL;
@@ -31,10 +34,9 @@ void world_far_gather(uint16_t bank,const uint8_t *source,uint8_t *dest,
 void world_sram_gather(uint8_t bank,const uint8_t *source,uint8_t *dest,
                        uint8_t count,uint8_t stride) WORLD_MEMORY_CALL;
 
-/* Physical-slot mirror in SRAM bank8, first2048bytes. Each axis wraps32
+/* Physical-slot mirror in SRAM bank0, B000-B7FF. Each axis wraps32
  * independently; count is0..21 and slots is a WRAM array of little-endian
- * words. RAM must already be enabled. Every call returns RAM bank0.
- * While this mirror is active, pattern lookup IDs must remain below32768. */
+ * words. RAM must already be enabled. Every call returns RAM bank0. */
 void world_slot_strip_get(uint8_t x,uint8_t y,uint8_t vertical,uint8_t count,
                           uint16_t *slots) WORLD_MEMORY_CALL;
 void world_slot_strip_set(uint8_t x,uint8_t y,uint8_t vertical,uint8_t count,

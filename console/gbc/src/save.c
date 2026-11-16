@@ -1,8 +1,8 @@
 #pragma bank 7
 #include "save.h"
 
-/* MBC5 battery SRAM bank 15 only; banks 0..14 belong to world scratch data.
- * Two 1024-byte slots at A000/A400, all integers little endian:
+/* MBC5 battery SRAM bank 0, protected from graphics scratch data.
+ * Two 1024-byte slots at B800/BC00, all integers little endian:
  *  0 "ELMS", 4 version=1, 5 committed=A5, 6 payload length=909 (u16),
  *  8 generation (u32), 12 CRC16 (u16), 14..15 reserved zero,
  * 16 player, 17 four zero-padded 11-byte names, 61 four*54 u32 best times,
@@ -10,7 +10,7 @@
  * covers every byte except 5, 12 and 13. Invalidate the inactive slot first,
  * stream its replacement, and write A5 last; the prior slot stays intact.
  */
-#define SAVE_RAM_BANK 15
+#define SAVE_RAM_BANK 0
 #define SLOT_SIZE 1024U
 #define SLOT_NONE 255
 #define COMMIT_OFFSET 5
@@ -31,7 +31,7 @@ static const uint8_t header[16]={
 };
 
 static volatile uint8_t *slot_address(uint8_t slot) {
-    return (volatile uint8_t *)(0xa000U+((uint16_t)slot<<10));
+    return (volatile uint8_t *)(0xb800U+((uint16_t)slot<<10));
 }
 
 static uint32_t read_u32(const volatile uint8_t *p) {

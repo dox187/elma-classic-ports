@@ -7,6 +7,11 @@ through partial work, cancellation and mismatched commits. Independently
 reconstructed references must include exactly the pending incoming cells.
 The default fixture uses raw graphics; --compressed exercises production ZX0
 map and pattern blocks, including eviction and reload of conflicting blocks.
+Both fixtures declare 32 KiB SRAM. Save bytes in bank 0 remain guarded across
+initialization, course changes, scrolling and preparation cancellation. Linked
+instruction hooks reject RAM bank requests outside 0..3 before MBC5 aliasing.
+The compressed synthetic ROM retains nine-bit banks to test that helper API;
+its 8 MiB ROM size is not the production compressed cartridge's size.
 This does not claim playable-level completion.
 """
 import argparse
@@ -153,14 +158,17 @@ volatile uint8_t bad_expected,bad_actual;
 +volatile uint16_t max_pending_references;
 +volatile uint8_t prepare_deadline_failures,max_prepare_elapsed_vblanks;
 +volatile uint8_t pattern_block_conflict_checks;
++volatile uint8_t highest_pattern_block_checks;
 +volatile uint16_t fine_pixel_checks;
 +volatile uint8_t partial_plane_mask,publish_chunk_mask;
 +volatile uint16_t cached_acquisition_partial_checks,split_extra_views,split_cases,split_plane_cancellations,split_publish_cancellations,split_mismatches;
 +volatile uint8_t split_attempts[4],split_cancel_seen[4],split_final_kind[4];
 +static uint16_t expected_references[CACHE_COUNT];
++void fixture_guard_check(void) NONBANKED;
 +void fixture_verify(uint8_t level,uint16_t x,uint16_t y) BANKED {
 + uint16_t tx,ty,address,slot,target,id,i,mirror,total=0;uint8_t tile,attribute,expected,byte;
 + DISPLAY_OFF;
++ fixture_guard_check();
 + for(i=0;i<CACHE_COUNT;++i)expected_references[i]=0;
 + if(SCX_REG!=(uint8_t)x || SCY_REG!=(uint8_t)y)map_failures=1;
 + for(ty=y/8;ty<y/8+19;++ty)for(tx=x/8;tx<x/8+21;++tx) {
@@ -168,8 +176,8 @@ volatile uint8_t bad_expected,bad_actual;
 +  VBK_REG=1;attribute=*(volatile uint8_t*)address;target=tile+(attribute&8?256:0);
 +  if((target>=252 && target<256) || target>=448){map_failures=1;continue;}
 +  slot=target<252?target:target-4;++expected_references[slot];
-+  *(volatile uint8_t*)0x4000=8;mirror=*(volatile uint16_t*)(0xa000U+2U*((ty&31U)*32U+(tx&31U)));
-+  *(volatile uint8_t*)0x4000=0;if(mirror!=slot)mirror_failures=1;
++  mirror=*(volatile uint16_t*)(0xb000U+2U*((ty&31U)*32U+(tx&31U)));
++  if(mirror!=slot)mirror_failures=1;
 +  if(tx>=64 || ty>=48){id=0;expected=0;}
 +  else {
 +   id=level==0?0:level==1?ty*64+tx:28000U+(ty*64+tx)%410U;
@@ -281,25 +289,28 @@ volatile uint8_t bad_expected,bad_actual;
 +void fixture_probe_end(void) NONBANKED;
 +void fixture_compressed_cache_probe(void) BANKED {
 +#ifdef WORLD_GRAPHICS_ZX0
-+ uint8_t attempt,i,expected;uint16_t id;
++ uint8_t attempt,i,expected,which;uint16_t id;
 + DISPLAY_OFF;world_select(1);world_begin(0,0);
-+ /* Blocks0 and32 share SRAM cache slot0. Verify a hit, an eviction, and
-+  * the original block reloaded after its decoded bytes were overwritten. */
-+ for(attempt=0;attempt<3;++attempt) {
-+  id=attempt==1?2048:0;world_cache_upload(0,id);
-+  if(pattern_cache_ids[0]!=(id>>6))cache_failures=1;
++ /* Blocks0/16 share slot0, and15/31 share slot15 at bank3 BC00-BFFF.
++  * Check hits, conflicting reloads and the last physical SRAM byte. */
++ for(which=0;which<2;++which)for(attempt=0;attempt<3;++attempt) {
++  id=(which?1023:0)+(attempt==1?1024:0);world_cache_upload(0,id);
++  if(pattern_cache_ids[(id>>6)&15]!=(id>>6))cache_failures=1;
 +  VBK_REG=0;
 +  for(i=0;i<16;++i) {
 +   expected=i==0?(uint8_t)id:i==1?(uint8_t)(id>>8):(uint8_t)(id*37U+i*19U+(id>>(i&7)));
 +   if(*(volatile uint8_t*)(0x8000+i)!=expected)pattern_failures=1;
 +  }
 +  ++pattern_block_conflict_checks;
++  if(which)++highest_pattern_block_checks;
++  fixture_guard_check();
 + }
 +#endif
 +}
 +void fixture_probe_setup(uint8_t which) BANKED {
 + uint16_t i;uint8_t free;
 + DISPLAY_OFF;world_select(1);world_lookup_clear(3072);next_slot=which==2?7:0;
++ fixture_guard_check();
 +#ifdef WORLD_FREE_BITMAP
 + for(i=0;i<FREE_BYTES;++i)free_bits[i]=0;
 +#endif
@@ -327,6 +338,8 @@ volatile uint8_t bad_expected,bad_actual;
 +void fixture_compressed_cache_probe(void) BANKED;
 +void fixture_probe_start(void) NONBANKED {}
 +void fixture_probe_end(void) NONBANKED {}
++void fixture_guard_init(void) NONBANKED {}
++void fixture_guard_check(void) NONBANKED {}
 +#ifdef FIXTURE_PHASED
 +void fixture_prepare(uint16_t ox,uint16_t oy,uint16_t x,uint16_t y,uint8_t mode) BANKED;
 +void fixture_cancel(uint16_t ox,uint16_t oy,uint16_t x,uint16_t y) BANKED;
@@ -347,6 +360,7 @@ volatile uint8_t bad_expected,bad_actual;
 + uint16_t i,x=0,y=0,mx,my,px,py,ox,oy;uint8_t variant,direction,n,pending,level,kind,cancel_done;
 + int8_t dx,dy;
 + cpu_fast();LCDC_REG|=LCDCF_BG8000;add_VBL(tick);set_interrupts(VBL_IFLAG);enable_interrupts();
++ fixture_guard_init();fixture_guard_check();
 + for(variant=0;variant<
 +#ifdef FIXTURE_PHASED
 + 4
@@ -358,6 +372,7 @@ volatile uint8_t bad_expected,bad_actual;
 +  if(c->begin) {
 +   DISPLAY_OFF;
 +   if(!world_select(c->level))select_failures=1;
++   fixture_guard_check();
 +   world_begin(c->x,c->y);DISPLAY_ON;
 +  } else {
 +#ifdef FIXTURE_PHASED
@@ -434,29 +449,99 @@ volatile uint8_t bad_expected,bad_actual;
 + split_extra_views=inspected_views-split_extra_views;
 +#endif
 + if(world_select(3))select_failures=1;
++ fixture_guard_check();
 + fixture_compressed_cache_probe();
 + for(probe_case=0;probe_case<3;++probe_case) {
 +  fixture_probe_setup(probe_case);
 +  if(fixture_acquire_probe()!=(probe_case==1?437:0))select_failures=1;
 + }
 + DISPLAY_ON;
++ fixture_guard_check();
 + cache_done=1;while(1)vsync();
 +}
 +'''.replace('\n+','\n'))
-    command=[str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x1a','-Wm-yo512','-Wm-ya16','-Wl-m','-Wl-j','-I'+str(OUT),'-I'+str(BASE/'src'),'-o',str(OUT/'check.gbc'),str(OUT/'check.c'),str(OUT/'inspect.c'),str(OUT/'catalogue.c'),*bank_sources,str(OUT/'world_dma.c'),str(OUT/'world_memory.s'),str(OUT/'world_retire_fast.s'),str(OUT/'video.s')]
-    command.extend(str(OUT/name)for name in optional_helpers if name in sources)
-    built=subprocess.run(command,capture_output=True,text=True)
-    (OUT/'compile.log').write_text(built.stdout+built.stderr)
-    assert built.returncode==0,built.stdout+built.stderr
+    flags=[str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x1a','-Wm-yo512','-Wm-ya4','-Wl-m','-Wl-j','-I'+str(OUT),'-I'+str(BASE/'src')]
+    # Keep linked instruction listings for executable code only. Looking for
+    # opcode bytes across ROM data would corrupt fixtures when hooks replace
+    # a coincidentally matching graphics byte with the breakpoint opcode.
+    code_names=['check.c','inspect.c','world_dma.c','world_memory.s','world_retire_fast.s','video.s']
+    code_names.extend(name for name in optional_helpers if name in sources)
+    objects=[];compile_log=[]
+    def build(command):
+        built=subprocess.run(command,capture_output=True,text=True)
+        compile_log.append(built.stdout+built.stderr)
+        (OUT/'compile.log').write_text(''.join(compile_log))
+        assert built.returncode==0,built.stdout+built.stderr
+    for name in code_names:
+        obj=OUT/(Path(name).stem+'.o');objects.append(obj)
+        build(flags+['-Wa-l','-c','-o',str(obj),str(OUT/name)])
+    build(flags+['-Wl-u','-o',str(OUT/'check.gbc'),*map(str,objects),str(OUT/'catalogue.c'),*bank_sources])
     symbols={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',(OUT/'check.noi').read_text())}
+    rom=(OUT/'check.gbc').read_bytes()
+    assert rom[0x149]==3,('fixture must declare 32 KiB SRAM',rom[0x149])
     p=PyBoy(str(OUT/'check.gbc'),window='null',sound_emulated=False,cgb=True);p.set_emulation_speed(0)
     launches=Counter();launch_states={};dma_durations=Counter();probe_start=None;probe_cycles={};hook_errors=[]
+    ram_requests=Counter();ram_write_sites=[];last_ram_bank=0
+    guard_checks=0;guard_failures=[];bank_restore_failures=[]
+    save_guard=bytes((i*37+(i>>8)*19+0x5b)&255 for i in range(2048))
+    high_guard=bytes((i*29+0x67)&255 for i in range(16))
     def observe(callback):
         def checked(context):
             try:callback(context)
             except BaseException as error:hook_errors.append(str(error))
         return checked
-    rom=(OUT/'check.gbc').read_bytes();start=symbols['_world_upload_tile']
+    # Probe MBC5 through its mapped registers, including the highest byte of
+    # each real bank. PyBoy aliases requested banks modulo the header size;
+    # the instruction hooks below therefore validate the unmasked request.
+    p.memory[0x0000]=0x0a
+    for bank in range(4):
+        p.memory[0x4000]=bank;p.memory[0xbfff]=0x60+bank
+    ram_aliases=[]
+    for bank in range(16):
+        p.memory[0x4000]=bank;ram_aliases.append(p.memory[0xbfff]-0x60)
+    assert ram_aliases==[bank%4 for bank in range(16)],('unexpected PyBoy MBC5 RAM mapping',ram_aliases)
+    p.memory[0x4000]=8;p.memory[0xbffe]=0xa7
+    p.memory[0x4000]=0
+    assert p.memory[0xbffe]==0xa7,'out-of-range write did not alias the selected RAM bank'
+    p.memory[0x0000]=0
+    def guard_init(_):
+        # Initial SRAM contents are deliberate fixture input; no game state
+        # or ROM data is substituted while the runtime is executing.
+        p.memory[0,0xb800:0xbfff]=save_guard[:-1];p.memory[0,0xbfff]=save_guard[-1]
+        p.memory[3,0xbff0:0xbfff]=high_guard[:-1];p.memory[3,0xbfff]=high_guard[-1]
+    def guard_check(_):
+        nonlocal guard_checks
+        guard_checks+=1
+        if last_ram_bank and not bank_restore_failures:
+            bank_restore_failures.append({'checkpoint':guard_checks,'requested_bank':last_ram_bank})
+        regions=[(0,0xb800,save_guard)]
+        if not args.compressed:regions.append((3,0xbff0,high_guard))
+        for bank,address,expected in regions:
+            actual=bytes(p.memory[bank,address:address+len(expected)-1])+bytes([p.memory[bank,address+len(expected)-1]])
+            if actual!=expected and not guard_failures:
+                offset=next(i for i,(a,b)in enumerate(zip(actual,expected))if a!=b)
+                guard_failures.append({'checkpoint':guard_checks,'bank':bank,'address':address+offset,'expected':expected[offset],'actual':actual[offset]})
+    p.hook_register(0,symbols['_fixture_guard_init'],observe(guard_init),None)
+    p.hook_register(0,symbols['_fixture_guard_check'],observe(guard_check),None)
+    def ram_selected(site):
+        nonlocal last_ram_bank
+        last_ram_bank=p.register_file.A;ram_requests[last_ram_bank]+=1
+        assert last_ram_bank<4,('RAM bank request exceeds 32 KiB cartridge',site,last_ram_bank)
+    for obj in objects:
+        bank=0
+        for line in obj.with_suffix('.rst').read_text().splitlines():
+            area=re.search(r'\.area\s+(_\w+)',line)
+            if area:
+                suffix=re.fullmatch(r'_CODE_(\d+)',area[1]);bank=int(suffix[1])if suffix else 0
+            instruction=re.match(r'\s*([0-9A-Fa-f]{8})\s+EA 00 40\s+\[.*\]\s+\d+\s+ld\b',line)
+            if instruction:
+                address=int(instruction[1],16)&0xffff
+                offset=bank*16384+(address&0x3fff)if bank else address
+                assert rom[offset:offset+3]==b'\xea\x00\x40',('linked RAM-write listing differs from ROM',obj.name,bank,address)
+                site=(bank,address);ram_write_sites.append(site)
+                p.hook_register(bank,address,observe(ram_selected),site)
+    assert ram_write_sites,'no linked RAM bank writes were observed'
+    start=symbols['_world_upload_tile']
     end=min(address for address in symbols.values()if start<address<0x8000)
     dma_writes=[start+i for i in range(end-start-1)if rom[start+i:start+i+2]==b'\xe0\x55']
     assert len(dma_writes)in(2,3),('expected production GDMA launch sites',dma_writes)
@@ -497,6 +582,13 @@ volatile uint8_t bad_expected,bad_actual;
         if split_units:expected_views+=word('split_extra_views')
         report={'status':'passed','fixture':'synthetic source maps; production bank6 module, LCD-on scrolls, read-only counter inspection',
             'graphics_codec':'zx0'if args.compressed else 'raw',
+            'cartridge':{'rom_bytes':len(rom),'ram_header_code':rom[0x149],'ram_bytes':32768,'ram_banks':4},
+            'ram_bank_checks':{'requested_banks':dict(ram_requests),'instruction_sites':ram_write_sites,
+                               'pyboy_requested_bank_aliases':ram_aliases,'pyboy_out_of_range_write_aliases':True,
+                               'restoration_failures':bank_restore_failures},
+            'save_guard':{'bank':0,'start':0xb800,'bytes':len(save_guard),'checks':guard_checks,'failures':guard_failures},
+            'highest_ram_bank_guard':{'bank':3,'start':0xbff0,'bytes':len(high_guard),'preserved_during_raw_runtime':not args.compressed,
+                                      'compressed_pattern_checks':p.memory[symbols['_highest_pattern_block_checks']]},
             'source_sha256':{name:hashlib.sha256(data).hexdigest()for name,data in sources.items()},
             'source_still_current':all(source_paths[name].read_bytes()==data for name,data in sources.items()),
             'rom_sha256':hashlib.sha256((OUT/'check.gbc').read_bytes()).hexdigest(),
@@ -521,7 +613,11 @@ volatile uint8_t bad_expected,bad_actual;
             'interrupts':word('cache_irq'),'first_pattern_mismatch':{name:word('bad_'+name)for name in('level','x','y','id','target','byte')},'bad_expected':p.memory[symbols['_bad_expected']],'bad_actual':p.memory[symbols['_bad_actual']],'failures':{name:p.memory[symbols['_'+name+'_failures']] for name in('reference','map','pattern','lookup','cache','mirror','select')},'hardware_tested':False}
         assert p.memory[symbols['_cache_done']],'cache fixture did not finish'
         assert report['verified_views']==expected_views and 399<=report['max_single_pattern_references']<=(438 if phased else 399),report
-        assert report['pattern_block_conflict_checks']==(3 if args.compressed else 0),report
+        assert report['pattern_block_conflict_checks']==(6 if args.compressed else 0),report
+        assert report['highest_ram_bank_guard']['compressed_pattern_checks']==(3 if args.compressed else 0),report
+        assert guard_checks>=report['verified_views'] and not guard_failures and not bank_restore_failures,report
+        assert ram_requests and all(0<=bank<4 for bank in ram_requests),report
+        if args.compressed:assert all(ram_requests[bank] for bank in range(4)),report
         if phased:
             assert all(report['preparation_checks'][name]>0 for name in('partial_preparations','full_preparations','expired_preparations','cancelled_preparations')),report
             assert report['preparation_checks']['max_pending_references']==438,report

@@ -1,7 +1,7 @@
 """Exercise production SM83 saves, real battery files, and interrupted commits.
 
 The isolated ROM calls save.c directly; these are module fixtures, not completed
-rides or controller-driven UI tests. Only bank15's first 2048 SRAM bytes belong
+rides or controller-driven UI tests. Only bank0's last 2048 SRAM bytes belong
 to saves; every other byte is checked against an independent canary image.
 """
 import argparse
@@ -15,8 +15,8 @@ import subprocess
 from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
-RAM_SIZE = 16 * 8192
-SAVE_BASE = 15 * 8192
+RAM_SIZE = 4 * 8192
+SAVE_BASE = 6144
 SLOT_SIZE = 1024
 DEFAULT_NAMES = [f'PLAYER {i}' for i in range(1, 5)]
 
@@ -71,8 +71,8 @@ def guarded_image(fill=0xff):
 
 def check_guards(image, original):
     assert len(image) == RAM_SIZE, ('battery file size', len(image))
-    assert image[:SAVE_BASE] == original[:SAVE_BASE], 'scratch SRAM banks0..14 changed'
-    assert image[SAVE_BASE + 2048:] == original[SAVE_BASE + 2048:], 'bank15 tail changed'
+    assert image[:SAVE_BASE] == original[:SAVE_BASE], 'scratch SRAM before save area changed'
+    assert image[SAVE_BASE + 2048:] == original[SAVE_BASE + 2048:], 'scratch SRAM banks1..3 changed'
 
 
 def compile_fixture(out):
@@ -95,7 +95,7 @@ void main(void) NONBANKED {
  SWITCH_ROM(9);command=1;
  while(1) {
   if(command) {
-   DISABLE_RAM;SWITCH_RAM(12);
+   DISABLE_RAM;SWITCH_RAM(2);
    service();
    if(CURRENT_BANK!=9 || ((const volatile uint8_t *)bank9_marker)[0]!=0x99)++bank_failures;
    ++commands;command=0;ready=1;
@@ -136,7 +136,7 @@ void service(void) BANKED {
     static_wram = sum(areas.get(name, 0) for name in ('_DATA', '_INITIALIZED', '_DABS', '_HRAM'))
     assert static_wram <= 50, ('save module exceeds static WRAM budget', static_wram)
     command = [str(BASE / '.toolchain/gbdk/bin/lcc'), '-msm83:gb',
-               '-Wf--opt-code-size', '-Wm-yC', '-Wm-yt0x1b', '-Wm-ya16',
+               '-Wf--opt-code-size', '-Wm-yC', '-Wm-yt0x1b', '-Wm-ya4',
                '-Wm-yo16', '-Wl-m', '-Wl-j', '-I' + str(out), '-o', str(rom),
                *(str(out / name) for name in ('driver.c', 'caller.c', 'bank9.c', 'save.o'))]
     result = subprocess.run(command, capture_output=True, text=True)
@@ -146,7 +146,7 @@ void service(void) BANKED {
     for name in ('save_init', 'save_select', 'save_name', 'save_best', 'save_record'):
         assert symbols['_' + name] >> 16 == 7, (name, 'wrong ROM bank')
     binary = rom.read_bytes()
-    assert binary[0x147] == 0x1b and binary[0x149] == 4, 'expected MBC5 battery + 128KiB SRAM'
+    assert binary[0x147] == 0x1b and binary[0x149] == 3, 'expected MBC5 battery + 32KiB SRAM'
     return rom, symbols, sources, [module_command, command], static_wram
 
 

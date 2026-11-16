@@ -2,7 +2,7 @@
 
 Run after ``make build/elma-gbc.gbc``. The helper ROM links the production world_decompress
 and the generated graphics banks, checks those banks against --rom, and decodes
-each unique manifest pointer into SRAM bank 9. Expected bytes come independently
+each unique manifest pointer into SRAM bank 1. Expected bytes come independently
 from every level's tiles.npz, including partial final pattern blocks.
 """
 
@@ -25,7 +25,7 @@ sys.path.insert(0, str(BASE / 'tools'))
 from zx0 import decompress
 
 DESTINATION = 0xA000
-SCRATCH_BANK = 9
+SCRATCH_BANK = 1
 MAX_DECODED = 1536
 GUARD_SIZE = 16
 CANARY = 0xA5
@@ -148,10 +148,10 @@ static void run_blocks(const block_t *blocks,uint16_t count) {
     uint16_t i;
     for(i=0;i<count;++i) {
         memcpy(&current_block,blocks+i,sizeof(current_block));
-        rRAMB=9;
+        rRAMB=1;
         memset((void *)0xA000,0xA5,1552);
         rRAMB=0;
-        world_decompress(current_block.bank,current_block.address,9,0xA000);
+        world_decompress(current_block.bank,current_block.address,1,0xA000);
         ++cases_done;
         ++case_id;
     }
@@ -190,7 +190,7 @@ void main(void) {
     fixture = out / 'check.gbc'
     command = [BASE / '.toolchain/gbdk/bin/lcc', '-msm83:gb', '-Wf--opt-code-size',
                '-Wf--max-allocs-per-node', '-Wf100000', '-Wm-yC', '-Wm-yt0x1A',
-               '-Wm-ya16', '-Wm-yo256', '-Wl-m', '-Wl-j', '-I' + str(out),
+               '-Wm-ya4', '-Wm-yo256', '-Wl-m', '-Wl-j', '-I' + str(out),
                '-o', fixture, driver_path, BASE / 'src/world_dma.c', BASE / 'src/world_zx0.s',
                *sources, *data_sources]
     result = subprocess.run(list(map(str, command)), capture_output=True, text=True)

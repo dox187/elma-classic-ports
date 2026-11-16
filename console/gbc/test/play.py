@@ -39,7 +39,7 @@ class Driver:
         assert rom_bytes[0x143] == 0xc0, 'ROM must be CGB only'
         assert rom_bytes[0x147] in (0x19,0x1a,0x1b), 'ROM must use the MBC5 cartridge header'
         if rom_bytes[0x147] in (0x1a,0x1b):
-            assert rom_bytes[0x149] == 4, 'streamed cache requires128KiB cartridge scratch RAM'
+            assert rom_bytes[0x149] in (3,4), 'streamed cache requires32KiB RAM (128KiB in legacy builds)'
         assert len(rom_bytes) == 32768 << rom_bytes[0x148], 'ROM bank count differs from file length'
         assert rom_bytes[0x14d] == (-sum(rom_bytes[0x134:0x14d])-25)&255, 'ROM header checksum'
         assert int.from_bytes(rom_bytes[0x14e:0x150],'big') == (
@@ -296,12 +296,24 @@ class Driver:
                     assert physical < 252 or 256 <= physical < 448, 'background overwrote reserved sprite patterns'
                     start = 0x8000+tile*16
                     assert bytes(self.p.memory[bank,start:start+16]) == patterns[pattern*16:pattern*16+16], 'streamed viewport pattern differs: level%d (%d,%d) id%d'%(index+1,tx,ty,pattern)
-                    address = 0xa000+(pattern&4095)*2
-                    cached = self.p.memory[pattern>>12,address] | self.p.memory[pattern>>12,address+1]<<8
+                    if self.rom_constant('world_lookup_format',0)==1:
+                        address=0xa000+(pattern&1023)*2
+                        cached=self.p.memory[0,address]|self.p.memory[0,address+1]<<8
+                        for _ in range(444):
+                            assert cached<444,'visible pattern missing from compact lookup'
+                            address=0xa800+cached*4
+                            stored=self.p.memory[0,address]|self.p.memory[0,address+1]<<8
+                            if stored==pattern:break
+                            cached=self.p.memory[0,address+2]|self.p.memory[0,address+3]<<8
+                        else:raise AssertionError('compact lookup cycle')
+                    else:
+                        address = 0xa000+(pattern&4095)*2
+                        cached = self.p.memory[pattern>>12,address] | self.p.memory[pattern>>12,address+1]<<8
                     assert cached == (physical if physical<252 else physical-4), 'SRAM lookup disagrees with visible cache slot'
                     if '_world_slot_strip_get' in self.symbols:
-                        address=0xa000+2*((ty&31)*32+(tx&31))
-                        mirrored=self.p.memory[8,address]|self.p.memory[8,address+1]<<8
+                        compact=self.rom_constant('world_lookup_format',0)==1
+                        address=(0xb000 if compact else 0xa000)+2*((ty&31)*32+(tx&31))
+                        mirrored=self.p.memory[0 if compact else 8,address]|self.p.memory[0 if compact else 8,address+1]<<8
                         assert mirrored==cached,'SRAM slot mirror disagrees with displayed viewport'
                         self.slot_mirror_checks+=1
                     if tx < ids.shape[1] and ty < ids.shape[0]:

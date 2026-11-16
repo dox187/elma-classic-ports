@@ -16,6 +16,7 @@
 world_level_t game_world;
 game_object_t game_objects[LEVEL_OBJECT_MAX];
 uint8_t world_level_index;
+const uint8_t world_lookup_format=1;
 uint16_t world_uploads,world_cache_failures;
 /* Internal cache symbols are shared with the near bank6 acquisition kernel. */
 uint16_t world_cache_ids[CACHE_COUNT],world_cache_next;
@@ -36,9 +37,11 @@ static uint8_t retired_count;
 static uint16_t last_chunk;
 static world_far_t chunk;
 #ifdef WORLD_GRAPHICS_ZX0
-/* Lookup words occupy SRAM0..7 and the viewport mirror uses bank8.
- * Eight decoded maps use banks9..10; 32 pattern blocks use banks11..14. */
-static uint16_t map_cache_ids[8],pattern_cache_ids[32];
+/* SRAM0 holds the compact lookup, viewport mirror and protected saves.
+ * Five decoded maps use bank1; 16 pattern blocks use banks2..3. */
+#define MAP_CACHE_COUNT 5
+#define PATTERN_CACHE_COUNT 16
+static uint16_t map_cache_ids[MAP_CACHE_COUNT],pattern_cache_ids[PATTERN_CACHE_COUNT];
 static uint8_t map_cache_next,chunk_ram_bank;
 #endif
 
@@ -94,7 +97,7 @@ void world_game_assets(void) BANKED {
 
 #ifdef WORLD_GRAPHICS_ZX0
 static uint16_t cached_pattern_address(uint16_t block) {
-    uint8_t cache=block&31,ram_bank=11+(cache>>3);
+    uint8_t cache=block&(PATTERN_CACHE_COUNT-1),ram_bank=2+(cache>>3);
     uint16_t address=0xa000U+((uint16_t)(cache&7)<<10);
     if(pattern_cache_ids[cache]!=block) {
         world_far_t pointer;
@@ -110,7 +113,7 @@ static uint16_t cached_pattern_address(uint16_t block) {
 void world_cache_upload(uint16_t slot,uint16_t id) __sdcccall(0) {
 #ifdef WORLD_GRAPHICS_ZX0
     uint16_t address=cached_pattern_address(id>>6);
-    rRAMB=11+((id>>9)&3);
+    rRAMB=2+((id>>9)&1);
     world_upload_tile(CURRENT_BANK,address+((id&63)<<4),physical(slot));
     rRAMB=0;
 #else
@@ -166,19 +169,20 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
         if(ci!=last_chunk) {
 #ifdef WORLD_GRAPHICS_ZX0
             uint8_t cached;
-            for(cached=0;cached<8;++cached)if(map_cache_ids[cached]==ci)break;
-            if(cached==8) {
+            for(cached=0;cached<MAP_CACHE_COUNT;++cached)if(map_cache_ids[cached]==ci)break;
+            if(cached==MAP_CACHE_COUNT) {
                 world_far_t pointer;
-                cached=map_cache_next;map_cache_next=(map_cache_next+1)&7;
+                cached=map_cache_next;
+                if(++map_cache_next==MAP_CACHE_COUNT)map_cache_next=0;
                 world_far_copy(game_world.chunks.bank,(const uint8_t *)(game_world.chunks.address+ci*4),
                                (uint8_t *)&pointer,4);
-                chunk_ram_bank=9+(cached>=5);
-                chunk.address=0xa000U+(uint16_t)(cached>=5?cached-5:cached)*1536;
+                chunk_ram_bank=1;
+                chunk.address=0xa000U+(uint16_t)cached*1536;
                 world_decompress(pointer.bank,pointer.address,chunk_ram_bank,chunk.address);
                 map_cache_ids[cached]=ci;
             }
-            chunk_ram_bank=9+(cached>=5);
-            chunk.address=0xa000U+(uint16_t)(cached>=5?cached-5:cached)*1536;
+            chunk_ram_bank=1;
+            chunk.address=0xa000U+(uint16_t)cached*1536;
             last_chunk=ci;
 #else
             world_far_copy(game_world.chunks.bank,(const uint8_t *)(game_world.chunks.address+ci*4),
@@ -227,8 +231,8 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
     prepare_stage=PREP_NONE;prepare_added_count=0;retired_count=0;
     world_lookup_clear(game_world.pattern_count);
 #ifdef WORLD_GRAPHICS_ZX0
-    for(i=0;i<8;++i)map_cache_ids[i]=INVALID;
-    for(i=0;i<32;++i)pattern_cache_ids[i]=INVALID;
+    for(i=0;i<MAP_CACHE_COUNT;++i)map_cache_ids[i]=INVALID;
+    for(i=0;i<PATTERN_CACHE_COUNT;++i)pattern_cache_ids[i]=INVALID;
     map_cache_next=0;
 #endif
     for(i=0;i<CACHE_COUNT;++i){cached_ids[i]=INVALID;references[i]=0;}
@@ -238,9 +242,9 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
 #ifdef WORLD_GRAPHICS_ZX0
     /* Small courses fit entirely in the decoded caches. Load their remaining
      * blocks with the LCD off so riding never pays a first-use decode cost. */
-    if(game_world.pattern_count<=2048U)
+    if(game_world.pattern_count<=PATTERN_CACHE_COUNT*64U)
         for(i=0;i<(game_world.pattern_count+63U)/64U;++i)cached_pattern_address(i);
-    if((uint16_t)game_world.chunks_x*game_world.chunks_y<=8U)
+    if((uint16_t)game_world.chunks_x*game_world.chunks_y<=MAP_CACHE_COUNT)
         for(i=0;i<(uint16_t)game_world.chunks_x*game_world.chunks_y;++i)
             fetch_strip((i%game_world.chunks_x)*32U,(i/game_world.chunks_x)*16U,0,1,0,0);
 #endif
@@ -313,7 +317,7 @@ static uint16_t prepare_fetch_lines(void) {
     if(prepare_stage==PREP_COL_FETCH)y+=prepare_index;else x+=prepare_index;
     if(x>=game_world.width/8 || y>=game_world.height/8)return 35;
     ci=(y>>4)*game_world.chunks_x+(x>>5);
-    for(cached=0;cached<8;++cached)if(map_cache_ids[cached]==ci)return 35;
+    for(cached=0;cached<MAP_CACHE_COUNT;++cached)if(map_cache_ids[cached]==ci)return 35;
     /* The all-block check limits map decoding to220K cycles. Include
      * directory lookup, strip gathering, interrupts and the caller margin. */
     return 270;
@@ -323,7 +327,7 @@ static uint8_t prepare_acquire_lines(void) {
     uint16_t id=strip_low[prepare_index]|((uint16_t)strip_high[prepare_index]<<8);
     uint16_t block=id>>6;
     /* The all-block check limits pattern decoding to190K cycles. */
-    if(pattern_cache_ids[block&31]!=block && world_lookup_get(id)>=CACHE_COUNT)return 220;
+    if(pattern_cache_ids[block&(PATTERN_CACHE_COUNT-1)]!=block && world_lookup_get(id)>=CACHE_COUNT)return 220;
     return 20;
 }
 #endif
