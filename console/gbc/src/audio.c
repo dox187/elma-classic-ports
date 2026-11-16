@@ -102,7 +102,9 @@ void audio_update(uint8_t riding,uint8_t gas,uint8_t brake,uint16_t speed) BANKE
     /* Braking changes the physical wheel speed, as in the original mixer;
      * it does not artificially divide pitch or change the gas waveform. */
     (void)brake;
-    volume=mode?0x40:0x60;
+    /* The CGB output filter attenuates these low original engine cycles.
+     * Use CH3's full range under load; keep idle one level quieter. */
+    volume=mode?0x20:0x40;
     pitch=mode?engine_pitch[speed>=32768U?511:(speed>>6)]:AUDIO_IDLE_PERIOD;
     trigger=!(NR52_REG&4);
     if(volume!=engine_volume) {

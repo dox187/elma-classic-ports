@@ -49,15 +49,15 @@ def main():
             peak=np.argmax(np.abs(np.fft.rfft(samples*np.hanning(len(samples)))))
             return np.fft.rfftfreq(len(samples),1/d.p.sound.sample_rate)[peak]
         idle=engine_segment(())
-        assert d.p.memory[0xff1c]&0x60==0x60,'no-throttle wave engine is not quiet'
+        assert d.p.memory[0xff1c]&0x60==0x40,'no-throttle wave engine is not quiet'
         assert 100<engine_pitch(idle)<106,'no-throttle engine is not at its original-cycle pitch'
         for _ in range(30):
             d.tick(1,('a',));audio.append(d.p.sound.ndarray.copy())
         assert any(np.any(chunk)for chunk in audio),'real riding ROM is silent'
         assert d.p.memory[0xff26]&4,'riding wave engine is disabled'
-        assert d.p.memory[0xff1c]&0x60==0x40,'throttle did not increase wave engine volume'
+        assert d.p.memory[0xff1c]&0x60==0x20,'throttle did not increase wave engine volume'
         coast=engine_segment(())
-        assert d.p.memory[0xff1c]&0x60==0x60,'releasing throttle did not lower wave engine volume'
+        assert d.p.memory[0xff1c]&0x60==0x40,'releasing throttle did not lower wave engine volume'
         assert abs(engine_pitch(coast)-engine_pitch(idle))<1,'coasting did not return to idle pitch'
         assert np.ptp(coast[:,0].astype(np.int16))==np.ptp(idle[:,0].astype(np.int16))
         d.pulse('select');assert d.byte('game_state')==PAUSED and d.byte('menu_screen')==0

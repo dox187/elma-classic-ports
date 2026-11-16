@@ -115,6 +115,12 @@ def noise_periods():
     for shift in range(14):
         for divider in range(8):
             clock = 262144 / ((divider or .5) * 2 ** shift)
+            # Retriggering clears the 15-bit LFSR. Its first output needs
+            # 15 clocks: slower rates can stay silent for the entire
+            # four-VBlank step. Require startup within one VBlank, leaving
+            # the rest of the step for audible noise and its envelope.
+            if clock < 15 * VBLANK_HZ:
+                continue
             power = np.sinc(frequencies / clock) ** 2
             centroid = float((frequencies * power).sum() / power.sum())
             result.append((shift << 4 | divider, centroid))
@@ -162,6 +168,7 @@ def effect_contour(samples, noise, max_volume):
         window.update(volume=volume, period=period, envelope=envelope, duty=duty)
     return steps, {'duration_vblanks': duration, 'step_vblanks': STEP_TICKS,
                    'channel': 4 if noise else 2,
+                   **({'noise_startup_max_vblanks': 1} if noise else {}),
                    'method': 'RMS envelope and spectral centroid mapped to 15-bit noise' if noise else
                              'RMS envelope, dominant frequency and second-harmonic duty mapped to pulse',
                    'windows': [{key: round(value, 4) if isinstance(value, float) else value
@@ -232,8 +239,8 @@ def generate(res_path, out, constants=None):
               '    ' + ','.join(str(value) for value in pitches) + '};']
     effects = {}
     for label, name, noise, volume in [('apple', 'eves.wav', False, 10),
-                                       ('crash', 'torik.wav', True, 12),
-                                       ('finish', 'siker.wav', True, 10)]:
+                                       ('crash', 'torik.wav', True, 15),
+                                       ('finish', 'siker.wav', True, 15)]:
         samples, metadata = read_wave(resource, name)
         steps, details = effect_contour(samples, noise, volume)
         effects[label] = {'source': name} | metadata | details

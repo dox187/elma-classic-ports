@@ -16,6 +16,27 @@ from pyboy import PyBoy
 BASE = Path(__file__).resolve().parents[1]
 
 
+def rms(data):
+    samples = data[:, 0].astype(float)
+    samples -= samples.mean()
+    return float(np.sqrt(np.mean(samples * samples)))
+
+
+def cgb_hpf_rms(data, sample_rate):
+    # PyBoy's PCM buffer omits the analog output HPF. This Pan Docs CGB
+    # capacitor model is a relative-level proxy, not a speaker simulation:
+    # https://gbdev.io/pandocs/Audio_details.html#obscure-behavior
+    samples = data[:, 0].astype(float)
+    charge = .998943 ** (4194304 / sample_rate)
+    capacitor = samples[0]
+    energy = 0.0
+    for sample in samples:
+        output = sample - capacitor
+        capacitor = sample - output * charge
+        energy += output * output
+    return math.sqrt(energy / len(samples))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, default=BASE / 'build/audio-check')
@@ -287,9 +308,9 @@ const void * const audio_state_addresses[] = {
         assert register_writes['triggers'] == 4, ('engine retriggered without a mode change', register_writes)
         assert register_writes['levels'] == 5, ('unnecessary level writes', register_writes)
         assert register_writes['wave_bytes'] == 64, ('wave rewritten without a mode change', register_writes)
-        content_correlation = waveform_correlation(high, int(periods[16000 >> 6]), 1, 1)
+        content_correlation = waveform_correlation(high, int(periods[16000 >> 6]), 1, 0)
         assert content_correlation > .98, ('PCM does not reproduce the original cycle', content_correlation)
-        idle_correlation = waveform_correlation(idle, engine['idle_period'], 0, 2)
+        idle_correlation = waveform_correlation(idle, engine['idle_period'], 0, 1)
         assert idle_correlation > .98, ('idle PCM differs from its recorded cycle', idle_correlation)
         assert len(np.unique(high[:, 0])) >= 6, 'engine is still a two-level pulse'
         pitches = {name: fundamental(data) for name, data in
@@ -308,7 +329,7 @@ const void * const audio_state_addresses[] = {
         assert abs(pitches['gas_fast']-reference_hz[16000]) < 1, pitches
         assert abs(pitches['brake_fast']-pitches['gas_fast']) < 1, pitches
         assert abs(pitches['gas_resumed'] - pitches['gas_fast']) < 1, pitches
-        assert 2 < levels['idle'] < levels['gas_idle'], levels
+        assert 6 <= levels['idle'] < levels['gas_idle'] and levels['gas_idle'] >= 14, levels
         assert levels['idle'] == levels['coast_fast'] == levels['brake_no_gas'], levels
         assert levels['gas_fast'] == levels['gas_resumed'] > levels['idle'], levels
         assert np.array_equal(high[:, 0], high[:, 1]), 'stereo routing differs'
@@ -371,14 +392,24 @@ const void * const audio_state_addresses[] = {
         frames(2)
         put('half_rate', 0)
         lengths = {}
+        effect_pcm = {}
+        noise_activity = {}
         for half_rate in (0, 1):
             put('half_rate', half_rate)
             for effect, duration in effect_lengths.items():
                 put('fx', effect)
                 capture = [frames(1)]
+                stable_steps = {}
                 assert p.memory[0xFF26] & (2 if effect < 2 else 8), ('wrong effect channel', effect)
                 while get('effect_active'):
+                    before_note = get('effect_note')
                     capture.append(frames(1))
+                    # A full frame within one control point must actually
+                    # contain noise. Whole-effect RMS alone used to miss
+                    # completely silent, repeatedly reset slow-LFSR steps.
+                    if effect >= 2 and get('effect_active') and get('effect_note') == before_note:
+                        level = int(np.ptp(capture[-1][:, 0].astype(np.int16)))
+                        stable_steps[before_note] = max(stable_steps.get(before_note, 0), level)
                     assert len(capture) < duration + 4, ('effect never stopped', effect)
                 age = (get('sys_time', 2) - get('effect_start', 2)) & 65535
                 assert duration <= age <= duration + half_rate, ('wrong effect duration', effect, age)
@@ -386,11 +417,40 @@ const void * const audio_state_addresses[] = {
                 assert audible(data), ('inaudible effect', effect, half_rate)
                 if not half_rate:
                     write_wav('effect-%d.wav' % effect, data)
+                    effect_pcm[effect] = data
+                if effect >= 2:
+                    name = 'crash' if effect == 2 else 'finish'
+                    for index, step in enumerate(manifest['effects'][name]['windows']):
+                        if step['volume'] >= 2 and duration - index * 4 >= 3:
+                            assert stable_steps.get(index, 0) >= 1, ('silent noise control point',
+                                                                     name, half_rate, index, stable_steps)
+                    noise_activity['%s-%dhz' % (name, 30 if half_rate else 60)] = stable_steps
                 silent()
                 assert not (p.memory[0xFF26] & 0x0F), ('effect stuck', effect, half_rate)
                 lengths['%d-%dhz' % (effect, 30 if half_rate else 60)] = age
         put('half_rate', 0)
         report['effect_durations_vblanks'] = lengths
+        report['noise_step_pcm_peak_to_peak'] = noise_activity
+        reference = effect_pcm[0]
+        assert int(np.ptp(reference[:, 0].astype(np.int16))) == 8, 'menu beep level changed'
+        assert rms(low) > rms(reference) > rms(idle), 'engine still underuses its output range'
+        hpf_reference = cgb_hpf_rms(reference, p.sound.sample_rate)
+        relative = {}
+        for name, data in [('idle', idle), ('gas_idle', low), ('gas_fast', high),
+                           ('menu', reference), ('apple', effect_pcm[1]),
+                           ('crash', effect_pcm[2]), ('finish', effect_pcm[3])]:
+            filtered = cgb_hpf_rms(data, p.sound.sample_rate)
+            relative[name] = {'pcm_rms': round(rms(data), 4), 'cgb_hpf_proxy_rms': round(filtered, 4),
+                              'cgb_hpf_proxy_db_vs_menu': round(20 * math.log10(filtered / hpf_reference), 2)}
+        # Guard the corrected mix with one common gain. Never normalize
+        # individual clips, which would hide the hardware volume regression.
+        assert relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'] > -14, relative
+        assert relative['gas_fast']['cgb_hpf_proxy_db_vs_menu'] > -10, relative
+        # The old crash measured about -17.7 dB over this whole capture;
+        # require at least roughly 6 dB improvement, beyond gain alone.
+        assert relative['crash']['cgb_hpf_proxy_db_vs_menu'] > -12, relative
+        report['relative_volume'] = relative
+        report['volume_model_note'] = 'CGB HPF proxy only; no speaker response or physical validation.'
         # A menu click cannot preempt the finish; an apple cannot replace crash.
         put('fx', 3)
         frames(2)

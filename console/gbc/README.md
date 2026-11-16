@@ -1,14 +1,16 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.81 — development prototype**. The port version is kept in
+Current version: **0.82 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
 
-Version 0.81 corrects 0.80's excessive high-speed engine pitch. CH3 now has
-separate cycles from the original idle and loaded-engine recordings, played at
-their source-derived rates. Driven-wheel speed follows the original saturating
-`2 - exp(-abs(omega) * 0.025)` playback curve. Quiet no-throttle idle and the
-0.80 apple/crash/finish contours remain, without sample streaming or an extra
-interrupt handler. The finish effect starts after saving and drawing the panel.
+Version 0.82 addresses the quiet engine/effects reported on a physical console.
+CH3 now uses full output under throttle and half output at idle, preserving
+0.81's separate original idle/load cycles and corrected wheel-speed/pitch curve.
+Crash and finish envelopes use more of CH4's volume range. Noise-rate selection
+also excludes slow LFSR settings that could remain silent between retriggers.
+Menu/apple levels and master gain are unchanged. There is no sample streaming,
+extra interrupt handler or added runtime work. Physical listening verification
+of the new balance remains outstanding.
 
 It includes the 0.74 splash: original logo above native CG Pixel 3x5 platform/
 version text, `UNOFFICIAL FAN MADE PORT BY DOX187`, original copyright/author,
@@ -21,8 +23,8 @@ battery-backed RAM** and containing the same 54 courses, graphics and physics:
 
 | Build | Scenery | Versioned test image |
 |---|---|---|
-| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.81-4m.gbc` |
-| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.81-8m.gbc` |
+| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.82-4m.gbc` |
+| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.82-8m.gbc` |
 
 The 8 MiB build avoids decompression during scrolling. Both share the same
 player/record save layout, compatible with 0.7. The 8 MiB build retains the
@@ -30,7 +32,7 @@ four physics-table banks at **477–480**, directly after the scenery, as in
 `elma-gbc-v0.7-8m-bankfix.gbc` (previously 508–511). Its final 64 KiB
 is unused. All graphics and table bytes are retained. **The same motorcycle
 failure was subsequently reported with that 0.7 build on FlashMaster, so the
-relocation has not resolved the issue.** Version 0.81 does not change this
+relocation has not resolved the issue.** Version 0.82 does not change this
 bank layout; physical-cartridge verification remains outstanding.
 
 The original 0.7 8 MiB image (`build/elma-gbc-v0.7-8m.gbc`) had an immediate
@@ -64,7 +66,7 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.81
+## What works in 0.82
 
 - Parallel **4 MiB compressed / 8 MiB raw ROMs** containing all 54 courses,
   with a compact graphics lookup and a shared 32 KiB cartridge RAM layout.
@@ -128,7 +130,7 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
-## Planned after 0.81
+## Planned after 0.82
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
@@ -155,7 +157,7 @@ make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 
-Open **`build/elma-gbc-v0.81-4m.gbc`** (4 MiB) or **`build/elma-gbc-v0.81-8m.gbc`** (8 MiB)
+Open **`build/elma-gbc-v0.82-4m.gbc`** (4 MiB) or **`build/elma-gbc-v0.82-8m.gbc`** (8 MiB)
 in a Game Boy Color emulator. These are CGB-only MBC5 cartridges, not Game Boy
 Advance programs; monochrome Game Boy hardware is unsupported. Both use header
 type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
@@ -163,7 +165,7 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.81-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.82-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. Exact physics
@@ -174,16 +176,16 @@ On FlashMaster, select **MBC5**, **32K RAM**, the file's matching **4M or 8M ROM
 size**, and enable **Save RAM**. The emulator's battery file or the cartridge's
 save mechanism must preserve RAM across sessions. SRAM bank0 B800–BFFF holds
 two checksummed save slots; the previous valid slot survives an interrupted
-write. Versions 0.7 through 0.81 share saves across both ROM sizes; 0.6's 128 KiB
+write. Versions 0.7 through 0.82 share saves across both ROM sizes; 0.6's 128 KiB
 save files used a different location and are not loaded automatically.
 
 For the reported 8 MiB hardware failure, build a separate cartridge diagnostic:
 
 ```sh
-.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.81-8m.gbc --out build/elma-gbc-v0.81-8m-check.gbc --first-bank 477 --verify
+.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.82-8m.gbc --out build/elma-gbc-v0.82-8m-check.gbc --first-bank 477 --verify
 ```
 
-Load the resulting `build/elma-gbc-v0.81-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
+Load the resulting `build/elma-gbc-v0.82-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
 It retains every byte of the game's switchable ROM banks and replaces only
 ROM0 with a reader. It runs at double speed, first checking all bytes of banks
 477–480 (about three seconds including boot in the emulator). **A** scans banks
@@ -251,9 +253,9 @@ them to representable harmonics and quantizes each into CH3's 32 samples / 16
 bytes. The cycle changes only at throttle edges, with the DAC off during the
 bounded transfer. Steady pitch changes never rewrite wave RAM or retrigger it.
 
-Without gas, the selected idle cycle plays at approximately **103 Hz, 25% wave
+Without gas, the selected idle cycle plays at approximately **103 Hz, 50% wave
 level**, independently of wheel speed or braking. With gas, the separate loaded
-cycle starts at **57.3 Hz, 50% wave level**, reaching about **111 Hz at the normal
+cycle starts at **57.3 Hz, 100% wave level**, reaching about **111 Hz at the normal
 driven-wheel limit** and approaching 114.6 Hz at extreme speed. These preserve
 the selected cycles' original duration; the full recordings are nonstationary
 and have richer spectra. Their perceived pitch is not just these base rates.
@@ -261,6 +263,13 @@ The generated 512-entry table converts native angular velocity to original
 radians/model-second before applying `2 - exp(-min(abs(omega)*0.025, 30))`.
 Braking changes audio through the physical wheel speed, without a separate
 artificial pitch division. The former 96–344 Hz idle-wave transposition is gone.
+
+The 0.82 output levels roughly double engine amplitude while keeping idle
+quieter than gas. The physical CGB's analog high-pass filter attenuates the low
+engine cycles more than the high menu beep; raw emulator PCM alone misses this
+balance difference. The native fixture additionally reports a relative-level
+proxy using the [Pan Docs CGB capacitor model](https://gbdev.io/pandocs/Audio_details.html#obscure-behavior).
+It does not model the built-in speaker or replace a hardware listening test.
 
 The converter derives the apple pulse contour from `eves.wav`, and crash/finish
 noise contours from `torik.wav` / `siker.wav`. It uses the original mixer's
@@ -270,6 +279,14 @@ durations are 38, 59 and 46 VBlanks respectively. These are native APU
 approximations, not full PCM playback. Generated `audio-manifest.json` records
 source hashes, cycle selection and effect measurements. Finite hardware lengths
 stop sounds if servicing ceases; there is no background music.
+
+Crash/finish now peak at volume 15; the menu remains at 8 and apple at 10, with
+master level 6/8 on both outputs. Each noise control point retriggers the 15-bit
+LFSR, whose startup requires 15 clocks. Candidate noise rates must start within
+one VBlank, leaving most of each four-VBlank control interval audible. The old
+128/146 Hz settings took longer than the entire interval and produced silent
+crash sections. This constraint adjusts noise colour offline, with no additional
+cartridge CPU cost; engine waveform, pitch and effect durations are preserved.
 
 `make bootstrap` installs pinned GBDK **4.5.0**, with SHA-256 verification,
 under ignored `.toolchain/`. It supports macOS arm64/x86_64 and Linux
@@ -432,6 +449,18 @@ pause muting and ROM-bank restoration. The complete-ROM frontend check covers
 title-to-menu navigation, Controls, course selection, pause/resume and restart.
 The 0.74 splash fixture also checks all six native footer rows against the
 source BDF glyphs, including the version, DOX187 credit and original copyright.
+
+For 0.82, unnormalized native PCM measured engine RMS increases of **5.85 dB
+under throttle / 6.20 dB at idle**, crash **4.04 dB** and finish **3.38 dB**;
+menu/apple levels are unchanged. The CGB HPF proxy estimates **7.40 dB** more
+crash output after removing silent slow-LFSR intervals. Noise control-point
+checks at both 30 and 60 Hz catch the previously silent sections.
+The original engine cycles/pitches, finite effects and IRQ/bank checks still
+pass. The largest audio update remains **2,552 cycles**. Both complete ROMs
+passed frontend and finish-audio checks, and the 0.82 splash text passed its
+pixel check. The 300-step controller profiles exactly match 0.81's measured
+costs: **four deadline misses for 4 MiB, zero for 8 MiB**. Physical hardware
+volume balance remains to be checked; the filter proxy omits speaker response.
 
 For 0.81, all 65,536 speed arguments were checked against the original formula
 with independently converted physics units; the maximum lookup plus hardware
