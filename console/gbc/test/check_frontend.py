@@ -11,7 +11,8 @@ from all_levels import font_pixels,ui_pixels,menu_check
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--rom',type=Path,default=BASE/'build/elma-gbc.gbc')
+    version=(BASE/'VERSION').read_text().strip()
+    parser.add_argument('--rom',type=Path,default=BASE/('build/elma-gbc-v%s-4m.gbc'%version))
     parser.add_argument('--gen',type=Path,default=BASE/'build/gen')
     parser.add_argument('--out',type=Path,default=BASE/'build/playtest/frontend')
     args=parser.parse_args();d=Driver(args.rom,args.out,args.gen,sound=True)
@@ -23,7 +24,6 @@ def main():
         d.tick(30,('start',));d.tick(5);d.ready()
         assert not d.byte('splash_active') and d.byte('menu_screen')==0
         assert d.byte('game_state')==MENU,'held title confirmation skipped the main menu'
-        version=(BASE/'VERSION').read_text().strip()
         assert np.array_equal(ui_pixels(d,7,2,12),font_pixels(('VERSION '+version).ljust(12))),'main menu version'
         d.snapshot('main')
         d.pulse('up');d.pulse('a');assert d.byte('menu_screen')==2
@@ -35,10 +35,31 @@ def main():
         d.snapshot('levels');d.pulse('a');d.ready()
         assert d.byte('game_state')==RIDING and d.level_index()==1
         audio=[]
+        def engine_segment(keys):
+            chunks=[]
+            d.tick(4,keys)
+            for _ in range(60):
+                d.tick(1,keys);chunk=d.p.sound.ndarray.copy()
+                assert d.p.memory[0xff26]&1,'real riding engine dropped out'
+                assert np.ptp(chunk[:,0].astype(np.int16))>2,'real riding engine PCM is silent'
+                chunks.append(chunk);audio.append(chunk)
+            return np.concatenate(chunks)
+        def engine_pitch(pcm):
+            samples=pcm[:,0].astype(float);samples-=np.mean(samples)
+            peak=np.argmax(np.abs(np.fft.rfft(samples*np.hanning(len(samples)))))
+            return np.fft.rfftfreq(len(samples),1/d.p.sound.sample_rate)[peak]
+        idle=engine_segment(())
+        assert d.p.memory[0xff12]>>4==3,'no-throttle engine is not quiet'
+        assert 85<engine_pitch(idle)<91,'no-throttle engine is not at idle pitch'
         for _ in range(30):
             d.tick(1,('a',));audio.append(d.p.sound.ndarray.copy())
         assert any(np.any(chunk)for chunk in audio),'real riding ROM is silent'
         assert d.p.memory[0xff26]&1,'riding engine is disabled'
+        assert d.p.memory[0xff12]>>4==7,'throttle did not increase engine volume'
+        coast=engine_segment(())
+        assert d.p.memory[0xff12]>>4==3,'releasing throttle did not lower engine volume'
+        assert abs(engine_pitch(coast)-engine_pitch(idle))<1,'coasting did not return to idle pitch'
+        assert np.ptp(coast[:,0].astype(np.int16))==np.ptp(idle[:,0].astype(np.int16))
         d.pulse('select');assert d.byte('game_state')==PAUSED and d.byte('menu_screen')==0
         assert not d.p.memory[0xff26]&1,'pause left the engine running'
         frozen=(d.time_frames(),d.bike(),d.word('game_steps'))
@@ -58,6 +79,7 @@ def main():
             output.writeframes((pcm.astype(np.int16)+128).astype(np.uint8).tobytes())
         report={'status':'passed','version':version,'rom_sha256':d.rom_sha256,
                 'checks':['title input','main menu version','controls/back','course selection persistence',
+                          'continuous quiet idle PCM','throttle volume','coast returns to idle',
                           'real engine PCM','pause mutes engine','pause freezes ride',
                           'resume preserves current course','restart resets current course','restored VRAM'],
                 'display_overruns':d.word('game_overruns'),'hardware_tested':False}

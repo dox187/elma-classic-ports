@@ -94,7 +94,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--sdk',type=Path,default=BASE/'.toolchain/gbdk')
     p.add_argument('--gen',type=Path,help='generated directory (default: build/gen or build/gen-8m)')
-    p.add_argument('--out',type=Path,help='output ROM (default: build/elma-gbc.gbc or build/elma-gbc-8m.gbc)')
+    p.add_argument('--out',type=Path,help='output ROM (default: build/elma-gbc-vVERSION-4m.gbc or -8m.gbc)')
     p.add_argument('--jobs',type=int,default=4)
     p.add_argument('--rom-mib',type=int,choices=(4,8),help='validate the profile; otherwise infer it from the graphics manifest')
     p.add_argument('--sweep-source',type=Path,help='isolated exact head-collision candidate')
@@ -102,7 +102,9 @@ def main():
     a=p.parse_args();a.sdk=a.sdk.resolve()
     a.gen=(a.gen or BASE/('build/gen-8m' if a.rom_mib==8 else 'build/gen')).resolve()
     rom_mib=validate_profile(a.gen,a.rom_mib)
-    a.out=(a.out or BASE/('build/elma-gbc-8m.gbc' if rom_mib==8 else 'build/elma-gbc.gbc')).resolve()
+    version=(BASE/'VERSION').read_text().strip()
+    if not re.fullmatch(r'\d+(?:\.\d+)+',version):raise ValueError('Invalid VERSION for the ROM filename')
+    a.out=(a.out or BASE/'build'/('elma-gbc-v%s-%dm.gbc'%(version,rom_mib))).resolve()
     a.out.parent.mkdir(parents=True,exist_ok=True)
     compiler=a.sdk/'bin/lcc'
     compile_flags=['-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000',

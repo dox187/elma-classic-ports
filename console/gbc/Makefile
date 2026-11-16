@@ -9,7 +9,8 @@ ROM_MIB ?= 4
 ifeq ($(filter $(ROM_MIB),4 8),)
 $(error ROM_MIB must be 4 or 8)
 endif
-GAME_ROM ?= $(if $(filter 4,$(ROM_MIB)),build/elma-gbc.gbc,build/elma-gbc-8m.gbc)
+VERSION := $(shell cat VERSION)
+GAME_ROM ?= build/elma-gbc-v$(VERSION)-$(ROM_MIB)m.gbc
 GEN ?= $(if $(filter 4,$(ROM_MIB)),build/gen,build/gen-8m)
 LEVEL_CACHE ?= build/gen
 # Keep the 8 MiB physics tables directly after scenery, away from the ROM tail.
@@ -100,6 +101,7 @@ ifeq ($(ROM_MIB),4)
 	$(PYTHON) test/check_graphics.py --rom $(GAME_ROM) --gen $(GEN)
 endif
 	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN)
+	$(PYTHON) test/check_volt_input.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/check_save.py
 	$(PYTHON) test/check_players.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/all_levels.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/all-levels --idle-updates 12

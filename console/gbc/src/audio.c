@@ -97,10 +97,16 @@ void audio_update(uint8_t riding,uint8_t gas,uint8_t brake,uint16_t speed) BANKE
     uint16_t pitch;
     effect_tick(audio_now());
     if(!riding) { engine_stop();return; }
-    step=speed>=16384U?31:(uint8_t)(speed>>9);
-    if(brake) { step>>=1;volume=2; }
-    else if(gas) { step+=4;volume=7; }
-    else volume=3;
+    if(!gas) {
+        /* Closed throttle returns to a quiet 88 Hz idle, even while the
+         * wheels coast or brake. Keep it below the 96 Hz minimum gas tone. */
+        step=3;volume=3;
+    }
+    else {
+        step=speed>=16384U?31:(uint8_t)(speed>>9);
+        if(brake) { step>>=1;volume=2; }
+        else { step+=4;volume=7; }
+    }
     pitch=engine_pitch[step];
     /* Writing NR11 refreshes the 250 ms watchdog without restarting phase.
      * Retrigger only for a volume change or an expired hardware watchdog. */

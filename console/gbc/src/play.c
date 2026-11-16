@@ -30,6 +30,11 @@ const uint8_t game_sprite_height=16;
 const uint8_t game_head_oam_index=12;
 const uint8_t game_object_oam_base=BIKE_OBJECT_OAM_BASE;
 #define GAME_PHYSICS_STEPS (PH_HZ*GAME_FRAME_INTERVAL/60)
+/* LEJATSZO.CPP accepts held volt keys after Ugroturelem=0.4 model seconds.
+ * Its clock runs at 0.4368 model seconds per displayed second. Round up to
+ * the first physics step strictly beyond the original threshold. */
+#define GAME_VOLT_WAIT_STEPS ((uint8_t)(0.4/PH_H)+1U)
+const uint8_t game_volt_wait_steps=GAME_VOLT_WAIT_STEPS;
 
 #undef WORLD_WIDTH
 #undef WORLD_HEIGHT
@@ -346,9 +351,9 @@ void main(void) NONBANKED {
             for(substep=0;substep<GAME_PHYSICS_STEPS && game_state==RIDING;++substep) {
                 if(volt_wait)--volt_wait;
                 if(!substep && !volt_wait) {
-                    if(pressed&J_LEFT)input|=GBC_ROTATE_LEFT;
-                    if(pressed&J_RIGHT)input|=GBC_ROTATE_RIGHT;
-                    if(input&(GBC_ROTATE_LEFT|GBC_ROTATE_RIGHT))volt_wait=(55*PH_HZ+59)/60;
+                    if(keys&J_LEFT)input|=GBC_ROTATE_LEFT;
+                    if(keys&J_RIGHT)input|=GBC_ROTATE_RIGHT;
+                    if(input&(GBC_ROTATE_LEFT|GBC_ROTATE_RIGHT))volt_wait=GAME_VOLT_WAIT_STEPS;
                 }
                 physics_step(input);++game_steps;game_time_frames+=60/PH_HZ;
                 for(tick=0;tick<60/PH_HZ;++tick)clock_tick();

@@ -1,22 +1,30 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.7 — development prototype**. The port version is kept in
+Current version: **0.72 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
+
+Version 0.72 adds a quiet, steady engine idle without throttle, including while
+coasting or braking. Held left/right controls now trigger a volt as soon as the
+shared original-model cooldown expires; an early press is no longer lost if
+the button remains held. Both playable filenames include the version and live
+directly in `build/`.
 
 Two cartridge builds are maintained together, both targeting **MBC5 + 32 KiB
 battery-backed RAM** and containing the same 54 courses, graphics and physics:
 
 | Build | Scenery | Versioned test image |
 |---|---|---|
-| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.7-4m.gbc` |
-| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.7-8m-bankfix.gbc` |
+| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.72-4m.gbc` |
+| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.72-8m.gbc` |
 
 The 8 MiB build avoids decompression during scrolling. Both share the same
-player/record save layout. The `bankfix` build moves the four physics-table
-banks from 508–511 to **477–480**, directly after the scenery. Its final 64 KiB
+player/record save layout, compatible with 0.7. The 8 MiB build retains the
+four physics-table banks at **477–480**, directly after the scenery, as in
+`elma-gbc-v0.7-8m-bankfix.gbc` (previously 508–511). Its final 64 KiB
 is unused. All graphics and table bytes are retained. **The same motorcycle
-failure was subsequently reported with this build on FlashMaster, so the
-relocation has not resolved the issue.** The 4 MiB build is unchanged.
+failure was subsequently reported with that 0.7 build on FlashMaster, so the
+relocation has not resolved the issue.** Version 0.72 does not change this
+bank layout; physical-cartridge verification remains outstanding.
 
 The original 0.7 8 MiB image (`build/elma-gbc-v0.7-8m.gbc`) had an immediate
 motorcycle physics failure on FlashMaster. Its full physical cartridge scan
@@ -49,7 +57,7 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.7
+## What works in 0.72
 
 - Parallel **4 MiB compressed / 8 MiB raw ROMs** containing all 54 courses,
   with a compact graphics lookup and a shared 32 KiB cartridge RAM layout.
@@ -60,12 +68,15 @@ motorcycle physics form its basis.
   names and order, page navigation, pause/resume and explicit restart actions.
 - Four persistent player profiles, editable ten-character names with a framed
   Game Boy keyboard, and best times for each player on all 54 courses.
-- Native GBC engine sound reacting to throttle, braking and wheel speed, plus
-  menu, apple, crash and finish effects. Pausing silences the engine.
+- Native GBC engine sound with a quiet, constant low idle without throttle;
+  throttle raises the volume and makes pitch follow wheel speed. Menu, apple,
+  crash and finish effects are included. Pausing silences the engine.
 - Native **CG Pixel 3x5 Mono** text in the level selector and HUD, with a
   four-pixel character advance and no downscaling of the original PC font.
 - Riding, acceleration, braking, volts and turning around, with suspension,
   rider movement, **32-bit linear velocities** and swept head collisions.
+- Held left/right volt input with the original shared cooldown, rounded up to
+  a physics step. Pause freezes the cooldown and restart clears it.
 - Apple collection, gravity-changing apples, killers, crash detection, flower
   completion and advancing to the next course. The HUD shows remaining apples,
   a labelled elapsed time and result controls; A/Start retries after a crash.
@@ -103,7 +114,7 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
-## Planned after 0.7
+## Planned after 0.72
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
@@ -130,7 +141,7 @@ make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 
-Open **`build/elma-gbc.gbc`** (4 MiB) or **`build/elma-gbc-8m.gbc`** (8 MiB)
+Open **`build/elma-gbc-v0.72-4m.gbc`** (4 MiB) or **`build/elma-gbc-v0.72-8m.gbc`** (8 MiB)
 in a Game Boy Color emulator. These are CGB-only MBC5 cartridges, not Game Boy
 Advance programs; monochrome Game Boy hardware is unsupported. Both use header
 type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
@@ -138,9 +149,10 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.7-8m-bankfix.gbc game` with your resource
-paths. Original rendered tiles are reused when their fingerprints match;
-codec and bank-layout mismatches are rejected before linking. Exact physics
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.72-8m.gbc game` with your resource
+paths. Both Make and the standalone builder read `VERSION` for their default
+playable filenames. Original rendered tiles are reused when their fingerprints
+match; codec and bank-layout mismatches are rejected before linking. Exact physics
 tables live at ROM banks 252–255 or 477–480, respectively. The 8 MiB builder
 rejects data in banks 508–511 and verifies that this tail remains unused.
 
@@ -148,16 +160,16 @@ On FlashMaster, select **MBC5**, **32K RAM**, the file's matching **4M or 8M ROM
 size**, and enable **Save RAM**. The emulator's battery file or the cartridge's
 save mechanism must preserve RAM across sessions. SRAM bank0 B800–BFFF holds
 two checksummed save slots; the previous valid slot survives an interrupted
-write. Version 0.7's two ROM sizes share saves; 0.6's 128 KiB save files used
-a different location and are not loaded automatically.
+write. Versions 0.7 and 0.72 share saves across both ROM sizes; 0.6's 128 KiB
+save files used a different location and are not loaded automatically.
 
 For the reported 8 MiB hardware failure, build a separate cartridge diagnostic:
 
 ```sh
-.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.7-8m-bankfix.gbc --out build/elma-gbc-v0.7-8m-bankfix-check.gbc --first-bank 477 --verify
+.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.72-8m.gbc --out build/elma-gbc-v0.72-8m-check.gbc --first-bank 477 --verify
 ```
 
-Load `build/elma-gbc-v0.7-8m-bankfix-check.gbc` with the same MBC5 / 8M / 32K settings.
+Load the resulting `build/elma-gbc-v0.72-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
 It retains every byte of the game's switchable ROM banks and replaces only
 ROM0 with a reader. It runs at double speed, first checking all bytes of banks
 477–480 (about three seconds including boot in the emulator). **A** scans banks
@@ -189,8 +201,14 @@ the main menu. These actions are shown on the result HUD.
 
 The riding HUD shows apples remaining at the left and a labelled `TIME`
 clock at the right. The clock advances with simulated riding time, freezes
-while paused or after a result, and resets on retry. Volts are triggered by a
-new button press and have a cooldown.
+while paused or after a result, and resets on retry. Left/right can be held
+to repeat volts. Both directions share the original `Ugroturelem = 0.4`
+model-second cooldown, approximately **0.916 seconds** on the displayed clock.
+The 30 Hz GBC profile waits **28 physics steps, approximately 0.938 seconds**:
+the first step strictly beyond that threshold. An early held press fires when
+eligible; releasing it before expiry does not queue a volt. Pause freezes the
+cooldown and restart clears it. Missed frame deadlines can extend real elapsed
+time, as they do for the rest of the simulation.
 
 In Players, Up/Down chooses one of four profiles, A/Start selects it, Select
 opens the name editor, and B returns. The editor accepts up to ten uppercase
@@ -201,9 +219,12 @@ from the main menu outside a paused ride. Finishing a course saves a new best
 time automatically; crashes and slower finishes leave existing records intact.
 
 Audio uses the GBC pulse and noise channels, serviced by the existing main
-loop without a streaming interrupt. The engine responds to driven-wheel speed;
-short effects have finite durations and hardware length limits. There is no
-background music or playback of the original digitized sound samples.
+loop without a streaming interrupt. Without gas the engine stays at approximately
+**88 Hz, volume 3**, independently of wheel speed or braking. With gas it follows
+driven-wheel speed at approximately **96–344 Hz, volume 7**; gas plus brake retains
+its quieter braking tone. Short effects have finite durations and hardware
+length limits. There is no background music or playback of the original
+digitized sound samples.
 
 `make bootstrap` installs pinned GBDK **4.5.0**, with SHA-256 verification,
 under ignored `.toolchain/`. It supports macOS arm64/x86_64 and Linux
@@ -361,6 +382,15 @@ Separate title and audio fixtures verify the complete splash framebuffer,
 fresh button presses, audible PCM output, pitch changes, finite effects,
 pause muting and ROM-bank restoration. The complete-ROM frontend check covers
 title-to-menu navigation, Controls, course selection, pause/resume and restart.
+
+Both 0.72 ROMs passed the frontend check with continuous quiet idle PCM, throttle
+volume and return to idle while coasting. The native audio fixture measured
+87.93 Hz idle over 1.205 seconds and verified uninterrupted PCM between 30 Hz
+updates, no-gas braking, throttle return, mute/resume, effects and bank restoration.
+`test/check_volt_input.py` drives Freefall through actual controller input and
+observes accepted physics commands without writing guest state. Both ROMs passed
+held repeats in both directions, the shared 28-step cooldown, early held/released
+input, pause and restart. These checks do not establish physical-cartridge behavior.
 
 `test/check_save.py` compiles the production save module for the SM83 and
 tests battery-file reboots, player/course isolation, faster-time replacement,

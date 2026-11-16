@@ -10,6 +10,7 @@ enum { FX_MENU, FX_APPLE, FX_CRASH, FX_FINISH };
  * init also cancels all effects, useful when restarting/changing a level.
  * update runs in every game/menu iteration. speed is absolute driven-wheel
  * omega in the 30 Hz physics units (0..16383; larger values saturate).
+ * gas=0 keeps a quiet, constant idle regardless of wheel speed or brake.
  * riding=0 immediately mutes the engine; short effects can finish in menus.
  * Effects are native APU adaptations, not the original game's PCM samples.
  */

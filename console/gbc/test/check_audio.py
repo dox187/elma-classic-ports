@@ -89,12 +89,16 @@ void service(void) BANKED {
         address = symbols['_' + name]
         p.memory[address:address + width] = list(value.to_bytes(width, 'little'))
 
-    def frames(count, capture=True):
+    def frames(count, capture=True, engine_min_level=0):
         chunks = []
         for _ in range(count):
             p.tick(1, False)
             if capture:
                 chunk = p.sound.ndarray.copy()
+                if engine_min_level:
+                    assert p.memory[0xFF26] & 1, 'engine channel dropped out'
+                    level = int(np.ptp(chunk[:, 0].astype(np.int16)))
+                    assert level >= engine_min_level, ('engine PCM dropped out between updates', level)
                 chunks.append(chunk)
                 samples.append(chunk)
         return np.concatenate(chunks) if chunks else np.zeros((0, 2), dtype=np.int8)
@@ -107,6 +111,12 @@ void service(void) BANKED {
         a -= a.mean()
         fft = np.abs(np.fft.rfft(a * np.hanning(len(a))))
         return round(float(np.fft.rfftfreq(len(a), 1 / p.sound.sample_rate)[fft.argmax()]), 2)
+
+    def engine_segment(minimum_level=3):
+        # Discard transition frames, then require over one second of audible
+        # PCM on every VBlank while software services the engine at 30 Hz.
+        frames(2)
+        return frames(72, engine_min_level=minimum_level)
 
     def silent():
         # Ignore the transition frame and measure AC, not PyBoy's DC bias.
@@ -125,27 +135,46 @@ void service(void) BANKED {
         assert p.memory[0xFF26] & 0x80
         silent()
         put('riding', 1)
-        put('gas', 1)
         put('half_rate', 1)
-        low = frames(20)
-        assert audible(low), 'engine produces no PCM output'
+        idle = engine_segment()
+        assert len(idle) >= p.sound.sample_rate, 'idle capture shorter than one second'
+        put('gas', 1)
+        low = engine_segment()
         put('speed', 16000, 2)
-        high = frames(20)
-        assert audible(high)
+        high = engine_segment()
         put('brake', 1)
-        brake = frames(20)
-        assert audible(brake)
+        brake = engine_segment(2)
         put('gas', 0)
         put('brake', 0)
-        coast = frames(20)
-        assert audible(coast)
+        coast = engine_segment()
+        put('brake', 1)
+        brake_idle = engine_segment()
+        put('brake', 0)
+        put('gas', 1)
+        resumed = engine_segment()
         pitches = {name: fundamental(data) for name, data in
-                   [('gas_idle', low), ('gas_fast', high), ('brake_fast', brake), ('coast_fast', coast)]}
+                   [('idle', idle), ('gas_idle', low), ('gas_fast', high),
+                    ('brake_fast', brake), ('coast_fast', coast),
+                    ('brake_no_gas', brake_idle), ('gas_resumed', resumed)]}
+        levels = {name: int(np.ptp(data[:, 0].astype(np.int16))) for name, data in
+                  [('idle', idle), ('gas_idle', low), ('gas_fast', high),
+                   ('brake_fast', brake), ('coast_fast', coast), ('brake_no_gas', brake_idle),
+                   ('gas_resumed', resumed)]}
+        assert 85 <= pitches['idle'] <= 91, pitches
+        assert pitches['idle'] < pitches['gas_idle'], pitches
+        assert abs(pitches['coast_fast'] - pitches['idle']) < 1, pitches
+        assert abs(pitches['brake_no_gas'] - pitches['idle']) < 1, pitches
         assert pitches['gas_fast'] > pitches['gas_idle'] * 2, pitches
         assert pitches['brake_fast'] < pitches['gas_fast'], pitches
-        assert int(np.ptp(high.astype(np.int16))) > int(np.ptp(coast.astype(np.int16)))
+        assert abs(pitches['gas_resumed'] - pitches['gas_fast']) < 1, pitches
+        assert 2 < levels['idle'] < levels['gas_idle'], levels
+        assert levels['idle'] == levels['coast_fast'] == levels['brake_no_gas'], levels
+        assert levels['gas_fast'] == levels['gas_resumed'] > levels['idle'], levels
         assert np.array_equal(high[:, 0], high[:, 1]), 'stereo routing differs'
         report['engine_hz'] = pitches
+        report['engine_pcm_peak_to_peak'] = levels
+        report['idle_seconds'] = round(len(idle) / p.sound.sample_rate, 3)
+        report['engine_30hz_continuity_verified'] = True
         put('riding', 0)
         frames(3)
         silent()
@@ -154,6 +183,7 @@ void service(void) BANKED {
         put('reset_request', 1)
         frames(2)
         put('riding', 1)
+        put('gas', 0)
         assert audible(frames(6))
         put('riding', 0)
         frames(2)
