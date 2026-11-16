@@ -40,8 +40,9 @@ maintains **4 MiB compressed and 8 MiB uncompressed builds**, both using
 **32 KiB cartridge RAM** for FlashMaster compatibility. The previous 128 KiB
 layout's graphics corruption was reproduced under a 32 KiB RAM limit. The
 original 8 MiB build failed its physical ROM check at bank 508. The updated
-8 MiB build moves its physics tables away from that ROM tail; emulator checks
-pass, and physical verification of this workaround is pending.
+8 MiB build moves its physics tables away from that ROM tail. Emulator checks
+pass, but the motorcycle failure still occurs on the reported physical setup;
+the relocation has not resolved it.
 Music remains unimplemented.
 
 [Status, build, controls and physics differences →](console/gbc/README.md)
