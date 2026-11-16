@@ -3,6 +3,12 @@
 Current version: **0.4 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
 
+The current cartridge test build is **4 MiB (4,194,304 bytes)**. Scenery is
+compressed losslessly with ZX0, retaining all 54 levels and the existing
+converted graphics. Cartridge testing of this smaller image is pending.
+The test image is `build/elma-gbc-v0.4-4MiB.gbc`; the normal Make target also
+produces the same 4 MiB image as `build/elma-gbc.gbc`.
+
 An early native Game Boy Color version built with
 [GBDK-2020](https://gbdk.org/docs/api/index.html), C and SM83 assembly.
 **All 54 registered internal levels are selectable:** ride, brake, volt, turn
@@ -63,14 +69,14 @@ verification limits are described below.
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
-- Reduce the cartridge image size. The **8 MiB** ROM boots and plays on the
-  tested cartridge, but its size frequently leaves graphics garbled or missing.
-  Flash a **4 MiB** build to the same cartridge and check that graphics display
-  correctly during play. If 4 MiB is still too large, target **2 MiB**.
-- Measure graphics storage and compression options first, including shared
-  patterns and tile-map encoding, together with their runtime CPU and RAM
-  costs. Keep all 54 levels and the current physics; discuss any necessary
-  graphics or gameplay simplifications before choosing a compromise.
+- Flash the new **4 MiB** build to the cartridge and check that graphics display
+  correctly during play. The previous **8 MiB** image boots and plays there,
+  with reported size-related missing or garbled graphics. If 4 MiB is still
+  too large, target **2 MiB**.
+- Continue measuring compressed graphics streaming, including first-use
+  decoding and cache misses during fast scrolling. Keep all 54 levels and
+  the current physics; discuss any necessary graphics or gameplay
+  simplifications before choosing a compromise.
 
 ## Build and run
 
@@ -89,7 +95,7 @@ The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 
 Open **`build/elma-gbc.gbc`** in a Game Boy Color emulator. It is a CGB-only
 MBC5 cartridge, not a Game Boy Advance program, and does not support monochrome
-Game Boy hardware. The ROM occupies 8 MiB and requires an MBC5 cartridge with
+Game Boy hardware. The ROM occupies 4 MiB and requires an MBC5 cartridge with
 128 KiB RAM. Cartridge RAM is scratch space for the graphics cache; it does
 not contain persistent saves. Exact mathematical tables accelerate fixed-point
 arithmetic without changing its results.
@@ -152,8 +158,32 @@ all patterns still visible. Idle CPU time prepares the next offscreen row or
 column, retaining the same 399 current cells until the camera enters the new
 tile. Temporary references cover at most 438 cells; reversal discards the
 prediction safely. This preparation adds no simulation or presentation frame.
-Raw banked tile maps avoid decompression stalls. The remaining bank0 patterns
-hold the killer sprites.
+The ROM stores independent ZX0 blocks of 64 patterns (1,024 bytes) and 32x16
+map cells (1,536 bytes across three planes). Eight decoded map blocks occupy
+scratch SRAM banks 9–10, and 32 decoded pattern blocks use banks 11–14.
+Bank 8 holds the viewport slot mirror, and banks 0–7 hold pattern lookup
+entries. A cache hit reads decoded bytes directly; a miss decodes a complete
+block before use. Background preparation stops between map chunks and
+accounts for cold block decoding in its time budget. First-use decoding can
+extend level loading and scrolling updates, so the 30 FPS requirement still
+needs verification across full rides. The remaining bank0 VRAM patterns hold
+the killer sprites.
+
+In the 4 MiB regression run, all 54 course starts, displayed source graphics,
+protected object colors and menu navigation passed. The longest observed load
+took 85 display frames (about 1.4 seconds). Timing remains a limitation. The
+no-input Freefall run recorded 48 missed presentation deadlines, versus 4 with
+the previous 8 MiB image, and the riding smoke test recorded 1 versus 0.
+These are functional test passes with timing diagnostics enabled; the 4 MiB
+build does not yet meet stable 30 FPS. Small courses that fit the decoded
+caches are preloaded with the LCD off to reduce first-use stalls during play.
+
+The build uses GBDK's `gbcompress --alg=zx0` and an optimized SM83 decoder.
+ZX0 was created by Einar Saukas. Its decompressor license accompanies the port
+in [`licenses/ZX0.txt`](licenses/ZX0.txt).
+Every generated block is decoded on the host and compared byte-for-byte with
+its source before packing. `test/check_graphics.py` also checks every block
+through the native decoder, including SRAM guards and bank restoration.
 
 Trees (`tree1`–`tree5`), flags and barrels are omitted from rendering. The original
 picture records remain in the exported source data, as do the original polygons

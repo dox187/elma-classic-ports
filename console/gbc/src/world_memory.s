@@ -3,6 +3,43 @@
 .module gbc_world_memory
 .area _CODE
 
+; bank@SP+2, source@3, dest@5, count@7, stride@8. SRAM already enabled.
+_world_sram_gather::
+ ldhl sp,#2
+ ld a,(hl)
+ ld (#0x4000),a
+ ldhl sp,#7
+ ld b,(hl)
+ inc hl
+ ld c,(hl)
+ ldhl sp,#5
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ ldhl sp,#3
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,b
+ or a,a
+ jr z,020$
+010$:
+ ld a,(hl)
+ ld (de),a
+ inc de
+ ld a,l
+ add a,c
+ ld l,a
+ jr nc,015$
+ inc h
+015$:
+ dec b
+ jr nz,010$
+020$:
+ xor a,a
+ ld (#0x4000),a
+ ret
+
 ; id@SP+2. uint16 result in DE. Cartridge RAM was enabled by lookup_clear.
 _world_lookup_get::
  ldhl sp,#2

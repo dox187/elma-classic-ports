@@ -18,6 +18,8 @@ from pyboy import PyBoy
 import numpy as np
 
 BASE = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(BASE/'tools'))
+from zx0 import decompress
 RIDING, DEAD, FINISHED, PAUSED, MENU = range(5)
 
 
@@ -113,6 +115,7 @@ class Driver:
         self.trace = []
         self.input_trace = []
         self.max_step_display_frames = 0
+        self.max_loading_display_frames = 0
         self.max_axle_distance = 0.
         self.max_rider_distance = 0.
         self.start_frame = self.p.frame_count
@@ -232,20 +235,33 @@ class Driver:
         address=self.symbols.get('_'+name)
         return default if address is None else self.rom_far((address>>16,address&65535),1)[0]
 
+    def graphics_block(self, pointer, size):
+        if not self.level_manifest.get('compression_key'):
+            return self.rom_far(pointer,size)
+        return decompress(self.rom_far(pointer,0x8000-pointer[1]),size)
+
     def level_source(self, index):
         if index not in self.level_sources:
             record = self.level_manifest['levels'][index]
             with np.load(self.gen/'levels'/('%02d'%(index+1))/'tiles.npz') as source:
                 data = {name:source[name].copy() for name in source.files}
             data['patterns'] = bytes(data['patterns'])
-            assert self.rom_far(record['patterns'],len(data['patterns'])) == data['patterns'], 'ROM pattern payload differs from generated level%d'%(index+1)
+            if 'pattern_blocks' in record:
+                directory=self.rom_far(record['patterns'],len(record['pattern_blocks'])*4)
+                assert list(struct.iter_unpack('<HH',directory))==[tuple(p)for p in record['pattern_blocks']]
+                expected=data['patterns'];size=self.level_manifest['pattern_block_bytes']
+                actual=b''.join(self.graphics_block(pointer,min(size,len(expected)-i*size))
+                                for i,pointer in enumerate(record['pattern_blocks']))
+            else:
+                actual=self.rom_far(record['patterns'],len(data['patterns']))
+            assert actual == data['patterns'], 'ROM pattern payload differs from generated level%d'%(index+1)
             ids,attrs = data['ids'],data['attrs']
             for cy in range(0,ids.shape[0],16):
                 for cx in range(0,ids.shape[1],32):
                     values = ids[cy:cy+16,cx:cx+32].ravel()
                     expected = bytes((values&255).astype(np.uint8))+bytes((values>>8).astype(np.uint8))+bytes(attrs[cy:cy+16,cx:cx+32].ravel())
                     chunk = (cy//16)*(ids.shape[1]//32)+cx//32
-                    assert self.rom_far(record['chunks'][chunk],1536) == expected, 'ROM map payload differs from generated level%d chunk%d'%(index+1,chunk)
+                    assert self.graphics_block(record['chunks'][chunk],1536) == expected, 'ROM map payload differs from generated level%d chunk%d'%(index+1,chunk)
             data['record'] = record
             self.level_sources[index] = data
         return self.level_sources[index]
@@ -349,12 +365,19 @@ class Driver:
         # still be computing the preceding input when the host frame ends.
         for keys in ((key,),()):
             before = self.word('game_frames')
-            for _ in range(60):
+            active_frames = loading_frames = 0
+            for _ in range(600):
                 self.tick(1,keys)
+                if self.byte('game_ready'):
+                    active_frames += 1
+                else:
+                    loading_frames += 1
+                assert active_frames < 60, 'No completed active game loop while pulsing '+key
                 if ((self.word('game_frames')-before)&65535) >= 2:
                     break
             else:
-                raise AssertionError('No completed game loop while pulsing '+key)
+                raise AssertionError('Level load exceeded ten seconds while pulsing '+key)
+            self.max_loading_display_frames=max(self.max_loading_display_frames,loading_frames)
 
     def advance_physics(self, count, keys=()):
         before = self.word('game_steps')
@@ -530,6 +553,7 @@ class Driver:
                                                  'max':max(intervals) if intervals else None,
                                                  'histogram':dict(sorted(Counter(intervals).items()))},
                 'max_display_frames_per_input_consuming_step':self.max_step_display_frames,
+                'max_loading_display_frames':self.max_loading_display_frames,
                 'max_body_wheel_distance_m':self.max_axle_distance,
                 'max_body_rider_distance_m':self.max_rider_distance,
                 'rom_header_and_checksums_verified':True,

@@ -551,9 +551,10 @@ _riding_coefficients_narrow::
  push bc
  ld a,b
  and a,#3
- add a,#221
+ ; Exact coefficient tables occupy banks252..255 (math32_coefficients.py).
+ add a,#252
  ld (#0x2000),a
- ld a,#1
+ xor a,a
  ld (#0x3000),a
  bit 2,b
  jp nz,math32_coefficient_quotient16

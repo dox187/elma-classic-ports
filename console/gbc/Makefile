@@ -25,6 +25,7 @@ assets: FORCE
 	$(PYTHON) tools/physics_constants.py $(GEN)
 	$(PYTHON) tools/physics_level.py --res "$(ELMA_RES)" --out $(GEN) --hz $(PHYS_HZ) --damper $(DAMPER)
 	$(PYTHON) tools/levels.py --res "$(ELMA_RES)" --lgr "$(ELMA_LGR)" --out $(GEN)
+	$(PYTHON) tools/pack_graphics.py --gen $(GEN) --sdk "$(GBDK_HOME)"
 	$(PYTHON) tools/menu_assets.py --res "$(ELMA_RES)" --out $(GEN)
 	$(PYTHON) tools/splash_assets.py --res "$(ELMA_RES)" --out $(GEN)
 	$(PYTHON) tools/bike_frames.py --lgr "$(ELMA_LGR)" --out $(GEN)
@@ -78,6 +79,8 @@ check: all
 	$(PYTHON) test/check_world_alloc.py
 	$(PYTHON) test/check_world_acquire.py
 	$(PYTHON) test/check_world_cache.py --gen $(GEN)
+	$(PYTHON) test/check_world_cache.py --gen $(GEN) --compressed --out build/playtest/world-cache-compressed
+	$(PYTHON) test/check_graphics.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/all_levels.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/all-levels --idle-updates 12
 	$(PYTHON) test/freefall.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/freefall

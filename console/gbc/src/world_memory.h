@@ -27,6 +27,10 @@ void world_far_copy(uint16_t bank,const uint8_t *source,uint8_t *dest,
 void world_far_gather(uint16_t bank,const uint8_t *source,uint8_t *dest,
                       uint8_t count,uint8_t stride) WORLD_MEMORY_CALL;
 
+/* Read a decoded scenery strip from scratch SRAM, restoring RAM bank zero. */
+void world_sram_gather(uint8_t bank,const uint8_t *source,uint8_t *dest,
+                       uint8_t count,uint8_t stride) WORLD_MEMORY_CALL;
+
 /* Physical-slot mirror in SRAM bank8, first2048bytes. Each axis wraps32
  * independently; count is0..21 and slots is a WRAM array of little-endian
  * words. RAM must already be enabled. Every call returns RAM bank0.

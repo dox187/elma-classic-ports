@@ -5,15 +5,20 @@ viewports, high pattern IDs, nine-bit ROM banks, all diagonal directions and
 world padding. Budgeted preparation additionally preserves the old viewport
 through partial work, cancellation and mismatched commits. Independently
 reconstructed references must include exactly the pending incoming cells.
+The default fixture uses raw graphics; --compressed exercises production ZX0
+map and pattern blocks, including eviction and reload of conflicting blocks.
 This does not claim playable-level completion.
 """
 import argparse
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 from pathlib import Path
 import re
+import struct
 import subprocess
+import sys
 
 from pyboy import PyBoy
 
@@ -39,12 +44,13 @@ def main():
     parser.add_argument('--out',type=Path,default=OUT)
     parser.add_argument('--world-source',type=Path,default=BASE/'src/world.c')
     parser.add_argument('--helper-dir',type=Path,help='private assembly snapshot; missing files use production sources')
+    parser.add_argument('--compressed',action='store_true',help='exercise the production WORLD_GRAPHICS_ZX0 path')
     args=parser.parse_args()
     OUT=args.out
     OUT.mkdir(parents=True,exist_ok=True)
     source_paths={name:(args.world_source if name=='world.c' else BASE/'src'/name)
                   for name in ('world.c','world.h','world_dma.c','world_memory.s','world_memory.h','world_retire_fast.s','video.s')}
-    optional_helpers=('world_alloc_fast.s','world_acquire_fast.s','video_strip_pair.s','world_prepare_fast.s')
+    optional_helpers=('world_alloc_fast.s','world_acquire_fast.s','video_strip_pair.s','world_prepare_fast.s','world_zx0.s')
     for name in optional_helpers:
         path=BASE/'src'/name
         if args.helper_dir and(args.helper_dir/name).exists():path=args.helper_dir/name
@@ -64,26 +70,64 @@ def main():
     for name in sources:
         if name.endswith('.s')or name=='world_dma.c':(OUT/name).write_bytes(sources[name])
     header=(args.gen/'level_catalogue.h').read_text()
+    header=re.sub(r'^\s*#define WORLD_GRAPHICS_ZX0\b[^\n]*\n','',header,flags=re.M)
+    if args.compressed:header='#define WORLD_GRAPHICS_ZX0 1\n'+header
     (OUT/'level_catalogue.h').write_text(re.sub(r'#define LEVEL_COUNT \d+','#define LEVEL_COUNT 3',header))
     (OUT/'assets.h').write_text('#include <stdint.h>\nextern const uint8_t object_tiles[];\nextern const uint16_t object_palette[];\n')
     bank_data={}
-    payload=bytes(16368)+b''.join(pattern(i)for i in range(28410))
-    for offset in range(0,len(payload),16384):bank_data[300+offset//16384]=payload[offset:offset+16384]
+    patterns=b''.join(pattern(i)for i in range(28410))
+    level_chunks=[]
     for level in range(3):
         chunks=[]
         for cy in range(3):
             for cx in range(2):
                 pairs=[logical(level,cx*32+x,cy*16+y)for y in range(16)for x in range(32)]
                 chunks.append(bytes(v&255 for v,a in pairs)+bytes(v>>8 for v,a in pairs)+bytes(a for v,a in pairs))
-        bank_data[500+level]=b''.join(chunks)
+        level_chunks.append(chunks)
+    if args.compressed:
+        sys.path.insert(0,str(BASE/'tools'))
+        from pack_graphics import compress
+        compiler=BASE/'.toolchain/gbdk/bin/gbcompress'
+        cache=OUT/'zx0-cache'/hashlib.sha256(compiler.read_bytes()).hexdigest()[:16]
+        cache.mkdir(parents=True,exist_ok=True)
+        blocks=[patterns[offset:offset+1024]for offset in range(0,len(patterns),1024)]
+        unique=list(dict.fromkeys(blocks+[chunk for chunks in level_chunks for chunk in chunks]))
+        with ThreadPoolExecutor(max_workers=4)as pool:
+            packed=dict(zip(unique,pool.map(lambda blob:compress(blob,compiler,cache),unique)))
+        # The first complete stream ends at a ROM-bank boundary; no compressed
+        # block may cross one. Both directories and data use nine-bit banks.
+        bank=300;bank_data[bank]=bytearray(16384-len(packed[blocks[0]]))
+        pointers=[]
+        for block in blocks:
+            data=packed[block]
+            if len(bank_data[bank])+len(data)>16384:bank+=1;bank_data[bank]=bytearray()
+            pointers.append((bank,0x4000+len(bank_data[bank])))
+            bank_data[bank].extend(data)
+        bank_data[299]=b''.join(struct.pack('<HH',*pointer)for pointer in pointers)
+        pattern_pointer=(299,0x4000)
+        chunk_pointers=[]
+        for level,chunks in enumerate(level_chunks):
+            data=bytearray();pointers=[]
+            for chunk in chunks:
+                pointers.append((500+level,0x4000+len(data)));data.extend(packed[chunk])
+            assert len(data)<=16384,'compressed map fixture crosses a ROM bank'
+            bank_data[500+level]=data;chunk_pointers.append(pointers)
+    else:
+        payload=bytes(16368)+patterns
+        for offset in range(0,len(payload),16384):bank_data[300+offset//16384]=payload[offset:offset+16384]
+        pattern_pointer=(300,32752)
+        chunk_pointers=[]
+        for level,chunks in enumerate(level_chunks):
+            bank_data[500+level]=b''.join(chunks)
+            chunk_pointers.append([(500+level,0x4000+i*1536)for i in range(6)])
     bank_sources=[]
     for bank,data in bank_data.items():
         path=OUT/('data%d.c'%bank);path.write_text('#include <stdint.h>\n#pragma bank %d\nconst uint8_t fixture_data%d[]={\n'%(bank,bank)+','.join(map(str,data))+'\n};\n');bank_sources.append(str(path))
     catalogue=['#include "level_catalogue.h"\n#pragma bank 14\n']
-    for level in range(3):catalogue.append('const world_far_t directory%d[]={%s};\n'%(level,','.join('{%d,%d}'%(500+level,0x4000+i*1536)for i in range(6))))
+    for level in range(3):catalogue.append('const world_far_t directory%d[]={%s};\n'%(level,','.join('{%d,%d}'%pointer for pointer in chunk_pointers[level])))
     catalogue.append('const uint16_t palette_data[28]={0};\nconst uint8_t no_objects[1]={0};\nconst world_level_t world_levels[]={\n')
     for level,count in enumerate((1,3072,28410)):
-        catalogue.append('{512,384,0,0,%d,{300,32752},{14,%d},{14,16456},{14,16512},2,3,0},\n'%(count,0x4000+level*24))
+        catalogue.append('{512,384,0,0,%d,{%d,%d},{14,%d},{14,16456},{14,16512},2,3,0},\n'%(count,*pattern_pointer,0x4000+level*24))
     catalogue.append('};\nconst char world_names[][20]={"UNIFORM","DIVERSE","HIGH IDS"};\nconst uint8_t killer_tiles[64]={0},object_tiles[128]={0};\nconst uint16_t killer_palette[4]={0},object_palette[8]={0};\n')
     (OUT/'catalogue.c').write_text(''.join(catalogue))
     commands=[]
@@ -108,6 +152,7 @@ volatile uint8_t bad_expected,bad_actual;
 +volatile uint16_t prepared_views,partial_preparations,full_preparations,expired_preparations,cancelled_preparations;
 +volatile uint16_t max_pending_references;
 +volatile uint8_t prepare_deadline_failures,max_prepare_elapsed_vblanks;
++volatile uint8_t pattern_block_conflict_checks;
 +volatile uint16_t fine_pixel_checks;
 +volatile uint8_t partial_plane_mask,publish_chunk_mask;
 +volatile uint16_t cached_acquisition_partial_checks,split_extra_views,split_cases,split_plane_cancellations,split_publish_cancellations,split_mismatches;
@@ -234,6 +279,24 @@ volatile uint8_t bad_expected,bad_actual;
 +#endif
 +void fixture_probe_start(void) NONBANKED;
 +void fixture_probe_end(void) NONBANKED;
++void fixture_compressed_cache_probe(void) BANKED {
++#ifdef WORLD_GRAPHICS_ZX0
++ uint8_t attempt,i,expected;uint16_t id;
++ DISPLAY_OFF;world_select(1);world_begin(0,0);
++ /* Blocks0 and32 share SRAM cache slot0. Verify a hit, an eviction, and
++  * the original block reloaded after its decoded bytes were overwritten. */
++ for(attempt=0;attempt<3;++attempt) {
++  id=attempt==1?2048:0;world_cache_upload(0,id);
++  if(pattern_cache_ids[0]!=(id>>6))cache_failures=1;
++  VBK_REG=0;
++  for(i=0;i<16;++i) {
++   expected=i==0?(uint8_t)id:i==1?(uint8_t)(id>>8):(uint8_t)(id*37U+i*19U+(id>>(i&7)));
++   if(*(volatile uint8_t*)(0x8000+i)!=expected)pattern_failures=1;
++  }
++  ++pattern_block_conflict_checks;
++ }
++#endif
++}
 +void fixture_probe_setup(uint8_t which) BANKED {
 + uint16_t i;uint8_t free;
 + DISPLAY_OFF;world_select(1);world_lookup_clear(3072);next_slot=which==2?7:0;
@@ -261,6 +324,7 @@ volatile uint8_t bad_expected,bad_actual;
 +void fixture_verify(uint8_t level,uint16_t x,uint16_t y) BANKED;
 +void fixture_probe_setup(uint8_t which) BANKED;
 +uint16_t fixture_acquire_probe(void) BANKED;
++void fixture_compressed_cache_probe(void) BANKED;
 +void fixture_probe_start(void) NONBANKED {}
 +void fixture_probe_end(void) NONBANKED {}
 +#ifdef FIXTURE_PHASED
@@ -370,6 +434,7 @@ volatile uint8_t bad_expected,bad_actual;
 + split_extra_views=inspected_views-split_extra_views;
 +#endif
 + if(world_select(3))select_failures=1;
++ fixture_compressed_cache_probe();
 + for(probe_case=0;probe_case<3;++probe_case) {
 +  fixture_probe_setup(probe_case);
 +  if(fixture_acquire_probe()!=(probe_case==1?437:0))select_failures=1;
@@ -431,6 +496,7 @@ volatile uint8_t bad_expected,bad_actual;
         if fine_phased:expected_views+=89
         if split_units:expected_views+=word('split_extra_views')
         report={'status':'passed','fixture':'synthetic source maps; production bank6 module, LCD-on scrolls, read-only counter inspection',
+            'graphics_codec':'zx0'if args.compressed else 'raw',
             'source_sha256':{name:hashlib.sha256(data).hexdigest()for name,data in sources.items()},
             'source_still_current':all(source_paths[name].read_bytes()==data for name,data in sources.items()),
             'rom_sha256':hashlib.sha256((OUT/'check.gbc').read_bytes()).hexdigest(),
@@ -444,6 +510,7 @@ volatile uint8_t bad_expected,bad_actual;
             'preparation_checks':{name:word(name)for name in('prepared_views','partial_preparations','full_preparations','expired_preparations','cancelled_preparations','max_pending_references')},
             'prepare_deadline_failures':p.memory[symbols['_prepare_deadline_failures']],
             'max_prepare_elapsed_vblanks':p.memory[symbols['_max_prepare_elapsed_vblanks']],
+            'pattern_block_conflict_checks':p.memory[symbols['_pattern_block_conflict_checks']],
             'gdma_launch_modes':dict(launches),
             'gdma_instruction_and_transfer_cycles':dict(dma_durations),
             'allocator_probe_cycles':probe_cycles,
@@ -454,6 +521,7 @@ volatile uint8_t bad_expected,bad_actual;
             'interrupts':word('cache_irq'),'first_pattern_mismatch':{name:word('bad_'+name)for name in('level','x','y','id','target','byte')},'bad_expected':p.memory[symbols['_bad_expected']],'bad_actual':p.memory[symbols['_bad_actual']],'failures':{name:p.memory[symbols['_'+name+'_failures']] for name in('reference','map','pattern','lookup','cache','mirror','select')},'hardware_tested':False}
         assert p.memory[symbols['_cache_done']],'cache fixture did not finish'
         assert report['verified_views']==expected_views and 399<=report['max_single_pattern_references']<=(438 if phased else 399),report
+        assert report['pattern_block_conflict_checks']==(3 if args.compressed else 0),report
         if phased:
             assert all(report['preparation_checks'][name]>0 for name in('partial_preparations','full_preparations','expired_preparations','cancelled_preparations')),report
             assert report['preparation_checks']['max_pending_references']==438,report

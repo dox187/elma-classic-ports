@@ -12,7 +12,7 @@ import math
 from pathlib import Path
 import re
 
-FIRST_BANK=477
+FIRST_BANK=252
 BANK_COUNT=4
 NODE_BYTES=2048
 
@@ -95,7 +95,7 @@ def generate(constants,out):
     for i,((m,e),names)in enumerate(sorted(pairs.items())):
         data,mode,period=node(m,e)
         if cursor+len(data)>16384:bank_index+=1;cursor=0
-        if bank_index>=BANK_COUNT:raise ValueError('Coefficient nodes exceed reserved banks 477..480')
+        if bank_index>=BANK_COUNT:raise ValueError('Coefficient nodes exceed reserved banks 252..255')
         bank=FIRST_BANK+bank_index
         banks[bank_index][cursor:cursor+len(data)]=data
         records.append({'m':m,'e':e,'names':names,'bank':bank,'address':0x4000+cursor,'bytes':len(data),
@@ -116,6 +116,8 @@ def generate(constants,out):
     header+=['#endif','']
     (out/'physics_coefficient_calls.h').write_text('\n'.join(header))
     (out/'physics_coefficient_calls.s').write_text('\n'.join(calls)+'\n')
+    for path in out.glob('physics_coefficient_*.c'):
+        path.unlink()
     for bank,data in enumerate(banks,FIRST_BANK):
         (out/('physics_coefficient_%d.c'%bank)).write_text('#include <stdint.h>\n#pragma bank %d\n'%bank+array('physics_coefficient_%d'%bank,data))
     report={'method':'exact high quotient + small-period correction, with general residue carry fallback','constants_sha256':hashlib.sha256(constants.read_bytes()).hexdigest(),

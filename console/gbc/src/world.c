@@ -35,6 +35,12 @@ static uint16_t retired[40];
 static uint8_t retired_count;
 static uint16_t last_chunk;
 static world_far_t chunk;
+#ifdef WORLD_GRAPHICS_ZX0
+/* Lookup words occupy SRAM0..7 and the viewport mirror uses bank8.
+ * Eight decoded maps use banks9..10; 32 pattern blocks use banks11..14. */
+static uint16_t map_cache_ids[8],pattern_cache_ids[32];
+static uint8_t map_cache_next,chunk_ram_bank;
+#endif
 
 /* Prepare only incoming ring cells, which are outside the old21x19 view.
  * Old399 references and at most39 new ones coexist within444 cache slots. */
@@ -50,6 +56,7 @@ static uint16_t prepare_added[39];
 
 void gbc_video_strip_pair(uint8_t x,uint8_t y,uint8_t vertical,uint8_t count,const uint8_t *tiles,const uint8_t *attrs) __sdcccall(0);
 void world_upload_tile(uint16_t bank,uint16_t source,uint16_t pattern) NONBANKED;
+void world_decompress(uint16_t bank,uint16_t source,uint8_t ram_bank,uint16_t dest) NONBANKED;
 uint16_t world_find_free(uint16_t next,uint8_t *bitmap) __sdcccall(0);
 void world_refs_retire(uint16_t *refs,const uint16_t *slots,uint8_t count,uint8_t *bitmap) __sdcccall(0);
 
@@ -85,13 +92,35 @@ void world_game_assets(void) BANKED {
 
 #define physical(slot) ((slot)<252U ? (slot) : (slot)+4U)
 
+#ifdef WORLD_GRAPHICS_ZX0
+static uint16_t cached_pattern_address(uint16_t block) {
+    uint8_t cache=block&31,ram_bank=11+(cache>>3);
+    uint16_t address=0xa000U+((uint16_t)(cache&7)<<10);
+    if(pattern_cache_ids[cache]!=block) {
+        world_far_t pointer;
+        world_far_copy(game_world.patterns.bank,(const uint8_t *)(game_world.patterns.address+block*4),
+                       (uint8_t *)&pointer,4);
+        world_decompress(pointer.bank,pointer.address,ram_bank,address);
+        pattern_cache_ids[cache]=block;
+    }
+    return address;
+}
+#endif
+
 void world_cache_upload(uint16_t slot,uint16_t id) __sdcccall(0) {
+#ifdef WORLD_GRAPHICS_ZX0
+    uint16_t address=cached_pattern_address(id>>6);
+    rRAMB=11+((id>>9)&3);
+    world_upload_tile(CURRENT_BANK,address+((id&63)<<4),physical(slot));
+    rRAMB=0;
+#else
     uint16_t offset=game_world.patterns.address+((id&1023)<<4);
     uint16_t bank=game_world.patterns.bank+(id>>10);
     uint16_t target=physical(slot);
     /* A pattern base may begin partway through a bank. */
     if(offset>=0x8000U){offset-=0x4000; ++bank;}
     world_upload_tile(bank,offset,target);
+#endif
     ++world_uploads;
 }
 
@@ -124,8 +153,9 @@ static uint16_t acquire(uint16_t id) {
 
 #endif
 
-static void fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
-    uint16_t ci,local;uint8_t run,i=0;
+static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,uint8_t offset,uint8_t partial) {
+    uint16_t ci,local;uint8_t run,i=offset;
+    count+=offset;
     while(i<count) {
         if(x>=game_world.width/8 || y>=game_world.height/8) {
             strip_low[i]=strip_high[i]=strip_attrs[i]=0;++i;
@@ -134,23 +164,49 @@ static void fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
         }
         ci=(y>>4)*game_world.chunks_x+(x>>5);
         if(ci!=last_chunk) {
+#ifdef WORLD_GRAPHICS_ZX0
+            uint8_t cached;
+            for(cached=0;cached<8;++cached)if(map_cache_ids[cached]==ci)break;
+            if(cached==8) {
+                world_far_t pointer;
+                cached=map_cache_next;map_cache_next=(map_cache_next+1)&7;
+                world_far_copy(game_world.chunks.bank,(const uint8_t *)(game_world.chunks.address+ci*4),
+                               (uint8_t *)&pointer,4);
+                chunk_ram_bank=9+(cached>=5);
+                chunk.address=0xa000U+(uint16_t)(cached>=5?cached-5:cached)*1536;
+                world_decompress(pointer.bank,pointer.address,chunk_ram_bank,chunk.address);
+                map_cache_ids[cached]=ci;
+            }
+            chunk_ram_bank=9+(cached>=5);
+            chunk.address=0xa000U+(uint16_t)(cached>=5?cached-5:cached)*1536;
+            last_chunk=ci;
+#else
             world_far_copy(game_world.chunks.bank,(const uint8_t *)(game_world.chunks.address+ci*4),
                            (uint8_t *)&chunk,4);last_chunk=ci;
+#endif
         }
         local=(y&15)*32+(x&31);
         run=vertical?16-(y&15):32-(x&31);if(run>count-i)run=count-i;
         if(vertical){if(game_world.height/8-y<run)run=game_world.height/8-y;}
         else if(game_world.width/8-x<run)run=game_world.width/8-x;
-        world_far_gather(chunk.bank,(const uint8_t *)(chunk.address+local),strip_low+i,run,vertical?32:1);
-        world_far_gather(chunk.bank,(const uint8_t *)(chunk.address+512+local),strip_high+i,run,vertical?32:1);
-        world_far_gather(chunk.bank,(const uint8_t *)(chunk.address+1024+local),strip_attrs+i,run,vertical?32:1);
+#ifdef WORLD_GRAPHICS_ZX0
+#define gather(source,dest) world_sram_gather(chunk_ram_bank,(const uint8_t *)(source),dest,run,vertical?32:1)
+#else
+#define gather(source,dest) world_far_gather(chunk.bank,(const uint8_t *)(source),dest,run,vertical?32:1)
+#endif
+        gather(chunk.address+local,strip_low+i);
+        gather(chunk.address+512+local,strip_high+i);
+        gather(chunk.address+1024+local,strip_attrs+i);
+#undef gather
         i+=run;if(vertical)y+=run;else x+=run;
+        if(partial)break;
     }
+    return i-offset;
 }
 
 static void load_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
     uint8_t i;uint16_t slot,id;
-    fetch_strip(x,y,vertical,count);
+    fetch_strip(x,y,vertical,count,0,0);
     for(i=0;i<count;++i) {
         id=strip_low[i]|((uint16_t)strip_high[i]<<8);slot=acquire(id);
         output_slots[i]=slot;
@@ -170,10 +226,24 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
     uint16_t i;
     prepare_stage=PREP_NONE;prepare_added_count=0;retired_count=0;
     world_lookup_clear(game_world.pattern_count);
+#ifdef WORLD_GRAPHICS_ZX0
+    for(i=0;i<8;++i)map_cache_ids[i]=INVALID;
+    for(i=0;i<32;++i)pattern_cache_ids[i]=INVALID;
+    map_cache_next=0;
+#endif
     for(i=0;i<CACHE_COUNT;++i){cached_ids[i]=INVALID;references[i]=0;}
     for(i=0;i<FREE_BYTES;++i)free_bits[i]=255;
     free_bits[FREE_BYTES-1]=(CACHE_COUNT&7)?(1U<<(CACHE_COUNT&7))-1U:255U;
     next_slot=0;last_chunk=INVALID;world_cache_failures=0;world_uploads=0;
+#ifdef WORLD_GRAPHICS_ZX0
+    /* Small courses fit entirely in the decoded caches. Load their remaining
+     * blocks with the LCD off so riding never pays a first-use decode cost. */
+    if(game_world.pattern_count<=2048U)
+        for(i=0;i<(game_world.pattern_count+63U)/64U;++i)cached_pattern_address(i);
+    if((uint16_t)game_world.chunks_x*game_world.chunks_y<=8U)
+        for(i=0;i<(uint16_t)game_world.chunks_x*game_world.chunks_y;++i)
+            fetch_strip((i%game_world.chunks_x)*32U,(i/game_world.chunks_x)*16U,0,1,0,0);
+#endif
     set_bkg_palette(0,7,palettes);
     for(i=y>>3;i<(y>>3)+19;++i)load_strip(x>>3,i,0,21);
     move_bkg((uint8_t)x,(uint8_t)y);
@@ -183,7 +253,7 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
  * A pending VBlank can precede its sys_time ISR; account for it atomically.
  * At fast CPU, required lines include bounded work,3K margin and a partial
  * scanline: setup21,fetch35,publish25,acquire20. */
-static uint8_t prepare_budget(uint16_t start,uint8_t required_lines) {
+static uint8_t prepare_budget(uint16_t start,uint16_t required_lines) {
     uint16_t now,elapsed,lines;
     uint8_t ly,pending;
     __critical {now=sys_time;ly=LY_REG;pending=IF_REG&VBL_IFLAG;}
@@ -236,34 +306,71 @@ static void prepare_publish(uint8_t vertical) {
     gbc_video_strip_pair(prepare_strip_x,prepare_strip_y,vertical,prepare_count,output_tiles,output_attrs);
 }
 
+#ifdef WORLD_GRAPHICS_ZX0
+static uint16_t prepare_fetch_lines(void) {
+    uint8_t cached;
+    uint16_t x=prepare_strip_x,y=prepare_strip_y,ci;
+    if(prepare_stage==PREP_COL_FETCH)y+=prepare_index;else x+=prepare_index;
+    if(x>=game_world.width/8 || y>=game_world.height/8)return 35;
+    ci=(y>>4)*game_world.chunks_x+(x>>5);
+    for(cached=0;cached<8;++cached)if(map_cache_ids[cached]==ci)return 35;
+    /* The all-block check limits map decoding to220K cycles. Include
+     * directory lookup, strip gathering, interrupts and the caller margin. */
+    return 270;
+}
+
+static uint8_t prepare_acquire_lines(void) {
+    uint16_t id=strip_low[prepare_index]|((uint16_t)strip_high[prepare_index]<<8);
+    uint16_t block=id>>6;
+    /* The all-block check limits pattern decoding to190K cycles. */
+    if(pattern_cache_ids[block&31]!=block && world_lookup_get(id)>=CACHE_COUNT)return 220;
+    return 20;
+}
+#endif
+
 /* Budgeted callers can stop after every bounded work unit. The synchronous
  * world_scroll caller completes the exact same sequence before committing. */
 static void prepare_run(uint16_t start,uint8_t budgeted) {
     while(prepare_stage!=PREP_NONE && prepare_stage!=PREP_READY) {
+        if(prepare_stage==PREP_COL_FETCH) {
+            prepare_strip_x=prepare_x>prepare_old_x?prepare_left+20:prepare_left;
+            prepare_strip_y=prepare_vertical&&prepare_y<prepare_old_y?prepare_top+1:prepare_top;
+            prepare_count=prepare_vertical?18:19;
+        } else if(prepare_stage==PREP_ROW_FETCH) {
+            prepare_strip_x=prepare_left;
+            prepare_strip_y=prepare_y>prepare_old_y?prepare_top+18:prepare_top;
+            prepare_count=21;
+        }
         if(budgeted) {
-            uint8_t lines=prepare_stage==PREP_COL_ACQUIRE||prepare_stage==PREP_ROW_ACQUIRE?20
+            uint16_t lines=prepare_stage==PREP_COL_ACQUIRE||prepare_stage==PREP_ROW_ACQUIRE?20
                 :prepare_stage==PREP_COL_FETCH||prepare_stage==PREP_ROW_FETCH?35:25;
+#ifdef WORLD_GRAPHICS_ZX0
+            if(prepare_stage==PREP_COL_ACQUIRE || prepare_stage==PREP_ROW_ACQUIRE)
+                lines=prepare_acquire_lines();
+            else if(prepare_stage==PREP_COL_FETCH || prepare_stage==PREP_ROW_FETCH)
+                lines=prepare_fetch_lines();
+#endif
             if(!prepare_budget(start,lines))return;
         }
         switch(prepare_stage) {
             case PREP_COL_FETCH:
-                prepare_strip_x=prepare_x>prepare_old_x?prepare_left+20:prepare_left;
-                prepare_strip_y=prepare_vertical&&prepare_y<prepare_old_y?prepare_top+1:prepare_top;
-                prepare_count=prepare_vertical?18:19;
-                fetch_strip(prepare_strip_x,prepare_strip_y,1,prepare_count);
-                prepare_index=0;prepare_stage=PREP_COL_ACQUIRE;break;
+                prepare_index+=fetch_strip(prepare_strip_x,prepare_strip_y+prepare_index,1,
+                                          prepare_count-prepare_index,prepare_index,1);
+                if(prepare_index==prepare_count){prepare_index=0;prepare_stage=PREP_COL_ACQUIRE;}
+                break;
             case PREP_COL_ACQUIRE:
                 prepare_acquire();
                 if(prepare_index==prepare_count)prepare_stage=PREP_COL_PUBLISH;
                 break;
             case PREP_COL_PUBLISH:
                 prepare_publish(1);
+                prepare_index=0;
                 prepare_stage=prepare_vertical?PREP_ROW_FETCH:PREP_READY;break;
             case PREP_ROW_FETCH:
-                prepare_strip_x=prepare_left;
-                prepare_strip_y=prepare_y>prepare_old_y?prepare_top+18:prepare_top;
-                prepare_count=21;fetch_strip(prepare_strip_x,prepare_strip_y,0,21);
-                prepare_index=0;prepare_stage=PREP_ROW_ACQUIRE;break;
+                prepare_index+=fetch_strip(prepare_strip_x+prepare_index,prepare_strip_y,0,
+                                          prepare_count-prepare_index,prepare_index,1);
+                if(prepare_index==prepare_count){prepare_index=0;prepare_stage=PREP_ROW_ACQUIRE;}
+                break;
             case PREP_ROW_ACQUIRE:
                 prepare_acquire();
                 if(prepare_index==prepare_count)prepare_stage=PREP_ROW_PUBLISH;
