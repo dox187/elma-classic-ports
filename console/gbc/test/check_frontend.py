@@ -50,21 +50,21 @@ def main():
             return np.fft.rfftfreq(len(samples),1/d.p.sound.sample_rate)[peak]
         idle=engine_segment(())
         assert d.p.memory[0xff1c]&0x60==0x40,'no-throttle wave engine is not quiet'
-        assert d.p.memory[0xff12]==0x60,'idle exhaust pulse volume'
+        assert d.p.memory[0xff12]==0x30,'idle exhaust pulse volume'
         assert 100<engine_pitch(idle)<106,'no-throttle engine is not at its original-cycle pitch'
         for _ in range(30):
             d.tick(1,('a',));audio.append(d.p.sound.ndarray.copy())
         assert any(np.any(chunk)for chunk in audio),'real riding ROM is silent'
         assert d.p.memory[0xff26]&5==5,'a riding engine channel is disabled'
         assert d.p.memory[0xff1c]&0x60==0x20,'throttle did not increase wave engine volume'
-        assert d.p.memory[0xff12]==0xf0,'loaded exhaust pulse volume'
+        assert d.p.memory[0xff12]==0x80,'loaded exhaust pulse volume'
         coast=engine_segment(())
         assert d.p.memory[0xff1c]&0x60==0x40,'releasing throttle did not lower wave engine volume'
-        assert d.p.memory[0xff12]==0x60,'coasting did not lower exhaust pulse volume'
+        assert d.p.memory[0xff12]==0x30,'coasting did not lower exhaust pulse volume'
         assert abs(engine_pitch(coast)-engine_pitch(idle))<1,'coasting did not return to idle pitch'
         # Pulse phase survives retriggers; the combined peak need not match
         # after coasting, while both channel volumes must return to idle.
-        assert 6<=np.ptp(coast[:,0].astype(np.int16))<=13
+        assert 6<=np.ptp(coast[:,0].astype(np.int16))<=10
         d.pulse('select');assert d.byte('game_state')==PAUSED and d.byte('menu_screen')==0
         assert not d.p.memory[0xff26]&5,'pause left an engine channel running'
         frozen=(d.time_frames(),d.bike(),d.word('game_steps'))

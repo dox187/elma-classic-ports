@@ -113,7 +113,7 @@ void audio_update(uint8_t riding,uint8_t gas,uint8_t brake,uint16_t speed) BANKE
     if(volume!=engine_volume) {
         NR32_REG=volume;
         engine_volume=volume;
-        NR12_REG=mode?0xF0:0x60;
+        NR12_REG=mode?0x80:0x30;
         pulse_trigger=0x80; /* A changed pulse envelope needs one trigger. */
     }
     /* CH1 at the same period is exactly CH3's second harmonic. Its narrow

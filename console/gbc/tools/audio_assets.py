@@ -267,7 +267,7 @@ def generate(res_path, out, constants=None):
                    'idle_hz': idle_hz, 'idle_period': idle_period, 'load_base_hz': load_hz,
                    'curve': curve,
                    'pulse_layer': {'channel': 1, 'duty_percent': 12.5,
-                                   'idle_volume': 6, 'load_volume': 15,
+                                   'idle_volume': 3, 'load_volume': 8,
                                    'frequency_ratio_to_wave': 2,
                                    'method': 'Native exhaust reinforcement; unchanged CH3 source cycles, '
                                              'shared period register, no steady-state pulse retriggers.'},

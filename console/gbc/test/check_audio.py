@@ -310,12 +310,12 @@ const void * const audio_state_addresses[] = {
         put('riding', 1)
         put('half_rate', 1)
         idle, idle_wave = engine_segment()
-        assert p.memory[0xFF12] == 0x60, 'idle exhaust volume'
+        assert p.memory[0xFF12] == 0x30, 'idle exhaust volume'
         assert get('engine_mode') == 0
         assert len(idle) >= p.sound.sample_rate, 'idle capture shorter than one second'
         put('gas', 1)
         low, low_wave = engine_segment()
-        assert p.memory[0xFF12] == 0xF0, 'loaded exhaust volume'
+        assert p.memory[0xFF12] == 0x80, 'loaded exhaust volume'
         # CGB active wave RAM reads alias the byte being played. Inspect the
         # actual DAC-off writes, then independently verify emitted PCM below.
         assert get('engine_mode') == 1 and bytes(loaded_wave) == expected_wave[1]
@@ -358,11 +358,11 @@ const void * const audio_state_addresses[] = {
         assert abs(pitches['gas_fast']-reference_hz[16000]) < 1, pitches
         assert abs(pitches['brake_fast']-pitches['gas_fast']) < 1, pitches
         assert abs(pitches['gas_resumed'] - pitches['gas_fast']) < 1, pitches
-        assert 6 <= levels['idle'] < levels['gas_idle'] and levels['gas_idle'] >= 20, levels
+        assert 6 <= levels['idle'] < levels['gas_idle'] and 15 <= levels['gas_idle'] <= 23, levels
         # CH1's duty position survives retriggers, so relative phase and peak
         # sums may differ after a mode change. Check both layers separately.
         assert np.ptp(idle_wave[:, 0]) == np.ptp(coast_wave[:, 0]) == np.ptp(brake_idle_wave[:, 0]) == 7
-        assert levels['gas_fast'] >= 20 and levels['gas_resumed'] >= 20, levels
+        assert 15 <= levels['gas_fast'] <= 23 and 15 <= levels['gas_resumed'] <= 23, levels
         assert np.array_equal(high[:, 0], high[:, 1]), 'stereo routing differs'
         report['engine_hz'] = pitches
         report['engine_pcm_peak_to_peak'] = levels
@@ -378,7 +378,7 @@ const void * const audio_state_addresses[] = {
         # source cycle, with no sweep, clipping or automatic volume decay.
         p.memory[0xFF25] = 0x11
         frames(2)
-        pulse = frames(72, engine_min_level=15)
+        pulse = frames(72, engine_min_level=8)
         p.memory[0xFF25] = 0xFF
         frames(2)
         # A narrow pulse's second FFT harmonic can win by bin alignment.
@@ -387,8 +387,8 @@ const void * const audio_state_addresses[] = {
         pulse_hz = float(p.sound.sample_rate / np.mean(np.diff(edges)))
         pulse_duty = float(np.count_nonzero(pulse[:, 0]) / len(pulse))
         assert abs(pulse_hz-2*65536/(2048-int(periods[16000 >> 6]))) < 1, pulse_hz
-        assert .12 < pulse_duty < .13 and set(np.unique(pulse[:, 0])) == {0, 15}, pulse_duty
-        report['exhaust_pulse'] = {'hz': pulse_hz, 'duty_fraction': pulse_duty, 'volume': 15}
+        assert .12 < pulse_duty < .13 and set(np.unique(pulse[:, 0])) == {0, 8}, pulse_duty
+        report['exhaust_pulse'] = {'hz': pulse_hz, 'duty_fraction': pulse_duty, 'volume': 8}
         # Observe low/mid/high speed bins and the entire argument boundary.
         # The reference uses original radians/model-second, not LUT indices.
         for speed in (0, 63, 64, 255, 1024, 4096, 8192, 16781, 32767, 32768, 65535):
@@ -491,9 +491,10 @@ const void * const audio_state_addresses[] = {
                               'cgb_hpf_proxy_db_vs_menu': round(20 * math.log10(filtered / hpf_reference), 2)}
         # Guard the corrected mix with one common gain. Never normalize
         # individual clips, which would hide the hardware volume regression.
-        assert relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'] > -2, relative
-        assert relative['gas_fast']['cgb_hpf_proxy_db_vs_menu'] > 0, relative
-        assert -8 < relative['idle']['cgb_hpf_proxy_db_vs_menu'] < relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'], relative
+        # The exhaust layer is roughly half 0.83's volume; CH3 stays intact.
+        assert relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'] > -8, relative
+        assert relative['gas_fast']['cgb_hpf_proxy_db_vs_menu'] > -6, relative
+        assert -13 < relative['idle']['cgb_hpf_proxy_db_vs_menu'] < relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'], relative
         # The old crash measured about -17.7 dB over this whole capture;
         # require at least roughly 6 dB improvement, beyond gain alone.
         assert relative['crash']['cgb_hpf_proxy_db_vs_menu'] > -12, relative
