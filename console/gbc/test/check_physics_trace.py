@@ -72,6 +72,7 @@ def main():
     parser.add_argument('--res',type=Path,required=True)
     parser.add_argument('--gen',type=Path,default=BASE/'build/gen')
     parser.add_argument('--out',type=Path,default=BASE/'build/physics-trace-check')
+    parser.add_argument('--first-bank',type=int,default=252,help='first coefficient ROM bank (508 for the 8 MiB profile)')
     parser.add_argument('--reference-host',type=Path,help='also replay against a previously frozen HOST library')
     parser.add_argument('--sweep-source',type=Path,default=BASE/'src/physics_sweep.c',help='isolated exact sweep candidate')
     parser.add_argument('--collision-source',type=Path,default=BASE/'src/physics_collision.c',help='isolated exact cache candidate')
@@ -184,8 +185,8 @@ void main(void){uint16_t i;uint8_t k;cpu_fast();fixture_ready=1;
     assembly=[path for path in sorted((BASE/'src').glob('physics_*.s'))if path.name!='physics_mul16.s']
     if not (gen/'physics_sine_16.c').is_file():
         run([sys.executable,BASE/'tools/physics_sine.py','--out',gen],out/'sine-generate.log')
-    run([sys.executable,BASE/'tools/math32_coefficients.py','--constants',gen/'riding_constants.h','--out',gen],out/'coefficient-generate.log')
-    tables=sorted((BASE/'build/gen').glob('physics_quarter_*.c'))+sorted((BASE/'build/gen').glob('physics_scale_*.c'))+sorted(gen.glob('physics_sine_*.c'))
+    run([sys.executable,BASE/'tools/math32_coefficients.py','--constants',gen/'riding_constants.h','--out',gen,'--first-bank',args.first_bank],out/'coefficient-generate.log')
+    tables=sorted(gen.glob('physics_quarter_*.c'))+sorted(gen.glob('physics_scale_*.c'))+sorted(gen.glob('physics_sine_*.c'))
     tables+=sorted(gen.glob('physics_coefficient_*.c'))+[gen/'physics_coefficient_calls.s']
     rom=out/'native.gbc'
     run([BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000',

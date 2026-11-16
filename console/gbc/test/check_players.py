@@ -93,6 +93,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rom', type=Path, default=BASE/'build/elma-gbc.gbc')
     parser.add_argument('--gen', type=Path, default=BASE/'build/gen')
+    parser.add_argument('--alternate-rom', type=Path, help='reload the same save in the other ROM size')
+    parser.add_argument('--alternate-gen', type=Path, help='generated assets for the alternate ROM')
     parser.add_argument('--out', type=Path, default=BASE/'build/playtest/players')
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -105,6 +107,7 @@ def main():
     try:
         d.ready()
         assert d.rom_bytes[0x147] == 0x1b
+        assert d.rom_bytes[0x149] == 3, 'release must target 32KiB cartridge RAM'
         assert d.byte('save_player') == 0
         assert [name(d, i) for i in range(4)] == ['PLAYER %d' % i for i in range(1, 5)]
         menu_item(d, 2)
@@ -201,8 +204,17 @@ def main():
         text_check(d, 5, 6, ('BEST '+time_string(frames)).ljust(20))
         d.snapshot('saved-record')
         d.p.stop(save=True)
-        d = Driver(rom, args.out/'reboot', args.gen)
+        tested_sha=d.rom_sha256
+        reboot_gen=args.gen
+        if args.alternate_rom:
+            alternate=args.out/'alternate-test.gbc'
+            shutil.copyfile(args.alternate_rom,alternate)
+            shutil.copyfile(args.alternate_rom.with_suffix('.noi'),alternate.with_suffix('.noi'))
+            shutil.copyfile(Path(str(rom)+'.ram'),Path(str(alternate)+'.ram'))
+            rom=alternate;reboot_gen=args.alternate_gen or args.gen
+        d = Driver(rom, args.out/'reboot', reboot_gen)
         d.ready()
+        assert d.rom_bytes[0x149] == 3
         assert d.byte('save_player') == 1 and name(d, 1) == 'DOX'
         text_check(d, 5, 6, ('BEST '+time_string(frames)).ljust(20))
         menu_item(d, 2)
@@ -224,7 +236,9 @@ def main():
         d.level_menu()
         d.pulse('up')
         text_check(d, 2, 13, ('BEST '+time_string(frames)).ljust(20))
-        report = {'status': 'passed', 'rom_sha256': d.rom_sha256,
+        report = {'status': 'passed', 'rom_sha256': tested_sha,
+                  'reboot_rom_sha256':d.rom_sha256,
+                  'cross_profile_reload':bool(args.alternate_rom),
                   'fixture_finish_frames': frames, 'hardware_tested': False,
                   'finish_is_contact_fixture': True,
                   'checks': ['keyboard navigation, editing, limit, cancel and blank rejection',

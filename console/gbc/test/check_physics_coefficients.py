@@ -26,11 +26,12 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--constants',type=Path,default=BASE/'build/gen/riding_constants.h')
     p.add_argument('--out',type=Path,default=BASE/'build/coefficient-check')
+    p.add_argument('--first-bank',type=int,choices=(252,508),default=252)
     p.add_argument('--assembly',type=Path,default=BASE/'src/physics_math32.s')
     p.add_argument('--lcc',type=Path,default=BASE/'.toolchain/gbdk/bin/lcc')
     a=p.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True);source=BASE/'src';generator=BASE/'tools/math32_coefficients.py'
     spec=importlib.util.spec_from_file_location('coefficients',generator);g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
-    tables=out/'tables';manifest=g.generate(a.constants,tables);pairs=g.coefficients(a.constants);ordered=sorted(pairs)
+    tables=out/'tables';manifest=g.generate(a.constants,tables,first_bank=a.first_bank);pairs=g.coefficients(a.constants);ordered=sorted(pairs)
     sources=[source/'physics_math32.c',a.assembly,source/'physics_math32.h',source/'physics_mul_fast.s',source/'physics_kmul_fast.s',a.constants,generator,Path(__file__)]
     sha={path.name:hashlib.sha256(path.read_bytes()).hexdigest()for path in sources}
     lib=out/('host.dylib'if sys.platform=='darwin'else'host.so');subprocess.run(['cc','-shared','-fPIC','-std=c99','-I'+str(source),str(source/'physics_math32.c'),'-o',str(lib)],check=True)

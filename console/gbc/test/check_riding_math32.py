@@ -160,7 +160,7 @@ void main(void) {uint16_t i;cpu_fast();
     if not(gen/'physics_scale_36.c').is_file():
         subprocess.run([sys.executable,str(BASE/'tools/scale_table.py'),'--out',str(gen)],check=True)
     table_sources=list(gen.glob('physics_quarter_*.c'))+list(gen.glob('physics_scale_*.c'))
-    cmd=[str(lcc),'-msm83:gb','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j',
+    cmd=[str(lcc),'-msm83:gb','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-Wl-g_riding_coefficient_bank_lo=252','-Wl-g_riding_coefficient_bank_hi=0',
          '-I'+str(SOURCE),'-I'+str(OUT),'-o',str(OUT/'check.gbc'),str(OUT/'driver.c'),
          str(implementation),str(assembly),str(multiply_assembly),
          str(SOURCE/'physics_kmul_fast.s')]+list(map(str,sources+table_sources))

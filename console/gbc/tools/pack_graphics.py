@@ -46,10 +46,18 @@ def main():
     gen = args.gen
     manifest_path = gen / 'level_manifest.json'
     manifest = json.loads(manifest_path.read_text())
+    if manifest.get('rom_mib', 4) != 4:
+        raise ValueError('ZX0 graphics belong to the 4 MiB profile; use a separate generated directory')
     compiler = (args.sdk / 'bin/gbcompress').resolve()
     codec_key = hashlib.sha256(Path(__file__).read_bytes() + Path(__file__).with_name('zx0.py').read_bytes()
                                + compiler.read_bytes()).hexdigest()
-    if manifest.get('compression_key') == codec_key:
+    header_path = gen / 'level_catalogue.h'
+    if (manifest.get('compression_key') == codec_key
+        and manifest.get('map_codec') == 'zx0-raw3-plane32x16'
+        and manifest.get('pattern_codec') == 'zx0-1024'
+        and re.search(r'^#define WORLD_GRAPHICS_ZX0 1$', header_path.read_text(), re.M)
+        and all((gen / ('level_bank_%d.c' % bank)).is_file()
+                for bank in range(manifest['first_bank'], manifest['last_bank'] + 1))):
         print('ZX0 scenery unchanged: banks %d..%d' % (manifest['first_bank'], manifest['last_bank']))
         return
     cache = gen.parent / 'zx0-cache' / hashlib.sha256(compiler.read_bytes()).hexdigest()[:16]
@@ -107,10 +115,10 @@ def main():
     catalogue = re.sub(r'(const world_level_t world_levels\[\]=\{).*?\n\};',
                        lambda match: match[1] + '\n' + ',\n'.join(directory) + '\n};', catalogue, count=1, flags=re.S)
     header = (gen / 'level_catalogue.h').read_text()
-    if '#define WORLD_GRAPHICS_ZX0' not in header:
-        header = header.replace('#define GBC_LEVEL_CATALOGUE_H',
-                                '#define GBC_LEVEL_CATALOGUE_H\n#define WORLD_GRAPHICS_ZX0 1')
-    manifest.update(compression_key=codec_key, map_codec='zx0-raw3-plane32x16',
+    header = re.sub(r'^[ \t]*#[ \t]*define[ \t]+WORLD_GRAPHICS_ZX0\b[^\n]*\n?', '', header, flags=re.M)
+    header = header.replace('#define GBC_LEVEL_CATALOGUE_H',
+                            '#define GBC_LEVEL_CATALOGUE_H\n#define WORLD_GRAPHICS_ZX0 1')
+    manifest.update(rom_mib=4, compression_key=codec_key, map_codec='zx0-raw3-plane32x16',
                     pattern_codec='zx0-1024', pattern_block_bytes=PATTERN_BLOCK_BYTES,
                     last_bank=packer.bank, payload_bytes=sum(map(len, packer.banks)),
                     physical_bank_bytes=len(packer.banks) * 16384,

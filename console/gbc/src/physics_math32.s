@@ -551,10 +551,12 @@ _riding_coefficients_narrow::
  push bc
  ld a,b
  and a,#3
- ; Exact coefficient tables occupy banks252..255 (math32_coefficients.py).
- add a,#252
+ ; Profile-specific exact tables: 252..255 (4MiB) or 508..511 (8MiB).
+ .globl _riding_coefficient_bank_lo
+ .globl _riding_coefficient_bank_hi
+ add a,#_riding_coefficient_bank_lo
  ld (#0x2000),a
- xor a,a
+ ld a,#_riding_coefficient_bank_hi
  ld (#0x3000),a
  bit 2,b
  jp nz,math32_coefficient_quotient16

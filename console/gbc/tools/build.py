@@ -24,20 +24,87 @@ def dependencies(path,gen,seen=None):
     return result
 
 
+def validate_profile(gen, requested_rom_mib=None, sources=()):
+    """Reject mixed codecs, stale table banks and out-of-range bank layouts."""
+    levels=json.loads((gen/'level_manifest.json').read_text())
+    physics=json.loads((gen/'physics_bank_manifest.json').read_text())
+    coefficients=json.loads((gen/'physics-coefficient-manifest.json').read_text())
+    codecs={'zx0-raw3-plane32x16':(4,'zx0-1024'), 'raw3-plane32x16':(8,'raw-2bpp')}
+    if levels.get('map_codec') not in codecs:
+        raise ValueError('Unknown level graphics codec: '+str(levels.get('map_codec')))
+    rom_mib,pattern_codec=codecs[levels['map_codec']]
+    if requested_rom_mib is not None and requested_rom_mib!=rom_mib:
+        raise ValueError('%d MiB profile requires %s graphics; %s contains %s'%
+                         (requested_rom_mib,'compressed'if requested_rom_mib==4 else'raw',gen,levels['map_codec']))
+    if levels.get('rom_mib',rom_mib)!=rom_mib or levels.get('pattern_codec',pattern_codec)!=pattern_codec:
+        raise ValueError('Level manifest has inconsistent ROM size or pattern codec')
+    codec_define=re.search(r'^[ \t]*#[ \t]*define[ \t]+WORLD_GRAPHICS_ZX0\b([^\n]*)$',
+                           (gen/'level_catalogue.h').read_text(),re.M)
+    if bool(codec_define)!=(rom_mib==4) or (codec_define and codec_define[1].strip()!='1'):
+        raise ValueError('Level catalogue header and manifest disagree about the graphics codec')
+    if rom_mib==4 and (not levels.get('compression_key') or levels.get('pattern_block_bytes')!=1024):
+        raise ValueError('Compressed graphics are missing their compression metadata')
+    if rom_mib==8 and levels.get('compression_key'):
+        raise ValueError('Raw graphics retain stale compression metadata')
+    bank_count=rom_mib*64
+    coefficient_first=bank_count-4
+    if (coefficients['first_bank'],coefficients['last_bank'])!=(coefficient_first,bank_count-1):
+        raise ValueError('%d MiB profile reserves coefficient banks %d..%d'%
+                         (rom_mib,coefficient_first,bank_count-1))
+    if coefficients['constants_sha256']!=hashlib.sha256((gen/'riding_constants.h').read_bytes()).hexdigest():
+        raise ValueError('Coefficient tables do not match the generated riding constants')
+    calls=(gen/'physics_coefficient_calls.s').read_text()
+    for name,value in (('lo',coefficient_first&255),('hi',coefficient_first>>8)):
+        if not re.search(r'^_riding_coefficient_bank_'+name+r'\s*=\s*'+str(value)+r'\s*$',calls,re.M):
+            raise ValueError('Coefficient bank selection differs from its tables; regenerate the coefficients')
+    intervals={
+        'physics_bank_':(physics['first_bank'],physics['next_free_bank']-1),
+        'level_bank_':(levels['first_bank'],levels['last_bank']),
+        'physics_coefficient_':(coefficients['first_bank'],coefficients['last_bank']),
+    }
+    previous_end=-1
+    for prefix,(first,last) in intervals.items():
+        if not 0<first<=last<bank_count or first<=previous_end:
+            raise ValueError('Overlapping or out-of-range ROM bank reservation: %s%d..%d'%(prefix,first,last))
+        previous_end=last
+        expected={gen/('%s%d.c'%(prefix,bank))for bank in range(first,last+1)}
+        actual=set(gen.glob(prefix+'*.c'))
+        if expected!=actual:
+            raise ValueError('Missing or stale generated bank files for '+prefix)
+        for path in expected:
+            bank=int(path.stem.rsplit('_',1)[1])
+            match=re.search(r'^#pragma bank (\d+)\s*$',path.read_text(),re.M)
+            if not match or int(match[1])!=bank:
+                raise ValueError('Generated source bank differs from its filename: '+str(path))
+    for path in sources:
+        for match in re.finditer(r'^\s*#pragma bank (\d+)\s*$',path.read_text(),re.M):
+            bank=int(match[1])
+            if not 0<=bank<bank_count:
+                raise ValueError('Source exceeds the selected ROM size: '+str(path))
+            for prefix,(first,last) in intervals.items():
+                if first<=bank<=last and path!=gen/('%s%d.c'%(prefix,bank)):
+                    raise ValueError('Source overlaps reserved ROM bank %d: %s'%(bank,path))
+    return rom_mib
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--sdk',type=Path,default=BASE/'.toolchain/gbdk')
-    p.add_argument('--gen',type=Path,default=BASE/'build/gen')
-    p.add_argument('--out',type=Path,default=BASE/'build/elma-gbc.gbc')
+    p.add_argument('--gen',type=Path,help='generated directory (default: build/gen or build/gen-8m)')
+    p.add_argument('--out',type=Path,help='output ROM (default: build/elma-gbc.gbc or build/elma-gbc-8m.gbc)')
     p.add_argument('--jobs',type=int,default=4)
+    p.add_argument('--rom-mib',type=int,choices=(4,8),help='validate the profile; otherwise infer it from the graphics manifest')
     p.add_argument('--sweep-source',type=Path,help='isolated exact head-collision candidate')
     p.add_argument('--collision-source',type=Path,help='isolated exact collision-cache candidate')
-    a=p.parse_args();a.gen=a.gen.resolve();a.sdk=a.sdk.resolve();a.out=a.out.resolve()
+    a=p.parse_args();a.sdk=a.sdk.resolve()
+    a.gen=(a.gen or BASE/('build/gen-8m' if a.rom_mib==8 else 'build/gen')).resolve()
+    rom_mib=validate_profile(a.gen,a.rom_mib)
+    a.out=(a.out or BASE/('build/elma-gbc-8m.gbc' if rom_mib==8 else 'build/elma-gbc.gbc')).resolve()
     a.out.parent.mkdir(parents=True,exist_ok=True)
     compiler=a.sdk/'bin/lcc'
     compile_flags=['-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000',
                    '-I'+str(a.gen),'-I'+str(BASE/'src')]
-    link_flags=['-msm83:gb','-Wm-yC','-Wm-yt0x1B','-Wm-ya16','-Wm-yo256','-Wm-ynELMA-GBC','-Wl-m','-Wl-j']
+    link_flags=['-msm83:gb','-Wm-yC','-Wm-yt0x1B','-Wm-ya4','-Wm-yo%d'%(rom_mib*64),'-Wm-ynELMA-GBC','-Wl-m','-Wl-j']
     names=['play.c','splash.c','audio.c','save.c','world.c','world_dma.c','world_zx0.s','world_memory.s','world_retire_fast.s','world_alloc_fast.s','world_acquire_fast.s','menu.c','bike_render16.c','physics.c','physics_core.c',
            'physics_contacts.c','physics_collision.c','physics_sweep.c','physics_math.c','physics_math32.c','mul16.s','video.s','video_screen_fast.s','video_strip_pair.s','object16.s','objects_touch_fast.s','objects_draw_fast.s','objects_bounds_fast.s']
     sources=[BASE/'src'/name for name in names]
@@ -50,6 +117,7 @@ def main():
         sources+=sorted(a.gen.glob(pattern))
     sources.append(a.gen/'physics_coefficient_calls.s')
     sources += [a.gen/name for name in ('level_catalogue.c','menu_assets.c','splash_assets.c','physics_level_data.c','riding16_parts.c','riding_meta.c')]
+    validate_profile(a.gen,rom_mib,sources)
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
     for name in ('lcc','sdcc','sdasgb','sdldgb'):
@@ -84,6 +152,7 @@ def main():
     for path,key in zip(sources,keys):
         if source_key(path)!=key:
             raise RuntimeError('Source changed during the build: '+str(path)+'; rerun after edits finish')
+    validate_profile(a.gen,rom_mib,sources)
     manifest_path=a.out.with_suffix('.build.json')
     build_key=hashlib.sha256(json.dumps([keys,link_flags,tool_key]).encode()).hexdigest()
     if manifest_path.is_file() and a.out.is_file() and a.out.with_suffix('.noi').is_file():
@@ -91,7 +160,10 @@ def main():
         if previous.get('build_key')==build_key and previous.get('rom_sha256')==hashlib.sha256(a.out.read_bytes()).hexdigest():
             print('ROM unchanged: '+str(a.out));return
     subprocess.run([str(compiler),*link_flags,'-o',str(a.out),*map(str,objects)],check=True)
-    report={'build_key':build_key,'rom_sha256':hashlib.sha256(a.out.read_bytes()).hexdigest(),
+    rom=a.out.read_bytes()
+    if len(rom)!=rom_mib*1024*1024 or rom[0x147:0x14a]!=bytes((0x1B,{4:7,8:8}[rom_mib],3)):
+        raise ValueError('Linked ROM does not match the selected MBC5+RAM+BATTERY / 32 KiB RAM profile')
+    report={'rom_mib':rom_mib,'cartridge_type':0x1B,'ram_kib':32,'generated_dir':str(a.gen),'build_key':build_key,'rom_sha256':hashlib.sha256(rom).hexdigest(),
             'sources':[str(x)for x in sources],'objects':[str(x)for x in objects]}
     manifest_path.write_text(json.dumps(report,indent=2)+'\n')
     print('Built '+str(a.out)+' '+report['rom_sha256'])

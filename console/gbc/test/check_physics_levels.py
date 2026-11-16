@@ -150,7 +150,7 @@ void main(void) {
     assert len(tables)==28,'generate the production arithmetic tables first'
     rom=out/'native.gbc'
     command([BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-Wf--opt-code-size',
-        '-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(BASE/'src'),
+        '-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-Wl-g_riding_coefficient_bank_lo=252','-Wl-g_riding_coefficient_bank_hi=0','-I'+str(BASE/'src'),
         '-I'+str(gen),'-o',rom,out/'native.c',out/'meta.c',*common,*assembly,*data,*tables],out/'native-compile.log')
     sym={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',rom.with_suffix('.noi').read_text())}
     p=PyBoy(str(rom),window='null',sound_emulated=False,cgb=True);p.set_emulation_speed(0)

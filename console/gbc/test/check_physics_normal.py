@@ -61,7 +61,7 @@ asm=[B/'src'/('physics_'+name+'.s')for name in('mul_fast','kmul_fast','math','di
 for marker,tool in (('physics_quarter_20.c','mul_table.py'),('physics_scale_36.c','scale_table.py')):
  if not (a.gen/marker).is_file():subprocess.run([sys.executable,str(B/'tools'/tool),'--out',str(a.gen)],check=True)
 data=sorted(a.gen.glob('physics_quarter_*.c'))+sorted(a.gen.glob('physics_scale_*.c'))
-cmd=[str(B/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-DPHYSICS_ASM','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(P),'-I'+str(B/'src'),'-I'+str(a.gen),'-o',str(P/'normal_check.gbc'),str(P/'normal_driver.c'),str(P/'normal_case.c'),str(a.contacts),str(B/'src/physics_math.c'),str(B/'src/physics_math32.c')]+list(map(str,asm+data))+[str(v)for _,v in sources]
+cmd=[str(B/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-DPHYSICS_ASM','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-Wl-g_riding_coefficient_bank_lo=252','-Wl-g_riding_coefficient_bank_hi=0','-I'+str(P),'-I'+str(B/'src'),'-I'+str(a.gen),'-o',str(P/'normal_check.gbc'),str(P/'normal_driver.c'),str(P/'normal_case.c'),str(a.contacts),str(B/'src/physics_math.c'),str(B/'src/physics_math32.c')]+list(map(str,asm+data))+[str(v)for _,v in sources]
 r=subprocess.run(cmd,capture_output=True,text=True);(P/'compile.log').write_text(r.stdout+r.stderr);assert not r.returncode,r.stdout+r.stderr
 layout=(P/'normal_check.map').read_text()
 for area in ('_CODE','_HOME'):
