@@ -1,13 +1,34 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.6 — development prototype**. The port version is kept in
+Current version: **0.7 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
 
-The current cartridge test build is **4 MiB (4,194,304 bytes)**. Scenery is
-compressed losslessly with ZX0, retaining all 54 levels and the existing
-converted graphics. Cartridge testing of this smaller image is pending.
-The test image is `build/elma-gbc-v0.6.gbc`; the normal Make target also
-produces the same 4 MiB image as `build/elma-gbc.gbc`.
+Two cartridge builds are maintained together, both targeting **MBC5 + 32 KiB
+battery-backed RAM** and containing the same 54 courses, graphics and physics:
+
+| Build | Scenery | Versioned test image |
+|---|---|---|
+| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.7-4m.gbc` |
+| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.7-8m.gbc` |
+
+The 8 MiB build avoids decompression during scrolling. Both share the same
+player/record save layout. **The 8 MiB build currently has a reported immediate
+motorcycle physics failure on FlashMaster hardware**, despite passing emulator
+checks with the same ROM. Cartridge compatibility is not yet verified.
+
+The 8 MiB physics tables occupy banks 508–511. Simulating an inaccessible upper
+ROM half (banks 256–511 reading the corresponding lower banks) reproduces a
+detached wheel on the first physics step; the unmodified ROM stays stable in
+that test. This is a diagnostic lead, not confirmation of the physical cause.
+The reported cartridge settings are MBC5, 8M ROM and 32K RAM.
+
+The 0.6 build required **128 KiB SRAM**. The
+[FlashMaster guide](https://ae01.alicdn.com/kf/S2f62136b14a64022bb70b3d32150367f6.pdf)
+lists RAM settings only through 32K. Running the same 0.6 ROM with emulated
+32 KiB RAM reproduced corrupt Warm Up graphics; 128 KiB rendered correctly.
+Version 0.7 replaces the large lookup and relocates the decoded caches and
+saves to four RAM banks. Changing the ROM-size setting alone cannot fix the
+old SRAM layout.
 
 An early native Game Boy Color version built with
 [GBDK-2020](https://gbdk.org/docs/api/index.html), C and SM83 assembly.
@@ -16,10 +37,10 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.6
+## What works in 0.7
 
-- A **4 MiB ROM** containing all 54 courses, with lossless ZX0 scenery
-  compression, decoded SRAM caches and an optimized SM83 decompressor.
+- Parallel **4 MiB compressed / 8 MiB raw ROMs** containing all 54 courses,
+  with a compact graphics lookup and a shared 32 KiB cartridge RAM layout.
 
 - An original-artwork title screen with the port version and a fresh A/Start
   press to continue, followed by a separate main menu and Controls screen.
@@ -70,14 +91,13 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
-## Planned after 0.6
+## Planned after 0.7
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
-- Flash the new **4 MiB** build to the cartridge and check that graphics display
-  correctly during play. The previous **8 MiB** image boots and plays there,
-  with reported size-related missing or garbled graphics. If 4 MiB is still
-  too large, target **2 MiB**.
+- Diagnose the reported **8 MiB** FlashMaster physics failure using hardware
+  ROM-bank checks; then verify scrolling and retained player saves with both
+  ROM sizes, MBC5, 32K RAM and Save RAM enabled.
 - Continue measuring compressed graphics streaming, including first-use
   decoding and cache misses during fast scrolling. Keep all 54 levels and
   the current physics; discuss any necessary graphics or gameplay
@@ -93,21 +113,47 @@ use numpy and Pillow, and the emulator tests use PyBoy. From this directory:
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-test.txt
 make bootstrap
-make ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
+make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 ```
 
 The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 
-Open **`build/elma-gbc.gbc`** in a Game Boy Color emulator. It is a CGB-only
-MBC5 cartridge, not a Game Boy Advance program, and does not support monochrome
-Game Boy hardware. The ROM occupies 4 MiB and requires an MBC5 cartridge with
-128 KiB battery-backed RAM (MBC5+RAM+BATTERY, header type `0x1B`). SRAM banks
-0–14 serve the graphics cache; bank 15 holds the player names, active player
-and course records in two checksummed save slots. The previous valid slot
-remains available if a new write is interrupted. An emulator saves this RAM
-to its battery-save file; a physical cartridge must retain its SRAM after
-power-off. Exact mathematical tables accelerate fixed-point
-arithmetic without changing its results.
+Open **`build/elma-gbc.gbc`** (4 MiB) or **`build/elma-gbc-8m.gbc`** (8 MiB)
+in a Game Boy Color emulator. These are CGB-only MBC5 cartridges, not Game Boy
+Advance programs; monochrome Game Boy hardware is unsupported. Both use header
+type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
+(4 MiB) or `0x08` (8 MiB).
+
+`make 4m` and `make 8m` keep generated files separate in `build/gen` and
+`build/gen-8m`. For an explicit output name, use e.g.
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.7-8m.gbc game` with your resource
+paths. Original rendered tiles are reused when their fingerprints match;
+codec and bank-layout mismatches are rejected before linking. Exact physics
+tables live at ROM banks 252–255 or 508–511, respectively.
+
+On FlashMaster, select **MBC5**, **32K RAM**, the file's matching **4M or 8M ROM
+size**, and enable **Save RAM**. The emulator's battery file or the cartridge's
+save mechanism must preserve RAM across sessions. SRAM bank0 B800–BFFF holds
+two checksummed save slots; the previous valid slot survives an interrupted
+write. Version 0.7's two ROM sizes share saves; 0.6's 128 KiB save files used
+a different location and are not loaded automatically.
+
+For the reported 8 MiB hardware failure, build a separate cartridge diagnostic:
+
+```sh
+.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.7-8m.gbc --verify
+```
+
+Load `build/elma-gbc-v0.7-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
+It retains every byte of the game's switchable ROM banks and replaces only
+ROM0 with a reader. It runs at double speed, first checking all bytes of banks
+508–511 (about three seconds including boot in the emulator). **A** scans banks
+1–511 (about 5–6 minutes of emulated hardware time); **B** repeats the quick check.
+`FAIL` reports the bank and expected/read CRC16 values; `Matches bank 252`,
+for example, suggests that an upper bank is reading its lower-half counterpart.
+Record the displayed result before drawing a hardware conclusion. CRC16 is an
+error detector, not a collision-proof comparison. The diagnostic itself never
+enables or writes cartridge SRAM and is not a playable game build.
 
 | Button | Riding action |
 |---|---|
@@ -178,25 +224,27 @@ all patterns still visible. Idle CPU time prepares the next offscreen row or
 column, retaining the same 399 current cells until the camera enters the new
 tile. Temporary references cover at most 438 cells; reversal discards the
 prediction safely. This preparation adds no simulation or presentation frame.
-The ROM stores independent ZX0 blocks of 64 patterns (1,024 bytes) and 32x16
-map cells (1,536 bytes across three planes). Eight decoded map blocks occupy
-scratch SRAM banks 9–10, and 32 decoded pattern blocks use banks 11–14.
-Bank 8 holds the viewport slot mirror, and banks 0–7 hold pattern lookup
-entries. A cache hit reads decoded bytes directly; a miss decodes a complete
-block before use. Background preparation stops between map chunks and
-accounts for cold block decoding in its time budget. First-use decoding can
-extend level loading and scrolling updates, so the 30 FPS requirement still
-needs verification across full rides. The remaining bank0 VRAM patterns hold
-the killer sprites.
+The 4 MiB ROM stores independent ZX0 blocks of 64 patterns (1,024 bytes) and
+32x16 map cells (1,536 bytes across three planes). Five decoded map blocks use
+SRAM bank1; 16 decoded pattern blocks use banks2–3. A miss decodes a complete
+block; small courses that fit are preloaded with the LCD off. The 8 MiB ROM
+reads uncompressed patterns and maps directly, without these decoded caches.
 
-In the 4 MiB regression run, all 54 course starts, displayed source graphics,
-protected object colors and menu navigation passed. The longest observed load
-took 85 display frames (about 1.4 seconds). Timing remains a limitation. The
-no-input Freefall run recorded 48 missed presentation deadlines, versus 4 with
-the previous 8 MiB image, and the riding smoke test recorded 1 versus 0.
-These are functional test passes with timing diagnostics enabled; the 4 MiB
-build does not yet meet stable 30 FPS. Small courses that fit the decoded
-caches are preloaded with the LCD off to reduce first-use stalls during play.
+Both builds use this bank0 layout:
+
+| Address | Purpose |
+|---|---|
+| A000–A7FF | 1,024 lookup bucket heads |
+| A800–AEEF | 444 entries storing full pattern IDs and chain links |
+| AEF0–AFFF | Reserved |
+| B000–B7FF | 32x32 viewport slot mirror |
+| B800–BFFF | Two persistent player/record save slots |
+
+The lookup retains full IDs and resolves hash collisions without discarding
+artwork. Background preparation stops between bounded work units. Cold block
+decoding can extend level loading and scrolling updates, so the compressed
+build still needs timing optimization. The remaining bank0 VRAM patterns hold
+the killer sprites. Cartridge SRAM banks and VRAM banks are separate memories.
 
 The build uses GBDK's `gbcompress --alg=zx0` and an optimized SM83 decoder.
 ZX0 was created by Einar Saukas. Its decompressor license accompanies the port
@@ -302,16 +350,36 @@ title-to-menu navigation, Controls, course selection, pause/resume and restart.
 `test/check_save.py` compiles the production save module for the SM83 and
 tests battery-file reboots, player/course isolation, faster-time replacement,
 invalid requests, interrupted writes, CRC rejection and generation rollover.
-It also checks that the graphics SRAM banks remain untouched. The 0.6 run
+It also checks that the graphics SRAM banks remain untouched. The 32 KiB run
 passed 47 fresh boots, including 12 interrupted-write cases.
 
 `test/check_players.py` drives the real name keyboard, selection, timer, pause,
 crash and A retry through buttons, then reloads the battery file in a fresh
 emulator. Its finish check supplies an unlocked-flower contact to exercise the
 normal result/save path; it does not claim a controller-completed course.
-The 0.6 frontend and player checks passed. All 54 course starts also passed
-functional checks, with 12 display deadline misses in the diagnostic run;
-the stable 30 FPS target and physical-cartridge save test remain outstanding.
+The stable 30 FPS target and physical-cartridge save test remain outstanding.
+The 32 KiB native cache fixtures each passed 3,031 verified views for raw and
+compressed graphics. All 2,048 save bytes survived, requested RAM banks stayed
+within 0–3, and bank3 cache eviction/reload was checked through address BFFF.
+
+Both complete 0.7 ROMs passed all 54 course starts and the frontend/player
+checks under a 32 KiB RAM configuration. Battery saves loaded in both
+directions between the two ROM sizes. These are emulator results, not a
+physical FlashMaster test or proof that every course can be completed.
+
+| 0.7 diagnostic | 4 MiB ZX0 | 8 MiB raw |
+|---|---:|---:|
+| Longest course load, display frames | 75 | 21 |
+| Deadline misses across 54 course starts | 13 | 4 |
+| Deadline misses in no-input Freefall | 52 | 10 |
+
+The 8 MiB build is faster in the emulator, but its reported physical-cartridge
+physics failure remains unresolved. Both still miss the strict stable-30-FPS
+target; the diagnostic runs explicitly allow deadline misses while verifying
+graphics and physics. All 4,800 unique compressed
+graphics blocks decoded exactly with SRAM guards on the 32 KiB fixture, and
+both coefficient placements passed 648 native vectors plus exhaustive host
+checks without bank-restoration failures.
 
 Results, ROM hashes, timing traces and screenshots are written under
 `build/playtest/`; conversion and diagnostic results use
