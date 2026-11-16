@@ -1,12 +1,12 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.5 — development prototype**. The port version is kept in
+Current version: **0.6 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
 
 The current cartridge test build is **4 MiB (4,194,304 bytes)**. Scenery is
 compressed losslessly with ZX0, retaining all 54 levels and the existing
 converted graphics. Cartridge testing of this smaller image is pending.
-The test image is `build/elma-gbc-v0.5.gbc`; the normal Make target also
+The test image is `build/elma-gbc-v0.6.gbc`; the normal Make target also
 produces the same 4 MiB image as `build/elma-gbc.gbc`.
 
 An early native Game Boy Color version built with
@@ -16,7 +16,7 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.5
+## What works in 0.6
 
 - A **4 MiB ROM** containing all 54 courses, with lossless ZX0 scenery
   compression, decoded SRAM caches and an optimized SM83 decompressor.
@@ -25,6 +25,8 @@ motorcycle physics form its basis.
   press to continue, followed by a separate main menu and Controls screen.
 - A level selector with all **54 registered internal levels**, their original
   names and order, page navigation, pause/resume and explicit restart actions.
+- Four persistent player profiles, editable ten-character names with a framed
+  Game Boy keyboard, and best times for each player on all 54 courses.
 - Native GBC engine sound reacting to throttle, braking and wheel speed, plus
   menu, apple, crash and finish effects. Pausing silences the engine.
 - Native **CG Pixel 3x5 Mono** text in the level selector and HUD, with a
@@ -33,7 +35,7 @@ motorcycle physics form its basis.
   rider movement, **32-bit linear velocities** and swept head collisions.
 - Apple collection, gravity-changing apples, killers, crash detection, flower
   completion and advancing to the next course. The HUD shows remaining apples,
-  elapsed time and ride status.
+  a labelled elapsed time and result controls; A/Start retries after a crash.
 - Original level geometry and LGR artwork, streamed terrain, independently
   positioned wheels and head, **red apples and white flower petals**.
 - Head pattern buffering to prevent uploads from changing the head still on
@@ -54,8 +56,8 @@ motorcycle physics form its basis.
   and compare the riding behavior with the original game.
 - **Measure frame timing on a real Game Boy Color.** Current timing figures
   come from emulation.
-- **Add persistent saves and replay support.** These are unimplemented, as is
-  an editor. Cartridge RAM currently serves only as graphics scratch space.
+- **Add replay support and an editor.** These are unimplemented. Verify the
+  new player and best-time saves on the physical cartridge.
 - **Improve audio fidelity.** The current effects are synthesized GBC APU
   adaptations rather than the original PCM samples; music is unimplemented.
 - **Review further graphics and animation improvements.** Object animation
@@ -68,7 +70,7 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
-## Planned after 0.5
+## Planned after 0.6
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
@@ -99,8 +101,12 @@ The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 Open **`build/elma-gbc.gbc`** in a Game Boy Color emulator. It is a CGB-only
 MBC5 cartridge, not a Game Boy Advance program, and does not support monochrome
 Game Boy hardware. The ROM occupies 4 MiB and requires an MBC5 cartridge with
-128 KiB RAM. Cartridge RAM is scratch space for the graphics cache; it does
-not contain persistent saves. Exact mathematical tables accelerate fixed-point
+128 KiB battery-backed RAM (MBC5+RAM+BATTERY, header type `0x1B`). SRAM banks
+0–14 serve the graphics cache; bank 15 holds the player names, active player
+and course records in two checksummed save slots. The previous valid slot
+remains available if a new write is interrupted. An emulator saves this RAM
+to its battery-save file; a physical cartridge must retain its SRAM after
+power-off. Exact mathematical tables accelerate fixed-point
 arithmetic without changing its results.
 
 | Button | Riding action |
@@ -114,13 +120,24 @@ arithmetic without changing its results.
 
 In Level Select, Up/Down select a course, Left/Right change page, and A/Start
 launch it. On the title screen, a fresh A/Start press enters the main menu.
-Choose Play, Level Select or Controls; the pause menu offers Resume, Restart,
-Level Select and Controls. B returns from a sub-screen, then resumes a paused
+Choose Play, Level Select, Players or Controls; the pause menu offers Resume,
+Restart, Level Select and Controls. B returns from a sub-screen, then resumes a paused
 ride from the main menu. After finishing, A starts the next course;
-after a crash or finish, B or Select opens the main menu.
+after a crash, A or Start retries. After a crash or finish, B or Select opens
+the main menu. These actions are shown on the result HUD.
 
-The HUD shows apples remaining and elapsed time, then crash, pause or finish
-status. Volts are triggered by a new button press and have a cooldown.
+The riding HUD shows apples remaining at the left and a labelled `TIME`
+clock at the right. The clock advances with simulated riding time, freezes
+while paused or after a result, and resets on retry. Volts are triggered by a
+new button press and have a cooldown.
+
+In Players, Up/Down chooses one of four profiles, A/Start selects it, Select
+opens the name editor, and B returns. The editor accepts up to ten uppercase
+letters, digits or spaces: arrows move around the large keyboard, A enters
+the highlighted key, B deletes, Start saves, and Select cancels. Blank names
+are rejected. Renaming keeps the profile’s records. Players can be changed
+from the main menu outside a paused ride. Finishing a course saves a new best
+time automatically; crashes and slower finishes leave existing records intact.
 
 Audio uses the GBC pulse and noise channels, serviced by the existing main
 loop without a streaming interrupt. The engine responds to driven-wheel speed;
@@ -281,6 +298,20 @@ Separate title and audio fixtures verify the complete splash framebuffer,
 fresh button presses, audible PCM output, pitch changes, finite effects,
 pause muting and ROM-bank restoration. The complete-ROM frontend check covers
 title-to-menu navigation, Controls, course selection, pause/resume and restart.
+
+`test/check_save.py` compiles the production save module for the SM83 and
+tests battery-file reboots, player/course isolation, faster-time replacement,
+invalid requests, interrupted writes, CRC rejection and generation rollover.
+It also checks that the graphics SRAM banks remain untouched. The 0.6 run
+passed 47 fresh boots, including 12 interrupted-write cases.
+
+`test/check_players.py` drives the real name keyboard, selection, timer, pause,
+crash and A retry through buttons, then reloads the battery file in a fresh
+emulator. Its finish check supplies an unlocked-flower contact to exercise the
+normal result/save path; it does not claim a controller-completed course.
+The 0.6 frontend and player checks passed. All 54 course starts also passed
+functional checks, with 12 display deadline misses in the diagnostic run;
+the stable 30 FPS target and physical-cartridge save test remain outstanding.
 
 Results, ROM hashes, timing traces and screenshots are written under
 `build/playtest/`; conversion and diagnostic results use

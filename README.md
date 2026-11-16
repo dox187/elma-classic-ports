@@ -25,7 +25,7 @@ platform's README covers requirements, building and use.
 
 ## Console ports
 
-### Game Boy Color prototype 0.5
+### Game Boy Color prototype 0.6
 
 All 54 registered internal levels are selectable from a native GBDK menu,
 using original level geometry and LGR artwork. The riding engine includes
@@ -34,10 +34,11 @@ collisions. Apples are red and flower petals white. The target is direct
 control at nominal 30 FPS; assembly and scrolling optimizations are still in
 progress because some updates exceed that budget. The port includes an
 original-artwork title screen, separate main/pause menus, Controls and native
-GBC engine/event sounds. Saves and music remain unimplemented. Version 0.5 adds
-lossless scenery compression to fit all 54 levels into a 4 MiB cartridge test
-build. Testing on the physical cartridge is pending, with 2 MiB as a fallback
-size target.
+GBC engine/event sounds. Version 0.6 adds four saved player profiles, a
+Game Boy name-entry keyboard, per-course records, a labelled timer and crash
+controls. Music remains unimplemented. Lossless scenery compression fits all
+54 levels into a 4 MiB cartridge test build. Testing on the physical cartridge
+is pending, with 2 MiB as a fallback size target.
 
 [Status, build, controls and physics differences →](console/gbc/README.md)
 
