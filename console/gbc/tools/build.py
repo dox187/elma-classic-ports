@@ -47,10 +47,11 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     if rom_mib==8 and levels.get('compression_key'):
         raise ValueError('Raw graphics retain stale compression metadata')
     bank_count=rom_mib*64
-    coefficient_first=bank_count-4
-    if (coefficients['first_bank'],coefficients['last_bank'])!=(coefficient_first,bank_count-1):
+    coefficient_first={4:252,8:477}[rom_mib]
+    coefficient_last=coefficient_first+3
+    if (coefficients['first_bank'],coefficients['last_bank'])!=(coefficient_first,coefficient_last):
         raise ValueError('%d MiB profile reserves coefficient banks %d..%d'%
-                         (rom_mib,coefficient_first,bank_count-1))
+                         (rom_mib,coefficient_first,coefficient_last))
     if coefficients['constants_sha256']!=hashlib.sha256((gen/'riding_constants.h').read_bytes()).hexdigest():
         raise ValueError('Coefficient tables do not match the generated riding constants')
     calls=(gen/'physics_coefficient_calls.s').read_text()
@@ -81,6 +82,8 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
             bank=int(match[1])
             if not 0<=bank<bank_count:
                 raise ValueError('Source exceeds the selected ROM size: '+str(path))
+            if rom_mib==8 and bank>=508:
+                raise ValueError('The 8 MiB cartridge profile leaves banks 508..511 unused: '+str(path))
             for prefix,(first,last) in intervals.items():
                 if first<=bank<=last and path!=gen/('%s%d.c'%(prefix,bank)):
                     raise ValueError('Source overlaps reserved ROM bank %d: %s'%(bank,path))
@@ -163,6 +166,8 @@ def main():
     rom=a.out.read_bytes()
     if len(rom)!=rom_mib*1024*1024 or rom[0x147:0x14a]!=bytes((0x1B,{4:7,8:8}[rom_mib],3)):
         raise ValueError('Linked ROM does not match the selected MBC5+RAM+BATTERY / 32 KiB RAM profile')
+    if rom_mib==8 and rom[508*16384:]!=bytes([255])*(4*16384):
+        raise ValueError('The 8 MiB cartridge profile must leave the last 64 KiB unused')
     report={'rom_mib':rom_mib,'cartridge_type':0x1B,'ram_kib':32,'generated_dir':str(a.gen),'build_key':build_key,'rom_sha256':hashlib.sha256(rom).hexdigest(),
             'sources':[str(x)for x in sources],'objects':[str(x)for x in objects]}
     manifest_path.write_text(json.dumps(report,indent=2)+'\n')

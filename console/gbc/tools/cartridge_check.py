@@ -2,8 +2,8 @@
 
 Only ROM0 changes. Every byte in banks 1..511 comes from the source ROM.
 Full-bank CRC-16/CCITT-FALSE checks detect read errors, but are not collision
-proof. The quick check covers physics coefficient banks 508..511; A scans all
-switchable banks and B repeats the quick check. Use --verify for PyBoy checks.
+proof. The quick check covers four physics banks selected by --first-bank;
+A scans all switchable banks and B repeats it. Use --verify for PyBoy checks.
 """
 
 import argparse
@@ -30,7 +30,7 @@ def fix_checksums(rom):
     rom[0x14E:0x150] = (sum(rom) & 65535).to_bytes(2, 'big')
 
 
-def c_driver(checksums, source_sha, version):
+def c_driver(checksums, source_sha, version, first_bank):
     table = [binascii.crc_hqx(bytes([i]), 0) for i in range(256)]
     arrays = '\n'.join(
         'const uint16_t %s[] = {\n%s\n};' % (
@@ -96,8 +96,8 @@ void scan(uint8_t all) {
     diag_checked = 0;
     heading();
     gotoxy(0, 6);
-    printf(all ? "ALL BANKS 1-511" : "PHYSICS 508-511");
-    for (bank = all ? 1u : 508u; bank < 512u; ++bank) {
+    printf(all ? "ALL BANKS 1-511" : "PHYSICS FIRST_BANK-LAST_BANK");
+    for (bank = all ? 1u : FIRST_BANKu; bank < (all ? 512u : END_BANKu); ++bank) {
         diag_bank = bank;
         gotoxy(0, 8);
         printf("Bank %u/511   ", bank);
@@ -149,11 +149,13 @@ void main(void) {
         previous = buttons;
     }
 }
-'''.replace('VERSION_TEXT', version).replace('SHA_TEXT', source_sha[:12])
+'''.replace('VERSION_TEXT', version).replace('SHA_TEXT', source_sha[:12]).replace(
+    'FIRST_BANK', str(first_bank)).replace('LAST_BANK', str(first_bank+3)).replace('END_BANK', str(first_bank+4))
 
 
 def verify(out, report):
     from pyboy import PyBoy
+    first_bank = report['physics_banks'][0]
 
     symbols = {name: int(value, 16) for name, value in re.findall(
         r'DEF (_\w+) 0x([0-9a-fA-F]+)', out.with_suffix('.noi').read_text())}
@@ -185,9 +187,9 @@ def verify(out, report):
             assert bytes(emulator.memory[0x4000:0x8000]) == path.read_bytes()[BANK_SIZE:2 * BANK_SIZE], 'ROM bank 1 was not restored'
             emulator.screen.image.save(path.with_suffix('.physics.png'))
             if alias:
-                assert quick['diag_state'] == 3 and quick['diag_bank'] == 508, quick
-                assert quick['diag_expected'] == report['bank_crc16'][508], quick
-                assert quick['diag_actual'] == report['bank_crc16'][252], quick
+                assert quick['diag_state'] == 3 and quick['diag_bank'] == first_bank, quick
+                assert quick['diag_expected'] == report['bank_crc16'][first_bank], quick
+                assert quick['diag_actual'] == report['bank_crc16'][first_bank & 255], quick
                 assert quick['diag_expected'] != quick['diag_actual'], quick
                 return {'physics': quick, 'frames': frames}
             assert quick['diag_state'] == 1 and quick['diag_checked'] == 4, quick
@@ -218,11 +220,15 @@ def main():
     parser.add_argument('--source', type=Path, default=BASE / 'build/elma-gbc-v0.7-8m.gbc')
     parser.add_argument('--out', type=Path, default=BASE / 'build/elma-gbc-v0.7-8m-check.gbc')
     parser.add_argument('--sdk', type=Path, default=BASE / '.toolchain/gbdk')
+    parser.add_argument('--first-bank', type=int, default=508,
+                        help='first physics bank: 477 for the relocated build, 508 for original 0.7')
     parser.add_argument('--verify', action='store_true', help='test clean and aliased ROMs in PyBoy')
     args = parser.parse_args()
     source, out = args.source.resolve(), args.out.resolve()
     if source == out:
         raise ValueError('Diagnostic must not overwrite the source ROM')
+    if not 256 <= args.first_bank <= BANK_COUNT-4:
+        raise ValueError('The four physics banks must fit in the upper ROM half')
     original = source.read_bytes()
     if len(original) != BANK_SIZE * BANK_COUNT or original[0x147:0x14A] != bytes((0x1B, 8, 3)):
         raise ValueError('Source must be 8 MiB MBC5+RAM+battery with 32 KiB RAM')
@@ -234,7 +240,7 @@ def main():
     assert crc16(b'123456789') == 0x29B1
     out.parent.mkdir(parents=True, exist_ok=True)
     driver = out.with_suffix('.c')
-    driver.write_text(c_driver(checksums, sha, version))
+    driver.write_text(c_driver(checksums, sha, version, args.first_bank))
     subprocess.run([str(args.sdk.resolve() / 'bin/lcc'), '-msm83:gb', '-Wf--opt-code-size',
                     '-Wm-yC', '-Wm-yt0x1B', '-Wm-ya4', '-Wm-yo512', '-Wm-ynELMA-CHECK',
                     '-Wl-m', '-Wl-j', '-o', str(out), str(driver)], check=True)
@@ -251,6 +257,7 @@ def main():
         'output': str(out), 'output_sha256': hashlib.sha256(rom).hexdigest(),
         'bytes': len(rom), 'cartridge_type': 'MBC5+RAM+BATTERY', 'ram_kib': 32,
         'preserved_banks': [1, 511], 'preserved_bytes': len(rom) - BANK_SIZE,
+        'physics_banks': [args.first_bank, args.first_bank+3],
         'switchable_banks_identical': True, 'cartridge_sram_writes': False,
         'checksum': 'CRC-16/CCITT-FALSE, poly 0x1021, init 0xFFFF, no reflection/xorout',
         'checksum_limitation': 'Matching CRC16 values are not proof against collisions.',

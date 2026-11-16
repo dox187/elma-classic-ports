@@ -26,7 +26,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--constants',type=Path,default=BASE/'build/gen/riding_constants.h')
     p.add_argument('--out',type=Path,default=BASE/'build/coefficient-check')
-    p.add_argument('--first-bank',type=int,choices=(252,508),default=252)
+    p.add_argument('--first-bank',type=int,choices=(252,477,508),default=252)
     p.add_argument('--assembly',type=Path,default=BASE/'src/physics_math32.s')
     p.add_argument('--lcc',type=Path,default=BASE/'.toolchain/gbdk/bin/lcc')
     a=p.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True);source=BASE/'src';generator=BASE/'tools/math32_coefficients.py'

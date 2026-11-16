@@ -12,7 +12,8 @@ endif
 GAME_ROM ?= $(if $(filter 4,$(ROM_MIB)),build/elma-gbc.gbc,build/elma-gbc-8m.gbc)
 GEN ?= $(if $(filter 4,$(ROM_MIB)),build/gen,build/gen-8m)
 LEVEL_CACHE ?= build/gen
-COEFFICIENT_BANK := $(if $(filter 4,$(ROM_MIB)),252,508)
+# Keep the 8 MiB physics tables directly after scenery, away from the ROM tail.
+COEFFICIENT_BANK := $(if $(filter 4,$(ROM_MIB)),252,477)
 FLAGS := -msm83:gb -Wf--opt-code-size -Wf--max-allocs-per-node -Wf100000 -Wm-yC -Wm-yt0x1B -Wm-ya4 -Wm-yoA -Wm-ynELMA-GBC -Wl-m -Wl-j -I$(GEN) -Isrc
 PHYS_ASM := $(filter-out src/physics_mul16.s,$(wildcard src/physics_*.s))
 

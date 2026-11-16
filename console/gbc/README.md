@@ -9,18 +9,30 @@ battery-backed RAM** and containing the same 54 courses, graphics and physics:
 | Build | Scenery | Versioned test image |
 |---|---|---|
 | **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.7-4m.gbc` |
-| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.7-8m.gbc` |
+| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.7-8m-bankfix.gbc` |
 
 The 8 MiB build avoids decompression during scrolling. Both share the same
-player/record save layout. **The 8 MiB build currently has a reported immediate
-motorcycle physics failure on FlashMaster hardware**, despite passing emulator
-checks with the same ROM. Cartridge compatibility is not yet verified.
+player/record save layout. The `bankfix` build moves the four physics-table
+banks from 508–511 to **477–480**, directly after the scenery. Its final 64 KiB
+is unused. All graphics and table bytes are retained; this is a cartridge
+layout workaround, with physical verification still pending. The 4 MiB build
+is unchanged.
 
-The 8 MiB physics tables occupy banks 508–511. Simulating an inaccessible upper
-ROM half (banks 256–511 reading the corresponding lower banks) reproduces a
-detached wheel on the first physics step; the unmodified ROM stays stable in
-that test. This is a diagnostic lead, not confirmation of the physical cause.
-The reported cartridge settings are MBC5, 8M ROM and 32K RAM.
+The original 0.7 8 MiB image (`build/elma-gbc-v0.7-8m.gbc`) had an immediate
+motorcycle physics failure on FlashMaster. Its full physical cartridge scan
+passed banks 1–507 and first failed at **bank 508: expected CRC16 `65FD`, read
+`FFF0`** (2026-11-16, source
+ROM SHA-256 prefix `dbf763f7f55c`). `FFF0` is also the checksum of a full bank of
+`FF` bytes; it suggests blank or incorrectly mapped data, but a CRC alone does
+not prove every byte or identify the cause. The reported settings are MBC5,
+8M ROM and 32K RAM. This confirms readable nonempty graphics banks above 255;
+it does not establish why the final physics-table banks read incorrectly.
+Erasing bank 508 to `FF` in the emulator also destabilizes the motorcycle.
+
+Simulating an inaccessible upper ROM half (banks 256–511 reading the
+corresponding lower banks) also reproduces a detached wheel on the first
+physics step. However, that simulation reads CRC `6F29` at bank 508, different
+from the physical `FFF0` result; simple upper-to-lower aliasing is not confirmed.
 
 The 0.6 build required **128 KiB SRAM**. The
 [FlashMaster guide](https://ae01.alicdn.com/kf/S2f62136b14a64022bb70b3d32150367f6.pdf)
@@ -95,9 +107,9 @@ verification limits are described below.
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
-- Diagnose the reported **8 MiB** FlashMaster physics failure using hardware
-  ROM-bank checks; then verify scrolling and retained player saves with both
-  ROM sizes, MBC5, 32K RAM and Save RAM enabled.
+- Verify the relocated **8 MiB** physics tables on FlashMaster, then verify
+  scrolling and retained player saves with both ROM sizes, MBC5, 32K RAM and
+  Save RAM enabled. Keep the confirmed original bank-508 failure as a regression.
 - Continue measuring compressed graphics streaming, including first-use
   decoding and cache misses during fast scrolling. Keep all 54 levels and
   the current physics; discuss any necessary graphics or gameplay
@@ -126,10 +138,11 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.7-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.7-8m-bankfix.gbc game` with your resource
 paths. Original rendered tiles are reused when their fingerprints match;
 codec and bank-layout mismatches are rejected before linking. Exact physics
-tables live at ROM banks 252–255 or 508–511, respectively.
+tables live at ROM banks 252–255 or 477–480, respectively. The 8 MiB builder
+rejects data in banks 508–511 and verifies that this tail remains unused.
 
 On FlashMaster, select **MBC5**, **32K RAM**, the file's matching **4M or 8M ROM
 size**, and enable **Save RAM**. The emulator's battery file or the cartridge's
@@ -141,19 +154,21 @@ a different location and are not loaded automatically.
 For the reported 8 MiB hardware failure, build a separate cartridge diagnostic:
 
 ```sh
-.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.7-8m.gbc --verify
+.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.7-8m-bankfix.gbc --out build/elma-gbc-v0.7-8m-bankfix-check.gbc --first-bank 477 --verify
 ```
 
-Load `build/elma-gbc-v0.7-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
+Load `build/elma-gbc-v0.7-8m-bankfix-check.gbc` with the same MBC5 / 8M / 32K settings.
 It retains every byte of the game's switchable ROM banks and replaces only
 ROM0 with a reader. It runs at double speed, first checking all bytes of banks
-508–511 (about three seconds including boot in the emulator). **A** scans banks
+477–480 (about three seconds including boot in the emulator). **A** scans banks
 1–511 (about 5–6 minutes of emulated hardware time); **B** repeats the quick check.
-`FAIL` reports the bank and expected/read CRC16 values; `Matches bank 252`,
-for example, suggests that an upper bank is reading its lower-half counterpart.
+`FAIL` reports the bank and expected/read CRC16 values; `Matches bank 221`,
+for example, suggests that bank 477 is reading its lower-half counterpart.
 Record the displayed result before drawing a hardware conclusion. CRC16 is an
 error detector, not a collision-proof comparison. The diagnostic itself never
-enables or writes cartridge SRAM and is not a playable game build.
+enables or writes cartridge SRAM and is not a playable game build. The original
+diagnostic is retained as `build/elma-gbc-v0.7-8m-check.gbc`; use `--first-bank
+508` when rebuilding it from the original image.
 
 | Button | Riding action |
 |---|---|
@@ -373,8 +388,14 @@ physical FlashMaster test or proof that every course can be completed.
 | Deadline misses across 54 course starts | 13 | 4 |
 | Deadline misses in no-input Freefall | 52 | 10 |
 
-The 8 MiB build is faster in the emulator, but its reported physical-cartridge
-physics failure remains unresolved. Both still miss the strict stable-30-FPS
+The relocated 8 MiB build passed 648 native coefficient vectors, all 54 course
+starts and Freefall with the same 4/10 deadline-miss counts. Byte comparisons
+confirm that banks 1–476 and all moved physics tables are unchanged; ROM0 only
+changes the coefficient bank immediate and global checksum. The cartridge
+diagnostic passed all 511 switchable banks and rejected a simulated alias.
+Physical verification of the relocation is pending.
+
+The 8 MiB build is faster in the emulator. Both still miss the strict stable-30-FPS
 target; the diagnostic runs explicitly allow deadline misses while verifying
 graphics and physics. All 4,800 unique compressed
 graphics blocks decoded exactly with SRAM guards on the 32 KiB fixture, and

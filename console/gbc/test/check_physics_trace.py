@@ -72,7 +72,7 @@ def main():
     parser.add_argument('--res',type=Path,required=True)
     parser.add_argument('--gen',type=Path,default=BASE/'build/gen')
     parser.add_argument('--out',type=Path,default=BASE/'build/physics-trace-check')
-    parser.add_argument('--first-bank',type=int,default=252,help='first coefficient ROM bank (508 for the 8 MiB profile)')
+    parser.add_argument('--first-bank',type=int,default=252,help='first coefficient ROM bank (477 for the 8 MiB profile)')
     parser.add_argument('--reference-host',type=Path,help='also replay against a previously frozen HOST library')
     parser.add_argument('--sweep-source',type=Path,default=BASE/'src/physics_sweep.c',help='isolated exact sweep candidate')
     parser.add_argument('--collision-source',type=Path,default=BASE/'src/physics_collision.c',help='isolated exact cache candidate')

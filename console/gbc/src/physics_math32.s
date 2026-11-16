@@ -551,7 +551,7 @@ _riding_coefficients_narrow::
  push bc
  ld a,b
  and a,#3
- ; Profile-specific exact tables: 252..255 (4MiB) or 508..511 (8MiB).
+ ; Profile-specific exact tables: 252..255 (4MiB) or 477..480 (8MiB).
  .globl _riding_coefficient_bank_lo
  .globl _riding_coefficient_bank_hi
  add a,#_riding_coefficient_bank_lo
