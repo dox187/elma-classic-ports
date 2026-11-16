@@ -50,7 +50,7 @@ def main():
             return np.fft.rfftfreq(len(samples),1/d.p.sound.sample_rate)[peak]
         idle=engine_segment(())
         assert d.p.memory[0xff1c]&0x60==0x60,'no-throttle wave engine is not quiet'
-        assert 85<engine_pitch(idle)<91,'no-throttle engine is not at idle pitch'
+        assert 100<engine_pitch(idle)<106,'no-throttle engine is not at its original-cycle pitch'
         for _ in range(30):
             d.tick(1,('a',));audio.append(d.p.sound.ndarray.copy())
         assert any(np.any(chunk)for chunk in audio),'real riding ROM is silent'

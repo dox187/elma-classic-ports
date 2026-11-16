@@ -1,7 +1,8 @@
 #pragma bank 3
 #include "audio.h"
+#include "riding_constants.h"
 
-/* CH3 is a fixed original-engine cycle; CH2/CH4 use short source-derived
+/* CH3 has separate original idle/load cycles; CH2/CH4 use source-derived
  * effect contours. No sample streaming, interrupt handler, division or
  * physics work. Hardware lengths bound every sound if servicing stops.
  */
@@ -15,7 +16,7 @@ static const effect_step_t menu_steps[] = {{1923,0x81,0x80}};
 static const uint8_t priority[] = {1,2,3,4};
 static const effect_step_t *effect_steps;
 static uint16_t effect_start;
-static uint8_t effect_id, effect_note, effect_active, effect_duration, engine_volume;
+static uint8_t effect_id, effect_note, effect_active, effect_duration, engine_volume, engine_mode;
 
 static uint16_t audio_now(void) {
     uint16_t now;
@@ -74,37 +75,43 @@ void audio_init(void) BANKED {
     NR30_REG=0;
     NR32_REG=0;
     NR42_REG=0;
-    /* Wave RAM is only accessible reliably while CH3 is inactive. Load
-     * once with its DAC off; throttle and pitch never modify these bytes. */
-    for(i=0;i<16;++i)((volatile uint8_t *)0xFF30)[i]=engine_wave[i];
+    /* Begin with the original idle cycle, with its DAC off. */
+    for(i=0;i<16;++i)((volatile uint8_t *)0xFF30)[i]=engine_wave[0][i];
+    engine_mode=0;
     engine_volume=0;
     effect_active=0;
 }
 
 void audio_update(uint8_t riding,uint8_t gas,uint8_t brake,uint16_t speed) BANKED {
-    uint8_t step,volume,trigger;
+    uint8_t mode,volume,trigger,i;
     uint16_t pitch;
+    const uint8_t *wave;
     effect_tick(audio_now());
     if(!riding) { engine_stop();return; }
-    if(!gas) {
-        /* Closed throttle is a quiet 88 Hz idle even while coasting or
-         * braking. NR32 shifts the same wave by two bits (25% level). */
-        step=3;volume=0x60;
+    mode=!!gas;
+    if(mode!=engine_mode) {
+        /* Only throttle edges replace the cycle. Keep the bounded 16-byte
+         * transfer uninterrupted, with the DAC off, then retrigger once. */
+        wave=engine_wave[mode];
+        __critical {
+            NR30_REG=0;
+            for(i=0;i<16;++i)((volatile uint8_t *)0xFF30)[i]=*wave++;
+        }
+        engine_mode=mode;
     }
-    else {
-        step=speed>=16384U?31:(uint8_t)(speed>>9);
-        if(brake) { step>>=1;volume=0x60; }
-        else { step+=4;volume=0x40; }
-    }
-    pitch=engine_pitch[step];
+    /* Braking changes the physical wheel speed, as in the original mixer;
+     * it does not artificially divide pitch or change the gas waveform. */
+    (void)brake;
+    volume=mode?0x40:0x60;
+    pitch=mode?engine_pitch[speed>=32768U?511:(speed>>6)]:AUDIO_IDLE_PERIOD;
     trigger=!(NR52_REG&4);
     if(volume!=engine_volume) {
         NR32_REG=volume;
         engine_volume=volume;
     }
     /* NR31 refreshes a 64/256 s watchdog without resetting sample phase.
-     * A level or period change does not need a trigger. Restart only after
-     * a stop or an expired watchdog; active wave RAM is never accessed. */
+     * A period change does not need a trigger. Restart only after a wave
+     * switch, stop or expired watchdog; active wave RAM is never accessed. */
     NR31_REG=192;
     if(trigger)NR30_REG=0x80;
     NR33_REG=(uint8_t)pitch;

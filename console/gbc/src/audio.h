@@ -9,12 +9,13 @@ enum { FX_MENU, FX_APPLE, FX_CRASH, FX_FINISH };
 /* Main-loop calls only; bank 3 is restored by the GBDK BANKED trampoline.
  * init also cancels all effects, useful when restarting/changing a level.
  * update runs in every game/menu iteration. speed is absolute driven-wheel
- * omega in the 30 Hz physics units (0..16383; larger values saturate).
+ * omega in the generated physics units (0..32768; larger values saturate).
  * gas=0 keeps a quiet, constant idle regardless of wheel speed or brake.
  * riding=0 immediately mutes the engine; short effects can finish in menus.
- * CH3 uses one fixed 32-sample engine cycle derived from the original idle
- * loop. Effects use native CH2/CH4 contours derived offline from the WAVs;
- * none stream PCM or add music. Wave RAM is loaded only by init, DAC off.
+ * CH3 uses separate original idle/load cycles and the original saturating
+ * 1..2 playback-rate curve. Brake affects pitch through physical speed.
+ * Wave RAM changes only on init or throttle-mode changes, with its DAC off.
+ * Effects use offline CH2/CH4 contours; no PCM streaming or music is added.
  */
 void audio_init(void) BANKED;
 void audio_update(uint8_t riding, uint8_t gas, uint8_t brake, uint16_t speed) BANKED;

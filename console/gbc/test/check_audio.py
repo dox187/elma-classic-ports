@@ -2,8 +2,10 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import wave
@@ -25,16 +27,39 @@ def main():
     gen = args.gen.resolve()
     if args.res:
         gen = out / 'gen'
+        gen.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(args.gen / 'riding_constants.h', gen / 'riding_constants.h')
         subprocess.run([sys.executable, str(BASE / 'tools/audio_assets.py'),
                         '--res', str(args.res.resolve()), '--out', str(gen)], check=True)
     manifest = json.loads((gen / 'audio-manifest.json').read_text())
-    selected = manifest['engine']['loops'][manifest['engine']['selected_source']]
-    nibbles = np.array(selected['wave_nibbles'], dtype=np.uint8)
-    expected_wave = bytes(int(nibbles[i] << 4) | int(nibbles[i + 1]) for i in range(0, 32, 2))
-    assert len(expected_wave) == 16 and len(set(nibbles)) >= 12
-    assert hashlib.sha256(expected_wave).hexdigest() == manifest['engine']['wave_sha256']
-    assert selected['quantized_source_correlation'] > .98, 'wave lost its original cycle shape'
-    assert selected['harmonic_energy_fractions'][0] > .6, 'engine has lost its low fundamental'
+    engine = manifest['engine']
+    waves, expected_wave = {}, {}
+    for mode, source in enumerate(('harl.wav', 'harl2.wav')):
+        selected = engine['loops'][source]
+        nibbles = np.array(selected['wave_nibbles'], dtype=np.uint8)
+        waves[mode] = nibbles
+        expected_wave[mode] = bytes(int(nibbles[i] << 4) | int(nibbles[i + 1]) for i in range(0, 32, 2))
+        assert len(expected_wave[mode]) == 16 and len(set(nibbles)) >= 12
+        assert hashlib.sha256(expected_wave[mode]).hexdigest() == selected['wave_sha256']
+        assert selected['quantized_source_correlation'] > .98, 'wave lost its original cycle shape'
+        assert selected['harmonic_energy_fractions'][0] > .6, 'cycle lost its low-frequency component'
+        # Preserve the selected recorded cycle's duration, using the actual
+        # PC mixer rate even though harl2.wav declares a different WAV rate.
+        left, right = selected['selected_source_cycle_samples']
+        base = engine['load_base_hz' if mode else 'idle_hz']
+        assert abs(base-11025/(right-left)) < .001
+    assert expected_wave[0] != expected_wave[1], 'gas still uses the idle timbre'
+    constants = (gen / 'riding_constants.h').read_text()
+    rate = float(re.search(r'#define PH_RATE ([\d.]+)', constants)[1])
+    angle_units = int(re.search(r'#define RIDING_ANGLE_UNITS (\d+)', constants)[1])
+    omega_units = angle_units * .4368 / (2 * math.pi * rate * 128)
+    speeds = np.arange(65536)
+    reference_hz = engine['load_base_hz'] * (2-np.exp(-np.minimum(speeds/omega_units*.025, 30)))
+    periods = np.array(engine['curve']['periods'])
+    actual_hz = 65536/(2048-periods[np.minimum(speeds >> 6, 511)])
+    pitch_error = float(np.max(np.abs(actual_hz-reference_hz)))
+    assert len(periods) == 512 and pitch_error < .65, ('original pitch-curve error', pitch_error)
+    assert np.all(np.diff(actual_hz) >= 0) and actual_hz.max() < engine['load_base_hz']*2
     effect_lengths = {0: 3, **{effect: manifest['effects'][name]['duration_vblanks']
                               for effect, name in [(1, 'apple'), (2, 'crash'), (3, 'finish')]}}
     (out / 'driver.c').write_text('''#include <gb/gb.h>
@@ -71,7 +96,7 @@ void service(void) BANKED {
     # code generation or adding probes to its timed update path.
     (out / 'observed_audio.c').write_text('''#include "audio.c"
 const void * const audio_state_addresses[] = {
- &effect_active,&effect_start,&effect_note
+ &effect_active,&effect_start,&effect_note,&engine_mode
 };
 ''')
     rom = out / 'check.gbc'
@@ -85,7 +110,7 @@ const void * const audio_state_addresses[] = {
     rom_bytes = rom.read_bytes()
     location = symbols['_audio_state_addresses']
     offset = (location >> 16) * 0x4000 + (location & 65535) - 0x4000
-    for index, name in enumerate(('effect_active', 'effect_start', 'effect_note')):
+    for index, name in enumerate(('effect_active', 'effect_start', 'effect_note', 'engine_mode')):
         symbols['_' + name] = int.from_bytes(rom_bytes[offset + 2 * index:offset + 2 * index + 2], 'little')
     for name in ('audio_init', 'audio_update', 'audio_effect'):
         assert symbols['_' + name] >> 16 == 3, (name, 'wrong ROM bank')
@@ -95,17 +120,21 @@ const void * const audio_state_addresses[] = {
     samples = []
     cycles = []
     engine_cycles = []
+    transition_cycles = []
     starts = []
     return_hooks = set()
     register_writes = {'wave_bytes': 0, 'triggers': 0, 'levels': 0}
+    loaded_wave = bytearray(16)
     hook_failures = []
 
     def returned(_):
         if starts and starts[-1][0] == p.register_file.SP - 2:
-            _, started, engine_only = starts.pop()
+            _, started, engine_only, transition = starts.pop()
             elapsed = p._cycles() - started
             cycles.append(elapsed)
-            if engine_only:
+            if transition:
+                transition_cycles.append(elapsed)
+            elif engine_only:
                 engine_cycles.append(elapsed)
 
     def entered(_):
@@ -117,7 +146,8 @@ const void * const audio_state_addresses[] = {
         if pc not in return_hooks:
             p.hook_register(0, pc, returned, None)
             return_hooks.add(pc)
-        starts.append((sp, p._cycles(), bool(get('riding') and not get('effect_active'))))
+        starts.append((sp, p._cycles(), bool(get('riding') and not get('effect_active')),
+                       bool(get('riding') and get('engine_mode') != bool(get('gas')))))
 
     p.hook_register(3, symbols['_audio_update'] & 65535, entered, None)
 
@@ -128,6 +158,7 @@ const void * const audio_state_addresses[] = {
                 if p.memory[0xFF1A] & 0x80:
                     hook_failures.append('wave RAM written with DAC enabled')
                 register_writes['wave_bytes'] += 1
+                loaded_wave[address-0xFF30] = p.register_file.A
         elif kind == 'trigger':
             register_writes['triggers'] += bool(p.register_file.A & 0x80)
         else:
@@ -209,12 +240,12 @@ const void * const audio_state_addresses[] = {
             wav.setframerate(p.sound.sample_rate)
             wav.writeframes((data.astype(np.int16) * 256).astype('<i2').tobytes())
 
-    def waveform_correlation(data, period):
+    def waveform_correlation(data, period, mode, shift):
         # Match the real PCM against the intended shifted wave at its exact
         # hardware period, with only the unknown starting phase fitted.
         samples = data[:12000, 0].astype(float)
         phase = np.arange(len(samples)) * (65536 / (2048 - period)) * 32 / p.sound.sample_rate
-        expected = nibbles >> 1
+        expected = waves[mode] >> shift
         return max(abs(float(np.corrcoef(samples, expected[(phase + shift).astype(int) % 32])[0, 1]))
                    for shift in np.arange(0, 32, .125))
 
@@ -227,15 +258,19 @@ const void * const audio_state_addresses[] = {
         assert get('ready'), 'driver did not boot'
         assert p.memory[0xFF24] == 0x55 and p.memory[0xFF25] == 0xEE
         assert p.memory[0xFF26] & 0x80
-        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave, 'wave RAM differs from source cycle'
+        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave[0], 'initial wave differs from idle cycle'
         assert register_writes['wave_bytes'] == 16, register_writes
         silent()
         put('riding', 1)
         put('half_rate', 1)
         idle = engine_segment()
+        assert get('engine_mode') == 0
         assert len(idle) >= p.sound.sample_rate, 'idle capture shorter than one second'
         put('gas', 1)
         low = engine_segment()
+        # CGB active wave RAM reads alias the byte being played. Inspect the
+        # actual DAC-off writes, then independently verify emitted PCM below.
+        assert get('engine_mode') == 1 and bytes(loaded_wave) == expected_wave[1]
         put('speed', 16000, 2)
         high = engine_segment()
         put('brake', 1)
@@ -243,16 +278,19 @@ const void * const audio_state_addresses[] = {
         put('gas', 0)
         put('brake', 0)
         coast = engine_segment()
+        assert get('engine_mode') == 0 and bytes(loaded_wave) == expected_wave[0]
         put('brake', 1)
         brake_idle = engine_segment()
         put('brake', 0)
         put('gas', 1)
         resumed = engine_segment()
-        assert register_writes['triggers'] == 1, ('steady engine retriggered', register_writes)
+        assert register_writes['triggers'] == 4, ('engine retriggered without a mode change', register_writes)
         assert register_writes['levels'] == 5, ('unnecessary level writes', register_writes)
-        assert register_writes['wave_bytes'] == 16, ('live wave rewrite', register_writes)
-        content_correlation = waveform_correlation(high, manifest['engine']['periods'][35])
+        assert register_writes['wave_bytes'] == 64, ('wave rewritten without a mode change', register_writes)
+        content_correlation = waveform_correlation(high, int(periods[16000 >> 6]), 1, 1)
         assert content_correlation > .98, ('PCM does not reproduce the original cycle', content_correlation)
+        idle_correlation = waveform_correlation(idle, engine['idle_period'], 0, 2)
+        assert idle_correlation > .98, ('idle PCM differs from its recorded cycle', idle_correlation)
         assert len(np.unique(high[:, 0])) >= 6, 'engine is still a two-level pulse'
         pitches = {name: fundamental(data) for name, data in
                    [('idle', idle), ('gas_idle', low), ('gas_fast', high),
@@ -262,13 +300,13 @@ const void * const audio_state_addresses[] = {
                   [('idle', idle), ('gas_idle', low), ('gas_fast', high),
                    ('brake_fast', brake), ('coast_fast', coast), ('brake_no_gas', brake_idle),
                    ('gas_resumed', resumed)]}
-        assert 85 <= pitches['idle'] <= 91, pitches
-        assert pitches['idle'] < pitches['gas_idle'], pitches
+        assert abs(pitches['idle']-engine['idle_hz']) < 1, pitches
+        assert abs(pitches['gas_idle']-engine['load_base_hz']) < 1, pitches
         assert abs(pitches['coast_fast'] - pitches['idle']) < 1, pitches
         assert abs(pitches['brake_no_gas'] - pitches['idle']) < 1, pitches
-        assert pitches['gas_fast'] > pitches['gas_idle'] * 2, pitches
-        assert abs(pitches['gas_fast'] - 65536 / (2048 - manifest['engine']['periods'][35])) < 1, pitches
-        assert pitches['brake_fast'] < pitches['gas_fast'], pitches
+        assert 1.8 < pitches['gas_fast']/pitches['gas_idle'] < 2, pitches
+        assert abs(pitches['gas_fast']-reference_hz[16000]) < 1, pitches
+        assert abs(pitches['brake_fast']-pitches['gas_fast']) < 1, pitches
         assert abs(pitches['gas_resumed'] - pitches['gas_fast']) < 1, pitches
         assert 2 < levels['idle'] < levels['gas_idle'], levels
         assert levels['idle'] == levels['coast_fast'] == levels['brake_no_gas'], levels
@@ -279,34 +317,56 @@ const void * const audio_state_addresses[] = {
         report['idle_seconds'] = round(len(idle) / p.sound.sample_rate, 3)
         report['engine_30hz_continuity_verified'] = True
         report['engine_wave_pcm_correlation'] = round(content_correlation, 6)
-        report['engine_wave_sha256'] = manifest['engine']['wave_sha256']
+        report['idle_wave_pcm_correlation'] = round(idle_correlation, 6)
+        report['original_pitch_curve_max_error_hz'] = pitch_error
+        report['engine_wave_sha256'] = {name: details['wave_sha256'] for name, details in engine['loops'].items()}
         report['steady_engine_register_writes'] = dict(register_writes)
         write_wav('engine-example.wav', np.concatenate([idle, low, high, coast]))
-        # Both the last in-range value and the full uint16 domain saturate.
-        for speed in (16383, 16384, 65535):
+        # Observe low/mid/high speed bins and the entire argument boundary.
+        # The reference uses original radians/model-second, not LUT indices.
+        for speed in (0, 63, 64, 255, 1024, 4096, 8192, 16781, 32767, 32768, 65535):
             put('speed', speed, 2)
             data = engine_segment()
-            assert abs(fundamental(data) - pitches['gas_fast']) < 1, speed
+            assert abs(fundamental(data) - reference_hz[speed]) < 1.3, speed
+            if speed == 16781:
+                write_wav('engine-wheel-cap.wav', data)
         # Apple feedback shares the mixer with a running engine. Include
         # this costlier update path in the measured CPU budget and verify
         # that effect control writes leave CH3 phase and data untouched.
         triggers = register_writes['triggers']
+        put('half_rate', 0)
         put('fx', 1)
         frames(2)
         assert p.memory[0xFF26] & 6 == 6, 'apple did not coexist with engine'
+        # Include the worst combination: a new effect control point and a
+        # throttle-mode switch in the same update, in both directions.
+        for mode in (0, 1) * 4:
+            put('gas', mode)
+            frames(1, engine_min_level=3)
         frames(effect_lengths[1] + 2, engine_min_level=3)
-        assert register_writes['triggers'] == triggers, 'apple restarted engine phase'
+        assert register_writes['triggers'] == triggers + 8, 'apple restarted engine phase'
         put('riding', 0)
         frames(3)
         silent()
         assert not (p.memory[0xFF26] & 4), 'pause left engine active'
-        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave, 'wave corrupted during playback'
+        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave[1], 'loaded wave corrupted during playback'
         # Resume/restart and coast must retrigger a valid channel.
         put('reset_request', 1)
         frames(2)
         put('riding', 1)
         put('gas', 0)
         assert audible(frames(6))
+        # Repeated throttle edges must change timbre once per edge, remain
+        # audible, keep bank/IRQ state intact and never write active wave RAM.
+        before = dict(register_writes)
+        put('half_rate', 1)
+        for mode in (1, 0) * 12:
+            put('gas', mode)
+            frames(2, engine_min_level=3)
+            assert get('engine_mode') == mode
+            assert bytes(loaded_wave) == expected_wave[mode]
+        assert register_writes['triggers']-before['triggers'] == 24
+        assert register_writes['wave_bytes']-before['wave_bytes'] == 24*16
         put('riding', 0)
         frames(2)
         put('half_rate', 0)
@@ -398,7 +458,8 @@ const void * const audio_state_addresses[] = {
         assert p.memory[0xFFFF] & 1 and not (p.memory[0xFF07] & 4), 'IRQ/timer changed'
         assert cycles and max(cycles) <= 4200, ('audio update budget', max(cycles))
         assert engine_cycles and max(engine_cycles) <= 1600, ('steady engine budget', max(engine_cycles))
-        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave, 'effects corrupted wave RAM'
+        assert transition_cycles and max(transition_cycles) <= 4200, ('throttle transition budget', max(transition_cycles))
+        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave[1], 'effects corrupted wave RAM'
         report.update(bank_restore_failures=get('banks_bad', 2),
                       vblank_irqs=get('irq_count', 2), stereo_verified=True,
                       pause_resume_verified=True, skipped_updates_verified=True,
@@ -406,6 +467,8 @@ const void * const audio_state_addresses[] = {
                       watchdog_stop_vblanks=stopped_after,
                       engine_only_cycles={'min': min(engine_cycles), 'max': max(engine_cycles),
                                           'mean': round(sum(engine_cycles) / len(engine_cycles), 1)},
+                      transition_cycles={'min': min(transition_cycles), 'max': max(transition_cycles),
+                                         'mean': round(sum(transition_cycles) / len(transition_cycles), 1)},
                       update_cycles={'min': min(cycles), 'max': max(cycles),
                                      'mean': round(sum(cycles) / len(cycles), 1)})
         write_wav('preview.wav', np.concatenate(samples))

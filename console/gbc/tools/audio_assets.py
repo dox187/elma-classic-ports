@@ -1,13 +1,15 @@
-"""Derive a fixed GBC engine wave and native effect contours from elma.res.
+"""Derive idle/load engine cycles and native effect contours from elma.res.
 
-No PCM is streamed by the cartridge. Only one 16-byte CH3 wave, period
-values, and short CH2/CH4 control tables are emitted. WAVs remain local.
+No PCM is streamed by the cartridge. Two 16-byte CH3 waves, an original
+wheel-speed/pitch lookup, and short CH2/CH4 controls are emitted. WAVs stay local.
 """
 import argparse
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
+import re
 import sys
 import wave
 
@@ -166,7 +168,41 @@ def effect_contour(samples, noise, max_volume):
                                 for key, value in window.items()} for window in windows]}
 
 
-def generate(res_path, out):
+def engine_pitches(constants, base_hz):
+    """Convert the native omega units before applying the PC mixer curve."""
+    data = constants.read_text()
+    def value(name):
+        match = re.search(r'^#define '+name+r'\s+([\d.]+)', data, re.M)
+        if not match:
+            raise ValueError('Missing physics constant: '+name)
+        return float(match[1])
+    rate, angle_units = value('PH_RATE'), value('RIDING_ANGLE_UNITS')
+    # physics_core.h: PH_WS = PH_AN * PH_H / 128, PH_H=.4368/PH_RATE.
+    omega_scale = angle_units / (2 * math.pi) * (.4368 / rate) / 128
+    # At most 64 native omega units per bin. Center interior bins; preserve
+    # exactly zero wheel speed. Values above the signed physics range clamp.
+    speed = np.arange(512) * 64 + 32
+    speed[0] = 0
+    multiplier = 2 - np.exp(-np.minimum(speed / omega_scale * .025, 30))
+    target = base_hz * multiplier
+    periods = np.rint(2048 - 65536 / target).astype(int)
+    all_speed = np.arange(65536)
+    exact = base_hz * (2 - np.exp(-np.minimum(all_speed / omega_scale * .025, 30)))
+    actual = 65536 / (2048 - periods[np.minimum(all_speed >> 6, 511)])
+    return periods.tolist(), {
+        'original_curve': '2 - exp(-min(abs(omega) * 0.025, 30))',
+        'physics_constants_sha256': hashlib.sha256(constants.read_bytes()).hexdigest(),
+        'physics_hz': int(value('PH_HZ')), 'physics_rate_hz': rate,
+        'angle_units_per_turn': int(angle_units), 'omega_units_per_rad_model_second': omega_scale,
+        'lookup_shift': 6, 'lookup_entries': 512, 'lookup_speed_units': speed.tolist(),
+        'target_hz': target.tolist(), 'periods': periods.tolist(),
+        'max_error_hz_over_uint16': float(np.max(np.abs(actual - exact))),
+        'wheel_cap_units': int(value('WHEEL_MAXW')),
+        'wheel_cap_multiplier': float(2 - math.exp(-value('WHEEL_MAXW') / omega_scale * .025)),
+    }
+
+
+def generate(res_path, out, constants=None):
     out.mkdir(parents=True, exist_ok=True)
     resource = Resource(res_path)
     loops = {}
@@ -175,18 +211,24 @@ def generate(res_path, out):
         samples, metadata = read_wave(resource, name)
         waves[name], details = engine_cycle(samples, start, end)
         loops[name] = metadata | details
-    # A single idle-loop cycle keeps the lowest engine tone recognizable.
-    # harl2 is analyzed and documented but is not mixed into an unrelated
-    # phase, nor swapped into live wave RAM as the throttle changes.
-    selected = 'harl.wav'
-    packed = waves[selected]
-    pitches = [round(2048 - 65536 / frequency) for frequency in range(64, 345, 8)]
+    # Preserve the playback rate of each selected real cycle. The loops are
+    # nonstationary; these rates are representative cycle pitches, not a claim
+    # that either complete recording has a single exact fundamental.
+    idle_hz = loops['harl.wav']['selected_cycle_hz']
+    load_hz = loops['harl2.wav']['selected_cycle_hz']
+    idle_period = round(2048 - 65536 / idle_hz)
+    pitches, curve = engine_pitches(constants or out / 'riding_constants.h', load_hz)
     header = ['#ifndef GBC_AUDIO_ASSETS_H', '#define GBC_AUDIO_ASSETS_H',
               '/* Generated from local elma.res; no streamed PCM. */',
-              'static const uint8_t engine_wave[16] = {',
-              '    ' + ','.join('0x%02X' % value for value in packed) + '};',
-              '/* CH3: 65536 / (2048-period), 64..344 Hz in 8 Hz steps. */',
-              'static const uint16_t engine_pitch[36] = {',
+              '#if PH_HZ != %d || RIDING_ANGLE_UNITS != %dL' %
+              (curve['physics_hz'], curve['angle_units_per_turn']),
+              '#error Regenerate audio assets for this physics profile', '#endif',
+              '#define AUDIO_IDLE_PERIOD %d' % idle_period,
+              'static const uint8_t engine_wave[2][16] = {',
+              '    {' + ','.join('0x%02X' % value for value in waves['harl.wav']) + '},',
+              '    {' + ','.join('0x%02X' % value for value in waves['harl2.wav']) + '}};',
+              '/* speed>>6, saturated to 511; original 1..2 playback multiplier. */',
+              'static const uint16_t engine_pitch[512] = {',
               '    ' + ','.join(str(value) for value in pitches) + '};']
     effects = {}
     for label, name, noise, volume in [('apple', 'eves.wav', False, 10),
@@ -204,17 +246,21 @@ def generate(res_path, out):
         'source_res_sha256': hashlib.sha256(res_path.read_bytes()).hexdigest(),
         'source_logic': ['src/H_WAV.CPP: wav::wav and wav::loopol',
                          'desktop/F_SDL/SDL_HHIGH.CPP: I1..I5, Mix and starthanghigh',
+                         'src/LEJATSZO.CPP: driven-wheel frequency 2-exp(-abs(omega)*0.025)',
+                         'console/gbc/src/physics_core.h: PH_WS angular-velocity units',
                          'desktop/F_SDL/SDL_SOUND.CPP: fixed 11025 Hz mixer'],
         'mixer_note': 'The original loader ignores WAV header rate; all samples use the 11025 Hz mixer.',
-        'engine': {'selected_source': selected, 'wave_bytes': 16, 'samples': 32, 'bits': 4,
-                   'selection': 'A real complete cycle nearest the idle loop median harmonic profile, '
+        'engine': {'idle_source': 'harl.wav', 'load_source': 'harl2.wav',
+                   'wave_bytes': 32, 'samples_per_wave': 32, 'bits': 4,
+                   'selection': 'A real complete cycle nearest each source loop median harmonic profile, '
                                 'band-limited to 15 harmonics and quantized to 4 bits. '
-                                'The loaded-engine loop is analyzed for comparison; no phase averaging.',
-                   'wave_sha256': hashlib.sha256(packed).hexdigest(), 'loops': loops,
-                   'pitch_formula': '65536 / (2048 - period)', 'periods': pitches,
-                   'target_hz': list(range(64, 345, 8))},
+                                'The two source cycles are kept separate and played at their source rates.',
+                   'loops': loops, 'pitch_formula': '65536 / (2048 - period)',
+                   'idle_hz': idle_hz, 'idle_period': idle_period, 'load_base_hz': load_hz,
+                   'curve': curve,
+                   'wave_switch': 'Only at throttle-mode changes, with CH3 DAC off; no active wave RAM writes.'},
         'effects': effects,
-        'limitations': ['One periodic engine cycle cannot reproduce the original changing exhaust texture.',
+        'limitations': ['Representative periodic engine cycles cannot reproduce the complete changing recordings or their start/rev transition.',
                        'Native pulse/noise effect contours are approximations, not the original PCM.',
                        'No music is added. No listening or physical-hardware validation is implied.'],
     }
@@ -226,8 +272,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--res', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--constants', type=Path, help='physics units (default: OUT/riding_constants.h)')
     args = parser.parse_args()
-    result = generate(args.res, args.out)
-    print(json.dumps({'engine_source': result['engine']['selected_source'],
+    result = generate(args.res, args.out, args.constants)
+    print(json.dumps({'engine_sources': [result['engine']['idle_source'], result['engine']['load_source']],
                       'wave_bytes': result['engine']['wave_bytes'],
+                      'idle_hz': result['engine']['idle_hz'], 'load_base_hz': result['engine']['load_base_hz'],
+                      'max_pitch_error_hz': result['engine']['curve']['max_error_hz_over_uint16'],
                       'effect_ticks': {name: effect['duration_vblanks'] for name, effect in result['effects'].items()}}))
