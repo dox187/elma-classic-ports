@@ -1,12 +1,12 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.4 — development prototype**. The port version is kept in
+Current version: **0.5 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
 
 The current cartridge test build is **4 MiB (4,194,304 bytes)**. Scenery is
 compressed losslessly with ZX0, retaining all 54 levels and the existing
 converted graphics. Cartridge testing of this smaller image is pending.
-The test image is `build/elma-gbc-v0.4-4MiB.gbc`; the normal Make target also
+The test image is `build/elma-gbc-v0.5.gbc`; the normal Make target also
 produces the same 4 MiB image as `build/elma-gbc.gbc`.
 
 An early native Game Boy Color version built with
@@ -16,7 +16,10 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.4
+## What works in 0.5
+
+- A **4 MiB ROM** containing all 54 courses, with lossless ZX0 scenery
+  compression, decoded SRAM caches and an optimized SM83 decompressor.
 
 - An original-artwork title screen with the port version and a fresh A/Start
   press to continue, followed by a separate main menu and Controls screen.
@@ -65,7 +68,7 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
-## Planned after 0.4
+## Planned after 0.5
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
