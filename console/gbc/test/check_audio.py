@@ -1,9 +1,11 @@
 """Bounded native GBC APU test: real PCM buffers, timing, banks and IRQs."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import wave
 
 import numpy as np
@@ -15,9 +17,26 @@ BASE = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, default=BASE / 'build/audio-check')
+    parser.add_argument('--gen', type=Path, default=BASE / 'build/gen')
+    parser.add_argument('--res', type=Path, help='generate isolated fixture assets from this elma.res')
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
+    gen = args.gen.resolve()
+    if args.res:
+        gen = out / 'gen'
+        subprocess.run([sys.executable, str(BASE / 'tools/audio_assets.py'),
+                        '--res', str(args.res.resolve()), '--out', str(gen)], check=True)
+    manifest = json.loads((gen / 'audio-manifest.json').read_text())
+    selected = manifest['engine']['loops'][manifest['engine']['selected_source']]
+    nibbles = np.array(selected['wave_nibbles'], dtype=np.uint8)
+    expected_wave = bytes(int(nibbles[i] << 4) | int(nibbles[i + 1]) for i in range(0, 32, 2))
+    assert len(expected_wave) == 16 and len(set(nibbles)) >= 12
+    assert hashlib.sha256(expected_wave).hexdigest() == manifest['engine']['wave_sha256']
+    assert selected['quantized_source_correlation'] > .98, 'wave lost its original cycle shape'
+    assert selected['harmonic_energy_fractions'][0] > .6, 'engine has lost its low fundamental'
+    effect_lengths = {0: 3, **{effect: manifest['effects'][name]['duration_vblanks']
+                              for effect, name in [(1, 'apple'), (2, 'crash'), (3, 'finish')]}}
     (out / 'driver.c').write_text('''#include <gb/gb.h>
 #include <gb/cgb.h>
 #include "audio.h"
@@ -48,14 +67,26 @@ void service(void) BANKED {
  if(CURRENT_BANK!=5)++banks_bad;
 }
 ''')
+    # Publish addresses only in the fixture, without altering production
+    # code generation or adding probes to its timed update path.
+    (out / 'observed_audio.c').write_text('''#include "audio.c"
+const void * const audio_state_addresses[] = {
+ &effect_active,&effect_start,&effect_note
+};
+''')
     rom = out / 'check.gbc'
     subprocess.run([str(BASE / '.toolchain/gbdk/bin/lcc'), '-msm83:gb',
                     '-Wf--opt-code-size', '-Wm-yC', '-Wm-yt0x19', '-Wm-yoA',
-                    '-Wl-m', '-Wl-j', '-I' + str(BASE / 'src'), '-o', str(rom),
+                    '-Wl-m', '-Wl-j', '-I' + str(BASE / 'src'), '-I' + str(gen), '-o', str(rom),
                     str(out / 'driver.c'), str(out / 'caller.c'),
-                    str(BASE / 'src/audio.c')], check=True, capture_output=True, text=True)
+                    str(out / 'observed_audio.c')], check=True, capture_output=True, text=True)
     symbols = {k: int(v, 16) for k, v in re.findall(
         r'DEF (_\w+) 0x([0-9A-Fa-f]+)', rom.with_suffix('.noi').read_text())}
+    rom_bytes = rom.read_bytes()
+    location = symbols['_audio_state_addresses']
+    offset = (location >> 16) * 0x4000 + (location & 65535) - 0x4000
+    for index, name in enumerate(('effect_active', 'effect_start', 'effect_note')):
+        symbols['_' + name] = int.from_bytes(rom_bytes[offset + 2 * index:offset + 2 * index + 2], 'little')
     for name in ('audio_init', 'audio_update', 'audio_effect'):
         assert symbols['_' + name] >> 16 == 3, (name, 'wrong ROM bank')
     p = PyBoy(str(rom), window='null', sound_emulated=True, cgb=True,
@@ -63,23 +94,69 @@ void service(void) BANKED {
     p.set_emulation_speed(0)
     samples = []
     cycles = []
+    engine_cycles = []
     starts = []
     return_hooks = set()
+    register_writes = {'wave_bytes': 0, 'triggers': 0, 'levels': 0}
+    hook_failures = []
 
     def returned(_):
         if starts and starts[-1][0] == p.register_file.SP - 2:
-            cycles.append(p._cycles() - starts.pop()[1])
+            _, started, engine_only = starts.pop()
+            elapsed = p._cycles() - started
+            cycles.append(elapsed)
+            if engine_only:
+                engine_cycles.append(elapsed)
 
     def entered(_):
         sp = p.register_file.SP
         pc = p.memory[sp] + 256 * p.memory[sp + 1]
-        assert pc < 0x4000, ('unexpected banked return', pc)
+        if pc >= 0x4000:
+            hook_failures.append(('unexpected banked return', pc))
+            return
         if pc not in return_hooks:
             p.hook_register(0, pc, returned, None)
             return_hooks.add(pc)
-        starts.append((sp, p._cycles()))
+        starts.append((sp, p._cycles(), bool(get('riding') and not get('effect_active'))))
 
     p.hook_register(3, symbols['_audio_update'] & 65535, entered, None)
+
+    def apu_write(kind):
+        if kind in ('wave_hl', 'wave_de'):
+            address = p.register_file.HL if kind == 'wave_hl' else 256 * p.register_file.D + p.register_file.E
+            if 0xFF30 <= address <= 0xFF3F:
+                if p.memory[0xFF1A] & 0x80:
+                    hook_failures.append('wave RAM written with DAC enabled')
+                register_writes['wave_bytes'] += 1
+        elif kind == 'trigger':
+            register_writes['triggers'] += bool(p.register_file.A & 0x80)
+        else:
+            register_writes['levels'] += 1
+
+    # Decode only the two straight machine-code function ranges; hooks on
+    # immediate bytes would corrupt instructions. Observe actual writes,
+    # including an unexpected steady-state trigger or live wave RAM load.
+    three_bytes = {0x01,0x08,0x11,0x21,0x31,0xC2,0xC3,0xC4,0xCA,0xCC,0xCD,
+                   0xD2,0xD4,0xDA,0xDC,0xEA,0xFA}
+    two_bytes = {0x06,0x0E,0x10,0x16,0x18,0x1E,0x20,0x26,0x28,0x2E,0x30,0x36,
+                 0x38,0x3E,0xC6,0xCB,0xCE,0xD6,0xDE,0xE0,0xE6,0xE8,0xEE,
+                 0xF0,0xF6,0xF8,0xFE}
+    address = symbols['_audio_init'] & 65535
+    end = symbols['_audio_effect'] & 65535
+    while address < end:
+        offset = 3 * 0x4000 + address - 0x4000
+        opcode = rom_bytes[offset]
+        kind = None
+        if opcode == 0x77:
+            kind = 'wave_hl'
+        elif opcode == 0x12:
+            kind = 'wave_de'
+        elif opcode == 0xE0:
+            kind = {0x1E: 'trigger', 0x1C: 'level'}.get(rom_bytes[offset + 1])
+        if kind:
+            p.hook_register(3, address, apu_write, kind)
+        address += 3 if opcode in three_bytes else 2 if opcode in two_bytes else 1
+    assert address == end, 'instruction decoder crossed function boundary'
 
     def get(name, width=1):
         address = symbols['_' + name]
@@ -93,10 +170,11 @@ void service(void) BANKED {
         chunks = []
         for _ in range(count):
             p.tick(1, False)
+            assert not hook_failures, hook_failures
             if capture:
                 chunk = p.sound.ndarray.copy()
                 if engine_min_level:
-                    assert p.memory[0xFF26] & 1, 'engine channel dropped out'
+                    assert p.memory[0xFF26] & 4, 'engine channel dropped out'
                     level = int(np.ptp(chunk[:, 0].astype(np.int16)))
                     assert level >= engine_min_level, ('engine PCM dropped out between updates', level)
                 chunks.append(chunk)
@@ -124,6 +202,22 @@ void service(void) BANKED {
         data = frames(3)
         assert not audible(data), ('not silent', np.ptp(data[:, 0].astype(np.int16)))
 
+    def write_wav(name, data):
+        with wave.open(str(out / name), 'wb') as wav:
+            wav.setnchannels(2)
+            wav.setsampwidth(2)
+            wav.setframerate(p.sound.sample_rate)
+            wav.writeframes((data.astype(np.int16) * 256).astype('<i2').tobytes())
+
+    def waveform_correlation(data, period):
+        # Match the real PCM against the intended shifted wave at its exact
+        # hardware period, with only the unknown starting phase fitted.
+        samples = data[:12000, 0].astype(float)
+        phase = np.arange(len(samples)) * (65536 / (2048 - period)) * 32 / p.sound.sample_rate
+        expected = nibbles >> 1
+        return max(abs(float(np.corrcoef(samples, expected[(phase + shift).astype(int) % 32])[0, 1]))
+                   for shift in np.arange(0, 32, .125))
+
     report = {}
     try:
         for _ in range(120):
@@ -131,8 +225,10 @@ void service(void) BANKED {
             if get('ready'):
                 break
         assert get('ready'), 'driver did not boot'
-        assert p.memory[0xFF24] == 0x55 and p.memory[0xFF25] == 0xBB
+        assert p.memory[0xFF24] == 0x55 and p.memory[0xFF25] == 0xEE
         assert p.memory[0xFF26] & 0x80
+        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave, 'wave RAM differs from source cycle'
+        assert register_writes['wave_bytes'] == 16, register_writes
         silent()
         put('riding', 1)
         put('half_rate', 1)
@@ -152,6 +248,12 @@ void service(void) BANKED {
         put('brake', 0)
         put('gas', 1)
         resumed = engine_segment()
+        assert register_writes['triggers'] == 1, ('steady engine retriggered', register_writes)
+        assert register_writes['levels'] == 5, ('unnecessary level writes', register_writes)
+        assert register_writes['wave_bytes'] == 16, ('live wave rewrite', register_writes)
+        content_correlation = waveform_correlation(high, manifest['engine']['periods'][35])
+        assert content_correlation > .98, ('PCM does not reproduce the original cycle', content_correlation)
+        assert len(np.unique(high[:, 0])) >= 6, 'engine is still a two-level pulse'
         pitches = {name: fundamental(data) for name, data in
                    [('idle', idle), ('gas_idle', low), ('gas_fast', high),
                     ('brake_fast', brake), ('coast_fast', coast),
@@ -165,6 +267,7 @@ void service(void) BANKED {
         assert abs(pitches['coast_fast'] - pitches['idle']) < 1, pitches
         assert abs(pitches['brake_no_gas'] - pitches['idle']) < 1, pitches
         assert pitches['gas_fast'] > pitches['gas_idle'] * 2, pitches
+        assert abs(pitches['gas_fast'] - 65536 / (2048 - manifest['engine']['periods'][35])) < 1, pitches
         assert pitches['brake_fast'] < pitches['gas_fast'], pitches
         assert abs(pitches['gas_resumed'] - pitches['gas_fast']) < 1, pitches
         assert 2 < levels['idle'] < levels['gas_idle'], levels
@@ -175,10 +278,29 @@ void service(void) BANKED {
         report['engine_pcm_peak_to_peak'] = levels
         report['idle_seconds'] = round(len(idle) / p.sound.sample_rate, 3)
         report['engine_30hz_continuity_verified'] = True
+        report['engine_wave_pcm_correlation'] = round(content_correlation, 6)
+        report['engine_wave_sha256'] = manifest['engine']['wave_sha256']
+        report['steady_engine_register_writes'] = dict(register_writes)
+        write_wav('engine-example.wav', np.concatenate([idle, low, high, coast]))
+        # Both the last in-range value and the full uint16 domain saturate.
+        for speed in (16383, 16384, 65535):
+            put('speed', speed, 2)
+            data = engine_segment()
+            assert abs(fundamental(data) - pitches['gas_fast']) < 1, speed
+        # Apple feedback shares the mixer with a running engine. Include
+        # this costlier update path in the measured CPU budget and verify
+        # that effect control writes leave CH3 phase and data untouched.
+        triggers = register_writes['triggers']
+        put('fx', 1)
+        frames(2)
+        assert p.memory[0xFF26] & 6 == 6, 'apple did not coexist with engine'
+        frames(effect_lengths[1] + 2, engine_min_level=3)
+        assert register_writes['triggers'] == triggers, 'apple restarted engine phase'
         put('riding', 0)
         frames(3)
         silent()
-        assert not (p.memory[0xFF26] & 1), 'pause left engine active'
+        assert not (p.memory[0xFF26] & 4), 'pause left engine active'
+        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave, 'wave corrupted during playback'
         # Resume/restart and coast must retrigger a valid channel.
         put('reset_request', 1)
         frames(2)
@@ -191,13 +313,22 @@ void service(void) BANKED {
         lengths = {}
         for half_rate in (0, 1):
             put('half_rate', half_rate)
-            for effect, duration in [(0, 3), (1, 11), (2, 14), (3, 48)]:
+            for effect, duration in effect_lengths.items():
                 put('fx', effect)
-                assert audible(frames(2)), ('inaudible effect', effect, half_rate)
-                frames(duration + 2)
+                capture = [frames(1)]
+                assert p.memory[0xFF26] & (2 if effect < 2 else 8), ('wrong effect channel', effect)
+                while get('effect_active'):
+                    capture.append(frames(1))
+                    assert len(capture) < duration + 4, ('effect never stopped', effect)
+                age = (get('sys_time', 2) - get('effect_start', 2)) & 65535
+                assert duration <= age <= duration + half_rate, ('wrong effect duration', effect, age)
+                data = np.concatenate(capture)
+                assert audible(data), ('inaudible effect', effect, half_rate)
+                if not half_rate:
+                    write_wav('effect-%d.wav' % effect, data)
                 silent()
-                assert not (p.memory[0xFF26] & 0x0B), ('effect stuck', effect, half_rate)
-                lengths[str(effect)] = duration
+                assert not (p.memory[0xFF26] & 0x0F), ('effect stuck', effect, half_rate)
+                lengths['%d-%dhz' % (effect, 30 if half_rate else 60)] = age
         put('half_rate', 0)
         report['effect_durations_vblanks'] = lengths
         # A menu click cannot preempt the finish; an apple cannot replace crash.
@@ -205,32 +336,50 @@ void service(void) BANKED {
         frames(2)
         put('fx', 0)
         frames(6)
-        assert p.memory[0xFF26] & 2, 'menu interrupted finish'
-        frames(48)
+        assert p.memory[0xFF26] & 8 and not (p.memory[0xFF26] & 2), 'menu interrupted finish'
+        frames(effect_lengths[3])
         put('fx', 2)
         frames(2)
         put('fx', 1)
         frames(2)
         assert p.memory[0xFF26] & 8 and not (p.memory[0xFF26] & 2), 'apple interrupted crash'
-        frames(16)
+        frames(effect_lengths[2])
         # Skip updates while an apple is playing. Age must catch up immediately.
         put('fx', 1)
         frames(2)
         put('hold', 1)
-        frames(30)
+        frames(effect_lengths[1] + 2)
         silent()
         put('hold', 0)
         frames(2)
         silent()
-        assert not (p.memory[0xFF26] & 0x0B)
+        assert not (p.memory[0xFF26] & 0x0F)
+        # A gap shorter than the whole finish must jump directly to its
+        # current contour, including if the hardware watchdog has expired.
+        put('fx', 3)
+        frames(1)
+        put('hold', 1)
+        frames(20)
+        silent()
+        put('hold', 0)
+        frames(1)
+        age = (get('sys_time', 2) - get('effect_start', 2)) & 65535
+        assert get('effect_note') == age >> 2, ('late effect did not skip expired steps', age)
+        frames(effect_lengths[3])
+        silent()
         # Engine hardware watchdog also expires without software or extra IRQs.
         put('riding', 1)
         put('gas', 1)
         frames(3)
         put('hold', 1)
-        frames(30)
+        stopped_after = 0
+        while p.memory[0xFF26] & 4:
+            frames(1)
+            stopped_after += 1
+            assert stopped_after <= 16, 'engine watchdog exceeded 250 ms'
+        assert 13 <= stopped_after <= 16, stopped_after
         silent()
-        assert not (p.memory[0xFF26] & 1), 'engine watchdog did not expire'
+        assert not (p.memory[0xFF26] & 4), 'engine watchdog did not expire'
         put('hold', 0)
         assert audible(frames(5)), 'expired watchdog did not restart'
         # sys_time wrap must not extend an effect beyond its specified duration.
@@ -241,25 +390,25 @@ void service(void) BANKED {
         put('fx', 1)
         put('hold', 0)
         assert audible(frames(2))
-        frames(13)
+        frames(effect_lengths[1] + 2)
         silent()
-        assert not (p.memory[0xFF26] & 0x0B), 'wrapped effect stuck'
+        assert not (p.memory[0xFF26] & 0x0F), 'wrapped effect stuck'
         assert get('banks_bad', 2) == 0, 'bank not restored'
         assert get('irq_count', 2) > 100, 'VBlank IRQs disabled'
         assert p.memory[0xFFFF] & 1 and not (p.memory[0xFF07] & 4), 'IRQ/timer changed'
-        assert cycles and max(cycles) < 20000, ('audio update budget', max(cycles))
+        assert cycles and max(cycles) <= 4200, ('audio update budget', max(cycles))
+        assert engine_cycles and max(engine_cycles) <= 1600, ('steady engine budget', max(engine_cycles))
+        assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave, 'effects corrupted wave RAM'
         report.update(bank_restore_failures=get('banks_bad', 2),
                       vblank_irqs=get('irq_count', 2), stereo_verified=True,
                       pause_resume_verified=True, skipped_updates_verified=True,
                       wrap_verified=True, watchdog_verified=True,
+                      watchdog_stop_vblanks=stopped_after,
+                      engine_only_cycles={'min': min(engine_cycles), 'max': max(engine_cycles),
+                                          'mean': round(sum(engine_cycles) / len(engine_cycles), 1)},
                       update_cycles={'min': min(cycles), 'max': max(cycles),
                                      'mean': round(sum(cycles) / len(cycles), 1)})
-        pcm = np.concatenate(samples).astype(np.int16) * 256
-        with wave.open(str(out / 'preview.wav'), 'wb') as wav:
-            wav.setnchannels(2)
-            wav.setsampwidth(2)
-            wav.setframerate(p.sound.sample_rate)
-            wav.writeframes(pcm.astype('<i2').tobytes())
+        write_wav('preview.wav', np.concatenate(samples))
         (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report, indent=2))
     finally:

@@ -45,6 +45,7 @@ ifeq ($(ROM_MIB),4)
 endif
 	$(PYTHON) tools/menu_assets.py --res "$(ELMA_RES)" --out $(GEN)
 	$(PYTHON) tools/splash_assets.py --res "$(ELMA_RES)" --out $(GEN)
+	$(PYTHON) tools/audio_assets.py --res "$(ELMA_RES)" --out $(GEN)
 	$(PYTHON) tools/bike_frames.py --lgr "$(ELMA_LGR)" --out $(GEN)
 	$(PYTHON) tools/bike_frames16.py --source $(GEN) --out $(GEN)
 	$(PYTHON) tools/mul_table.py --out $(GEN)
@@ -64,7 +65,7 @@ build/physics-probe.gbc: assets src/physics_probe.c src/suspension.c src/suspens
 check: all
 	$(PYTHON) test/check.py --gen $(GEN)
 	$(PYTHON) test/check_splash.py --res "$(ELMA_RES)"
-	$(PYTHON) test/check_audio.py
+	$(PYTHON) test/check_audio.py --gen $(GEN)
 	$(PYTHON) test/check_riding_math.py
 	$(PYTHON) test/check_riding_mul9.py
 	$(PYTHON) test/check_riding_division.py
@@ -101,6 +102,7 @@ ifeq ($(ROM_MIB),4)
 	$(PYTHON) test/check_graphics.py --rom $(GAME_ROM) --gen $(GEN)
 endif
 	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN)
+	$(PYTHON) test/check_finish_audio.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/check_volt_input.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/check_save.py
 	$(PYTHON) test/check_players.py --rom $(GAME_ROM) --gen $(GEN)

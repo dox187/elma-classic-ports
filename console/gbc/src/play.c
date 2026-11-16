@@ -162,10 +162,11 @@ static void check_objects(void) BANKED {
             if(game_apples_left)--game_apples_left;
             if(object->gravity)physics_set_gravity(object->gravity);
             audio_effect(FX_APPLE);
-        } else if(object->kind==1 && !game_apples_left){game_state=FINISHED;audio_effect(FX_FINISH);}
+        } else if(object->kind==1 && !game_apples_left)game_state=FINISHED;
         else if(object->kind==3){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
     }
     if(game_state==FINISHED) {
+        audio_update(0,0,0,0);
         game_previous_best=save_best(game_player_index,game_level_index);
         game_new_record=save_record(game_player_index,game_level_index,game_time_frames);
     }
@@ -278,6 +279,9 @@ void game_present(void) BANKED {
     if(game_state==FINISHED) {
         game_ready=0;
         result_overlay(game_time_frames,game_previous_best);
+        /* Save writes and LCD-off uploads cannot service effect timing.
+         * Start the finish sound once its frozen result is fully visible. */
+        audio_effect(FX_FINISH);
         last_hud_state=FINISHED;game_ready=1;
         return;
     }
@@ -368,6 +372,7 @@ void main(void) NONBANKED {
             start_game();++game_frames;continue;
         }
         if(game_state==FINISHED && (pressed&J_UP)) {
+            action=last_hud_state!=FINISHED;
             if(result_details) {
                 restore_game();game_ready=0;
                 result_overlay(game_time_frames,game_previous_best);
@@ -375,6 +380,7 @@ void main(void) NONBANKED {
                 game_ready=0;
                 menu_result(game_level_index,game_time_frames,game_previous_best);
             }
+            if(action)audio_effect(FX_FINISH);
             result_details=!result_details;last_hud_state=FINISHED;game_ready=1;
             ++game_frames;continue;
         }

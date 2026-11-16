@@ -40,7 +40,7 @@ def main():
             d.tick(4,keys)
             for _ in range(60):
                 d.tick(1,keys);chunk=d.p.sound.ndarray.copy()
-                assert d.p.memory[0xff26]&1,'real riding engine dropped out'
+                assert d.p.memory[0xff26]&4,'real riding wave engine dropped out'
                 assert np.ptp(chunk[:,0].astype(np.int16))>2,'real riding engine PCM is silent'
                 chunks.append(chunk);audio.append(chunk)
             return np.concatenate(chunks)
@@ -49,19 +49,19 @@ def main():
             peak=np.argmax(np.abs(np.fft.rfft(samples*np.hanning(len(samples)))))
             return np.fft.rfftfreq(len(samples),1/d.p.sound.sample_rate)[peak]
         idle=engine_segment(())
-        assert d.p.memory[0xff12]>>4==3,'no-throttle engine is not quiet'
+        assert d.p.memory[0xff1c]&0x60==0x60,'no-throttle wave engine is not quiet'
         assert 85<engine_pitch(idle)<91,'no-throttle engine is not at idle pitch'
         for _ in range(30):
             d.tick(1,('a',));audio.append(d.p.sound.ndarray.copy())
         assert any(np.any(chunk)for chunk in audio),'real riding ROM is silent'
-        assert d.p.memory[0xff26]&1,'riding engine is disabled'
-        assert d.p.memory[0xff12]>>4==7,'throttle did not increase engine volume'
+        assert d.p.memory[0xff26]&4,'riding wave engine is disabled'
+        assert d.p.memory[0xff1c]&0x60==0x40,'throttle did not increase wave engine volume'
         coast=engine_segment(())
-        assert d.p.memory[0xff12]>>4==3,'releasing throttle did not lower engine volume'
+        assert d.p.memory[0xff1c]&0x60==0x60,'releasing throttle did not lower wave engine volume'
         assert abs(engine_pitch(coast)-engine_pitch(idle))<1,'coasting did not return to idle pitch'
         assert np.ptp(coast[:,0].astype(np.int16))==np.ptp(idle[:,0].astype(np.int16))
         d.pulse('select');assert d.byte('game_state')==PAUSED and d.byte('menu_screen')==0
-        assert not d.p.memory[0xff26]&1,'pause left the engine running'
+        assert not d.p.memory[0xff26]&4,'pause left the wave engine running'
         frozen=(d.time_frames(),d.bike(),d.word('game_steps'))
         d.tick(60);assert frozen==(d.time_frames(),d.bike(),d.word('game_steps'))
         d.snapshot('paused')
@@ -79,7 +79,7 @@ def main():
             output.writeframes((pcm.astype(np.int16)+128).astype(np.uint8).tobytes())
         report={'status':'passed','version':version,'rom_sha256':d.rom_sha256,
                 'checks':['title input','main menu version','controls/back','course selection persistence',
-                          'continuous quiet idle PCM','throttle volume','coast returns to idle',
+                          'continuous quiet CH3 idle PCM','CH3 throttle volume','coast returns to idle',
                           'real engine PCM','pause mutes engine','pause freezes ride',
                           'resume preserves current course','restart resets current course','restored VRAM'],
                 'display_overruns':d.word('game_overruns'),'hardware_tested':False}
