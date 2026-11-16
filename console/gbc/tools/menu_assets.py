@@ -1,4 +1,4 @@
-"""GBC main menu and level list: native text and original menu artwork."""
+"""GBC menus and player keyboard: native text and original menu artwork."""
 import argparse
 import hashlib
 import json
@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
-from PIL import Image
+from PIL import Image,ImageDraw
 
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/'console/snes/tools'))
@@ -29,9 +29,10 @@ def main():
     if not 1<=len(names)<=54:raise ValueError('Unsupported level catalogue size')
     if any(len(name)>18 for name in names):raise ValueError('Level name does not fit an 18-column menu row')
     labels=('ELASTO MANIA LEVEL A/START PLAY B RESUME L/R PAGE UP/DOWN SELECT '
-            'SELECTED LEVEL RESTART LEVEL SELECT CONTROLS BACK '
+            'SELECTED LEVEL RESTART LEVEL SELECT CONTROLS BACK PLAYERS PLAYER BEST ACTIVE '
+            'RENAME NAME CANNOT BE BLANK SPACE DEL OK ARROWS MOVE KEY DELETE DONE CANCEL '
             'A THROTTLE B BRAKE LEFT/RIGHT ROTATE UP TURN SELECT MENU START RESTART ')
-    needed=set((''.join(names)+labels+version_text+'0123456789:()/-').upper())-{' '}
+    needed=set((''.join(names)+labels+version_text+'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:()/-._').upper())-{' '}
     missing=needed-{chr(code) for code in range(32,96)}
     if missing:raise ValueError('Pixel font lacks required glyphs: '+repr(missing))
     pal=np.array(res.pal,dtype=np.uint8).reshape(-1,3)
@@ -89,11 +90,16 @@ def main():
             preview.paste(Image.fromarray(text_palette[decode(pair_tile(s[i],s[i+1],rows))].astype(np.uint8)),(x*8,y*8));x+=1
     def cursor(x,y):
         preview.paste(Image.fromarray(cursor_palette[ci].astype(np.uint8)),(x*8,y*8))
+    def frame(x,y,width,height):
+        ImageDraw.Draw(preview).rectangle((x*8,y*8,(x+width)*8-1,(y+height)*8-1),
+                                         fill=tuple(text_palette[0]),outline=tuple(text_palette[3]))
     for paused in (False,True):
         preview=background()
         text(7,0,'ELASTO MANIA',12);text(7,2,version_text,12)
+        text(5,3,'PLAYER: PLAYER 1',20)
         text(5,4,'SELECTED LEVEL 01/%02d'%len(names),20);text(5,5,names[0],20)
-        options=('RESUME','RESTART','LEVEL SELECT','CONTROLS') if paused else ('PLAY','LEVEL SELECT','CONTROLS')
+        text(5,6,'BEST --:--.--',20)
+        options=('RESUME','RESTART','LEVEL SELECT','CONTROLS') if paused else ('PLAY','LEVEL SELECT','PLAYERS','CONTROLS')
         for i,label in enumerate(options):text(7,7+i*2,label,20)
         cursor(5,7)
         text(0,15,'A/START SELECT',20)
@@ -102,8 +108,10 @@ def main():
         preview.save(a.out/('menu-paused-preview.png' if paused else 'menu-preview.png'))
     preview=background()
     text(7,0,'ELASTO MANIA',12);text(7,2,'LEVEL 01/%02d'%len(names),12)
+    text(2,3,'PLAYER: PLAYER 1',20)
     for i,name in enumerate(names[:9]):text(2,4+i,name,18)
     cursor(0,4)
+    text(2,13,'BEST --:--.--',20)
     text(0,15,'A/START PLAY',20);text(0,16,'B BACK    L/R PAGE',20);text(0,17,'UP/DOWN SELECT',20)
     preview.save(a.out/'menu-levels-preview.png')
     preview=background()
@@ -113,7 +121,26 @@ def main():
         text(2,5+i*2,label,36)
     text(0,17,'B BACK',20)
     preview.save(a.out/'menu-controls-preview.png')
-    report={'version':version,'screens':['main','levels','controls'],'level_count':len(names),'max_name_columns':max(map(len,names)),'font':'CG Pixel 3x5 Mono,4-pixel advance',
+    preview=background()
+    text(7,0,'ELASTO MANIA',12);text(6,2,'PLAYERS',16);text(4,3,'PLAYER: PLAYER 1',20)
+    for i in range(4):text(4,5+i*2,('%d PLAYER %d'%(i+1,i+1)).ljust(16)+('ACTIVE' if not i else ''),28)
+    cursor(2,5)
+    for y,label in enumerate(('A/START SELECT','SELECT RENAME','B BACK','UP/DOWN PLAYER'),14):text(1,y,label,36)
+    preview.save(a.out/'menu-players-preview.png')
+    preview=background()
+    text(7,0,'ELASTO MANIA',12);text(5,1,'PLAYER 1 NAME',20)
+    frame(4,2,12,3);frame(0,5,20,11)
+    text(5,3,'PLAYER 1_',20)
+    letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    for row in range(4):text(1,6+row*2,''.join(' '+c+'  ' for c in letters[row*9:row*9+9]),36)
+    text(1,14,'   SPACE        DEL          OK',36)
+    selected_palette=text_palette[[3,3,0,0]]
+    for i,pair in enumerate((' A','  ')):
+        preview.paste(Image.fromarray(selected_palette[decode(pair_tile(*pair,rows))].astype(np.uint8)),((1+i)*8,6*8))
+    text(0,16,'ARROWS MOVE  A KEY  B DELETE',40)
+    text(0,17,'START DONE     SELECT CANCEL',40)
+    preview.save(a.out/'menu-name-preview.png')
+    report={'version':version,'screens':['main','levels','controls','players','name'],'level_count':len(names),'max_name_columns':max(map(len,names)),'font':'CG Pixel 3x5 Mono,4-pixel advance',
             'background':'original szoveg1.pcx quarter-size repeat','cursor':'original sisak.pcx frame25',
             'font_bytes':320,'font_sha256':hashlib.sha256(FONT_PATH.read_bytes()).hexdigest(),
             'background_patterns':len(patterns),'background_bytes':sum(map(len,patterns)),

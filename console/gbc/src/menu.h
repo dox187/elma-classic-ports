@@ -7,8 +7,9 @@
 #define MENU_RESUME 254
 #define MENU_RESTART 253
 
-enum { MENU_MAIN=0, MENU_LEVELS=1, MENU_CONTROLS=2 };
+enum { MENU_MAIN=0, MENU_LEVELS=1, MENU_CONTROLS=2, MENU_PLAYERS=3, MENU_NAME=4 };
 extern volatile uint8_t menu_screen,menu_selection;
+extern volatile uint8_t menu_player_selection,menu_keyboard_selection;
 
 /* All menu code/assets are in bank 7; the world name copier lives in ROM0.
  * menu_open shows the main menu; level selection survives its sub-screens.

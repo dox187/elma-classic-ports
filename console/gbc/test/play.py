@@ -37,8 +37,8 @@ class Driver:
         self.out.mkdir(parents=True, exist_ok=True)
         rom_bytes = rom.read_bytes()
         assert rom_bytes[0x143] == 0xc0, 'ROM must be CGB only'
-        assert rom_bytes[0x147] in (0x19,0x1a), 'ROM must use the MBC5 cartridge header'
-        if rom_bytes[0x147] == 0x1a:
+        assert rom_bytes[0x147] in (0x19,0x1a,0x1b), 'ROM must use the MBC5 cartridge header'
+        if rom_bytes[0x147] in (0x1a,0x1b):
             assert rom_bytes[0x149] == 4, 'streamed cache requires128KiB cartridge scratch RAM'
         assert len(rom_bytes) == 32768 << rom_bytes[0x148], 'ROM bank count differs from file length'
         assert rom_bytes[0x14d] == (-sum(rom_bytes[0x134:0x14d])-25)&255, 'ROM header checksum'

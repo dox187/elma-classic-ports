@@ -7,7 +7,7 @@ PHYS_HZ ?= 30
 DAMPER ?= exponential
 GAME_ROM ?= build/elma-gbc.gbc
 GEN := build/gen
-FLAGS := -msm83:gb -Wf--opt-code-size -Wf--max-allocs-per-node -Wf100000 -Wm-yC -Wm-yt0x1A -Wm-ya16 -Wm-yoA -Wm-ynELMA-GBC -Wl-m -Wl-j -I$(GEN) -Isrc
+FLAGS := -msm83:gb -Wf--opt-code-size -Wf--max-allocs-per-node -Wf100000 -Wm-yC -Wm-yt0x1B -Wm-ya16 -Wm-yoA -Wm-ynELMA-GBC -Wl-m -Wl-j -I$(GEN) -Isrc
 PHYS_ASM := $(filter-out src/physics_mul16.s,$(wildcard src/physics_*.s))
 
 .PHONY: all bootstrap assets check clean
@@ -39,10 +39,10 @@ $(GAME_ROM): assets src/video.s src/play.c src/runtime.h src/bike_render.c src/p
 	$(PYTHON) tools/build.py --sdk "$(GBDK_HOME)" --gen $(GEN) --out $@
 
 build/elma-gbc-viewer.gbc: assets src/main.c
-	$(LCC) $(filter-out -Wm-yt0x1A -Wm-ya16,$(FLAGS)) -Wm-yt0x19 -o $@ src/main.c $(GEN)/world_*.c $(GEN)/patterns.c $(GEN)/assets.c
+	$(LCC) $(filter-out -Wm-yt0x1B -Wm-ya16,$(FLAGS)) -Wm-yt0x19 -o $@ src/main.c $(GEN)/world_*.c $(GEN)/patterns.c $(GEN)/assets.c
 
 build/physics-probe.gbc: assets src/physics_probe.c src/suspension.c src/suspension.h src/mul16.s
-	$(LCC) $(filter-out -Wm-yt0x1A -Wm-ya16,$(FLAGS)) -Wm-yt0x19 -o $@ src/physics_probe.c src/suspension.c src/mul16.s
+	$(LCC) $(filter-out -Wm-yt0x1B -Wm-ya16,$(FLAGS)) -Wm-yt0x19 -o $@ src/physics_probe.c src/suspension.c src/mul16.s
 
 check: all
 	$(PYTHON) test/check.py --gen $(GEN)
@@ -82,6 +82,8 @@ check: all
 	$(PYTHON) test/check_world_cache.py --gen $(GEN) --compressed --out build/playtest/world-cache-compressed
 	$(PYTHON) test/check_graphics.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN)
+	$(PYTHON) test/check_save.py
+	$(PYTHON) test/check_players.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/all_levels.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/all-levels --idle-updates 12
 	$(PYTHON) test/freefall.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/freefall
 	$(PYTHON) test/play.py --rom $(GAME_ROM) --gen $(GEN) --out build/playtest/check

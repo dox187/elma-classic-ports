@@ -10,6 +10,7 @@
 #include "physics_core.h"
 #include "splash.h"
 #include "audio.h"
+#include "save.h"
 #pragma bank 5
 
 #ifndef GAME_FRAME_INTERVAL
@@ -17,6 +18,9 @@
 #endif
 #if PH_HZ != 30 && PH_HZ != 60
 #error Select the 30 or 60 Hz riding profile.
+#endif
+#if SAVE_LEVEL_COUNT != LEVEL_COUNT
+#error Update the save format for the course catalogue.
 #endif
 
 const uint8_t game_step_interval=60/PH_HZ;
@@ -48,6 +52,7 @@ const uint8_t game_object_oam_base=BIKE_OBJECT_OAM_BASE;
 volatile uint8_t game_state, game_apples_left, game_ready,game_level_index;
 volatile uint16_t game_frames, game_steps, game_overruns;
 volatile uint32_t game_time_frames;
+volatile uint8_t game_player_index,game_new_record;
 uint16_t game_camera_x, game_camera_y;
 uint8_t game_object_active[LEVEL_OBJECT_MAX];
 static uint8_t previous, hud_counter, last_hud_state;
@@ -151,6 +156,8 @@ static void check_objects(void) BANKED {
         } else if(object->kind==1 && !game_apples_left){game_state=FINISHED;audio_effect(FX_FINISH);}
         else if(object->kind==3){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
     }
+    if(game_state==FINISHED)
+        game_new_record=save_record(game_player_index,game_level_index,game_time_frames);
 }
 
 uint8_t gbc_bike_bounded(void) __sdcccall(0);
@@ -167,10 +174,10 @@ static void clock_tick(void) BANKED {
     }
 }
 
-static void hud_text(const char *text,uint8_t width) {
+static void hud_text(const char *text,uint8_t first,uint8_t width) {
     uint8_t i,left,right;
-    width>>=1;
-    for(i=0;i<width;++i) {
+    first>>=1;width=(width>>1)+first;
+    for(i=first;i<width;++i) {
         left=(uint8_t)*text;if(left)++text;
         right=(uint8_t)*text;if(right)++text;
         if(left==hud_characters[i*2] && right==hud_characters[i*2+1])continue;
@@ -182,17 +189,22 @@ static void hud_text(const char *text,uint8_t width) {
 }
 
 static void draw_hud(void) {
-    uint8_t width=last_hud_state==game_state?14:40;
-    char text[15]="A:00 00:00.00";
+    uint8_t changed=last_hud_state!=game_state;
+    char apples[5]="A:00",time[9]="00:00.00";
     last_hud_state=game_state;
-    if(game_state==DEAD){hud_text("CRASH START RETRY",40);return;}
-    if(game_state==FINISHED){hud_text("FINISHED START RETRY",40);return;}
-    if(game_state==PAUSED){hud_text("PAUSED SELECT",40);return;}
-    text[2]='0'+game_apples_left/10;text[3]='0'+game_apples_left%10;
-    text[5]='0'+clock_digits[0];text[6]='0'+clock_digits[1];
-    text[8]='0'+clock_digits[2];text[9]='0'+clock_digits[3];
-    text[11]='0'+clock_digits[4];text[12]='0'+clock_digits[5];
-    hud_text(text,width);
+    if(game_state==DEAD){hud_text("CRASH A/START RETRY B/SELECT MENU",0,40);return;}
+    if(game_state==FINISHED) {
+        hud_text(game_new_record?"BEST! A:NEXT START:RETRY B/SELECT:MENU"
+                                :"DONE A:NEXT START:RETRY B/SELECT:MENU",0,40);
+        return;
+    }
+    if(game_state==PAUSED){hud_text("PAUSED SELECT",0,40);return;}
+    if(changed)hud_text("A:00                      TIME  00:00.00",0,40);
+    apples[2]='0'+game_apples_left/10;apples[3]='0'+game_apples_left%10;
+    time[0]='0'+clock_digits[0];time[1]='0'+clock_digits[1];
+    time[3]='0'+clock_digits[2];time[4]='0'+clock_digits[3];
+    time[6]='0'+clock_digits[4];time[7]='0'+clock_digits[5];
+    hud_text(apples,0,4);hud_text(time,32,8);
 }
 
 static void video_init(void) {
@@ -226,6 +238,7 @@ static void start_game(void) BANKED {
     game_ready=0;DISPLAY_OFF;
     world_select(game_level_index);physics_select_level(game_level_index);physics_reset_current();
     game_state=RIDING;game_apples_left=0;game_time_frames=0;clock_fraction=0;volt_wait=0;
+    game_player_index=save_player;game_new_record=0;
     last_hud_state=255;hud_counter=0;object_phase=0;
     for(i=0;i<6;++i)clock_digits[i]=0;
     for(i=0;i<OBJECT_COUNT;++i) {
@@ -294,7 +307,7 @@ void main(void) NONBANKED {
     uint16_t start,now;
     int16_t wheel_speed;
     DISPLAY_OFF;cpu_fast();game_state=MENU;game_level_index=0;
-    audio_init();splash_show();
+    save_init();audio_init();splash_show();
     menu_open(0,0);previous=joypad();game_ready=1;
     while(1) {
         vsync();__critical {start=sys_time;}
@@ -311,7 +324,9 @@ void main(void) NONBANKED {
             else if(action==MENU_RESUME){game_state=RIDING;last_hud_state=255;restore_game();}
             ++game_frames;continue;
         }
-        if(pressed&J_START){start_game();++game_frames;continue;}
+        if((pressed&J_START) || (game_state==DEAD && (pressed&J_A))) {
+            start_game();++game_frames;continue;
+        }
         if(pressed&J_SELECT || ((game_state==DEAD || game_state==FINISHED) && (pressed&J_B))) {
             action=game_state==RIDING;
             game_state=action?PAUSED:MENU;
