@@ -30,6 +30,18 @@ def pair_tile(left, right, rows):
 
 
 def write_header(out, rows):
+    # The riding clock changes every presentation. Store its paired glyphs
+    # directly, so updating a digit only uploads one existing 16-byte tile.
+    clock = [('hud_digit_pairs', [f'{n:02d}' for n in range(100)]),
+             ('hud_seconds_tens', [':'+str(n) for n in range(6)]),
+             ('hud_seconds_ones', [str(n)+'.' for n in range(10)])]
+    (out/'clock_font.h').write_text(
+        '/* Native CG Pixel 3x5 clock tiles; generated without resampling. */\n'
+        '#ifndef GBC_CLOCK_FONT_H\n#define GBC_CLOCK_FONT_H\n#include <stdint.h>\n'+
+        ''.join('static const uint8_t %s[%d][16]={\n%s\n};\n' % (
+            name, len(labels), ',\n'.join('    {'+','.join(map(str,pair_tile(*label,rows)))+'}'
+                                        for label in labels)) for name,labels in clock)+
+        '#endif\n')
     values = ',\n'.join('    {'+','.join(map(str, row))+'}' for row in rows)
     (out/'ui_font.h').write_text('''/* CG Pixel 3x5 Mono by vyznev, CC0; native pixels, four-pixel advance. */
 #ifndef GBC_UI_FONT_H

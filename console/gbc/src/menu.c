@@ -71,21 +71,26 @@ static void player_label(uint8_t x,uint8_t y) {
     text(x,y,label,20);
 }
 
+void menu_format_time(char *label,uint32_t frames) {
+    uint32_t centiseconds;
+    uint16_t seconds;
+    /* Keep both products bounded even when a stored counter is very large.
+     * Six clock digits wrap at 100 minutes, as the riding HUD does. */
+    centiseconds=((frames/5973UL)%60UL)*10000UL
+        +(frames%5973UL)*10000UL/5973UL;
+    centiseconds%=600000UL;
+    seconds=(uint16_t)(centiseconds/100UL);
+    label[0]='0'+seconds/600;label[1]='0'+seconds/60%10;
+    label[2]=':';
+    label[3]='0'+seconds%60/10;label[4]='0'+seconds%10;
+    label[5]='.';
+    label[6]='0'+centiseconds%100UL/10;label[7]='0'+centiseconds%10;
+}
+
 static void best_label(uint8_t x,uint8_t y) {
     char label[15]="BEST --:--.--";
-    uint32_t frames=save_best(save_player,selected_level),centiseconds;
-    uint16_t seconds;
-    if(frames) {
-        /* Keep both products bounded even when a stored counter is very large.
-         * Six clock digits wrap at 100 minutes, as the riding HUD does. */
-        centiseconds=((frames/5973UL)%60UL)*10000UL
-            +(frames%5973UL)*10000UL/5973UL;
-        centiseconds%=600000UL;
-        seconds=(uint16_t)(centiseconds/100UL);
-        label[5]='0'+seconds/600;label[6]='0'+seconds/60%10;
-        label[8]='0'+seconds%60/10;label[9]='0'+seconds%10;
-        label[11]='0'+centiseconds%100UL/10;label[12]='0'+centiseconds%10;
-    }
+    uint32_t frames=save_best(save_player,selected_level);
+    if(frames)menu_format_time(label+5,frames);
     text(x,y,label,20);
 }
 
@@ -306,10 +311,8 @@ static void move_key(uint8_t direction) {
     key_highlight(key,1);
 }
 
-void menu_open(uint8_t selected,uint8_t can_resume) BANKED {
+static void prepare_menu(void) {
     DISPLAY_OFF;HIDE_WIN;HIDE_SPRITES;
-    selected_level=selected<MENU_LEVEL_COUNT ? selected : 0;
-    resume_allowed=can_resume;menu_selection=0;
     LCDC_REG|=LCDCF_BG8000;
     set_bkg_palette(0,3,menu_palettes);
     set_bkg_palette(3,1,key_palette);
@@ -319,7 +322,49 @@ void menu_open(uint8_t selected,uint8_t can_resume) BANKED {
     set_bkg_data(241,1,blank_pattern);
     box_patterns();
     move_bkg(0,0);
+}
+
+void menu_open(uint8_t selected,uint8_t can_resume) BANKED {
+    prepare_menu();
+    selected_level=selected<MENU_LEVEL_COUNT ? selected : 0;
+    resume_allowed=can_resume;menu_selection=0;
     draw_main();
+    SHOW_BKG;
+}
+
+void menu_result(uint8_t level,uint32_t frames,uint32_t previous_best) BANKED {
+    char heading[13]="COURSE 00/00";
+    char time[23]="TIME          00:00.00";
+    char best[23]="PREVIOUS BEST --:--.--";
+    const char *status;
+    prepare_menu();
+    selected_level=level<MENU_LEVEL_COUNT ? level : 0;
+    resume_allowed=0;menu_selection=0;
+    begin_screen(MENU_RESULT);
+    text(6,2,"LEVEL COMPLETE",16);
+    heading[7]='0'+(selected_level+1)/10;
+    heading[8]='0'+(selected_level+1)%10;
+    heading[10]='0'+MENU_LEVEL_COUNT/10;
+    heading[11]='0'+MENU_LEVEL_COUNT%10;
+    text(2,4,heading,32);
+    world_level_name(selected_level,name_buffer);
+    text(2,5,name_buffer,32);
+    player_label(2,6);
+    frame(1,8,18,6);
+    menu_format_time(time+14,frames);
+    if(previous_best)menu_format_time(best+14,previous_best);
+    text(2,9,time,32);
+    text(2,11,best,32);
+    if(!previous_best)status="FIRST RECORD";
+    else if(frames<previous_best)status="NEW RECORD";
+    else if(frames==previous_best)status="BEST MATCHED";
+    else status="NO IMPROVEMENT";
+    text(2,12,status,32);
+    text(2,14,"UP LAST FRAME",32);
+    text(2,15,"A NEXT LEVEL",32);
+    text(2,16,"START RETRY",32);
+    text(2,17,"B/SELECT MENU",32);
+    DISPLAY_ON;
     SHOW_BKG;
 }
 

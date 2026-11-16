@@ -534,6 +534,12 @@ class Driver:
                 self.snapshot('apple-collected')
         self.buttons(())
         if self.byte('game_state') == FINISHED:
+            if '_result_overlay' in self.symbols:
+                for _ in range(180):
+                    self.tick()
+                    if (self.byte('game_ready') and self.p.memory[0xff40]&0xa0==0xa0
+                            and self.p.memory[0xff4a]==120):break
+                else:raise AssertionError('frozen finish panel did not load')
             self.tick(4)
         final = self.snapshot('route-final')
         assert apple_step is not None, 'route did not collect the apple'

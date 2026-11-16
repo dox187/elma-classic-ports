@@ -11,6 +11,7 @@
 #include "splash.h"
 #include "audio.h"
 #include "save.h"
+#include "result.h"
 #pragma bank 5
 
 #ifndef GAME_FRAME_INTERVAL
@@ -57,10 +58,11 @@ const uint8_t game_volt_wait_steps=GAME_VOLT_WAIT_STEPS;
 volatile uint8_t game_state, game_apples_left, game_ready,game_level_index;
 volatile uint16_t game_frames, game_steps, game_overruns;
 volatile uint32_t game_time_frames;
+volatile uint32_t game_previous_best;
 volatile uint8_t game_player_index,game_new_record;
 uint16_t game_camera_x, game_camera_y;
 uint8_t game_object_active[LEVEL_OBJECT_MAX];
-static uint8_t previous, hud_counter, last_hud_state;
+static uint8_t previous, last_hud_state,result_details;
 static uint8_t volt_wait,objects_valid,objects_apples,objects_used,object_phase;
 static uint8_t visible_objects[LEVEL_OBJECT_MAX],visible_count;
 static uint16_t objects_camera_x,objects_camera_y;
@@ -72,8 +74,10 @@ static uint16_t clock_fraction;
 static uint8_t clock_digits[6];
 static const uint16_t hud_palette[] = {RGB_BLACK, RGB_BLACK, RGB_WHITE, RGB_WHITE};
 #include "ui_font.h"
+#include "clock_font.h"
 /* Each HUD cell owns a pattern; upload only character pairs that changed. */
 static uint8_t hud_characters[40],hud_pattern[16];
+static uint8_t hud_apples,hud_minutes,hud_seconds_tens_digit,hud_seconds_ones_digit,hud_centiseconds;
 const uint8_t game_hud_font_advance=4;
 
 void gbc_video_body_world(int16_t *dest) __sdcccall(0);
@@ -161,8 +165,10 @@ static void check_objects(void) BANKED {
         } else if(object->kind==1 && !game_apples_left){game_state=FINISHED;audio_effect(FX_FINISH);}
         else if(object->kind==3){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
     }
-    if(game_state==FINISHED)
+    if(game_state==FINISHED) {
+        game_previous_best=save_best(game_player_index,game_level_index);
         game_new_record=save_record(game_player_index,game_level_index,game_time_frames);
+    }
 }
 
 uint8_t gbc_bike_bounded(void) __sdcccall(0);
@@ -195,21 +201,30 @@ static void hud_text(const char *text,uint8_t first,uint8_t width) {
 
 static void draw_hud(void) {
     uint8_t changed=last_hud_state!=game_state;
-    char apples[5]="A:00",time[9]="00:00.00";
+    uint8_t value;
+    char apples[5]="A:00";
     last_hud_state=game_state;
     if(game_state==DEAD){hud_text("CRASH A/START RETRY B/SELECT MENU",0,40);return;}
-    if(game_state==FINISHED) {
-        hud_text(game_new_record?"BEST! A:NEXT START:RETRY B/SELECT:MENU"
-                                :"DONE A:NEXT START:RETRY B/SELECT:MENU",0,40);
-        return;
-    }
+    if(game_state==FINISHED)return;
     if(game_state==PAUSED){hud_text("PAUSED SELECT",0,40);return;}
     if(changed)hud_text("A:00                      TIME  00:00.00",0,40);
-    apples[2]='0'+game_apples_left/10;apples[3]='0'+game_apples_left%10;
-    time[0]='0'+clock_digits[0];time[1]='0'+clock_digits[1];
-    time[3]='0'+clock_digits[2];time[4]='0'+clock_digits[3];
-    time[6]='0'+clock_digits[4];time[7]='0'+clock_digits[5];
-    hud_text(apples,0,4);hud_text(time,32,8);
+    if(hud_apples!=game_apples_left) {
+        hud_apples=game_apples_left;
+        apples[2]='0'+game_apples_left/10;apples[3]='0'+game_apples_left%10;
+        hud_text(apples,0,4);
+    }
+    /* Use prebuilt native glyph pairs: no string formatting or font raster
+     * work on the per-frame path. Usually only the hundredths tile changes. */
+    VBK_REG=1;
+    value=clock_digits[4]*10+clock_digits[5];
+    if(value!=hud_centiseconds){hud_centiseconds=value;set_bkg_data(239,1,hud_digit_pairs[value]);}
+    value=clock_digits[3];
+    if(value!=hud_seconds_ones_digit){hud_seconds_ones_digit=value;set_bkg_data(238,1,hud_seconds_ones[value]);}
+    value=clock_digits[2];
+    if(value!=hud_seconds_tens_digit){hud_seconds_tens_digit=value;set_bkg_data(237,1,hud_seconds_tens[value]);}
+    value=clock_digits[0]*10+clock_digits[1];
+    if(value!=hud_minutes){hud_minutes=value;set_bkg_data(236,1,hud_digit_pairs[value]);}
+    VBK_REG=0;
 }
 
 static void video_init(void) {
@@ -220,6 +235,7 @@ static void video_init(void) {
     VBK_REG=1;
     for(i=0;i<20;++i)set_bkg_data(220+i,1,hud_pattern);
     for(i=0;i<40;++i)hud_characters[i]=0;
+    hud_apples=hud_minutes=hud_seconds_tens_digit=hud_seconds_ones_digit=hud_centiseconds=255;
     for(col=0;col<20;++col) {
         VBK_REG=1;set_win_tiles(col,0,1,1,&attribute);
         i=220+col;VBK_REG=0;set_win_tiles(col,0,1,1,&i);
@@ -243,8 +259,8 @@ static void start_game(void) BANKED {
     game_ready=0;DISPLAY_OFF;
     world_select(game_level_index);physics_select_level(game_level_index);physics_reset_current();
     game_state=RIDING;game_apples_left=0;game_time_frames=0;clock_fraction=0;volt_wait=0;
-    game_player_index=save_player;game_new_record=0;
-    last_hud_state=255;hud_counter=0;object_phase=0;
+    game_player_index=save_player;game_new_record=0;game_previous_best=0;
+    last_hud_state=255;object_phase=0;result_details=0;
     for(i=0;i<6;++i)clock_digits[i]=0;
     for(i=0;i<OBJECT_COUNT;++i) {
         game_object_active[i]=1;
@@ -255,10 +271,19 @@ static void start_game(void) BANKED {
 
 void game_present(void) BANKED {
     uint16_t old_x=game_camera_x,old_y=game_camera_y;
+    if(game_state==FINISHED && last_hud_state==FINISHED)return;
     bike_render_prepare(&gbc_bike);
     position_camera(0);world_scroll(old_x,old_y,game_camera_x,game_camera_y);
     bike_screen();bike_render_draw(&gbc_bike,&screen);draw_objects();
-    if(last_hud_state!=game_state || ++hud_counter>=6){hud_counter=0;draw_hud();}
+    if(game_state==FINISHED) {
+        game_ready=0;
+        result_overlay(game_time_frames,game_previous_best);
+        last_hud_state=FINISHED;game_ready=1;
+        return;
+    }
+    /* Publish the clock with every riding frame using changed glyph pairs.
+     * Death text needs only one publication. */
+    if(game_state==RIDING || last_hud_state!=game_state)draw_hud();
 }
 
 /* The next presentation uses the state just computed by physics. Prepare only
@@ -341,6 +366,17 @@ void main(void) NONBANKED {
         if(game_state==FINISHED && (pressed&J_A)) {
             if(++game_level_index==LEVEL_COUNT)game_level_index=0;
             start_game();++game_frames;continue;
+        }
+        if(game_state==FINISHED && (pressed&J_UP)) {
+            if(result_details) {
+                restore_game();game_ready=0;
+                result_overlay(game_time_frames,game_previous_best);
+            } else {
+                game_ready=0;
+                menu_result(game_level_index,game_time_frames,game_previous_best);
+            }
+            result_details=!result_details;last_hud_state=FINISHED;game_ready=1;
+            ++game_frames;continue;
         }
         game_present();
         if(game_state==RIDING) {

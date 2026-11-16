@@ -1,12 +1,14 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.72 — development prototype**. The port version is kept in
+Current version: **0.73 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
 
-Version 0.72 adds a quiet, steady engine idle without throttle, including while
-coasting or braking. Held left/right controls now trigger a volt as soon as the
-shared original-model cooldown expires; an early press is no longer lost if
-the button remains held. Both playable filenames include the version and live
+Version 0.73 updates the visible riding clock every presentation, about 30 Hz,
+instead of every sixth update (about 5 Hz). Finishing keeps the last gameplay
+image visible, with the finish time, previous personal best, explicit record
+status and controls in a three-row bottom panel. Up opens a detailed result
+screen and returns to the frozen image. The quiet idle and held volt controls
+from 0.72 are retained. Both playable filenames include the version and live
 directly in `build/`.
 
 Two cartridge builds are maintained together, both targeting **MBC5 + 32 KiB
@@ -14,8 +16,8 @@ battery-backed RAM** and containing the same 54 courses, graphics and physics:
 
 | Build | Scenery | Versioned test image |
 |---|---|---|
-| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.72-4m.gbc` |
-| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.72-8m.gbc` |
+| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.73-4m.gbc` |
+| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.73-8m.gbc` |
 
 The 8 MiB build avoids decompression during scrolling. Both share the same
 player/record save layout, compatible with 0.7. The 8 MiB build retains the
@@ -23,7 +25,7 @@ four physics-table banks at **477–480**, directly after the scenery, as in
 `elma-gbc-v0.7-8m-bankfix.gbc` (previously 508–511). Its final 64 KiB
 is unused. All graphics and table bytes are retained. **The same motorcycle
 failure was subsequently reported with that 0.7 build on FlashMaster, so the
-relocation has not resolved the issue.** Version 0.72 does not change this
+relocation has not resolved the issue.** Version 0.73 does not change this
 bank layout; physical-cartridge verification remains outstanding.
 
 The original 0.7 8 MiB image (`build/elma-gbc-v0.7-8m.gbc`) had an immediate
@@ -57,7 +59,7 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.72
+## What works in 0.73
 
 - Parallel **4 MiB compressed / 8 MiB raw ROMs** containing all 54 courses,
   with a compact graphics lookup and a shared 32 KiB cartridge RAM layout.
@@ -79,7 +81,9 @@ motorcycle physics form its basis.
   a physics step. Pause freezes the cooldown and restart clears it.
 - Apple collection, gravity-changing apples, killers, crash detection, flower
   completion and advancing to the next course. The HUD shows remaining apples,
-  a labelled elapsed time and result controls; A/Start retries after a crash.
+  a labelled elapsed time refreshed with every riding frame; A/Start retries
+  after a crash. The frozen finish frame shows the measured time, previous
+  best, record comparison and next/retry/menu controls.
 - Original level geometry and LGR artwork, streamed terrain, independently
   positioned wheels and head, **red apples and white flower petals**.
 - Head pattern buffering to prevent uploads from changing the head still on
@@ -114,7 +118,7 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
-## Planned after 0.72
+## Planned after 0.73
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
@@ -141,7 +145,7 @@ make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 
-Open **`build/elma-gbc-v0.72-4m.gbc`** (4 MiB) or **`build/elma-gbc-v0.72-8m.gbc`** (8 MiB)
+Open **`build/elma-gbc-v0.73-4m.gbc`** (4 MiB) or **`build/elma-gbc-v0.73-8m.gbc`** (8 MiB)
 in a Game Boy Color emulator. These are CGB-only MBC5 cartridges, not Game Boy
 Advance programs; monochrome Game Boy hardware is unsupported. Both use header
 type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
@@ -149,7 +153,7 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.72-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.73-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. Exact physics
@@ -160,16 +164,16 @@ On FlashMaster, select **MBC5**, **32K RAM**, the file's matching **4M or 8M ROM
 size**, and enable **Save RAM**. The emulator's battery file or the cartridge's
 save mechanism must preserve RAM across sessions. SRAM bank0 B800–BFFF holds
 two checksummed save slots; the previous valid slot survives an interrupted
-write. Versions 0.7 and 0.72 share saves across both ROM sizes; 0.6's 128 KiB
+write. Versions 0.7, 0.72 and 0.73 share saves across both ROM sizes; 0.6's 128 KiB
 save files used a different location and are not loaded automatically.
 
 For the reported 8 MiB hardware failure, build a separate cartridge diagnostic:
 
 ```sh
-.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.72-8m.gbc --out build/elma-gbc-v0.72-8m-check.gbc --first-bank 477 --verify
+.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.73-8m.gbc --out build/elma-gbc-v0.73-8m-check.gbc --first-bank 477 --verify
 ```
 
-Load the resulting `build/elma-gbc-v0.72-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
+Load the resulting `build/elma-gbc-v0.73-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
 It retains every byte of the game's switchable ROM banks and replaces only
 ROM0 with a reader. It runs at double speed, first checking all bytes of banks
 477–480 (about three seconds including boot in the emulator). **A** scans banks
@@ -197,10 +201,13 @@ Choose Play, Level Select, Players or Controls; the pause menu offers Resume,
 Restart, Level Select and Controls. B returns from a sub-screen, then resumes a paused
 ride from the main menu. After finishing, A starts the next course;
 after a crash, A or Start retries. After a crash or finish, B or Select opens
-the main menu. These actions are shown on the result HUD.
+the main menu. These actions are shown on the result panel. After finishing,
+Up toggles between the frozen gameplay frame and the detailed result screen.
 
 The riding HUD shows apples remaining at the left and a labelled `TIME`
-clock at the right. The clock advances with simulated riding time, freezes
+clock at the right. The display refreshes on every riding presentation
+(nominally 29.86 Hz), using prebuilt digit-pair tiles so a normal update uploads
+just one changed tile. The clock advances with simulated riding time, freezes
 while paused or after a result, and resets on retry. Left/right can be held
 to repeat volts. Both directions share the original `Ugroturelem = 0.4`
 model-second cooldown, approximately **0.916 seconds** on the displayed clock.
@@ -217,6 +224,15 @@ the highlighted key, B deletes, Start saves, and Select cancels. Blank names
 are rejected. Renaming keeps the profile’s records. Players can be changed
 from the main menu outside a paused ride. Finishing a course saves a new best
 time automatically; crashes and slower finishes leave existing records intact.
+
+The finish panel and detailed screen show `TIME`, the previous best, and one
+of `FIRST RECORD`, `NEW RECORD`, `BEST MATCHED` or `NO IMPROVEMENT`. Comparison
+uses the current player's saved time for that course before replacing a record.
+Matching or slower times leave that record intact. The bottom panel occupies
+the final 24 screen pixels; scenery and sprites above it remain frozen. Its
+extra text tiles reuse only world patterns absent from the visible area.
+Returning from the detail screen, retrying or starting the next course rebuilds
+the world cache before rendering gameplay again.
 
 Audio uses the GBC pulse and noise channels, serviced by the existing main
 loop without a streaming interrupt. Without gas the engine stays at approximately
@@ -363,11 +379,14 @@ arithmetic. Native SM83 tests check the production multiplication, coefficient,
 division, square-root, coordinate-bound and video helpers against independent
 references, including lookup-table bytes and ROM-bank restoration.
 
-The final controller-only regression exercises controls, braking, pause,
-head-collision death and restart, then collects the apple and reaches the
-unlocked flower alive. It verifies actual tile, attribute and pattern VRAM across
+The controller-only regression exercises controls, braking, pause,
+head-collision death and restart, then attempts an apple/flower route.
+It verifies actual tile, attribute and pattern VRAM across
 map/chunk boundaries. It defaults to **zero allowed deadline misses** and does
-not inject completion or object state into game RAM.
+not inject completion or object state into game RAM. Its default Warm Up
+controller currently needs retuning: it also fails on the retained 0.72 ROM.
+The 0.73 result checks below use an explicit contact fixture and do not claim
+a new controller-completed course.
 
 The native trajectory fixture compares all 109 internal and 52 public state
 bytes after each call against the HOST implementation and a frozen reference.
@@ -402,7 +421,13 @@ passed 47 fresh boots, including 12 interrupted-write cases.
 crash and A retry through buttons, then reloads the battery file in a fresh
 emulator. Its finish check supplies an unlocked-flower contact to exercise the
 normal result/save path; it does not claim a controller-completed course.
-The stable 30 FPS target and physical-cartridge save test remain outstanding.
+For 0.73, both sizes passed all four finish comparisons, frozen scenery/sprite
+preservation, result/detail toggling, next/retry/menu controls, and save reload
+in both directions between ROM sizes. Each clock run checked 1,890 exact
+presentations including minute rollover, with 90 actual LCD changes in 180
+display frames and no idle deadline misses. A 300-step driving profile retained
+the 0.72 deadline-miss counts: zero for 8 MiB and four for 4 MiB. The stable
+30 FPS target across all courses and physical-cartridge save test remain outstanding.
 The 32 KiB native cache fixtures each passed 3,031 verified views for raw and
 compressed graphics. All 2,048 save bytes survived, requested RAM banks stayed
 within 0–3, and bank3 cache eviction/reload was checked through address BFFF.

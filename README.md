@@ -25,7 +25,7 @@ platform's README covers requirements, building and use.
 
 ## Console ports
 
-### Game Boy Color prototype 0.72
+### Game Boy Color prototype 0.73
 
 All 54 registered internal levels are selectable from a native GBDK menu,
 using original level geometry and LGR artwork. The riding engine includes
@@ -35,9 +35,11 @@ control at nominal 30 FPS; assembly and scrolling optimizations are still in
 progress because some updates exceed that budget. The port includes an
 original-artwork title screen, separate main/pause menus, Controls and native
 GBC engine/event sounds, four saved player profiles, a Game Boy name-entry
-keyboard, per-course records, a labelled timer and crash controls. Version 0.72
-adds a quiet, steady low idle without throttle and accepts held volt controls
-after the original model-time cooldown. It maintains **4 MiB compressed and
+keyboard, per-course records, a labelled timer and crash controls. Version 0.73
+updates the timer on every riding frame and shows the finish time, previous
+best and record status over the frozen final gameplay image. A detailed result
+screen is available with Up. Quiet idle audio and held volt controls retain
+the 0.72 behavior. The port maintains **4 MiB compressed and
 8 MiB uncompressed builds**, both using
 **32 KiB cartridge RAM** for FlashMaster compatibility. The previous 128 KiB
 layout's graphics corruption was reproduced under a 32 KiB RAM limit. The

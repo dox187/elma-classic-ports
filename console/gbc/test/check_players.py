@@ -50,12 +50,30 @@ def keyboard_key(d, letter):
     raise AssertionError('keyboard navigation did not reach '+letter)
 
 
-def finish_fixture(d):
+def finish_fixture(d, at_frames=None, expect_new=True):
     """Keep the normal clock/finish/save path; supply only flower contact."""
     address = d.symbols['_gbc_object_touch']
     called = []
+    frozen_patterns, frozen_maps, frozen_sprites = {}, [], []
+    overlay = d.symbols['_result_overlay']
+    def freeze(_):
+        # Verify that the panel never steals a pattern still used by the
+        # visible frozen scenery, even when tiles repeat elsewhere in VRAM.
+        sx, sy = d.p.memory[0xff43], d.p.memory[0xff42]
+        base = 0x9c00 if d.p.memory[0xff40] & 8 else 0x9800
+        frozen_maps.extend(bytes(d.p.memory[bank,base:base+1024]) for bank in (0,1))
+        for row in range(((sy & 7)+120+7)//8):
+            for col in range(((sx & 7)+160+7)//8):
+                cell = base+(((sy//8+row)&31)*32)+((sx//8+col)&31)
+                tile, attr = d.p.memory[0,cell], d.p.memory[1,cell]
+                bank = 1 if attr & 8 else 0
+                start = 0x8000+tile*16
+                frozen_patterns[bank,start] = bytes(d.p.memory[bank,start:start+16])
+        shadow = d.symbols['_shadow_OAM']
+        frozen_sprites.append(bytes(d.p.memory[shadow:shadow+160]))
+    d.p.hook_register(overlay >> 16, overlay & 65535, freeze, None)
     def touch(_):
-        if called:
+        if called or (at_frames is not None and d.time_frames() < at_frames):
             return
         called.append(True)
         source = d.level_manifest['levels'][d.level_index()]['objects']
@@ -70,17 +88,32 @@ def finish_fixture(d):
         d.p.memory[d.symbols['_game_apples_left']] = 0
     d.p.hook_register(address >> 16, address & 65535, touch, None)
     try:
-        for _ in range(120):
+        for _ in range(600):
             d.tick()
             if called and d.byte('game_state') == FINISHED:
                 break
         assert called and d.byte('game_state') == FINISHED
-        # Wait for the synchronous SRAM transaction and the next HUD update.
-        d.tick(15)
-        assert d.byte('game_new_record')
+        # Wait for the synchronous save and complete results-screen upload.
+        for _ in range(180):
+            d.tick()
+            if d.byte('game_ready') and d.p.memory[0xff40] & 0xa0 == 0xa0 and d.p.memory[0xff4a] == 120:
+                break
+        else:
+            raise AssertionError('result screen did not finish loading')
+        d.tick(3)
+        assert frozen_patterns, 'finish did not publish the frozen-frame panel'
+        base = 0x9c00 if d.p.memory[0xff40] & 8 else 0x9800
+        assert frozen_maps == [bytes(d.p.memory[bank,base:base+1024]) for bank in (0,1)]
+        for (bank,start), expected in frozen_patterns.items():
+            assert bytes(d.p.memory[bank,start:start+16]) == expected, 'panel corrupted visible scenery'
+        assert bytes(d.p.memory[0xfe00:0xfea0]) == frozen_sprites[0], 'panel changed the frozen sprites'
+        assert bool(d.byte('game_new_record')) == expect_new
+        if at_frames is not None:
+            assert d.time_frames() == at_frames, 'finish fixture missed the requested simulation time'
         return d.time_frames()
     finally:
         d.p.hook_deregister(address >> 16, address & 65535)
+        d.p.hook_deregister(overlay >> 16, overlay & 65535)
 
 
 def time_string(frames):
@@ -89,9 +122,72 @@ def time_string(frames):
                               centiseconds // 100 % 60, centiseconds % 100)
 
 
+def result_check(d, frames, previous, status):
+    assert d.byte('game_state') == FINISHED
+    assert d.p.memory[0xff40] & 0x22 == 0x22, 'frozen result must retain sprites and show its window'
+    assert d.p.memory[0xff4a] == 120, 'result must use a three-row bottom panel'
+    text_check(d, 0, 0, ('TIME '+time_string(frames)+'  '+status).ljust(40), True)
+    old_time = time_string(previous) if previous else '--:--.--'
+    text_check(d, 0, 1, ('PREV '+old_time).ljust(40), True)
+    text_check(d, 0, 2, 'A:NEXT START:RETRY B/SELECT:MENU UP:INFO'.ljust(40), True)
+
+
+def details_check(d, frames, previous, status):
+    assert d.byte('game_state') == FINISHED and d.byte('menu_screen') == 5
+    assert not d.p.memory[0xff40] & 0x22
+    text_check(d, 6, 2, 'LEVEL COMPLETE'.ljust(16))
+    text_check(d, 2, 9, ('TIME          '+time_string(frames)).ljust(32))
+    text_check(d, 2, 11, ('PREVIOUS BEST '+(time_string(previous) if previous else '--:--.--')).ljust(32))
+    text_check(d, 2, 12, status.ljust(32))
+    text_check(d, 2, 14, 'UP LAST FRAME'.ljust(32))
+    for y, hint in enumerate(('A NEXT LEVEL', 'START RETRY', 'B/SELECT MENU'), 15):
+        text_check(d, 2, y, hint.ljust(32))
+
+
+def timer_cadence(d):
+    """Check each presentation's VRAM and changes in the actual LCD output."""
+    checks, changes = [], []
+    address = d.symbols['_physics_step']
+    def observe(_):
+        Driver._physics_entry(d)
+        try:
+            now = d.time_frames()
+            text_check(d, 16, 0, time_string(now), True)
+            checks.append(now)
+        except BaseException as error:
+            d.observer_errors.append(error)
+    d.p.hook_deregister(address >> 16, address & 65535)
+    d.p.hook_register(address >> 16, address & 65535, observe, None)
+    old_pixels = None
+    overruns = d.word('game_overruns')
+    try:
+        for _ in range(180):
+            d.tick()
+            pixels = np.asarray(d.p.screen.image)[136:144,128:160].copy()
+            if old_pixels is not None and not np.array_equal(pixels, old_pixels):
+                changes.append(d.p.frame_count)
+            old_pixels = pixels
+        assert len(checks) >= 88 and len(changes) >= 88, 'timer does not update at the riding rate'
+        intervals = np.diff(changes).tolist()
+        assert max(intervals) <= 3, ('visible clock stalls between updates', intervals)
+        cadence_checks = len(checks)
+        # Exercise carries into tens of seconds and minutes with the same
+        # real clock and exact tile checks, without injecting a counter.
+        d.tick(3600)
+        assert any(time_string(t).startswith('01:00.') for t in checks)
+        assert d.word('game_overruns') == overruns, 'live timer introduced idle-ride deadline misses'
+        return {'physics_publications_checked': len(checks), 'cadence_publications': cadence_checks,
+                'lcd_changes_in_180_frames': len(changes), 'minute_rollover_verified': True,
+                'lcd_change_intervals_frames': sorted(set(intervals)), 'idle_deadline_misses': 0}
+    finally:
+        d.p.hook_deregister(address >> 16, address & 65535)
+        d.p.hook_register(address >> 16, address & 65535, Driver._physics_entry, d)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--rom', type=Path, default=BASE/'build/elma-gbc.gbc')
+    version = (BASE/'VERSION').read_text().strip()
+    parser.add_argument('--rom', type=Path, default=BASE/('build/elma-gbc-v%s-4m.gbc'%version))
     parser.add_argument('--gen', type=Path, default=BASE/'build/gen')
     parser.add_argument('--alternate-rom', type=Path, help='reload the same save in the other ROM size')
     parser.add_argument('--alternate-gen', type=Path, help='generated assets for the alternate ROM')
@@ -169,6 +265,7 @@ def main():
         now = d.time_frames()
         assert any(np.array_equal(visible, font_pixels(time_string(t)))
                    for t in range(max(0, now-16), now+1)), 'visible timer is stale or wrong'
+        cadence = timer_cadence(d)
         d.snapshot('riding-time')
         d.pulse('select')
         assert d.byte('game_state') == PAUSED
@@ -195,10 +292,32 @@ def main():
         assert d.byte('game_apples_left') == 1
         d.tick(60)
         frames = finish_fixture(d)
-        text_check(d, 0, 0, 'BEST! A:NEXT START:RETRY B/SELECT:MENU', True)
-        d.snapshot('finish-controls')
+        result_check(d, frames, 0, 'FIRST RECORD')
+        d.snapshot('finish-first-record')
         d.tick(60)
         assert d.time_frames() == frames
+        result_check(d, frames, 0, 'FIRST RECORD')
+        frozen = np.asarray(d.p.screen.image).copy()
+        d.pulse('up')
+        details_check(d, frames, 0, 'FIRST RECORD')
+        d.snapshot('finish-details')
+        d.pulse('up')
+        d.tick(3)
+        result_check(d, frames, 0, 'FIRST RECORD')
+        assert np.array_equal(np.asarray(d.p.screen.image), frozen), 'return from details changed the frozen frame'
+        results = [{'status': 'FIRST RECORD', 'frames': frames, 'previous': 0}]
+        for status, target in [('NO IMPROVEMENT', frames+60), ('BEST MATCHED', frames),
+                               ('NEW RECORD', frames-20)]:
+            d.pulse('start')
+            d.ready()
+            assert d.byte('game_state') == RIDING and d.level_index() == 0
+            improved = status == 'NEW RECORD'
+            completed = finish_fixture(d, at_frames=target, expect_new=improved)
+            result_check(d, completed, frames, status)
+            results.append({'status': status, 'frames': completed, 'previous': frames})
+            d.snapshot('finish-'+status.lower().replace(' ', '-'))
+            if improved:
+                frames = completed
         d.pulse('b')
         assert d.byte('game_state') == MENU
         text_check(d, 5, 6, ('BEST '+time_string(frames)).ljust(20))
@@ -236,14 +355,24 @@ def main():
         d.level_menu()
         d.pulse('up')
         text_check(d, 2, 13, ('BEST '+time_string(frames)).ljust(20))
+        d.pulse('a')
+        d.ready()
+        completed = finish_fixture(d, at_frames=frames+20, expect_new=False)
+        result_check(d, completed, frames, 'NO IMPROVEMENT')
+        d.pulse('a')
+        d.ready()
+        assert d.byte('game_state') == RIDING and d.level_index() == 1, 'A did not start the next course'
+        d.visible_vram(force=True)
         report = {'status': 'passed', 'rom_sha256': tested_sha,
                   'reboot_rom_sha256':d.rom_sha256,
                   'cross_profile_reload':bool(args.alternate_rom),
                   'fixture_finish_frames': frames, 'hardware_tested': False,
+                  'timer_cadence': cadence, 'result_cases': results,
                   'finish_is_contact_fixture': True,
                   'checks': ['keyboard navigation, editing, limit, cancel and blank rejection',
                              'player selection and name persistence', 'visible live timer and pause',
                              'natural crash hints and A retry', 'finish records through contact fixture',
+                             'first, slower, tied and improved result times', 'result retry/next/menu controls',
                              'battery reload', 'player and course record isolation']}
         (args.out/'report.json').write_text(json.dumps(report, indent=2)+'\n')
         print(json.dumps(report, indent=2))
