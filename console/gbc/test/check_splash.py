@@ -10,6 +10,7 @@ import sys
 import numpy as np
 from PIL import Image
 from pyboy import PyBoy
+from all_levels import font_pixels
 
 BASE=Path(__file__).resolve().parents[1]
 
@@ -73,6 +74,18 @@ void main(void) {
         screenshot=np.array(emulator.screen.image)[:,:,:3]
         Image.fromarray(screenshot).save(out/'splash-screen.png')
         assert np.array_equal(screenshot,expected),{'pixel_mismatches':int(np.any(screenshot!=expected,axis=2).sum()),'actual_colors':np.unique(screenshot.reshape(-1,3),axis=0).tolist()}
+        # Independently check the actual text against the source BDF glyphs:
+        # the PC footer must not survive as blurred, downscaled lettering.
+        version=(BASE/'VERSION').read_text().strip()
+        labels=['GAME BOY COLOR DEMAKE V'+version,
+                'UNOFFICIAL FAN MADE PORT BY DOX187','ORIGINAL GAME (C) 2000',
+                'BALAZS ROZSA','WWW.ELASTOMANIA.COM','PRESS A / START']
+        for row,label in enumerate(labels,12):
+            label+=' '*(len(label)%2)
+            x=((20-len(label)//2)//2)*8
+            native=np.zeros((8,160),dtype=np.uint8)
+            native[:,x:x+len(label)*4]=font_pixels(label)
+            assert np.array_equal((screenshot[row*8:row*8+8,:,0]>0).astype(np.uint8),native),label
         assert emulator.memory[0xff40]&0xbb==0x91,'LCD, BG, tile addressing, sprites or window flags'
         assert emulator.memory[0xff42]==emulator.memory[0xff43]==0,'BG scroll was not reset'
         emulator.tick(60,False)
@@ -91,7 +104,8 @@ void main(void) {
         assert not value('splash_bank_failures'),'Banked call failed to restore bank 3'
         assert hashes=={str(path):hashlib.sha256(path.read_bytes()).hexdigest()for path in sources}
         report={'status':'passed','bank':2,'bank_bytes':bank_bytes,'pixel_mismatches':0,
-                'checks':['complete encoded framebuffer','LCD/window/sprite/scroll state','held Start','ignored B','fresh Start','fresh A','caller bank restoration'],
+                'checks':['complete encoded framebuffer','native platform/version/credit/copyright/URL/prompt text',
+                          'LCD/window/sprite/scroll state','held Start','ignored B','fresh Start','fresh A','caller bank restoration'],
                 'source_sha256':hashes,'assets':json.loads((gen/'splash-manifest.json').read_text())}
         (out/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))
     finally:emulator.stop(save=False)

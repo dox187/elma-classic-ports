@@ -1,4 +1,4 @@
-"""Encode the owned intro.pcx as a complete CGB title screen in ROM bank 2."""
+"""Retain the original logo and draw readable native GBC title/credit text."""
 import argparse
 import hashlib
 import json
@@ -47,28 +47,36 @@ def generate(res_path,out):
     version=(Path(__file__).resolve().parents[1]/'VERSION').read_text().strip()
     if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}',version):
         raise ValueError('VERSION must be a numeric release such as 0.3')
-    label='V'+version
-    if len(label)>20:raise ValueError('Version label is too wide for the title screen')
     source=Res(res_path).intro.convert('RGB')
-    # Retain the complete 4:3 artwork, including its original footer; the
-    # additional 24 scanlines provide a top margin and two native text rows.
+    # The PC footer becomes unreadable at quarter scale. Keep the original
+    # logo's aspect ratio, and replace the footer with native 3x5 text.
+    if source.size!=(640,480):raise ValueError('Expected the original 640x480 intro artwork')
+    logo_rect=(0,0,640,384)
     canvas=Image.new('RGB',(160,144))
-    canvas.paste(source.resize((160,120),Image.Resampling.BOX),(0,8))
+    canvas.paste(source.crop(logo_rect).resize((160,96),Image.Resampling.BOX),(0,0))
     encoded,attributes,palettes=encode_artwork(np.array(canvas))
     tiles=[bytes(tile)for tile in encoded]
     palettes=np.concatenate((palettes,np.array([[[0,0,0],[0,0,0],[248,248,224],[248,248,224]]])))
     rows=font_rows()
+    text_lines=[]
     def text(y,s):
+        if len(s)>40:raise ValueError('Splash text exceeds the native 40-character row: '+s)
+        label=s
         s+=' '*(len(s)%2)
         x=(20-len(s)//2)//2
+        text_lines.append({'text':label,'x':x*8,'y':y*8,'width':len(s)*4,'height':8})
         # The surrounding row is a solid black native tile as well.
         for tx in range(20):
             tiles[y*20+tx]=tile2bpp(np.zeros((8,8),dtype=np.uint8))
             attributes[y*20+tx]=7
         for i in range(0,len(s),2):
             tiles[y*20+x+i//2]=pair_tile(s[i],s[i+1],rows)
-    text(16,label)
-    text(17,'PRESS START')
+    text(12,'GAME BOY COLOR DEMAKE V'+version)
+    text(13,'UNOFFICIAL FAN MADE PORT BY DOX187')
+    text(14,'ORIGINAL GAME (C) 2000')
+    text(15,'BALAZS ROZSA')
+    text(16,'WWW.ELASTOMANIA.COM')
+    text(17,'PRESS A / START')
     patterns=[];known={};tilemap=[];attrs=[]
     # Reserve at most 255 patterns in each VRAM bank, avoiding the API's
     # zero-count/256-tile special case. Only the selected BG bank is visible.
@@ -97,7 +105,8 @@ def generate(res_path,out):
         pixels=np.array([[(tile[y*2]>>(7-x)&1)|((tile[y*2+1]>>(7-x)&1)<<1)for x in range(8)]for y in range(8)])
         y,x=divmod(pos,20);preview[y*8:y*8+8,x*8:x*8+8]=palettes[attribute&7][pixels]
     Image.fromarray(preview).save(out/'splash-preview.png')
-    report={'version':version,'source':'intro.pcx','source_size':list(source.size),'artwork_rect':[0,8,160,120],
+    report={'version':version,'source':'intro.pcx','source_size':list(source.size),
+            'source_logo_rect':list(logo_rect),'artwork_rect':[0,0,160,96],'native_text':text_lines,
             'screen_size':[160,144],'patterns':len(patterns),'vram_bank_patterns':[split,count1],
             'asset_bytes':data_bytes,'bank':2,'font':'CG Pixel 3x5 Mono; native pixels, four-pixel advance',
             'font_sha256':hashlib.sha256(FONT_PATH.read_bytes()).hexdigest(),

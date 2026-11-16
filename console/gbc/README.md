@@ -1,23 +1,22 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.73 — development prototype**. The port version is kept in
+Current version: **0.74 — development prototype**. The port version is kept in
 [`VERSION`](VERSION).
 
-Version 0.73 updates the visible riding clock every presentation, about 30 Hz,
-instead of every sixth update (about 5 Hz). Finishing keeps the last gameplay
-image visible, with the finish time, previous personal best, explicit record
-status and controls in a three-row bottom panel. Up opens a detailed result
-screen and returns to the frozen image. The quiet idle and held volt controls
-from 0.72 are retained. Both playable filenames include the version and live
-directly in `build/`.
+Version 0.74 replaces the unreadable, downscaled PC splash footer with native
+CG Pixel 3x5 text. The original logo stays above the platform/version label,
+`UNOFFICIAL FAN MADE PORT BY DOX187`, original copyright/author, website and
+A/Start prompt. It retains the per-frame timer and frozen finish panel from
+0.73, plus the quiet idle and held volt controls from 0.72. Both playable
+filenames include the version and live directly in `build/`.
 
 Two cartridge builds are maintained together, both targeting **MBC5 + 32 KiB
 battery-backed RAM** and containing the same 54 courses, graphics and physics:
 
 | Build | Scenery | Versioned test image |
 |---|---|---|
-| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.73-4m.gbc` |
-| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.73-8m.gbc` |
+| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.74-4m.gbc` |
+| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.74-8m.gbc` |
 
 The 8 MiB build avoids decompression during scrolling. Both share the same
 player/record save layout, compatible with 0.7. The 8 MiB build retains the
@@ -25,7 +24,7 @@ four physics-table banks at **477–480**, directly after the scenery, as in
 `elma-gbc-v0.7-8m-bankfix.gbc` (previously 508–511). Its final 64 KiB
 is unused. All graphics and table bytes are retained. **The same motorcycle
 failure was subsequently reported with that 0.7 build on FlashMaster, so the
-relocation has not resolved the issue.** Version 0.73 does not change this
+relocation has not resolved the issue.** Version 0.74 does not change this
 bank layout; physical-cartridge verification remains outstanding.
 
 The original 0.7 8 MiB image (`build/elma-gbc-v0.7-8m.gbc`) had an immediate
@@ -59,13 +58,14 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.73
+## What works in 0.74
 
 - Parallel **4 MiB compressed / 8 MiB raw ROMs** containing all 54 courses,
   with a compact graphics lookup and a shared 32 KiB cartridge RAM layout.
 
-- An original-artwork title screen with the port version and a fresh A/Start
-  press to continue, followed by a separate main menu and Controls screen.
+- An original-logo title screen with native platform/version, unofficial port
+  credit, original copyright/author and website text. A fresh A/Start press
+  continues to a separate main menu and Controls screen.
 - A level selector with all **54 registered internal levels**, their original
   names and order, page navigation, pause/resume and explicit restart actions.
 - Four persistent player profiles, editable ten-character names with a framed
@@ -118,7 +118,7 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
-## Planned after 0.73
+## Planned after 0.74
 
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
@@ -145,7 +145,7 @@ make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 
-Open **`build/elma-gbc-v0.73-4m.gbc`** (4 MiB) or **`build/elma-gbc-v0.73-8m.gbc`** (8 MiB)
+Open **`build/elma-gbc-v0.74-4m.gbc`** (4 MiB) or **`build/elma-gbc-v0.74-8m.gbc`** (8 MiB)
 in a Game Boy Color emulator. These are CGB-only MBC5 cartridges, not Game Boy
 Advance programs; monochrome Game Boy hardware is unsupported. Both use header
 type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
@@ -153,7 +153,7 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.73-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.74-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. Exact physics
@@ -164,16 +164,16 @@ On FlashMaster, select **MBC5**, **32K RAM**, the file's matching **4M or 8M ROM
 size**, and enable **Save RAM**. The emulator's battery file or the cartridge's
 save mechanism must preserve RAM across sessions. SRAM bank0 B800–BFFF holds
 two checksummed save slots; the previous valid slot survives an interrupted
-write. Versions 0.7, 0.72 and 0.73 share saves across both ROM sizes; 0.6's 128 KiB
+write. Versions 0.7 through 0.74 share saves across both ROM sizes; 0.6's 128 KiB
 save files used a different location and are not loaded automatically.
 
 For the reported 8 MiB hardware failure, build a separate cartridge diagnostic:
 
 ```sh
-.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.73-8m.gbc --out build/elma-gbc-v0.73-8m-check.gbc --first-bank 477 --verify
+.venv/bin/python tools/cartridge_check.py --source build/elma-gbc-v0.74-8m.gbc --out build/elma-gbc-v0.74-8m-check.gbc --first-bank 477 --verify
 ```
 
-Load the resulting `build/elma-gbc-v0.73-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
+Load the resulting `build/elma-gbc-v0.74-8m-check.gbc` with the same MBC5 / 8M / 32K settings.
 It retains every byte of the game's switchable ROM banks and replaces only
 ROM0 with a reader. It runs at double speed, first checking all bytes of banks
 477–480 (about three seconds including boot in the emulator). **A** scans banks
@@ -401,6 +401,8 @@ Separate title and audio fixtures verify the complete splash framebuffer,
 fresh button presses, audible PCM output, pitch changes, finite effects,
 pause muting and ROM-bank restoration. The complete-ROM frontend check covers
 title-to-menu navigation, Controls, course selection, pause/resume and restart.
+The 0.74 splash fixture also checks all six native footer rows against the
+source BDF glyphs, including the version, DOX187 credit and original copyright.
 
 Both 0.72 ROMs passed the frontend check with continuous quiet idle PCM, throttle
 volume and return to idle while coasting. The native audio fixture measured
