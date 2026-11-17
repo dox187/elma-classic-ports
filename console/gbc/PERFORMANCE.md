@@ -1054,6 +1054,53 @@ and its mode-aware cache oracle. Preserve this validated prototype while the
 current test ROM retains the existing asset format.
 Evidence: `build/v091-static-norefs/handoff.json` and its runtime patch.
 
+## 39: full-width Q14 multiplication and playable test1 — retained
+
+Wide signed32-by-signed16 Q14 products now use two existing exact 16-bit
+multiplications, a complete signed 48-bit accumulator, the original +8192
+rounding and saturated 32-bit extraction. The unsigned low-half correction
+preserves all input bits. Narrow Q14 dispatch is unchanged; other wide shifts
+retain C with a 28-cycle dispatch addition. No static RAM is added.
+
+All 4,768 paired calls pass against the frozen public/native-C implementations
+and an independent integer oracle: 4,512 vectors include 234 captured calls,
+plus 256 calls with timer interrupts enabled. Captured wide calls save
+5,900–6,976 cycles, mean 6,222.5. The kernel uses six local stack bytes; measured
+depth is 18 versus 58 for C. All 1,727 trajectory plus 326 hard-route states
+match frozen 0.90. Their total stack peaks stay 225 / 237 bytes. Individual
+timings can move with interrupt phase; two isolated updates add 16 cycles.
+
+The helper adds 168 ROM0 bytes. Integration exposed a separate footprint
+mistake: retained-column memmove had pulled 175 library bytes into ROM0.
+Together they put the end of startup at 0x406d and the test image failed before
+splash. Replace that one fixed 36-byte forward overlap copy with a bank 6
+helper. The complete fixed bank now ends at 0x3fbe, leaving 66 bytes. The build
+tool validates CODE, HOME, initializer and startup areas, including cached
+builds, plus each switchable bank's bounds. Seven layout regression cases
+include the observed overflow and a one-byte startup overrun. The failed image
+was never delivered; its diagnostic reports remain in the overflow folders.
+
+The final combined **test1** passes all 216 cases / 27,447 exact states.
+Misses improve **65 to 55**, cadence violations **57 to 49**, and passing
+cases **192 to 196**, with none lost. Maximum physics cost is 265,148 cycles.
+All seven functional checks pass, including 54 starts and 433-step Freefall.
+The extended cache fixture verifies 3,199 views, 36 diagonal cases and 192
+guard cases against the final fixed-copy implementation. Stable 30 FPS remains
+unmet, and physical cartridge timing has not been verified.
+
+Observed input intervals are 27,182 at two display frames and 49 at three.
+Across 27,231 intervals, 7,655,960,960 double-speed T-cycles give 29.8369
+updates/second against the two-frame target of 29.86375, a 0.0899% aggregate
+slowdown. The slowest tested case, level 11/brake, averages 28.5862. These are
+short emulator routes, not full-course or hardware guarantees. The fraction
+of wholly passing cases must not be interpreted as the game's speed.
+
+Playable ROM: `build/elma-gbc-v0.91-test1-8m.gbc`, 8,388,608 bytes,
+SHA-256 `624e427940917c15d1d4960866f0368f61549b6f59292a41290c047b6c38a8b5`.
+Evidence: `build/v091-mulq-wide`, `build/v091-test1-gameplay-8m`,
+`build/v091-test1-checks`, `build/v091-test1-extended-cache` and
+`build/v091-test1-overflow.json`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -1068,13 +1115,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-column-8m.gbc --gen build/gen-8m --out build/v091-column-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-test1-8m.gbc --gen build/gen-8m --out build/v091-test1-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 65**; wholly passing cases improve **72 to
-192 of 216** after fused acquisition. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 55**; wholly passing cases improve **72 to
+196 of 216** in playable test1. This is still a failed 30-FPS gate.
 Some physics calls still leave too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.

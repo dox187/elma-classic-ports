@@ -9,11 +9,14 @@ are retained for reference.
 See the [performance experiment log](PERFORMANCE.md) for measured candidates
 and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
 
-The measured `build/elma-gbc-v0.91-column-8m.gbc` candidate preserves all
-27,447 native states in the 216-case controller corpus. Deadline misses fall
-from 1,025 to 65, with 192 cases passing throughout. The latest separate
-functional run (`v0.91-pushout`) passes all 54 starts, complete Freefall, menus,
-save profiles, volt controls and finish audio. Further graphics/physics
+Playable test: **[0.91 test1 — 8 MiB](build/elma-gbc-v0.91-test1-8m.gbc)**,
+for MBC5 with 32 KiB cartridge RAM. Its SHA-256 is
+`624e427940917c15d1d4960866f0368f61549b6f59292a41290c047b6c38a8b5`.
+
+This build preserves all 27,447 native states in the 216-case controller
+corpus. Deadline misses fall from 1,025 to 55, with 196 cases passing
+throughout. Its separate functional run passes all 54 starts, complete
+Freefall, menus, save profiles, volt controls and finish audio. Further graphics/physics
 optimization and physical-cartridge timing checks remain; **0.91 is not yet a
 stable 30-FPS release**.
 

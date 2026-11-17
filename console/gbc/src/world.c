@@ -347,6 +347,23 @@ static uint8_t prepare_matches(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t
                               |(prepare_x^x)|(prepare_y^y))<8U;
 }
 
+/* Fixed forward overlap copy: destination is two bytes below the source.
+ * Keep this small operation in bank 6 instead of linking ROM0 memmove. */
+static void prepare_shift_added(void) __naked {
+    __asm
+        ld hl,#(_prepare_added+2)
+        ld de,#_prepare_added
+        ld b,#36
+prepare_shift_added_loop:
+        ld a,(hl+)
+        ld (de),a
+        inc de
+        dec b
+        jr nz,prepare_shift_added_loop
+        ret
+    __endasm;
+}
+
 /* A completed horizontal strip already contains18 of the19 diagonal edge
  * cells. Keep those exact references and published hidden cells; the ordinary
  * row stage replaces the corner and publishes the new row before commit. */
@@ -363,7 +380,7 @@ static uint8_t prepare_rebase_column(uint16_t old_x,uint16_t old_y,uint16_t x,ui
     if(budgeted && !prepare_budget(start,21))return 0;
     if(top>prepare_old_top) {
         world_refs_retire_fixed(prepare_added,1);
-        memmove(prepare_added,prepare_added+1,36);
+        prepare_shift_added();
     } else world_refs_retire_fixed(prepare_added+18,1);
     prepare_added_count=18;
     release_strip(prepare_left>prepare_old_left?prepare_left:prepare_old_left,

@@ -10,6 +10,33 @@ import subprocess
 BASE=Path(__file__).resolve().parents[1]
 
 
+def validate_linked_layout(symbol_path,rom_mib):
+    """Include library/startup areas when checking the physical ROM windows."""
+    symbols={name:int(value,16) for name,value in
+             re.findall(r'^DEF (\S+) 0x([0-9A-Fa-f]+)$',symbol_path.read_text(),re.M)}
+    fixed_end=0
+    for area in ('_CODE','_HOME','_INITIALIZER','_GSINIT','_GSFINAL'):
+        if 's_'+area not in symbols or 'l_'+area not in symbols:
+            raise ValueError('Missing linked ROM area: '+area)
+        start,size=symbols['s_'+area],symbols['l_'+area]
+        if start+size>0x4000:
+            raise ValueError(f'ROM0 overflow: {area} ends at 0x{start+size:04x}, beyond 0x4000')
+        fixed_end=max(fixed_end,start+size)
+    for name,start in symbols.items():
+        match=re.fullmatch(r's__CODE_(\d+)',name)
+        if not match:continue
+        bank=int(match[1]);size=symbols.get('l'+name[1:])
+        if size is None:raise ValueError('Missing linked ROM area size: '+name)
+        if not size:continue
+        address=start&65535
+        if bank==0:
+            if start+size>0x4000:raise ValueError('ROM0 overflow in _CODE_0')
+            fixed_end=max(fixed_end,start+size)
+        elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
+            raise ValueError(f'ROM bank {bank} exceeds its linked address window')
+    return {'rom0_end':fixed_end,'rom0_free_bytes':0x4000-fixed_end}
+
+
 def dependencies(path,gen,seen=None):
     seen=set() if seen is None else seen
     path=path.resolve()
@@ -193,15 +220,20 @@ def main():
     if manifest_path.is_file() and a.out.is_file() and a.out.with_suffix('.noi').is_file():
         previous=json.loads(manifest_path.read_text())
         if previous.get('build_key')==build_key and previous.get('rom_sha256')==hashlib.sha256(a.out.read_bytes()).hexdigest():
+            layout=validate_linked_layout(a.out.with_suffix('.noi'),rom_mib)
+            if previous.get('linked_layout')!=layout:
+                previous['linked_layout']=layout
+                manifest_path.write_text(json.dumps(previous,indent=2)+'\n')
             print('ROM unchanged: '+str(a.out));return
     subprocess.run([str(compiler),*link_flags,'-o',str(a.out),*map(str,objects)],check=True)
+    layout=validate_linked_layout(a.out.with_suffix('.noi'),rom_mib)
     rom=a.out.read_bytes()
     if len(rom)!=rom_mib*1024*1024 or rom[0x147:0x14a]!=bytes((0x1B,{4:7,8:8}[rom_mib],3)):
         raise ValueError('Linked ROM does not match the selected MBC5+RAM+BATTERY / 32 KiB RAM profile')
     if rom_mib==8 and rom[508*16384:]!=bytes([255])*(4*16384):
         raise ValueError('The 8 MiB cartridge profile must leave the last 64 KiB unused')
     report={'rom_mib':rom_mib,'cartridge_type':0x1B,'ram_kib':32,'generated_dir':str(a.gen),'build_key':build_key,'rom_sha256':hashlib.sha256(rom).hexdigest(),
-            'sources':[str(x)for x in sources],'objects':[str(x)for x in objects]}
+            'sources':[str(x)for x in sources],'objects':[str(x)for x in objects],'linked_layout':layout}
     manifest_path.write_text(json.dumps(report,indent=2)+'\n')
     print('Built '+str(a.out)+' '+report['rom_sha256'])
 

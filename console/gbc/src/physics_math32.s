@@ -337,7 +337,133 @@ math32_mulq_product:
  jp z,math32_round10
  jp math32_round14
 math32_mulq_wide:
- jp _riding_mulq32_wide
+ ldhl sp,#8
+ ld a,(hl)
+ cp a,#14
+ jp nz,_riding_mulq32_wide
+ ; Full signed48 product, plus8192, then saturated32 Q14 result.
+ ; Six stack-local bytes; existing mul16 bank and interrupt contract.
+ ldhl sp,#6
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#2
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ call _riding_mul16_regs
+ ld a,h
+ add a,a
+ sbc a,a
+ ld b,a
+ ld c,a
+ push bc
+ push hl
+ push de
+ ldhl sp,#12
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#10
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ call _riding_mul16_regs
+ ld b,h
+ ld c,l
+ ldhl sp,#2
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl),a
+ ; A signed low half needs y<<16 to become the unsigned low half.
+ ldhl sp,#9
+ bit 7,(hl)
+ jr z,math32_mulq48_round
+ ldhl sp,#12
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld a,b
+ add a,a
+ sbc a,a
+ ld d,a
+ ldhl sp,#2
+ ld a,(hl)
+ add a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl),a
+math32_mulq48_round:
+ ldhl sp,#1
+ ld a,(hl)
+ add a,#32
+ ld (hl+),a
+ jr nc,math32_mulq48_finish
+ inc (hl)
+ jr nz,math32_mulq48_finish
+ inc hl
+ inc (hl)
+ jr nz,math32_mulq48_finish
+ inc hl
+ inc (hl)
+ jr nz,math32_mulq48_finish
+ inc hl
+ inc (hl)
+math32_mulq48_finish:
+ ldhl sp,#5
+ ld a,(hl)
+ add a,#32
+ cp a,#64
+ jr nc,math32_mulq48_saturate
+ ldhl sp,#1
+ ld a,(hl+)
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ sla a
+ rl e
+ rl d
+ rl c
+ rl b
+ sla a
+ rl e
+ rl d
+ rl c
+ rl b
+ ld h,b
+ ld l,c
+ add sp,#6
+ ret
+math32_mulq48_saturate:
+ bit 7,(hl)
+ ld hl,#0x7fff
+ ld de,#0xffff
+ jr z,math32_mulq48_return
+ ld hl,#0x8000
+ ld de,#0
+math32_mulq48_return:
+ add sp,#6
+ ret
 
 ; Narrow a,b admit every signed16 coefficient. The complete product sum is
 ; [-2147418112,2147483648]. Its sole signed32 overflow is the four-INT16_MIN

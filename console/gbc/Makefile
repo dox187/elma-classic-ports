@@ -63,6 +63,7 @@ build/physics-probe.gbc: assets src/physics_probe.c src/suspension.c src/suspens
 	$(LCC) $(filter-out -Wm-yt0x1B -Wm-ya4,$(FLAGS)) -Wm-yt0x19 -o $@ src/physics_probe.c src/suspension.c src/mul16.s
 
 check: all
+	$(PYTHON) test/check_build_layout.py
 	$(PYTHON) test/check.py --gen $(GEN)
 	$(PYTHON) test/check_splash.py --res "$(ELMA_RES)"
 	$(PYTHON) test/check_audio.py --gen $(GEN)
@@ -72,6 +73,7 @@ check: all
 	$(PYTHON) test/check_riding_sqrt.py
 	$(PYTHON) test/check_riding_bounds.py
 	$(PYTHON) test/check_riding_math32.py
+	$(PYTHON) test/check_physics_mulq_wide.py --gen $(GEN)
 	$(PYTHON) test/check_physics_export.py --gen $(GEN)
 	$(PYTHON) test/check_physics_move.py
 	$(PYTHON) test/check_physics_rider.py
