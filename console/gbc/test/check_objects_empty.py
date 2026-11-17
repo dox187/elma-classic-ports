@@ -1,7 +1,7 @@
 """Native differential object-cache check against a frozen pre-cache C loop.
 
 Builds an isolated test ROM; never writes generated game data or builds the game.
-The default 1,094 scene pairs cover counts 0..64, eligibility/effect order,
+The default 1,118 scene pairs cover counts 0..64, eligibility/effect order,
 signed extremes, stale-cache invalidation, fractions, and enabled interrupts.
 Also checks 12,544 clipping cases and 729 saturating bike-bound combinations.
 --haircut-scenes optionally adds the private 132-pair captured timing sequence.
@@ -36,6 +36,7 @@ extern volatile uint8_t game_state,game_apples_left,game_player_index,game_level
 extern volatile uint32_t game_previous_best,game_time_frames;
 extern __at(0xc5f0) uint8_t game_object_active[64];
 extern uint8_t objects_empty_valid,objects_empty_apples;
+extern uint8_t objects_near_count,objects_near[4];
 extern uint16_t gbc_objects_empty_bounds[4];
 uint8_t gbc_object_touch(const gbc_pose_t*,const game_object_t*,uint8_t) __sdcccall(0);
 uint8_t gbc_object_touch_native(const gbc_pose_t*,const game_object_t*,uint8_t) __sdcccall(0);
@@ -199,6 +200,27 @@ static void setup(uint16_t seed,uint8_t mode,uint8_t n){uint8_t i;int16_t x,y;ui
   if(mode==7){gbc_bike.head.x=gbc_bike.wheel[0].x=gbc_bike.wheel[1].x=(seed?10L:20L)*65536L+12345;}
   if(mode==8){game_objects[0].world_x=11L*65536L+60000;gbc_bike.head.x=gbc_bike.wheel[0].x=gbc_bike.wheel[1].x=11L*65536L+(seed?60000:0);}
  }
+
+ if(mode>=9){
+  for(i=0;i<64;++i){game_object_active[i]=0;game_objects[i].kind=3;game_objects[i].gravity=0;game_objects[i].world_x=10L*65536L+60000;game_objects[i].world_y=12L*65536L+22222;}
+  game_apples_left=0;game_object_active[0]=1;
+  gbc_bike.head.x=gbc_bike.wheel[0].x=gbc_bike.wheel[1].x=(seed?10L*65536L+60000:10L*65536L);
+  if(mode==9){
+   game_object_active[0]=game_object_active[2]=1;game_object_active[1]=seed<2;
+   game_objects[0].kind=game_objects[2].kind=1;game_objects[1].kind=2;game_objects[1].gravity=4;game_apples_left=seed<2;
+  }
+  if(mode==10){
+   game_objects[0].world_x=(-2147483647L-1L);
+   gbc_bike.head.x=gbc_bike.wheel[0].x=gbc_bike.wheel[1].x=(seed==1?2147483647L-5535L:(-2147483647L-1L)+60000L);
+  }
+  if(mode==12){gbc_bike.head.x=gbc_bike.wheel[0].x=gbc_bike.wheel[1].x=(seed==1?20L:10L)*65536L;}
+  if(mode==13){game_object_active[0]=!seed;game_object_active[1]=1;}
+  if(mode==14||mode==15){game_object_active[0]=mode==15;for(i=0;i<4;++i)game_object_active[i*16+15]=1;gbc_bike.head.x=gbc_bike.wheel[0].x=gbc_bike.wheel[1].x=10L*65536L;}
+  if(mode==16){
+   game_object_active[0]=game_object_active[3]=game_object_active[4]=1;game_object_active[1]=game_object_active[2]=seed<2;
+   game_objects[0].kind=game_objects[3].kind=1;game_objects[1].kind=game_objects[2].kind=2;game_objects[1].gravity=4;game_objects[2].gravity=2;game_apples_left=seed<2?2:0;
+  }
+ }
  memcpy(original_active,game_object_active,64);memcpy(snapshot,&game_world,33);memcpy(snapshot+33,game_objects,896);memcpy(snapshot+929,&gbc_bike,52);
  game_state=0;game_previous_best=0;game_new_record=0;game_time_frames=360;gravity=2;event_count=0;case_mode=mode;case_step=seed+1;
 }
@@ -210,6 +232,7 @@ static void run_case(uint16_t seed,uint8_t mode,uint8_t n){uint8_t start_apples,
  fast_check();if(memcmp(expected_active,game_object_active,64)||memcmp(expected_bike,&gbc_bike,52)||expected_event_count!=event_count||memcmp(expected_events,events,event_count*2u)||expected_state!=game_state||expected_apples!=game_apples_left||expected_gravity!=gravity||expected_record!=game_new_record||expected_best!=game_previous_best)++failures;
  if(objects_empty_valid){for(i=0;i<game_world.object_count;++i){
   if(!game_object_active[i]||(game_objects[i].kind==1&&game_apples_left))continue;
+  {uint8_t k;for(k=0;k<objects_near_count;++k)if(objects_near[k]==i)break;if(k<objects_near_count)continue;}
   x=(uint16_t)((uint32_t)game_objects[i].world_x>>16)^0x8000U;y=(uint16_t)((uint32_t)game_objects[i].world_y>>16)^0x8000U;
   if(x>=gbc_objects_empty_bounds[0]&&x<=gbc_objects_empty_bounds[1]&&y>=gbc_objects_empty_bounds[2]&&y<=gbc_objects_empty_bounds[3])++guard_failures;
  }}
@@ -259,6 +282,7 @@ void main(void){uint16_t i,start;uint8_t mode,n;disable_interrupts();DISPLAY_OFF
  for(i=0;i<100;++i)run_case(i,5,51);
 #endif
  for(mode=6;mode<=8;++mode)for(i=0;i<2;++i)run_case(i,mode,8);
+ for(mode=9;mode<=16;++mode)for(i=0;i<3;++i)run_case(i,mode,64);
  irq_phase=1;IE_REG=VBL_IFLAG;IF_REG=0;DISPLAY_ON;enable_interrupts();start=sys_time;
  for(i=0;i<64;++i)run_case(i,1,64);
  irq_ticks=sys_time-start;if(!irq_ticks||IE_REG!=VBL_IFLAG)++irq_failures;
@@ -286,12 +310,13 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     gen = args.gen.resolve()
     src = args.play.read_text()
-    start = src.index('static void check_objects(void) BANKED {')
+    start = src.index('static void objects_near_add(')
     candidate = src[start:src.index('\nuint8_t gbc_bike_bounded', start)]
-    candidate = candidate.replace('static void check_objects', 'void fast_check', 1)
+    candidate = candidate.replace('static void check_objects(void)', 'void fast_check(void)', 1)
     declarations = []
     for pattern in (r'static uint8_t objects_empty_valid,objects_empty_apples;',
-                    r'uint16_t gbc_objects_empty_bounds\[4\];'):
+                    r'uint16_t gbc_objects_empty_bounds\[4\];',
+                    r'static uint8_t objects_near_count,objects_near\[4\];'):
         match = re.search(pattern, src)
         if not match:
             raise SystemExit('Expected fused empty-cache declaration missing in ' + str(args.play))
@@ -342,11 +367,12 @@ def main():
     p=PyBoy(str(OUT/'check.gbc'),window='null',sound_emulated=False,cgb=True);p.set_emulation_speed(0);active=[];returns=set();timing={'baseline':[],'fast':[]}
     def returned(key):
      if not active or active[-1]['key']!=key or active[-1]['sp']+2!=p.register_file.SP:return
-     call=active.pop();call['cycles']=p._cycles()-call.pop('start');call.pop('key');call.pop('sp');kind=call.pop('kind')
+     call=active.pop();stack=p.memory[call['sp']-128:call['sp']];call['stack_bytes']=128-next((i for i,b in enumerate(stack) if b!=0x5a),128);call['cycles']=p._cycles()-call.pop('start');call.pop('key');call.pop('sp');kind=call.pop('kind')
      if not call.pop('irq'):timing[kind].append(call)
     def entered(kind):
      sp=p.register_file.SP;ret=p.memory[sp]+256*p.memory[sp+1];key=(0 if ret<0x4000 else p.memory[sy['__current_bank']],ret)
      if key not in returns:p.hook_register(*key,returned,key);returns.add(key)
+     p.memory[sp-128:sp]=[0x5a]*128
      active.append({'kind':kind,'key':key,'sp':sp,'start':p._cycles(),'irq':p.memory[sy['_irq_phase']],'mode':p.memory[sy['_case_mode']],'count':p.memory[sy['_game_world']+32],'step':p.memory[sy['_case_step']]})
     for kind,name in [('baseline','_baseline_check'),('fast','_fast_check')]:a=sy[name];p.hook_register(a>>16,a&65535,entered,kind)
     try:
@@ -354,16 +380,16 @@ def main():
       p.tick(100,False)
       if p.memory[sy['_done']]:break
      def n(name,size=2):a=sy['_'+name];return int.from_bytes(bytes(p.memory[a:a+size]),'little')
-     report={name:n(name)for name in ['completed','failures','scan_failures','guard_failures','bank_failures','irq_failures','irq_ticks','helper_cases','helper_failures','bounds_cases','bounds_failures']};report['done']=n('done',1);report['api_cycles']={};report['extra_ram_bytes']=10;report['optional_haircut']=bool(args.haircut_scenes)
+     report={name:n(name)for name in ['completed','failures','scan_failures','guard_failures','bank_failures','irq_failures','irq_ticks','helper_cases','helper_failures','bounds_cases','bounds_failures']};report['done']=n('done',1);report['api_cycles']={};report['extra_ram_bytes']=15;report['optional_haircut']=bool(args.haircut_scenes)
      for kind,records in timing.items():
-      report['api_cycles'][kind]={}
+      report['api_cycles'][kind]={};report.setdefault('stack_bytes',{})[kind]=max(r['stack_bytes'] for r in records)
       for label in ['all','far51','haircut78','haircut78_warm','haircut_sequence','haircut_sequence78','dense_near64','sparse']:
        v=[x['cycles']for x in records if label=='all' or label=='far51' and x['mode']==0 and x['count']==51 or label=='haircut78' and x['mode']==4 or label=='haircut78_warm' and x['mode']==4 and x is not next(y for y in records if y['mode']==4) or label=='haircut_sequence' and x['mode']==5 or label=='haircut_sequence78' and x['mode']==5 and x['step']==78 or label=='dense_near64' and x['mode']==1 and x['count']==64 or label=='sparse' and x['count']<=4]
        if not v:continue
        report['api_cycles'][kind][label]={'calls':len(v),'min':min(v),'max':max(v),'mean':statistics.mean(v)}
      report['sources']={p.name:hashlib.sha256(p.read_bytes()).hexdigest()for p in [args.play,args.bounds,BASE/'src/objects_touch_fast.s',Path(__file__)]}
      (OUT/'report.json').write_text(json.dumps(report,indent=2)+'\n');(OUT/'calls.json').write_text(json.dumps(timing,indent=2)+'\n');print(json.dumps(report,indent=2))
-     assert report['done'] and report['completed']==(1226 if args.haircut_scenes else 1094) and report['helper_cases']==12544 and report['bounds_cases']==729 and not any(report[k]for k in ['failures','scan_failures','guard_failures','bank_failures','irq_failures','helper_failures','bounds_failures'])
+     assert report['done'] and report['completed']==(1250 if args.haircut_scenes else 1118) and report['helper_cases']==12544 and report['bounds_cases']==729 and not any(report[k]for k in ['failures','scan_failures','guard_failures','bank_failures','irq_failures','helper_failures','bounds_failures'])
     finally:p.stop(save=False)
 
 if __name__ == "__main__":

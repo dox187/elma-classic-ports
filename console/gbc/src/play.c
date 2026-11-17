@@ -63,7 +63,9 @@ volatile uint8_t game_player_index,game_new_record;
 uint16_t game_camera_x, game_camera_y;
 uint8_t game_object_active[LEVEL_OBJECT_MAX];
 static uint8_t objects_empty_valid,objects_empty_apples;
-/* Shared with the bank-5 coarse test; published only after an empty scan. */
+/* Cache small coarse candidate sets; larger sets retain the full scan. */
+static uint8_t objects_near_count,objects_near[4];
+/* Shared exclusion proof for objects outside the ordered candidate list. */
 uint16_t gbc_objects_empty_bounds[4];
 static uint8_t previous, last_hud_state,result_details;
 static uint8_t volt_wait,objects_valid,objects_apples,objects_used,object_phase;
@@ -145,29 +147,34 @@ uint8_t gbc_object_touch(const gbc_pose_t *pose,const game_object_t *obj,uint8_t
 void gbc_objects_bounds(uint16_t *bounds) __sdcccall(0);
 uint8_t gbc_object_near(const game_object_t *obj,const uint16_t *bounds) __sdcccall(0);
 
-static void check_objects(void) BANKED {
-    uint8_t i,hit,use_bounds=OBJECT_COUNT>4,any_near=0;
-    uint16_t bounds[4];
+static void objects_near_add(uint8_t i) {
+    if(objects_near_count<sizeof(objects_near))objects_near[objects_near_count++]=i;
+    else objects_empty_valid=0;
+}
+
+static void check_objects_near(const uint16_t *bounds) {
+    uint8_t i,n,hit;
     const game_object_t *object;
-    /* Every collision radius is below one meter. Its object's integer
-     * coordinate must lie within the three physical circles' integer bounds
-     * expanded by one. Dense courses avoid three full tests per distant item. */
-    if(use_bounds) {
-        gbc_objects_bounds(bounds);
-        /* Active flags only clear between starts; the apple key also covers
-         * flowers becoming eligible. Fractional movement stays exact. */
-        if(objects_empty_valid && objects_empty_apples==game_apples_left
-           && bounds[0]>=gbc_objects_empty_bounds[0] && bounds[1]<=gbc_objects_empty_bounds[1]
-           && bounds[2]>=gbc_objects_empty_bounds[2] && bounds[3]<=gbc_objects_empty_bounds[3])
-            goto objects_checked;
-        gbc_objects_empty_bounds[0]=gbc_objects_empty_bounds[2]=0;
-        gbc_objects_empty_bounds[1]=gbc_objects_empty_bounds[3]=65535U;
-    }
-    objects_empty_valid=0;
-    for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
+    n=0;i=0;
+    while(1) {
+        if(objects_empty_apples==game_apples_left) {
+            if(n==objects_near_count)break;
+            i=objects_near[n++];
+        } else {
+            /* Continue every remaining original ID after an apple changes
+             * flower eligibility in the middle of this scan. */
+            objects_empty_valid=0;
+            if(++i>=OBJECT_COUNT)break;
+        }
+        object=level_objects+i;
         if(!game_object_active[i] || (object->kind==1 && game_apples_left))continue;
-        if(use_bounds && !gbc_object_near(object,bounds))continue;
-        any_near=1;
+        /* Keep the coarse rejection even for cached candidates: the
+         * exact touch helper deliberately uses wrapping deltas. */
+        if(!gbc_object_near(object,bounds)) {
+            /* Clipping now proves this tail candidate excluded as well. */
+            if(objects_empty_valid && n==objects_near_count) {--objects_near_count;break;}
+            continue;
+        }
         hit=gbc_object_touch(&gbc_bike.wheel[0],object,0)
             || gbc_object_touch(&gbc_bike.wheel[1],object,0)
             || gbc_object_touch(&gbc_bike.head,object,1);
@@ -180,9 +187,52 @@ static void check_objects(void) BANKED {
         } else if(object->kind==1 && !game_apples_left)game_state=FINISHED;
         else if(object->kind==3){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
     }
-    if(use_bounds && !any_near) {
-        objects_empty_valid=1;objects_empty_apples=game_apples_left;
+}
+
+static void check_objects(void) BANKED {
+    uint8_t i,hit,use_bounds=OBJECT_COUNT>4;
+    uint16_t bounds[4];
+    const game_object_t *object;
+    /* Every collision radius is below one meter. Its object's integer
+     * coordinate must lie within the three physical circles' integer bounds
+     * expanded by one. Dense courses avoid three full tests per distant item. */
+    if(use_bounds) {
+        gbc_objects_bounds(bounds);
+        /* Active flags only clear between starts. Excluded objects stay out
+         * while the bike rectangle remains inside this clipped proof. */
+        if(objects_empty_valid && objects_empty_apples==game_apples_left
+           && bounds[0]>=gbc_objects_empty_bounds[0] && bounds[1]<=gbc_objects_empty_bounds[1]
+           && bounds[2]>=gbc_objects_empty_bounds[2] && bounds[3]<=gbc_objects_empty_bounds[3]) {
+            if(objects_near_count)check_objects_near(bounds);
+            goto objects_checked;
+        }
+        gbc_objects_empty_bounds[0]=gbc_objects_empty_bounds[2]=0;
+        gbc_objects_empty_bounds[1]=gbc_objects_empty_bounds[3]=65535U;
     }
+    objects_empty_valid=use_bounds;objects_empty_apples=game_apples_left;
+    objects_near_count=0;
+    for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
+        if(!game_object_active[i] || (object->kind==1 && game_apples_left))continue;
+        if(use_bounds) {
+            if(!gbc_object_near(object,bounds))continue;
+            if(objects_empty_valid)objects_near_add(i);
+        }
+        hit=gbc_object_touch(&gbc_bike.wheel[0],object,0)
+            || gbc_object_touch(&gbc_bike.wheel[1],object,0)
+            || gbc_object_touch(&gbc_bike.head,object,1);
+        if(!hit)continue;
+        if(object->kind==2) {
+            objects_empty_valid=0;
+            game_object_active[i]=0;
+            if(game_apples_left)--game_apples_left;
+            if(object->gravity)physics_set_gravity(object->gravity);
+            audio_effect(FX_APPLE);
+        } else if(object->kind==1 && !game_apples_left)game_state=FINISHED;
+        else if(object->kind==3){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
+    }
+    /* Earlier flowers may have been skipped before the last apple unlocked
+     * them. Do not publish that incomplete candidate set for the next call. */
+    if(objects_empty_apples!=game_apples_left)objects_empty_valid=0;
 objects_checked:
     if(game_state==FINISHED) {
         audio_update(0,0,0,0);

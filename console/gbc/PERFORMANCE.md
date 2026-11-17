@@ -566,6 +566,50 @@ cases **163 to 168**. ROM `elma-gbc-v0.91-wheel-8m.gbc`, SHA-256
 Evidence: `build/v091-wheel-response`, `build/v091-wheel-native`,
 `build/v091-wheel-integrated-trace` and `build/v091-wheel-gameplay-8m`.
 
+## 20: cache small ordered object candidate sets — retained
+
+Extend the empty-rectangle proof with up to four coarse-near original object
+IDs. While the bike bounds stay inside the proof, omitted objects remain
+excluded; retained candidates still receive the original coarse and exact
+touch checks in original order. A warm apple hit switches to the full remaining
+ID suffix so a later flower can unlock in the same call. Reset, apple-key
+changes and list overflow invalidate the cache. Keep coarse checks because
+wrapping exact-touch deltas alone can collide across signed coordinate limits.
+
+The native fixture passes 1,118 paired scenes, 12,544 clipping cases and 729
+bound combinations; the captured extension passes 1,250 scenes. Tests cover
+warm signed extremes, last-apple/flower order, multiple gravity effects,
+active clearing and list overflow. Haircut's 100-step object-check mean falls
+18,970 to 7,622 cycles. Cold far scans save 8 cycles; cold dense-near scans add
+1,252 on average, with a sampled cold maximum regression of 2,012. This is an
+explicit measured tradeoff, not a universal cold-path improvement. The cache
+adds 5 RAM / 420 bank5 bytes; tested stack watermark is 49 bytes below API
+entry versus 47 for the original pre-cache oracle.
+
+All 216 full-game cases / 27,447 states remain exact. Misses improve
+**194 to 155**, stretched input intervals **184 to 144**, and wholly passing
+cases **168 to 171**. ROM `elma-gbc-v0.91-object-cache-8m.gbc`, SHA-256
+`024a57594fc99940f4052d913f322cdde1e28d94ef194e151d585973ebe16c28`.
+Evidence: `build/v091-object-candidates`, `build/v091-object-cache-native`
+and `build/v091-object-cache-gameplay-8m`.
+
+## 21: rejected head-rejection order and unconditional diagonal lookahead
+
+Moving the exact capsule AABB rejection before its infinite-line rejection
+passes 8,192 independent geometry vectors and 326 exact route states. Gravity
+Ride costs are unchanged. Bumpy Journey saves 490 cycles on average but its
+previous worst physics frame regresses 291,196 to 291,860, with another sampled
+regression of 3,044. Reject: it worsens the limiting case. Production remains
+unchanged. Evidence: `build/v091-head-reject-order/findings.json`.
+
+Always predicting both fine-motion axes also loses. Explicit byte-patched-ROM
+screening preserves 1,635 states in 12 focused cases, but misses rise 26 to 28
+and stretched intervals 24 to 26. Double Trouble update148 grows 387,960 to
+440,916 cycles, with 3 to 21 uploads: column-first work starves the useful row
+before target changes cancel it. Native cache/phase fixtures remain correct.
+Reject without source integration or a complete candidate build. Evidence:
+`build/v091-prepare-diagonal/handoff.json`, including patched-byte provenance.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -580,13 +624,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-wheel-8m.gbc --gen build/gen-8m --out build/v091-wheel-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-object-cache-8m.gbc --gen build/gen-8m --out build/v091-object-cache-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 194**; wholly passing cases improve **72 to
-168 of 216** in the wheel-response candidate. This is still a failed 30-FPS
+Timing misses improve **1,025 to 155**; wholly passing cases improve **72 to
+171 of 216** in the object-candidate cache. This is still a failed 30-FPS
 gate. Some physics calls alone exceed the frame budget: Bumpy Journey reaches
 291,196 in the isolated wheel-response fixture. Exact native arithmetic and
 presentation optimization remain necessary.

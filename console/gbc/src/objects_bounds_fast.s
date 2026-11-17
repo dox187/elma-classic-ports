@@ -144,7 +144,7 @@ keep_min:
 
 ; Inclusive coarse rectangle, with rejected points clipping an empty region.
 ; ABI0 object@2,bounds@4; E=boolean. The caller resets the empty region once
-; per scan and publishes it only if every eligible object was rejected.
+; per scan; cached candidate IDs cover eligible objects not excluded by it.
 _gbc_object_near::
  ldhl sp,#2
  ld a,(hl+)
