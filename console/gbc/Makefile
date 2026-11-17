@@ -102,6 +102,7 @@ check: all
 	$(PYTHON) test/check_objects_visible.py
 	$(PYTHON) test/check_objects_bounds.py
 	$(PYTHON) test/check_objects_empty.py --gen $(GEN)
+	$(PYTHON) test/check_world_retain_column.py --gen $(GEN) --out build/world-retain-column-check --launch-observer
 	$(PYTHON) test/check_physics_normal.py
 	$(PYTHON) test/check_world_memory.py
 	$(PYTHON) test/check_world_fetch_raw.py --gen $(GEN)

@@ -1000,6 +1000,60 @@ ROM `elma-gbc-v0.91-acquire-nolimit-8m.gbc`, SHA-256
 Evidence: `build/v091-acquire-fused` and
 `build/v091-acquire-nolimit-gameplay-8m`.
 
+## 37: retain a completed column for a diagonal target — retained
+
+When a completed horizontal-only preparation gains exactly one vertical tile,
+keep its 18 useful column references and hidden published cells. Retire the
+excluded endpoint, append the outgoing 20-cell row, then run the original
+21-cell incoming row stages. Exact coarse old/target matches, direction,
+counts and READY state are required. Budgeted callers retain the existing
+21-line setup reservation; rejected calls make no changes. The predictor and
+partial/nonmatching preparations keep their existing behavior.
+
+The first prototype paid helper setup on every mismatch and regressed total
+cycles. A cheap outer READY check removes that common-path overhead. Against
+the pushout snapshot, the retained variant saves 857,220 aggregate cycles;
+Double Trouble/gas update 148 improves 431,984 to 378,772. The largest other
+update regression is 12,760 cycles and remains below the deadline. Bank 6
+grows 533 bytes, with no static RAM or ROM0 growth.
+
+The integrated fused-acquisition build passes the 3,031-view cache fixture and
+the extended 3,199-view fixture, including 36 four-direction cases, 192 guard
+checks, late-budget rejection, exact references/free bits/source pixels and
+save guards. The private paired fixture also compares 36 complete cache and
+lookup checkpoints with the original cancellation path. All 216 gameplay
+cases / 27,447 states remain exact; misses/cadence/passing cases remain
+**65 / 57 / 192**, with none lost. The worst Double Trouble/gas update falls
+to 404,696 in this combination; timing is not monotonic across combinations.
+ROM `elma-gbc-v0.91-column-8m.gbc`, SHA-256
+`e5a871916072416519a45ba94aafb41c869c92416b60ccc246b2c8e7712cf6a6`.
+Evidence: `build/v091-retain-column`, `build/v091-column-cache`,
+`build/v091-column-extended-cache` and `build/v091-column-gameplay-8m`.
+
+## 38: reference-free fixed scenery slots — positive private prototype
+
+A new hypothesis extends section 28's verified fixed-slot mappings: eligible
+levels need no reference/free-bit/retirement maintenance because the mapping
+proves all old/pending viewport IDs have distinct slots. It still compares
+cached IDs and uploads changed patterns. Dynamic fallback levels retain the
+existing cache. This is a distinct runtime experiment, not a rerun of the
+lookup-only prototype.
+
+All 357,874,164 map-position pairs pass revalidation. The native fixture passes
+3,031 views, 13,082 pending-cell source/slot checks, 324 cancellations, 79 fine
+scroll checks and 3,061 save guards. Static acquisition leaves references and
+free bits untouched; 2,809 dynamic metadata cases still match. Against the
+frozen pushout build, the 216-case corpus is exact and improves misses 82 to
+72, cadence 74 to 64, passes 188 to 190, with none lost. Aggregate active cost
+improves 0.373%; fallback levels pay a small dispatch cost.
+
+Cost is 67,734 table bytes, 216 directory bytes, 328 bank 6 bytes and one WRAM
+byte, only in unused banks 481–485. Production integration remains pending:
+deterministic generation/build dependencies, merging the new acquisition path
+and its mode-aware cache oracle. Preserve this validated prototype while the
+current test ROM retains the existing asset format.
+Evidence: `build/v091-static-norefs/handoff.json` and its runtime patch.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -1014,7 +1068,7 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-acquire-nolimit-8m.gbc --gen build/gen-8m --out build/v091-acquire-nolimit-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-column-8m.gbc --gen build/gen-8m --out build/v091-column-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native

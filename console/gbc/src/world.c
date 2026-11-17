@@ -347,6 +347,33 @@ static uint8_t prepare_matches(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t
                               |(prepare_x^x)|(prepare_y^y))<8U;
 }
 
+/* A completed horizontal strip already contains18 of the19 diagonal edge
+ * cells. Keep those exact references and published hidden cells; the ordinary
+ * row stage replaces the corner and publishes the new row before commit. */
+static uint8_t prepare_rebase_column(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y,
+                                     uint16_t start,uint8_t budgeted) {
+    uint16_t top;
+    if(prepare_stage!=PREP_READY || !prepare_horizontal || prepare_vertical
+       || prepare_added_count!=19 || retired_count!=19
+       || ((prepare_old_x^old_x)|(prepare_old_y^old_y)|(prepare_x^x))>=8U)return 0;
+    top=y>>3;
+    if((uint16_t)(prepare_left-prepare_old_left+1)>2 || prepare_left==prepare_old_left
+       || (top!=prepare_old_top+1 && (uint16_t)(top+1)!=prepare_old_top))return 0;
+    /* Match the setup reservation before retiring, moving or reading refs. */
+    if(budgeted && !prepare_budget(start,21))return 0;
+    if(top>prepare_old_top) {
+        world_refs_retire_fixed(prepare_added,1);
+        memmove(prepare_added,prepare_added+1,36);
+    } else world_refs_retire_fixed(prepare_added+18,1);
+    prepare_added_count=18;
+    release_strip(prepare_left>prepare_old_left?prepare_left:prepare_old_left,
+                  top>prepare_old_top?prepare_old_top:prepare_old_top+18,0,20);
+    prepare_old_x=old_x;prepare_old_y=old_y;prepare_x=x;prepare_y=y;
+    prepare_top=top;prepare_vertical=1;prepare_index=0;
+    prepare_stage=PREP_ROW_FETCH;
+    return 1;
+}
+
 static void prepare_begin(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) {
     prepare_old_x=old_x;prepare_old_y=old_y;prepare_x=x;prepare_y=y;
     prepare_old_left=old_x>>3;prepare_old_top=old_y>>3;
@@ -798,7 +825,8 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
 }
 
 void world_prepare(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y,uint16_t start) BANKED {
-    if(!prepare_matches(old_x,old_y,x,y)) {
+    if(!prepare_matches(old_x,old_y,x,y)
+       && (prepare_stage!=PREP_READY || !prepare_rebase_column(old_x,old_y,x,y,start,1))) {
         if(prepare_stage)prepare_cancel();
         if(!prepare_budget(start,21))return;
         /* Runtime camera movement is at most one tile on either axis. */
@@ -817,7 +845,8 @@ void world_scroll(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) BANKED {
             prepare_cancel();
         move_bkg((uint8_t)x,(uint8_t)y);return;
     }
-    if(!prepare_matches(old_x,old_y,x,y)) {
+    if(!prepare_matches(old_x,old_y,x,y)
+       && (prepare_stage!=PREP_READY || !prepare_rebase_column(old_x,old_y,x,y,0,0))) {
         if(prepare_stage)prepare_cancel();
         prepare_begin(old_x,old_y,x,y);
     }

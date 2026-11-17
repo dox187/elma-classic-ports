@@ -9,7 +9,7 @@ are retained for reference.
 See the [performance experiment log](PERFORMANCE.md) for measured candidates
 and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
 
-The measured `build/elma-gbc-v0.91-acquire-nolimit-8m.gbc` candidate preserves all
+The measured `build/elma-gbc-v0.91-column-8m.gbc` candidate preserves all
 27,447 native states in the 216-case controller corpus. Deadline misses fall
 from 1,025 to 65, with 192 cases passing throughout. The latest separate
 functional run (`v0.91-pushout`) passes all 54 starts, complete Freefall, menus,
