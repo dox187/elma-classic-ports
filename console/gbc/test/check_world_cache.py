@@ -55,7 +55,7 @@ def main():
     OUT.mkdir(parents=True,exist_ok=True)
     source_paths={name:(args.world_source if name=='world.c' else BASE/'src'/name)
                   for name in ('world.c','world.h','world_dma.c','world_memory.s','world_memory.h','world_retire_fast.s','video.s')}
-    optional_helpers=('world_alloc_fast.s','world_acquire_fast.s','video_strip_pair.s','world_prepare_fast.s','world_zx0.s')
+    optional_helpers=('world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','video_strip_pair.s','world_prepare_fast.s','world_zx0.s')
     for name in optional_helpers:
         path=BASE/'src'/name
         if args.helper_dir and(args.helper_dir/name).exists():path=args.helper_dir/name

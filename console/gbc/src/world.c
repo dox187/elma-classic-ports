@@ -4,6 +4,7 @@
 #include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <string.h>
 #include "world.h"
 #include "world_memory.h"
@@ -116,22 +117,22 @@ static uint16_t cached_pattern_address(uint16_t block) {
 }
 #endif
 
-void world_cache_upload(uint16_t slot,uint16_t id) __sdcccall(0) {
 #ifdef WORLD_GRAPHICS_ZX0
+void world_cache_upload(uint16_t slot,uint16_t id) __sdcccall(0) {
     uint16_t address=cached_pattern_address(id>>5);
     rRAMB=2+((id>>9)&1);
     world_upload_tile(CURRENT_BANK,address+((id&31)<<4),physical(slot));
     rRAMB=0;
-#else
-    uint16_t offset=game_world.patterns.address+((id&1023)<<4);
-    uint16_t bank=game_world.patterns.bank+(id>>10);
-    uint16_t target=physical(slot);
-    /* A pattern base may begin partway through a bank. */
-    if(offset>=0x8000U){offset-=0x4000; ++bank;}
-    world_upload_tile(bank,offset,target);
-#endif
     ++world_uploads;
 }
+#else
+typedef char world_raw_pattern_bank_offset[(offsetof(world_level_t,patterns)+offsetof(world_far_t,bank)==14)?1:-1];
+typedef char world_raw_pattern_address_offset[(offsetof(world_level_t,patterns)+offsetof(world_far_t,address)==16)?1:-1];
+void world_cache_upload_raw(uint16_t slot,uint16_t id) __sdcccall(0);
+void world_cache_upload(uint16_t slot,uint16_t id) __sdcccall(0) __naked {
+    __asm jp _world_cache_upload_raw __endasm;
+}
+#endif
 
 #ifndef WORLD_ACQUIRE_C_REFERENCE
 uint16_t world_acquire_fast(uint16_t id) __sdcccall(0);
@@ -339,6 +340,7 @@ static void prepare_begin(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) {
     prepare_stage=prepare_horizontal?PREP_COL_FETCH:prepare_vertical?PREP_ROW_FETCH:PREP_READY;
 }
 
+#ifdef WORLD_ACQUIRE_C_REFERENCE
 static void prepare_acquire(void) {
     uint8_t i=prepare_index;
     uint16_t id=strip_low[i]|((uint16_t)strip_high[i]<<8),slot=acquire(id);
@@ -347,6 +349,80 @@ static void prepare_acquire(void) {
     else{output_tiles[i]=(uint8_t)(slot+4U);output_attrs[i]=strip_attrs[i]|8;}
     ++prepare_index;
 }
+#else
+/* Near bank6 bookkeeping keeps both slot lists and the acquisition order.
+ * Indices remain bounded by the staged caller; no scratch RAM is needed. */
+static void prepare_acquire(void) __naked {
+    __asm
+        ld a,(#_prepare_index)
+        ld c,a
+        ld b,#0
+        ld hl,#_strip_low
+        add hl,bc
+        ld e,(hl)
+        ld hl,#_strip_high
+        add hl,bc
+        ld d,(hl)
+        push bc
+        push de
+        call _world_acquire_fast
+        pop hl
+        pop bc
+
+        ld a,c
+        add a,a
+        add a,#<(_output_slots)
+        ld l,a
+        ld a,#>(_output_slots)
+        adc a,#0
+        ld h,a
+        ld a,e
+        ld (hl+),a
+        ld (hl),d
+
+        ld hl,#_prepare_added_count
+        ld a,(hl)
+        inc (hl)
+        add a,a
+        add a,#<(_prepare_added)
+        ld l,a
+        ld a,#>(_prepare_added)
+        adc a,#0
+        ld h,a
+        ld a,e
+        ld (hl+),a
+        ld (hl),d
+
+        ld a,e
+        cp #252
+        ld a,d
+        sbc a,#0
+        ld a,e
+        jr c,00110$
+        add a,#4
+        ld e,a
+        ld hl,#_strip_attrs
+        add hl,bc
+        ld a,(hl)
+        or #8
+        jr 00111$
+00110$:
+        ld hl,#_strip_attrs
+        add hl,bc
+        ld a,(hl)
+00111$:
+        ld hl,#_output_tiles
+        add hl,bc
+        ld (hl),e
+        ld hl,#_output_attrs
+        add hl,bc
+        ld (hl),a
+        ld hl,#_prepare_index
+        inc (hl)
+        ret
+    __endasm;
+}
+#endif
 
 static void prepare_publish(uint8_t vertical) {
     world_slot_strip_set(prepare_strip_x,prepare_strip_y,vertical,prepare_count,output_slots);

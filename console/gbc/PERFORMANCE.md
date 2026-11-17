@@ -270,6 +270,39 @@ Evidence: `build/v091-timed-zx0-{cost,graphics,gameplay-4m,freefall}`,
 `build/v091-cost-prefix-cache`, and
 `build/v091-compressed-regression/v0.91-timed-zx0-4m`.
 
+## 09: acquisition and raw upload bookkeeping — retained
+
+The near-bank6 acquisition helper preserves both output/temporary slot lists,
+attributes, allocation order and every counter without scratch RAM. It saves
+116–128 cycles per item. The raw upload helper preserves the partial first ROM
+bank, nine-bit bank value and physical slot-252 gap; DMA itself is unchanged.
+Raw upload glue shrinks 28 bytes and adds no RAM. It is omitted from compressed
+builds; native structure offsets are compile-time checked.
+
+Focused fixtures pass 7,576 bookkeeping cases, 2,809 integrated acquisitions,
+16,384 upload arguments and the worst update's 37 exact upload arguments.
+The latter saves 5,816 isolated cycles; acquisition saves 4,992 for its 39
+calls. Full-game timing is measured separately: all 216 cases / 27,447 states
+still match 0.90 in both sizes. Corpus misses fall **460 to 444** in 8 MiB
+and **959 to 950** in 4 MiB; entirely passing cases reach **131 / 76**.
+
+Both cache fixtures pass 3,031 views. The compressed full observer passes;
+the raw full instruction observer again stalls under PyBoy and is terminated.
+The identical raw fixture passes native checks plus SRAM-guard and DMA-launch
+observation, including 23,147 safe launches. This is an observer limitation,
+not evidence of physical-cartridge timing. DMA polling was only 21.56% of the
+worst raw update's upload helper cost; repeating a wait-loop optimization is
+unlikely to close its remaining gap.
+
+| Candidate | SHA-256 |
+|---|---|
+| `elma-gbc-v0.91-stream-glue-4m.gbc` | `0731029510f76f3ad8d9bc38f82be58dd3d19f6dab2cad327fbe3473243d0f56` |
+| `elma-gbc-v0.91-stream-glue-8m.gbc` | `846e2477f85503f9dc603a3c230bfd02355497638d367a02e353715a3ef5a474` |
+
+Evidence: `build/v091-acquire-bookkeeping`, `build/v091-raw-scroll-hotspot`,
+`build/v091-stream-glue-cache-{4m,8m}`, and
+`build/v091-stream-glue-gameplay-{4m,8m}`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
