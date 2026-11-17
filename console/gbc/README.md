@@ -1,9 +1,10 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.84 — development prototype**. The port version is kept in
-[`VERSION`](VERSION).
+Development version: **0.90 — not ready for release**. The last completed
+build is **0.84**. [`VERSION`](VERSION) records 0.90 so development builds do
+not overwrite the retained 0.84 ROMs. See the acceptance requirements below.
 
-Version 0.84 lowers the CH1 exhaust layer after it was reported too loud on
+The retained 0.84 build lowers the CH1 exhaust layer after it was reported too loud on
 hardware. Idle volume is reduced from 6 to 3, throttle volume from 15 to 8
 (half, rounded up to a whole hardware level). The original-derived CH3 cycles,
 pitch curve, effect levels and master gain are retained. The two-channel engine still has
@@ -133,6 +134,9 @@ verification limits are described below.
 
 ## Planned after 0.84
 
+- Brighten the bushes and other green decorations: their current palettes
+  appear too dark on the console. Compare the revised colors with the original
+  artwork and check them on a real Game Boy Color.
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
 - Verify the relocated **8 MiB** physics tables on FlashMaster, then verify
@@ -142,6 +146,69 @@ verification limits are described below.
   decoding and cache misses during fast scrolling. Keep all 54 levels and
   the current physics; discuss any necessary graphics or gameplay
   simplifications before choosing a compromise.
+
+## Version 0.90 in development
+
+0.90 is reserved for the original-PC physics comparison and the resulting
+physics changes. It is **not released**: the current prototype does not meet
+the requested fidelity or complete-game timing targets.
+
+Acceptance priorities, in the requested order:
+
+1. At least **99.9%** of aligned samples must keep every measured part within
+   **1 cm** position, **0.1 degree** angle and **0.01 m per real second** linear
+   velocity of the PC reference, with matching collision, apple and finish
+   events. Evaluate each case, including both wheel angles; easy cases must not
+   hide a failing route.
+2. Then evaluate **0.1% relative error**, with explicit absolute tolerances near
+   zero. Preserve the direct controls and the 30 Hz gameplay budget.
+
+Both the fidelity requirement and stable 30 FPS remain mandatory. If a
+candidate meets only one, it stays an experiment and cannot become the 0.90
+release. No extra frame of input buffering is authorized.
+
+The comparison links the original PC physics equations with their actual
+headers. Generated test-only copies observe resolved wheel-contact transitions;
+their complete numeric state is checked bit for bit against uninstrumented
+builds. It uses identical timed controls and the original **0.0055
+maximum step plus remainder** schedule at each GBC sampling time. Its native
+`double` reference is the project's PC SDL arithmetic profile, not a claim of
+bit-identical Windows x87 behavior. Baselines are reconstructed from Git with
+their own constants generator; reports include source/library hashes, full
+trajectories, shared live windows and event mismatches.
+
+From the repository root:
+
+```sh
+python3 console/gbc/test/compare_pc_physics.py \
+  --res build-reg/elma.res --baseline-ref 17c1493
+python3 console/gbc/test/score_pc_fidelity.py \
+  console/gbc/build/pc-comparison-v090/report.json --run both --require-target
+```
+
+The current 40-case corpus covers six original courses and controlled
+acceleration, braking, suspension, landing, air and volt fixtures, plus an
+original-PC Warm Up run that collects the apple and reaches the flower. The rider
+now updates each physics step and uses post-volt body rotation. Exact SM83
+coordinate/movement helpers reduce the cost, and native/HOST state agreement
+is checked. This intermediate correction leaves substantial whole-bike
+errors; it is not sufficient for 0.90 acceptance. Further work must address
+integration timing, brake/contact behavior and numerical precision.
+
+The contact-enabled comparison observes both wheels' resolved contact counts,
+transition order and enclosing frame intervals. All 40 cases have validated
+contact coverage; both 0.84 and the current rider correction fail the primary
+acceptance requirement in all 40 cases. This is an all-component threshold,
+not a percentage estimate of how recognizable the game feels.
+
+Separate arithmetic feasibility studies replay a longer 40-case corpus. Full
+float32 arithmetic accepts 84.73% of its 10,203 live samples. Checked Q44 fixed
+arithmetic accepts 92.17%, with 39 cases entirely within the primary limits;
+the repeated acceleration/braking case diverges after 33.55 real seconds.
+The Q44 study still uses host trigonometry, and neither result establishes a
+native GBC implementation or its speed. These percentages use different inputs
+from the production-core comparison above and cannot be substituted for its
+release gate. The precise cause of the remaining Q44 divergence is under study.
 
 ## Build and run
 
@@ -158,7 +225,9 @@ make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 
-Open **`build/elma-gbc-v0.84-4m.gbc`** (4 MiB) or **`build/elma-gbc-v0.84-8m.gbc`** (8 MiB)
+New development builds use **`build/elma-gbc-v0.90-4m.gbc`** (4 MiB) and
+**`build/elma-gbc-v0.90-8m.gbc`** (8 MiB); they are not accepted 0.90 releases.
+Open the retained 0.84 files for the last completed build
 in a Game Boy Color emulator. These are CGB-only MBC5 cartridges, not Game Boy
 Advance programs; monochrome Game Boy hardware is unsupported. Both use header
 type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
@@ -166,7 +235,7 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.84-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.90-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. Exact physics
