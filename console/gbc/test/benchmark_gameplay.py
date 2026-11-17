@@ -9,6 +9,8 @@ Timing follows profile_play: joypad entry through the first main-loop vsync
 after the completed update, including presentation/physics/object/clock work
 and excluding idle wait. The limit is always 280896 SM83 T-cycles (two CGB
 double-speed display frames), regardless of the measured ROM's performance.
+Consecutive gameplay input samples must also be two display frames apart;
+this catches missed VBlanks in the idle-wait path even when active work fits.
 
 The fidelity boundary is physics_step's actual stack return address, after
 the 109-byte Bike and 52-byte gbc_bike export, BEFORE the caller advances its
@@ -346,7 +348,14 @@ class GameplayProfiler(Profiler):
                           "other_loop_cycles": update["cycles"] - inclusive["_game_present"] - inclusive["_physics_step"]})
         before = self.initial["overruns"] if self.initial else None
         after = self.work[-1]["overruns_after"] if self.work else before
+        intervals = [(a, b) for a, b in zip(self.work, self.work[1:])]
+        cadence = Counter(b["frame"] - a["frame"] for a, b in intervals)
         return {"whole_active_update": statistics([update["cycles"] for update in self.work]),
+                "input_cadence": {
+                    "interval_cycles": statistics([b["start_cycle"] - a["start_cycle"] for a, b in intervals]),
+                    "display_frame_histogram": dict(sorted(cadence.items())),
+                    "intervals_not_two_frames": sum(n for frames, n in cadence.items() if frames != 2),
+                    "scope": "consecutive riding input samples; excludes the final update's unobserved next input"},
                 "functions": {name: statistics(values) for name, values in sorted(costs.items())},
                 "update_budget_cycles": UPDATE_BUDGET,
                 "updates_exceeding_budget": sum(update["cycles"] > UPDATE_BUDGET for update in self.work),
@@ -463,7 +472,8 @@ def run_case(args, level, scenario, names):
         timing = result.get("timing", {})
         result["performance_requirement_met"] = bool(timing.get("whole_active_update", {}).get("count")) and (
             timing.get("updates_exceeding_budget") == 0 and timing.get("game_overruns_delta") == 0
-            and timing.get("updates_exceeding_budget_with_gdma_surcharge") == 0)
+            and timing.get("updates_exceeding_budget_with_gdma_surcharge") == 0
+            and timing.get("input_cadence", {}).get("intervals_not_two_frames") == 0)
         result["status"] = "passed" if result["correctness_checks_passed"] and result["performance_requirement_met"] else "failed"
         result["host_seconds"] = time.monotonic() - started
     return result, trace
@@ -582,7 +592,7 @@ def main():
               "state_boundary": "physics_step return before caller clock/object checks; completed-update vsync after them",
               "state_sizes_bytes": {"Bike": 109, "gbc_bike": 52},
               "emulator_timing_limitation": GDMA_LIMITATION,
-              "performance_requirement_scope": "fixed budget for emulator cycles and GDMA surcharge estimate, plus zero game_overruns",
+              "performance_requirement_scope": "fixed budget for emulator cycles and GDMA surcharge estimate, zero game_overruns and two-display-frame input cadence",
               "trace_file": "trace.jsonl.gz", "cases": [], "errors": [],
               "deadline_budget_relaxed_for_diagnostics": False, "hardware_tested": False}
     reference = None

@@ -511,6 +511,11 @@ Evidence: `build/v091-raw-strip-fetch`, `build/v091-strip-native`,
 inputs and natural death/finish. It records all 109 internal and 52 public
 state bytes at physics return, plus clock/object state after each update.
 The strict deadline is fixed and timing failures do not truncate the corpus.
+Consecutive riding input samples must also be exactly two display frames
+apart. The report records their frame histogram and cycle intervals separately
+from active computation: an idle-wait race can skip a VBlank even when the
+active computation fits. Old reports remain unchanged; their stored traces
+allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
