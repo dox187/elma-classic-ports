@@ -356,6 +356,22 @@ static void prepare_next_view(uint16_t start) BANKED {
         world_prepare(game_camera_x,game_camera_y,(uint16_t)x,(uint16_t)y,start);
 }
 
+void game_wait_first_frame(uint16_t start) NONBANKED {
+    uint16_t now;
+    do {
+        __critical {
+            now=sys_time;
+            if(IF_REG&VBL_IFLAG)++now;
+            if(now==start) {
+                /* NOP also absorbs the IME-off HALT bug if an enabled
+                 * interrupt becomes pending after the atomic check. */
+                __asm halt
+                      nop __endasm;
+            }
+        }
+    } while(now==start);
+}
+
 void main(void) NONBANKED {
     uint8_t keys,pressed,input,substep,tick,action,line;
     uint16_t start,now;
@@ -429,6 +445,12 @@ void main(void) NONBANKED {
             __critical {now=sys_time;line=LY_REG;if(IF_REG&VBL_IFLAG)++now;}
             if(now==start || ((uint16_t)(now-start)==1 && (line<108 || line>=144)))
                 prepare_next_view(start);
+            /* An overrun already waits for the next VBlank before input.
+             * Use that existing tail for hidden scenery work, with its same
+             * deadline; retain start for strict update/overrun accounting.
+             * The first condition excluded elapsed zero and one here. */
+            else if(line<108 || line>=144)
+                prepare_next_view(now-1);
         }
         ++game_frames;
         __critical {
@@ -437,7 +459,7 @@ void main(void) NONBANKED {
             if((uint16_t)(now-start)>=GAME_FRAME_INTERVAL && game_overruns!=65535)++game_overruns;
         }
         while((uint16_t)(now-start)<GAME_FRAME_INTERVAL-1) {
-            vsync();__critical {now=sys_time;}
+            game_wait_first_frame(start);__critical {now=sys_time;}
         }
     }
 }

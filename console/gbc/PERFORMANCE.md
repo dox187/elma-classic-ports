@@ -505,6 +505,44 @@ Evidence: `build/v091-raw-strip-fetch`, `build/v091-strip-native`,
 `build/v091-strip-cache`, `build/v091-strip-gameplay-8m` and
 `build/v091-strip-checks`.
 
+## 18: use existing post-overrun idle time and fix the first wait — retained
+
+After an overrun the main loop already waits for the next VBlank. Permit
+bounded offscreen preparation in that existing tail, supplying `now-1` to the
+unchanged two-frame preparation deadline. Keep the original normal-case
+condition/call and original update-start timestamp. No queued input or extra
+presentation frame is introduced; all active work still counts against the
+strict budget. Double Trouble/gas update148 improves from 473,160 to 387,960
+cycles in the fast-tail candidate; its upload count drops from 37 to 3.
+
+The initial ternary gate added common-case overhead and exposed a pre-existing
+wait race: VBlank could arrive between reading `sys_time` and calling `vsync`,
+whose entry clears its event flag. The original inner wait then skipped a
+frame. A conditional first-frame helper checks the timestamp/pending interrupt
+atomically and sleeps only while the first VBlank has not arrived. Its NOP
+absorbs the IME-off HALT duplicate-fetch case. The profiler observes helper
+entry at the same first-idle boundary as the previous inner `vsync`.
+
+The native wait fixture passes 2,772 LCD-phase/counter-wrap/timer-IRQ cases;
+already-passed deadlines return within 1,264 cycles including ISR work.
+Actual waits remain below one frame. The scenery fixture passes 374 phase/wrap
+cases / 748 views, including 142 conflicting preparations, with no byte,
+reference, save-guard or preparation-deadline failures. A full-ROM audit sees
+11 post-overrun preparation calls and no supplied-deadline crossings.
+Combined footprint is +73 ROM0 bytes with no static RAM increase.
+
+All 216 gameplay cases / 27,447 states remain exact. The final candidate has
+**233 active deadline misses / 224 stretched input intervals / 163 wholly
+passing cases**, versus 262 / 253 / 163 before scheduling. The final wait fix
+removes one stretched input interval from the fast-tail candidate. These are
+still failed 30-FPS results, including several physics-only overruns.
+
+ROM `elma-gbc-v0.91-wait-8m.gbc`, SHA-256
+`dac9fca460ab16e00547ab9428c8d56c60ec0245ee36611e511ff1573f3aa43b`.
+Evidence: `build/v091-scroll-schedule`, `build/v091-wait-native` and
+`build/v091-wait-gameplay-8m`. Intermediate ROM hashes are retained in their
+`v091-idle-{tail,fast}-gameplay-8m` reports.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -519,13 +557,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-strip-8m.gbc --gen build/gen-8m --out build/v091-strip-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-wait-8m.gbc --gen build/gen-8m --out build/v091-wait-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 262**; wholly passing cases improve **72 to
-163 of 216** in the combined plane-read candidate. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 233**; wholly passing cases improve **72 to
+163 of 216** in the scheduling candidate. This is still a failed 30-FPS gate.
 Some physics calls alone exceed the frame budget: the brake candidate reaches
 299,220 cycles in Bumpy Journey and 291,696 in Gravity Ride. Exact native
 arithmetic/contact optimization is the next requirement.

@@ -88,6 +88,7 @@ check: all
 	$(PYTHON) test/check_physics_levels.py --res "$(ELMA_RES)" --gen $(GEN)
 	$(PYTHON) test/check_physics_levels.py --res "$(ELMA_RES)" --gen $(GEN) --out build/physics-high-bank-check --high-bank
 	$(PYTHON) test/check_physics_trace.py --res "$(ELMA_RES)" --gen $(GEN) --first-bank $(COEFFICIENT_BANK)
+	$(PYTHON) test/check_frame_wait.py
 	$(PYTHON) test/check_video.py
 	$(PYTHON) test/check_video_screen.py
 	$(PYTHON) test/check_video_pair.py

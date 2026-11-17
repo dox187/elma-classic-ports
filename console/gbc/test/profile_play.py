@@ -74,6 +74,11 @@ class Profiler:
             self.p.hook_register(address>>16,address&65535,callback,self)
         address=self.symbols['_vsync']
         self.p.hook_register(address>>16,address&65535,self._vsync_entry,self)
+        # The conditional first-frame wait begins at the same idle boundary
+        # as the original inner vsync; include its wait-free fast return too.
+        if '_game_wait_first_frame' in self.symbols:
+            address=self.symbols['_game_wait_first_frame']
+            self.p.hook_register(address>>16,address&65535,self._vsync_entry,self)
 
     @staticmethod
     def _entry(context):
