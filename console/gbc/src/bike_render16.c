@@ -3,6 +3,7 @@
  */
 #include <gb/gb.h>
 #include <gb/cgb.h>
+#include <stddef.h>
 #include <string.h>
 #include "bike_render16.h"
 #include "riding_assets.h"
@@ -205,21 +206,175 @@ static void place(uint8_t sprite,int16_t x,int16_t y) {
     else move_sprite(sprite,(uint8_t)(x+8),(uint8_t)(y+16));
 }
 
+/* The cast after >>8 keeps only subtraction bytes 1 and 2. Byte 0 still
+ * supplies their borrow; byte 3 cannot affect them. Keep these exact signed
+ * displacements and the two separately rounded products out of SDCC's
+ * 32-bit stack temporaries. No scratch RAM or interrupt masking is needed. */
+typedef char rider_frame_layout[
+    offsetof(gbc_bike_t,body)==0 && offsetof(gbc_bike_t,rider)==30 &&
+    offsetof(gbc_pose_t,y)==4 ? 1 : -1];
+static uint8_t rider_compression(const gbc_bike_t *bike,uint8_t angle) __sdcccall(0) __naked {
+    __asm
+    ldhl sp,#2
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    push de
+    ld hl,#30
+    add hl,de
+    ld b,d
+    ld c,e
+    ld a,(bc)
+    ld e,a
+    ld a,(hl+)
+    sub a,e
+    inc bc
+    ld a,(bc)
+    ld e,a
+    ld a,(hl+)
+    sbc a,e
+    ld e,a
+    inc bc
+    ld a,(bc)
+    ld d,a
+    ld a,(hl)
+    sbc a,d
+    ld d,a
+    ; -256..255 have high byte FF or 00; +256 also requires low byte 00.
+    inc a
+    cp a,#2
+    jr c,001$
+    sub a,#2
+    or a,e
+    jr z,001$
+    ld e,#2
+    add sp,#2
+    ret
+001$:
+    push de
+    ldhl sp,#2
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    ld hl,#4
+    add hl,de
+    ld b,h
+    ld c,l
+    ld de,#30
+    add hl,de
+    ld a,(bc)
+    ld e,a
+    ld a,(hl+)
+    sub a,e
+    inc bc
+    ld a,(bc)
+    ld e,a
+    ld a,(hl+)
+    sbc a,e
+    ld e,a
+    inc bc
+    ld a,(bc)
+    ld d,a
+    ld a,(hl)
+    sbc a,d
+    ld d,a
+    inc a
+    cp a,#2
+    jr c,002$
+    sub a,#2
+    or a,e
+    jr z,002$
+    ld e,#2
+    add sp,#4
+    ret
+002$:
+    push de
+    ldhl sp,#10
+    ld c,(hl)
+    ld b,#0
+    ld hl,#_riding_up_x
+    add hl,bc
+    ld c,(hl)
+    ldhl sp,#2
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    call 010$
+    push hl
+    ldhl sp,#12
+    ld c,(hl)
+    ld b,#0
+    ld hl,#_riding_up_y
+    add hl,bc
+    ld c,(hl)
+    ldhl sp,#2
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    call 010$
+    pop de
+    ld a,e
+    sub a,l
+    ld e,a
+    ld a,d
+    sbc a,h
+    ld d,a
+    bit 7,a
+    jr nz,003$
+    ld a,e
+    sub a,#0x2d
+    ld a,d
+    sbc a,#0x17
+    jr c,003$
+    ld a,e
+    sub a,#0xb5
+    ld a,d
+    sbc a,#0x20
+    ld e,#1
+    jr c,004$
+    inc e
+    jr 004$
+003$:
+    ld e,#0
+004$:
+    add sp,#6
+    ret
+010$:
+    ; Signed DE * signed C, modulo 16 bits, then arithmetic >>1. Products
+    ; fit int16_t for the accepted displacement and int8_t atlas vectors.
+    ld a,c
+    push af
+    ld hl,#0
+    ld b,#8
+011$:
+    add hl,hl
+    sla c
+    jr nc,012$
+    add hl,de
+012$:
+    dec b
+    jr nz,011$
+    pop af
+    bit 7,a
+    jr z,013$
+    ld a,h
+    sub a,e
+    ld h,a
+013$:
+    sra h
+    rr l
+    ret
+    __endasm;
+}
+
 void bike_render_prepare(const gbc_bike_t *bike) {
     uint8_t angle,compression,body,head,wheel,bank,oldbank,i,phase;
     uint16_t fraction;
     uint16_t frame;
-    int16_t projection,rx,ry;
     angle=(uint8_t)((bike->body.angle+1024U)>>11)&31;
     /* Use subpixel physical displacement so the selected rider pose does not
      * flicker as the camera rounds positions to whole screen pixels. */
-    rx=(int16_t)((bike->rider.x-bike->body.x)>>8);
-    ry=(int16_t)((bike->rider.y-bike->body.y)>>8);
-    if(rx < -256 || rx > 256 || ry < -256 || ry > 256)compression=2;
-    else {
-        projection=((rx*riding_up_x[angle])>>1)-((ry*riding_up_y[angle])>>1);
-        compression=projection<5933 ? 0 : projection>8372 ? 2 : 1;
-    }
+    compression=rider_compression(bike,angle);
     body=(bike->turned ? 96 : 0)+compression*32+angle;
     /* OAM uses floor(world pixels), while the atlas retains half-pixel phase.
      * The camera and level origin are whole pixels, so only world low words
