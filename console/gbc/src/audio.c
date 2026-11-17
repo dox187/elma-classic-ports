@@ -22,7 +22,7 @@ static const effect_step_t *effect_steps;
 static uint16_t effect_start;
 static uint8_t effect_id, effect_note, effect_active, effect_duration, engine_volume, engine_mode, pulse_volume;
 static uint16_t creak_start, motion_last[2];
-static uint8_t motion_wheel, compression_valid;
+static uint8_t motion_wheel, compression_valid, creak_latched;
 static uint8_t creak_active, creak_note, motion_valid, last_turned, last_volt[2];
 static int16_t last_down[2];
 
@@ -98,9 +98,10 @@ static void creak_tick(uint16_t now) {
 /* Original LEPTET.CPP surlodasverseny requires both spring compression
  * and inward relative movement along the bike's down axis. Observe the
  * exported poses only: no extra physics work or modified native state.
- * Q6 positions and 32 Q4 directions bound the cost; a 1/32 m travel
- * deadband rejects export/projection jitter. The strength threshold is
- * the original mixer's 0.1, converted using model seconds per VBlank.
+ * Q6 positions and 32 Q4 directions bound the cost. Actual wheel contact,
+ * at least 10/64 m compression and 4/64 m inward travel reject airborne
+ * oscillation and ordinary spring movement. Re-arm below 6/64 m compression;
+ * the stronger onset threshold suits this fixed-volume effect.
  */
 static const int8_t motion_sine[32]={
     0,3,6,9,11,13,15,16,16,16,15,13,11,9,6,3,
@@ -126,7 +127,8 @@ static void motion_tick(uint16_t now) {
     static uint8_t k,angle,valid;
     static int16_t x,y,down,compression,travel;
     static uint16_t elapsed;
-    if(!gbc_bike.alive) { motion_valid=0;compression_valid=0;return; }
+    if(!gbc_bike.alive) { motion_valid=0;compression_valid=0;creak_latched=0;return; }
+    if(!(riding_audio_contact[0]|riding_audio_contact[1]))creak_stop();
     for(k=0;k<2;++k) {
         if(motion_valid && Bike.volt[k]>last_volt[k])audio_effect(FX_VOLT);
         last_volt[k]=Bike.volt[k];
@@ -156,9 +158,16 @@ static void motion_tick(uint16_t now) {
     }
     compression=(int16_t)(F_BODY_Y>>12)-down;
     travel=last_down[k]-down;
-    if((compression_valid&valid) && elapsed && elapsed<=8 && compression>0 && travel>=2
-       && compression<128 && travel<128
-       && (uint16_t)(compression*travel)>=3U*elapsed)audio_effect(FX_CREAK);
+    /* A contact is required: airborne spring oscillation is not an impact.
+     * Hysteresis permits one sound per substantial compression, not a loop
+     * on every tiny inward movement after the previous contour ends. */
+    if(compression<=6)creak_latched&=~valid;
+    if(riding_audio_contact[k] && !(creak_latched&valid)
+       && (compression_valid&valid) && elapsed && elapsed<=8
+       && compression>=10 && travel>=4 && compression<128 && travel<128
+       && (uint16_t)(compression*travel)>=12U*elapsed) {
+        audio_effect(FX_CREAK);creak_latched=3;
+    }
     last_down[k]=down;motion_last[k]=now;compression_valid|=valid;
 }
 
@@ -178,7 +187,7 @@ void audio_init(void) BANKED {
     for(i=0;i<16;++i)((volatile uint8_t *)0xFF30)[i]=engine_wave[0][i];
     engine_mode=0;
     engine_volume=0;
-    effect_active=0;creak_active=0;motion_valid=0;compression_valid=0;motion_wheel=0;pulse_volume=255;
+    effect_active=0;creak_active=0;motion_valid=0;compression_valid=0;creak_latched=0;motion_wheel=0;pulse_volume=255;
     audio_idle_reset(audio_now());
 }
 
@@ -188,7 +197,7 @@ void audio_update(uint8_t riding,uint8_t gas,uint8_t brake,uint16_t speed) BANKE
     const uint8_t *wave;
     now=audio_now();
     effect_tick(now);creak_tick(now);
-    if(!riding) { engine_stop();creak_stop();motion_valid=0;compression_valid=0;return; }
+    if(!riding) { engine_stop();creak_stop();motion_valid=0;compression_valid=0;creak_latched=0;return; }
     motion_tick(now);
     mode=!!gas;
     if(!mode && (engine_mode || !engine_volume))audio_idle_reset(now);

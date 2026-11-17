@@ -283,7 +283,8 @@ def generate(res_path, out, constants=None):
         'effects': effects,
         'suspension_trigger': 'Read-only 32-direction Q4 projection of exported wheel/body separation; '
                               'each wheel sampled on alternate updates (15 Hz at the standard game cadence); '
-                              'positive compression and inward travel, with 1/32 m travel deadband; '
+                              'actual wheel contact, >=10/64 m compression and >=4/64 m inward travel; '
+                              're-arm below 6/64 m compression and mute when both wheels leave ground; '
                               'dorzsol.wav on CH2 below apple priority, no retrigger while active.',
         'limitations': ['Representative periodic engine cycles cannot reproduce the complete changing recordings or their start/rev transition.',
                        'The CH1 exhaust pulse improves speaker audibility but adds a synthesized timbre to the original-derived CH3 cycles.',

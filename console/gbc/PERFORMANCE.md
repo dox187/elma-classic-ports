@@ -1139,6 +1139,31 @@ ROM: `build/elma-gbc-v0.92-8m.gbc`, 8,388,608 bytes, SHA-256
 Evidence: `build/v092-gameplay-8m`, `build/v092-checks`,
 `build/v092-audio-check`, `build/v092-effects/test`, `build/audio-idle-check`.
 
+## 41: 0.92 creak trigger correction
+
+Hardware feedback: the original 0.92 creaked almost continuously, including
+in flight. Its pose-only proxy treated small spring oscillations as audible
+impacts, then played a full-strength contour repeatedly. Publish each wheel's
+existing contact-query result in two separate observation bytes; no extra
+collision query or change to native physics is required. Audio now requires
+that wheel's contact plus >=10/64 m compression and >=4/64 m inward travel,
+with a stronger strength threshold. Latch both wheels on a sound onset to
+avoid a second delayed sound for the same landing; each wheel re-arms only
+below 6/64 m compression. Stop the creak when neither wheel contacts terrain.
+
+Focused native fixtures reject repeated small grounded motion and large
+in-flight oscillations, allow landing/new impact after release, reject repeated
+compression without release and verify takeoff mutes the contour. Existing
+32-orientation, channel/PCM, priority, watchdog, pause and wrap checks pass.
+All seven game checks and 54 starts pass. The full 216-case corpus retains all
+27,447 exact states; 82 active misses / 79 cadence violations / 188 passing
+cases, average 29.8205 updates/s. This replaces the previous 0.92 image while
+retaining version 0.92. Stable 30 FPS remains unfinished.
+
+ROM SHA-256: `92243b18d66a5471d054377f98e164fef91e7130b3d66e0a6e470d6f3c328aec`.
+Evidence: `build/v092-creakfix-effects`, `build/v092-creakfix-audio`,
+`build/v092-creakfix-checks`, `build/v092-creakfix-gameplay`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step

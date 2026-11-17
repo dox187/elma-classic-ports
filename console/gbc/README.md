@@ -28,8 +28,11 @@ remain; these short routes do not establish full-course or cartridge timing.
 
 ## 0.92 audio update
 
-- Suspension creak follows inward wheel travel under compression, using the
-  original `dorzsol.wav` contour on CH2. Apples take priority over creaking.
+- Suspension creak requires actual wheel contact and substantial inward
+  compression, using the original `dorzsol.wav` contour on CH2. Small spring
+  movements and airborne oscillation stay silent; both wheels leaving ground
+  stops the creak. A new sound requires suspension release first. Apples take
+  priority over creaking. This correction stays in version 0.92.
 - Idle CH1 volume fades over approximately 285 ms and rises over 67 ms.
 - Every two or three cycles, occasionally shift its frequency by one percent;
   reset to the original frequency when the accumulated deviation reaches five
@@ -46,12 +49,12 @@ of the original recordings. Physical GBC speaker balance still needs testing.
 
 Validation: all seven functional checks pass, including all 54 level starts,
 menus, saving, volt controls, finish audio and Freefall. All 27,447 physics
-states still match the baseline. The 0.92 corpus averages **29.83 updates/s**;
-74 updates exceed the deadline (0.91 test1: 55), with 192/216 cases passing
+states still match the baseline. The corrected 0.92 averages **29.82 updates/s**;
+82 updates exceed the deadline (0.91 test1: 55), with 188/216 cases passing
 throughout. The added audio therefore has a small measured performance cost;
 stable 30 FPS is still unfinished. Native PCM, channel priorities, idle drift,
 clock wrap and watchdog tests pass. ROM SHA-256:
-`091d004160dd86213cbcbfc88a0395499ba073ed39dbf031f724c2b8e4f6324d`.
+`92243b18d66a5471d054377f98e164fef91e7130b3d66e0a6e470d6f3c328aec`.
 
 In 0.90, the rider updates on every physics step and responds
 to the body's rotation after a volt. Green scenery is slightly brighter.

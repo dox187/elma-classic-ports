@@ -41,6 +41,7 @@ def main():
 #include "physics_core.h"
 gbc_bike_t gbc_bike;
 bike_t Bike;
+uint8_t riding_audio_contact[2]={1,1};
 volatile uint8_t ready,fx=255,reset_request,riding=1,hold,half_rate=1,native_size=sizeof(Bike);
 volatile uint16_t banks_bad,irq_count;
 void vblank(void) NONBANKED { ++irq_count; }
@@ -151,6 +152,33 @@ const void * const observed[] = {
             frames(44)
             assert not get('creak_active'),'stationary compressed wheel restarted creak'
         report['compression_orientations_degrees']=list(np.arange(0,360,11.25))
+        contact=symbols['_riding_audio_contact']
+        reset()
+        for depth in (0.03,0.07,0.02,0.09,0.01)*5:
+            pose(compression=depth);frames(4)
+            assert not get('creak_active'),'small grounded spring motion creaked'
+        reset()
+        p.memory[contact:contact+2]=[0,0]
+        for depth in (0.3,0.0,0.4,0.05)*8:
+            pose(compression=depth);frames(4)
+            assert not get('creak_active'),'airborne suspension creaked'
+        pose();frames(4)
+        p.memory[contact:contact+2]=[1,1]
+        pose(compression=.3);frames(4)
+        assert get('creak_active'),'landing compression missed'
+        onset=get('creak_start',2)
+        frames(44)
+        for depth in (.22,.34,.2,.35)*5:
+            pose(compression=depth);frames(4)
+            assert not get('creak_active'),'compressed suspension retriggered without release'
+            assert get('creak_start',2)==onset
+        pose();frames(4);pose(compression=.3);frames(4)
+        assert get('creak_active'),'new impact after release missed'
+        p.memory[contact:contact+2]=[0,0];frames(2)
+        assert not get('creak_active'),'creak continued after leaving ground'
+        p.memory[contact:contact+2]=[1,1]
+        report['airborne_small_motion_and_hysteresis_verified']=True
+
         for wheel in (0,1):
             reset()
             pose(compression=(.2,0) if wheel==0 else (0,.2))

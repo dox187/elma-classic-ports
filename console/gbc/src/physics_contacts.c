@@ -334,8 +334,10 @@ void riding_roll32(circle_t*,const contact_t*,int32_t,int32_t,int16_t) __sdcccal
 
 // beallit for a wheel: dv is the velocity change from the forces, tq the
 // torque on it.
+uint8_t riding_audio_contact[2];
 void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED {
 	uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
+	riding_audio_contact[k==&Bike.wheel[1]]=n;
 	uint8_t two = n == 2;
 	if( n > 0 )
 		pushout( k, &Ct[0], two ? &Ct[1] : 0 );
