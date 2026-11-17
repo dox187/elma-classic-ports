@@ -143,7 +143,7 @@ void main(void) {
  fixture_done=1;while(1)vsync();
 }
 ''')
-    assembly=[p for p in sorted((BASE/'src').glob('physics_*.s'))if p.name not in ('physics_mul16.s','physics_suspension_fast.s')]
+    assembly=[p for p in sorted((BASE/'src').glob('physics_*.s'))if p.name not in ('physics_mul16.s','physics_suspension_fast.s','physics_brake_fast.s')]
     if not (gen/'physics_sine_16.c').is_file():
         subprocess.run([sys.executable,str(BASE/'tools/physics_sine.py'),'--out',str(gen)],check=True)
     tables=sorted((BASE/'build/gen').glob('physics_quarter_*.c'))+sorted((BASE/'build/gen').glob('physics_scale_*.c'))+sorted(gen.glob('physics_sine_*.c'))

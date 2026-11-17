@@ -409,6 +409,28 @@ Evidence: `build/v091-raw-direct-lookup`,
 `build/v091-direct-lookup-{native,cache,acquire,gameplay-8m}`, and
 `build/playtest/world-memory-check`.
 
+## 14: exact brake torque orchestration — retained
+
+Replace only the two-wheel brake spring/angular damping loop with a near-bank8
+helper. Brake-edge initialization, gas, reaction and volt order remain intact.
+It preserves wrapping 32-bit angles, signed17 omega differences, clamping,
+coefficient rounding and final saturation. No workspace is added; bank8 shrinks
+276 bytes and the step's 41-byte stack frame is unchanged.
+
+All 1,614 native boundary vectors, 1,727 full-state trajectory samples and 326
+representative route states match their C/model/frozen0.90 oracles. Isolated
+two-wheel savings are 4,044–4,212 cycles. Worst Gravity Ride physics improves
+295,860 to 291,696; Bumpy Journey 303,380 to 299,220. Those physics calls still
+exceed the whole-frame budget even before presentation.
+
+The integrated raw ROM retains all 216 exact cases / 27,447 states. Full-corpus
+misses improve **333 to 317**, with **148 entirely passing cases**. ROM
+`elma-gbc-v0.91-brake-8m.gbc`, SHA-256
+`501cc631a63acd54fc1055aa002c2f9d514fe12548a71c7f38f9979b63ea86f7`.
+Evidence: `build/v091-brake-reaction`, `build/v091-brake-native`, and
+`build/v091-brake-gameplay-8m`. `test/check_physics_brake.py` retains the
+independent vector/model fixture using the selected generated constants.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step

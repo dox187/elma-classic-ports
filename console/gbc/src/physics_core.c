@@ -24,12 +24,15 @@ bike_t Bike;
 #include <stddef.h>
 typedef char suspension_layout[
     sizeof(circle_t)==22 && offsetof(circle_t,vx)==8 && offsetof(circle_t,vy)==12 &&
+    offsetof(circle_t,alfa)==16 && offsetof(circle_t,omega)==20 &&
+    offsetof(bike_t,dbrake)==95 &&
     offsetof(bike_t,body)==0 && offsetof(bike_t,wheel)==22 &&
     sizeof(riding_torque32_t)==24 && offsetof(riding_torque32_t,relx)==0 &&
     offsetof(riding_torque32_t,rely)==8 && offsetof(riding_torque32_t,kx)==16 &&
     offsetof(riding_torque32_t,ky)==20 ? 1 : -1];
 void riding_anchor32(circle_t*,int16_t,int16_t,int16_t*) __sdcccall(0);
 int32_t riding_suspension32(const int16_t*,const int16_t*,int32_t,int32_t*,int32_t*,riding_torque32_t*) __sdcccall(0);
+void riding_brake32(int16_t*) __sdcccall(0);
 uint8_t riding_recip_index(int16_t,int16_t) __sdcccall(0);
 void riding_rider_vectors32(int16_t,int16_t,int16_t*) __sdcccall(0);
 void riding_rider_move32(int32_t,int32_t) __sdcccall(0);
@@ -171,11 +174,13 @@ static const int16_t Recip_d2[] = {
 #include "../../nes/src/recip.inc"
 };
 
+#if !defined(__SDCC) || !defined(RIDING_COEFFICIENT_LOOKUP)
 static int16_t clamp_w( int32_t w ) {
 	if( w > 16383 ) return 16383;
 	if( w < -16383 ) return -16383;
 	return (int16_t)w;
 }
+#endif
 
 /* ph_step follows the single global Bike and is never called by interrupts.
  * Give its arrays fixed SM83 addresses; HOST keeps automatic storage. */
@@ -213,6 +218,9 @@ uint8_t ph_step( uint8_t input ) {
 			tq[1] = GAS_TQ;
 	}
 	if( brake ) {
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+        riding_brake32(tq);
+#else
 		for( uint8_t k = 0; k < 2; k++ ) {
 			// Brake deflection accumulates: wrapping at half a turn reverses
 			// the spring torque during hard landings (Hi Flyer's final pipe).
@@ -223,6 +231,7 @@ uint8_t ph_step( uint8_t input ) {
 			int16_t dw = clamp_w((int32_t)Bike.wheel[k].omega-Bike.body.omega);
 			tq[k] = sat16( -spring-KMUL( dw, C_BRAKE_W ) );
 		}
+#endif
 	}
 
 	// Forces between the wheels and the body (erokszamitasa). The anchors
