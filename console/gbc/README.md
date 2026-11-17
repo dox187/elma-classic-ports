@@ -202,13 +202,33 @@ acceptance requirement in all 40 cases. This is an all-component threshold,
 not a percentage estimate of how recognizable the game feels.
 
 Separate arithmetic feasibility studies replay a longer 40-case corpus. Full
-float32 arithmetic accepts 84.73% of its 10,203 live samples. Checked Q44 fixed
-arithmetic accepts 92.17%, with 39 cases entirely within the primary limits;
-the repeated acceleration/braking case diverges after 33.55 real seconds.
-The Q44 study still uses host trigonometry, and neither result establishes a
-native GBC implementation or its speed. These percentages use different inputs
-from the production-core comparison above and cannot be substituted for its
-release gate. The precise cause of the remaining Q44 divergence is under study.
+float32 arithmetic accepts 84.73% of its 10,203 live samples. The first checked
+Q44 fixed variant accepted 92.17%: rounding a segment-length reciprocal tilted
+the contact normal even on flat ground. Dividing each segment component directly
+by its length fixes that particular bias. Together with the independently
+verified rider-spring cancellation, the corrected Q44 variant passes all 40
+cases and 10,203 live samples. All 817 ordered wheel-contact transitions also
+match the original PC observation times, with instrumentation preserving the
+complete underlying state bits.
+
+An independent holdout adds four scripts on every internal course: neutral and
+brake for 1,800 samples each, plus two seeded 900-sample control sequences.
+Q44 passes 215 of these 216 cases. Q46 also passes 215, accepting 174,552 of
+174,564 live samples overall (99.9931%). The remaining case, a minute at rest
+on What the Heck, passes only 99.3333%: wheel velocity differs by up to
+0.0121 m/s against the 0.01 m/s limit. Pooling easier cases cannot pass the
+per-case requirement. Holdout object/terminal events match; its nonfatal contact
+coverage has not yet been validated. Pure relative-error diagnostics also
+remain separate from the primary absolute-tolerance result.
+
+These studies use host trigonometry and do not establish a native GBC solver.
+A separate byte-limb arithmetic ROM passes 2,050 integer-oracle checks, but a
+dense 52-bit state product averages 6.80 ms and general wide division averages
+34.70 ms in that C implementation. Those costs require substantial
+specialization; they are not lower bounds for assembly or a full-game timing
+result. The research corpus differs from the production-core comparison above,
+and its scores cannot be substituted for that release gate. Versions 0.80
+through 0.84 share the same production physics; their changes concern sound.
 
 ## Build and run
 
