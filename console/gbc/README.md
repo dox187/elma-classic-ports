@@ -1,15 +1,16 @@
 # Elasto Mania for Game Boy Color
 
-Development version: **0.90 — not ready for release**. The last completed
-build is **0.84**. [`VERSION`](VERSION) records 0.90 so development builds do
-not overwrite the retained 0.84 ROMs. See the acceptance requirements below.
+Current version: **0.90 — intermediate playable prototype**, recorded in
+[`VERSION`](VERSION). The rider now updates on every physics step and responds
+to the body's rotation after a volt. Green scenery is slightly brighter.
+This release uses the native fixed-point riding core; the much more precise
+Q44/Q46 host experiments described below are separate research. Neither full
+PC fidelity nor stable 30 FPS on every course is claimed.
 
-The retained 0.84 build lowers the CH1 exhaust layer after it was reported too loud on
-hardware. Idle volume is reduced from 6 to 3, throttle volume from 15 to 8
-(half, rounded up to a whole hardware level). The original-derived CH3 cycles,
-pitch curve, effect levels and master gain are retained. The two-channel engine still has
-quieter idle, no streaming interrupt and finite hardware watchdogs. The revised
-balance remains to be checked on the console speaker.
+The 0.84 audio balance is retained: CH1 idle volume 3 and throttle volume 8,
+with the original-derived CH3 cycles, pitch curve, effect levels and master
+gain. The two-channel engine has quieter idle, no streaming interrupt and
+finite hardware watchdogs.
 
 It includes the 0.74 splash: original logo above native CG Pixel 3x5 platform/
 version text, `UNOFFICIAL FAN MADE PORT BY DOX187`, original copyright/author,
@@ -22,8 +23,8 @@ battery-backed RAM** and containing the same 54 courses, graphics and physics:
 
 | Build | Scenery | Versioned test image |
 |---|---|---|
-| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.84-4m.gbc` |
-| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.84-8m.gbc` |
+| **4 MiB** (4,194,304 bytes) | Lossless ZX0 compression | `build/elma-gbc-v0.90-4m.gbc` |
+| **8 MiB** (8,388,608 bytes) | Uncompressed, read directly from ROM | `build/elma-gbc-v0.90-8m.gbc` |
 
 The 8 MiB build avoids decompression during scrolling. Both share the same
 player/record save layout, compatible with 0.7. The 8 MiB build retains the
@@ -31,7 +32,7 @@ four physics-table banks at **477–480**, directly after the scenery, as in
 `elma-gbc-v0.7-8m-bankfix.gbc` (previously 508–511). Its final 64 KiB
 is unused. All graphics and table bytes are retained. **The same motorcycle
 failure was subsequently reported with that 0.7 build on FlashMaster, so the
-relocation has not resolved the issue.** Version 0.84 does not change this
+relocation has not resolved the issue.** Version 0.90 does not change this
 bank layout; physical-cartridge verification remains outstanding.
 
 The original 0.7 8 MiB image (`build/elma-gbc-v0.7-8m.gbc`) had an immediate
@@ -65,7 +66,7 @@ around, collect apples and reach the flower. Original level geometry, LGR
 artwork and an adaptation of the existing original-derived fixed-point
 motorcycle physics form its basis.
 
-## What works in 0.84
+## What works in 0.90
 
 - Parallel **4 MiB compressed / 8 MiB raw ROMs** containing all 54 courses,
   with a compact graphics lookup and a shared 32 KiB cartridge RAM layout.
@@ -87,6 +88,8 @@ motorcycle physics form its basis.
   four-pixel character advance and no downscaling of the original PC font.
 - Riding, acceleration, braking, volts and turning around, with suspension,
   rider movement, **32-bit linear velocities** and swept head collisions.
+- Rider integration on every physics step, using the updated body rotation
+  after a volt, with exact SM83 coordinate and movement helpers.
 - Held left/right volt input with the original shared cooldown, rounded up to
   a physics step. Pause freezes the cooldown and restart clears it.
 - Apple collection, gravity-changing apples, killers, crash detection, flower
@@ -96,6 +99,8 @@ motorcycle physics form its basis.
   best, record comparison and next/retry/menu controls.
 - Original level geometry and LGR artwork, streamed terrain, independently
   positioned wheels and head, **red apples and white flower petals**.
+- A modest brightness lift for green scenery while retaining its original
+  artwork and the protected source sky colors.
 - Head pattern buffering to prevent uploads from changing the head still on
   screen, and separate terrain/background reduction to avoid invented sky
   colors at terrain edges.
@@ -132,11 +137,12 @@ The physics is adapted from the original-derived fixed-point core; it is not
 trajectory-identical to the PC integrator. The detailed differences and
 verification limits are described below.
 
-## Planned after 0.84
+## Planned after 0.90
 
-- Brighten the bushes and other green decorations: their current palettes
-  appear too dark on the console. Compare the revised colors with the original
-  artwork and check them on a real Game Boy Color.
+- **0.91: target stable 30 FPS**, starting with the measured scenery-update
+  spikes, while preserving the current physics results and direct controls.
+  Check both ROM sizes, all 54 course starts, Freefall and moving views.
+- Check the brighter bushes and green decorations on a real Game Boy Color.
 - Bring the menu closer to the original game's layout, colors and functions,
   while retaining readable native pixel text on the 160x144 display.
 - Verify the relocated **8 MiB** physics tables on FlashMaster, then verify
@@ -147,11 +153,12 @@ verification limits are described below.
   the current physics; discuss any necessary graphics or gameplay
   simplifications before choosing a compromise.
 
-## Version 0.90 in development
+## Physics fidelity research
 
-0.90 is reserved for the original-PC physics comparison and the resulting
-physics changes. It is **not released**: the current prototype does not meet
-the requested fidelity or complete-game timing targets.
+The intermediate 0.90 release includes the current native rider corrections.
+The higher-precision solver remains research: its host results are not the
+physics running in the playable ROMs. Version 0.91 targets the existing core's
+complete-game timing; the PC-fidelity requirements below remain open.
 
 Acceptance priorities, in the requested order:
 
@@ -163,9 +170,9 @@ Acceptance priorities, in the requested order:
 2. Then evaluate **0.1% relative error**, with explicit absolute tolerances near
    zero. Preserve the direct controls and the 30 Hz gameplay budget.
 
-Both the fidelity requirement and stable 30 FPS remain mandatory. If a
-candidate meets only one, it stays an experiment and cannot become the 0.90
-release. No extra frame of input buffering is authorized.
+Integrating the higher-precision solver requires both the fidelity target and
+stable 30 FPS. Passing host comparisons alone does not establish a playable
+console implementation. Preserve direct controls without an extra frame queue.
 
 The comparison links the original PC physics equations with their actual
 headers. Generated test-only copies observe resolved wheel-contact transitions;
@@ -192,7 +199,7 @@ original-PC Warm Up run that collects the apple and reaches the flower. The ride
 now updates each physics step and uses post-volt body rotation. Exact SM83
 coordinate/movement helpers reduce the cost, and native/HOST state agreement
 is checked. This intermediate correction leaves substantial whole-bike
-errors; it is not sufficient for 0.90 acceptance. Further work must address
+errors; it does not meet the fidelity target. Further work must address
 integration timing, brake/contact behavior and numerical precision.
 
 The contact-enabled comparison observes both wheels' resolved contact counts,
@@ -245,10 +252,9 @@ make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The defaults are `PHYS_HZ=30 DAMPER=exponential`.
 
-New development builds use **`build/elma-gbc-v0.90-4m.gbc`** (4 MiB) and
-**`build/elma-gbc-v0.90-8m.gbc`** (8 MiB); they are not accepted 0.90 releases.
-Open the retained 0.84 files for the last completed build
-in a Game Boy Color emulator. These are CGB-only MBC5 cartridges, not Game Boy
+Open **`build/elma-gbc-v0.90-4m.gbc`** (4 MiB) or
+**`build/elma-gbc-v0.90-8m.gbc`** (8 MiB) in a Game Boy Color emulator.
+These are CGB-only MBC5 cartridges, not Game Boy
 Advance programs; monochrome Game Boy hardware is unsupported. Both use header
 type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 (4 MiB) or `0x08` (8 MiB).
@@ -266,7 +272,7 @@ On FlashMaster, select **MBC5**, **32K RAM**, the file's matching **4M or 8M ROM
 size**, and enable **Save RAM**. The emulator's battery file or the cartridge's
 save mechanism must preserve RAM across sessions. SRAM bank0 B800–BFFF holds
 two checksummed save slots; the previous valid slot survives an interrupted
-write. Versions 0.7 through 0.84 share saves across both ROM sizes; 0.6's 128 KiB
+write. Versions 0.7 through 0.90 share saves across both ROM sizes; 0.6's 128 KiB
 save files used a different location and are not loaded automatically.
 
 For the reported 8 MiB hardware failure, build a separate cartridge diagnostic:
@@ -549,6 +555,27 @@ pause muting and ROM-bank restoration. The complete-ROM frontend check covers
 title-to-menu navigation, Controls, course selection, pause/resume and restart.
 The 0.74 splash fixture also checks all six native footer rows against the
 source BDF glyphs, including the version, DOX187 credit and original copyright.
+
+For 0.90, both complete ROMs pass frontend, held-volt, finish-audio and
+player/record checks, including save reload in both directions between sizes.
+The clock check verifies 1,890 exact presentations, minute rollover and one
+LCD update every two display frames. All 54 course starts and the complete
+433-step no-input Freefall pass their functional checks: source scenery,
+object colors, moving head buffers, 32-bit velocities and camera tracking.
+The strict timing assertions still fail, as recorded below. These are the
+baseline for 0.91, not a stable-30-FPS claim.
+
+| 0.90 deadline misses | 4 MiB ZX0 | 8 MiB raw |
+|---|---:|---:|
+| 54 course starts, 12 idle updates each | 13 | 6 |
+| No-input Freefall | 54 | 13 |
+| 300-step Warm Up driving profile | 4 | 0 |
+
+The 4 MiB native decoder independently checks all 4,800 unique scenery blocks
+(6,034,992 decoded bytes), with zero byte, guard or bank-restoration failures.
+The splash pixel check also passes. Reports are under
+`build/v090-release-checks` and `build/splash-v090-release`; the two versioned
+ROMs remain directly in `build`. Physical-cartridge testing is still needed.
 
 For 0.84, the native fixture verifies CH1 volume 3 at idle and volume 8 under
 load, including the emitted pulse PCM. Pitch, duty, original CH3 cycles,

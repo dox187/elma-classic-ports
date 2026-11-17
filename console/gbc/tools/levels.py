@@ -61,23 +61,32 @@ def scene(level, lgr):
     w = math.ceil((max(x for x,y in points)+4-ox)*PPM/256)*256
     h = math.ceil((oy-min(y for x,y in points)+4)*PPM/128)*128
     pl = mapmodel.PcLevel(level, mapmodel.Textures(lgr))
+    # Named scenery pictures use a scalar source; grass edges use source
+    # arrays. Keep their provenance through reduction for palette correction.
+    decoration_source = -2
+    for piece in pl.pieces():
+        if np.isscalar(piece.src) and piece.src == mapmodel.S_PIC:
+            piece.src = decoration_source
     texture = pl.tex.texture(pl.bg)
     sky_rows = mapmodel.sky_row_map(h*4, texture.shape[0])
     x = round((ox-pl.origo[0])*48)
     columns = ((x//2)+np.arange(w*4)) % texture.shape[1]
     image = np.empty((h,w,3), dtype=np.uint8)
     background = np.empty((h,w), dtype=bool)
+    decorations = np.empty((h,w), dtype=bool)
     dominant = int(np.bincount(texture.ravel()).argmax())
     base = (pl.tex.pal[dominant].astype(np.uint8)>>3)*8
     source_colors = np.unique((pl.tex.pal[np.unique(texture)].astype(np.uint8)>>3)*8,axis=0)
     for top in range(0,h*4,128):
         rows = min(128,h*4-top)
         y = round((oy-pl.origo[1])*48)-top-rows
-        _, distance, _, colors = pl.render(x,x+w*4,y,y+rows)
+        _, distance, sources, colors = pl.render(x,x+w*4,y,y+rows)
         sr = sky_rows[h*4-top-rows:h*4-top][::-1]
         mask = distance == mapmodel.D_EG
         indices = np.where(mask,texture[sr][:,columns],colors)
         rgb = pl.tex.pal[indices].astype(np.uint32)
+        green = ((sources == decoration_source) & (rgb[:,:,1] > rgb[:,:,0])
+                 & (rgb[:,:,1] > rgb[:,:,2]))
         shape = rows//4,4,w,4
         sky_n = mask.reshape(shape).sum((1,3))
         sums = (rgb*mask[...,None]).reshape(*shape,3).sum((1,3))
@@ -87,13 +96,15 @@ def scene(level, lgr):
         use_sky = sky_n >= 8
         image[top//4:(top+rows)//4] = np.where(use_sky[...,None],sky_rgb,foreground_rgb).round().astype(np.uint8)
         background[top//4:(top+rows)//4] = use_sky
-    return image,background,ox,oy,base,source_colors,pl.bg == 'sky'
+        decorations[top//4:(top+rows)//4] = green.reshape(shape).any((1,3)) & ~use_sky
+    return image,background,ox,oy,base,source_colors,pl.bg == 'sky',decorations
 
 
-def quantize(image, background, base, sky_colors, blue_sky):
+def quantize(image, background, base, sky_colors, blue_sky, decorations):
     h,w,_ = image.shape
     flat = image.reshape(h//8,8,w//8,8,3).transpose(0,2,1,3,4).reshape(-1,64,3).astype(np.int32)
     masks = background.reshape(h//8,8,w//8,8).transpose(0,2,1,3).reshape(-1,64)
+    scenery = decorations.reshape(h//8,8,w//8,8).transpose(0,2,1,3).reshape(-1,64)
     means = flat.mean(1)
     centers = means[np.linspace(0,len(means)-1,7,dtype=int)].copy()
     for _ in range(12):
@@ -123,8 +134,9 @@ def quantize(image, background, base, sky_colors, blue_sky):
         palettes.append((pal.astype(np.uint8)>>3)*8)
     palettes = np.asarray(palettes)
     encoded,attrs,preview = [],[],[]
+    usage = np.zeros((7,4,3), dtype=np.int64)  # decoration, other, sky
     allowed = np.array([[(c==sky_colors).all(1).any() for c in pal] for pal in palettes])
-    for tile,sky in zip(flat,masks):
+    for tile,sky,decor in zip(flat,masks,scenery):
         distances = ((tile[None,:,None]-palettes[:,None].astype(np.int32))**2).sum(3)
         if blue_sky:
             # Sky pixels may only select actual source sky colors, never an
@@ -136,8 +148,19 @@ def quantize(image, background, base, sky_colors, blue_sky):
             distances[:,exact,0]=0
         pi = int(distances.min(2).sum(1).argmin())
         q = distances[pi].argmin(1).astype(np.uint8).reshape(8,8)
-        encoded.append(tile2bpp(q));attrs.append(pi);preview.append(palettes[pi][q])
-    restored = np.asarray(preview).reshape(h//8,w//8,8,8,3).transpose(0,2,1,3,4).reshape(h,w,3)
+        usage[pi,:,0] += np.bincount(q.ravel()[decor], minlength=4)
+        usage[pi,:,1] += np.bincount(q.ravel()[~decor], minlength=4)
+        usage[pi,:,2] += np.bincount(q.ravel()[sky], minlength=4)
+        encoded.append(tile2bpp(q));attrs.append(pi);preview.append(q)
+    # One hardware green step for colors used mainly by named scenery. Fit
+    # and index against the unmodified art so tile detail and sky stay exact;
+    # bright grass colors and colors mainly used by terrain are left alone.
+    green = ((palettes[:,:,1] > palettes[:,:,0]) & (palettes[:,:,1] > palettes[:,:,2])
+             & (palettes[:,:,1] < 192) & (usage[:,:,0] > usage[:,:,1])
+             & (usage[:,:,2] == 0) & ~allowed)
+    palettes[:,:,1][green] += 8
+    restored = palettes[np.asarray(attrs)[:,None,None],np.asarray(preview)]
+    restored = restored.reshape(h//8,w//8,8,8,3).transpose(0,2,1,3,4).reshape(h,w,3)
     return encoded,np.array(attrs,dtype=np.uint8),palettes,restored
 
 
@@ -244,8 +267,8 @@ def main():
                 for name in ('tiles.npz','source.png','preview.png'):
                     if (source_dir/name).is_file():shutil.copy2(source_dir/name,target/name)
         else:
-            image,mask,ox,oy,base,sky_colors,blue_sky=scene(level,lgr)
-            encoded,attrs,pal,preview=quantize(image,mask,base,sky_colors,blue_sky)
+            image,mask,ox,oy,base,sky_colors,blue_sky,decor=scene(level,lgr)
+            encoded,attrs,pal,preview=quantize(image,mask,base,sky_colors,blue_sky,decor)
             unique,ids,flips=canonical(encoded);attrs|=flips
             h,w,_=image.shape;grid=ids.reshape(h//8,w//8);attribute=attrs.reshape(h//8,w//8)
             patterns=b''.join(unique)
@@ -302,7 +325,7 @@ extern const uint16_t killer_palette[];
         bank=first+i;(a.out/('level_bank_%d.c'%bank)).write_text('#include <stdint.h>\n#pragma bank %d\n'%bank+array('level_bank_%d'%bank,data))
     manifest={'fingerprint':fingerprint,'render_fingerprint':render_key,'rom_mib':a.rom_mib,'levels':report,'count':len(levels),'first_bank':first,'last_bank':packer.bank,
               'payload_bytes':sum(map(len,packer.banks)),'physical_bank_bytes':len(packer.banks)*16384,
-              'map_codec':'raw3-plane32x16','pattern_codec':'raw-2bpp','palette_policy':'source sky colors; protected shared base blue; separate foreground coverage',
+              'map_codec':'raw3-plane32x16','pattern_codec':'raw-2bpp','palette_policy':'source sky colors; protected shared base blue; separate foreground coverage; one-step green lift for decoration-majority colors',
               'source_sha256':source_hashes}
     (a.out/'level_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print('All-level graphics banks %d..%d, %d payload bytes'%(first,packer.bank,manifest['payload_bytes']))
