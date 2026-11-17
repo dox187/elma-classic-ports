@@ -23,6 +23,11 @@ for index in range(297):
 for d2 in(0,1,16383,16384,16895,16896,168100,334562,33570816,33570817,0x40004000,0x7fffffff):
  for x,y in((0,0),(1,-1),(410,-410),(-32768,-32768),(32767,32767),(-32768,32767)):
   keys.append((x,y,d2))
+# Hold dx/dy fixed while changing every d2 byte, then revisit the old key.
+# Repeated native calls below also vary the guarded destination address.
+for x,y in((0,0),(1,-1),(128,128),(410,-410),(-32768,-32768),(32767,32767),(-32768,32767)):
+ for d2 in(0,1,255,256,16383,16384,16896,81920,65536,65537,16793600,33570816,0x40004000,0x7fffffff):
+  keys.extend(((x,y,d2),(x,y,16384),(x,y,d2)))
 rows=[(key,struct.pack('<hhh',*expected(*key)))for key in keys]
 header='#include <stdint.h>\ntypedef struct{int16_t x,y;int32_t d;uint8_t want[6];}v_t;\n';sources=[]
 for bank,start in enumerate(range(0,len(rows),1000),44):
@@ -55,7 +60,7 @@ v_t copy;volatile uint8_t done;void normal_case(void) BANKED;
 void main(void){uint16_t i;disable_interrupts();DISPLAY_OFF;cpu_fast();
 '''
 last_bank=sources[-1][0];last_count=len(rows)%1000 or 1000
-s+=f'for(uint16_t bank=44;bank<={last_bank};++bank){{uint16_t count=bank=={last_bank}?{last_count}:1000;const v_t *v=(const v_t *)0x4000;SWITCH_ROM(bank);for(i=0;i<count;++i,++v){{memcpy(&copy,v,sizeof(copy));normal_case();}}}}\n'
+s+=f'for(uint16_t bank=44;bank<={last_bank};++bank){{uint16_t count=bank=={last_bank}?{last_count}:1000;const v_t *v=(const v_t *)0x4000;SWITCH_ROM(bank);for(i=0;i<count;++i,++v){{memcpy(&copy,v,sizeof(copy));for(uint8_t repeat=0;repeat<3;++repeat)normal_case();}}}}\n'
 s+='done=1;while(1){}}\n';(P/'normal_driver.c').write_text(s)
 asm=[B/'src'/('physics_'+name+'.s')for name in('mul_fast','kmul_fast','math','div_fast','sqrt_fast','math32','move_fast','shift_fast')]+[a.assembly]
 for marker,tool in (('physics_quarter_20.c','mul_table.py'),('physics_scale_36.c','scale_table.py')):
@@ -84,5 +89,5 @@ for _ in range(10000):
  if p.memory[sy['_done']]:break
 def n(key,size=4):return int.from_bytes(bytes(p.memory[sy['_'+key]:sy['_'+key]+size]),'little')
 for t in timings.values():t['mean']=t['total']/t['calls']if t['calls']else None
-report={k:n(k)for k in('normal_cases','failures','guard_failures','first_bad_case')};report.update(bank_failures=n('bank_failures',2),first_bad_byte=n('first_bad_byte',1),done=n('done',1),expected=len(rows),timings=timings,exhaustive_nonnegative=not a.quick)
-(P/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2));p.stop(save=False);assert report['done']and report['normal_cases']==len(rows)and not any(report[k]for k in('failures','guard_failures','bank_failures'))
+report={k:n(k)for k in('normal_cases','failures','guard_failures','first_bad_case')};report.update(bank_failures=n('bank_failures',2),first_bad_byte=n('first_bad_byte',1),done=n('done',1),expected=len(rows)*3,timings=timings,exhaustive_nonnegative=not a.quick)
+(P/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2));p.stop(save=False);assert report['done']and report['normal_cases']==len(rows)*3 and not any(report[k]for k in('failures','guard_failures','bank_failures'))

@@ -724,6 +724,39 @@ ROM `elma-gbc-v0.91-video-8m.gbc`, SHA-256
 `0058d193c2b567ffbd9dd1d973fbbb836f927be2adfa6c75c6048e450c2821f6`.
 Evidence: `build/v091-strip-pair`, `build/v091-video-native` and
 `build/v091-video-gameplay-8m`.
+The combined video candidate also passes the seven separate functional checks,
+including all54 starts and complete Freefall with zero overruns. Evidence:
+`build/v091-video-checks`.
+
+## 26: cache exact repeated contact normals — retained
+
+Use a single pure-result entry keyed by all eight supplied dx/dy/d2 bytes.
+Cache only nx/ny/length; preserve the destination's tx/ty. Repeated calls may
+target different contacts, and level/reset/gravity changes need no invalidation.
+Table misses retain the original stack; deep misses alone forward arguments.
+The initial general wrapper cost 300 more cycles on every table miss and is
+superseded. The retained helper adds 111 bank9 / 15 WRAM bytes, with unchanged
+table-path stack depth and 12 additional bytes on deep misses.
+
+The independent integer fixture passes 23,586 calls, including warm hits,
+changed/revisited d2 bytes, signed boundaries, reciprocal-index wrapping and
+different guarded destinations. Another 1,289 captured/signed native-parity
+calls pass. All 1,727 trajectory and 326 route states remain exact. On the
+captured Gravity Ride workload, 198/412 calls hit and the mean falls from
+4,440 to 3,107 cycles; warm hits cost808. Cold calls add708–1,156, so this is
+not a universal per-call improvement.
+
+All 216 combined cases / 27,447 states remain exact. Misses improve
+**119 to 114**, cadence violations **112 to 107**, and passing cases **180 to
+181**. Animal Farm/brake and Steppes/neutral become passing; Gravity Ride/seeded
+gains one miss on its first cold update (279,552 to289,012 including existing
+post-overrun preparation). This explicit regression remains to be removed.
+The maximum physics call falls275,800 to270,932; the30-FPS gate remains failed.
+
+ROM `elma-gbc-v0.91-normal-8m.gbc`, SHA-256
+`50d36d5f0d7bcb6a1d151928c098032fda8e356e05322a55b4509ce47b9412f7`.
+Evidence: `build/v091-normal-cache`, `build/v091-normal-gameplay-8m` and the
+read-only first-update breakdown in `build/v091-preparation-margin`.
 
 ## Controller benchmark and remaining physics work
 
@@ -739,14 +772,14 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-video-8m.gbc --gen build/gen-8m --out build/v091-video-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-normal-8m.gbc --gen build/gen-8m --out build/v091-normal-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 119**; wholly passing cases improve **72 to
-180 of 216** after the paired VRAM-copy change. This is still a failed 30-FPS gate.
-The largest physics call is 275,800 cycles, leaving too little time for the
+Timing misses improve **1,025 to 114**; wholly passing cases improve **72 to
+181 of 216** after the normal cache. This is still a failed 30-FPS gate.
+The largest physics call is 270,932 cycles, leaving too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.
 

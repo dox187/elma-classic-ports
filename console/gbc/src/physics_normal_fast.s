@@ -1,18 +1,64 @@
 ; Exact normalize(dx,dy,d2,contact*) table branch. Near bank9, stack ABI0.
 ; Original 10-byte contact has nx0,ny2,length4; tx6/ty8 are untouched.
 .module physics_normal_fast
+; One-entry exact normalization cache, including the full supplied d2 key.
+; Only the six normalized output bytes are stored; contact tx/ty stay intact.
+; The pure result is valid across level/reset/gravity changes.
+; Mainline-only helper: IRQ handlers do not normalize contacts.
+.area _DATA
+normal_cache_valid: .ds 1
+normal_cache_key: .ds 8
+normal_cache_value: .ds 6
 .area _CODE_9
 _riding_normal_fast::
+ ld a,(#normal_cache_valid)
+ or a
+ jr z,normal_cache_miss
+ ldhl sp,#2
+ ld de,#normal_cache_key
+ ld b,#8
+normal_cache_compare:
+ ld a,(de)
+ cp (hl)
+ jr nz,normal_cache_miss
+ inc de
+ inc hl
+ dec b
+ jr nz,normal_cache_compare
+ ldhl sp,#10
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ ld hl,#normal_cache_value
+ ld b,#6
+normal_cache_restore:
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ dec b
+ jr nz,normal_cache_restore
+ ret
+normal_cache_miss:
+ ldhl sp,#2
+ ld de,#normal_cache_key
+ ld b,#8
+normal_cache_copy_key:
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ dec b
+ jr nz,normal_cache_copy_key
+ ; Table misses retain the caller's original ABI0 stack.
  ldhl sp,#9
  bit 7,(hl)
- jp nz,_riding_normalize_deep
+ jp nz,normal_cache_deep
  ld a,(hl-)
  or (hl)
  jr nz,normal_table
  dec hl
  ld a,(hl)
  cp #64
- jp c,_riding_normalize_deep
+ jp c,normal_cache_deep
 normal_table:
  ; uint16((d2-16384)>>9), including its original uint16 wrapping.
  ldhl sp,#7
@@ -114,7 +160,7 @@ normal_index_ready:
  inc hl
  ld (hl),b
  add sp,#2
- ret
+ jp normal_cache_store_result
 
 ; sat16(signed32 HLDE>>4). Fits exactly iff signed highword is[-8,7].
 normal_scale4:
@@ -147,4 +193,32 @@ normal_saturated:
  ret
 normal_negative:
  ld de,#0x8000
+ ret
+
+normal_cache_deep:
+ ; Copy five words right-to-left, retaining the caller's ABI0 arguments.
+ .rept 5
+ ldhl sp,#10
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ .endm
+ call _riding_normalize_deep
+ add sp,#10
+normal_cache_store_result:
+ ldhl sp,#10
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ ld hl,#normal_cache_value
+ ld b,#6
+normal_cache_store:
+ ld a,(de)
+ inc de
+ ld (hl+),a
+ dec b
+ jr nz,normal_cache_store
+ ld a,#1
+ ld (#normal_cache_valid),a
  ret
