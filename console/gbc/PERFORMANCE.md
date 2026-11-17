@@ -901,6 +901,57 @@ does not justify assuming a net gain, particularly on cold calls already
 near the deadline. No production code changed for this model.
 Evidence: `build/v091-normal-cache-model/model.json`.
 
+## 33: current rendering bottlenecks — read-only profile
+
+Six difficult controller routes reproduce all 935 update cycles and states
+exactly against the frozen merge ROM. Inclusive timings must distinguish
+mandatory presentation/physics from preparation performed in the existing
+tail after an overrun. The strict update measurement continues to include both.
+
+Double Trouble/gas update 148 spends 197,420 cycles in physics and 214,336
+in presentation, with only 5,848 in its preparation tail. Of 39 synchronous
+acquisitions, 18 hit and 21 upload. Acquisition bookkeeping alone costs 51,824
+cycles, versus 21,156 in the upload helper. Across all 935 updates, acquisition
+bookkeeping averages 4,098 and reaches 53,380. This motivates fused acquisition
+orchestration rather than another DMA wait-loop adjustment.
+
+The same update cancels a completed column at x=7, y=17..35 because the target
+changes from (63,142) to (63,144). Eighteen cells at y=18..35 remain useful.
+Cancelling costs 5,720 cycles; fetching/acquiring/publishing those cells again
+costs 44,764. All 21 new uploads belong to the incoming row. Retaining the
+overlapping column is a different hypothesis from always predicting diagonals.
+Across the six routes, 101 cancellations discard 1,132 references.
+
+Ordered object visibility filtering, excluding OAM publication, averages
+5,378 cycles and reaches 32,512 on Haircut. The existing clipping prototype
+is therefore worth integrating and measuring in the current game.
+Evidence: `build/v091-scroll-profile/findings.json` and
+`build/v091-scroll-profile/double-trouble-cancellation.json`.
+
+## 34: ordered object visibility clipping — retained
+
+Integrate the previously isolated 120-byte bank 5 clipping helper. It returns
+the same active object IDs in ascending order, using the exact unsigned tests
+`uint16(object.x-camera.x+7)<175` and the corresponding Y test `<151`.
+It preserves every signed/wrapping boundary and only writes the returned ID
+prefix. The existing camera/apple cache, sprite phase and OAM publication stay
+unchanged. Layout assertions protect object stride/count offsets, and the
+original C scan remains available with OBJECTS_VISIBLE_C_REFERENCE.
+
+The reusable native check passes 2,835 scenes, all 131,072 X/Y coordinate
+deltas, counts 0..64, mixed active flags and 256 IRQ-enabled calls. C and the
+independent oracle agree on ordered IDs; output/global/bank/IRQ guards pass.
+A 51-object distant scan falls from a mean 30,355.5 to 13,204.5 cycles.
+The linked bank 5 size decreases by 36 bytes; there is no added static RAM.
+
+All 216 full-game cases / 27,447 states remain exact. Deadline misses improve
+**82 to 67**, cadence violations **74 to 59**, and passing cases **188 to 191**,
+with none lost. Haircut/neutral falls from seven misses to three.
+ROM `elma-gbc-v0.91-visible-8m.gbc`, SHA-256
+`5084a17bc7f41db19cc3614e4d0d89a9cc26e5283bb1fe2fe2d1057d18c3a5ab`.
+Evidence: `build/objects-visible-prototype`, `build/v091-visible-check` and
+`build/v091-visible-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -915,13 +966,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-pushout-8m.gbc --gen build/gen-8m --out build/v091-pushout-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-visible-8m.gbc --gen build/gen-8m --out build/v091-visible-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 82**; wholly passing cases improve **72 to
-188 of 216** after the wheel pushout optimization. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 67**; wholly passing cases improve **72 to
+191 of 216** after the visibility optimization. This is still a failed 30-FPS gate.
 Some physics calls still leave too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.

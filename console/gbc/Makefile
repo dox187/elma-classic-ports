@@ -99,6 +99,7 @@ check: all
 	$(PYTHON) test/check_video_pair.py
 	$(PYTHON) test/check_objects_touch.py
 	$(PYTHON) test/check_objects_draw.py
+	$(PYTHON) test/check_objects_visible.py
 	$(PYTHON) test/check_objects_bounds.py
 	$(PYTHON) test/check_objects_empty.py --gen $(GEN)
 	$(PYTHON) test/check_physics_normal.py

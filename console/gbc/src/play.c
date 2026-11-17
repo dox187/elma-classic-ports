@@ -2,6 +2,7 @@
 #include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "runtime.h"
 #include "bike_render16.h"
 #include "riding_constants.h"
@@ -114,21 +115,34 @@ static void bike_screen(void) {
 
 void gbc_video_object16(uint8_t sprite,uint8_t x,uint8_t y,uint8_t tile,uint8_t prop) __sdcccall(0);
 uint8_t gbc_objects_draw(const uint8_t *visible,uint8_t visible_count,uint8_t phase,uint8_t count,uint8_t right_first) __sdcccall(0);
+#ifndef OBJECTS_VISIBLE_C_REFERENCE
+typedef char objects_visible_layout[
+    sizeof(game_object_t)==14 && offsetof(game_object_t,x)==0 &&
+    offsetof(game_object_t,y)==2 && offsetof(world_level_t,object_count)==32 &&
+    LEVEL_OBJECT_MAX<=64 ? 1 : -1];
+uint8_t gbc_objects_visible(uint8_t *ids) __sdcccall(0);
+#endif
 
 static void draw_objects(void) {
     uint8_t i,n,sprite;
+#ifdef OBJECTS_VISIBLE_C_REFERENCE
     int16_t x,y;
     const game_object_t *object;
+#endif
     if(!objects_valid || objects_camera_x!=game_camera_x || objects_camera_y!=game_camera_y
        || objects_apples!=game_apples_left) {
         objects_valid=1;objects_camera_x=game_camera_x;objects_camera_y=game_camera_y;
         objects_apples=game_apples_left;visible_count=0;
+#ifdef OBJECTS_VISIBLE_C_REFERENCE
         for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
             if(!game_object_active[i])continue;
             x=(int16_t)object->x-game_camera_x-8;
             y=(int16_t)object->y-game_camera_y-8;
             if(x>=-15 && x<160 && y>=-15 && y<136)visible_objects[visible_count++]=i;
         }
+#else
+        visible_count=gbc_objects_visible(visible_objects);
+#endif
     }
     n=visible_count>13?13:visible_count;
     if(object_phase>=visible_count)object_phase=0;
