@@ -13,13 +13,17 @@
  * are 0..443 or FFFF to remove an ID. Remove a slot's previous ID before
  * reusing it. get returns FFFF for an absent ID. Clear ignores count and
  * resets the fixed table, enabling RAM. Keep RAM enabled for get/set.
- * Every call leaves RAM bank0 selected; AEF0 onward and banks1..3 survive. */
+ * Every call leaves RAM bank0 selected; AEF0 onward survives. Banks1..3
+ * survive in this default mode; raw_clear explicitly selects their use. */
 uint16_t world_lookup_get(uint16_t id) WORLD_MEMORY_CALL;
 void world_lookup_set(uint16_t id,uint16_t slot) WORLD_MEMORY_CALL;
 /* Acquisition-only insertion: id must be absent and slot's old binding
  * removed. Skip the redundant absence search; mapping order is private. */
 void world_lookup_insert_absent(uint16_t id,uint16_t slot) WORLD_MEMORY_CALL;
 void world_lookup_clear(uint16_t count) WORLD_MEMORY_CALL;
+/* Raw only: use SRAM1..3 for exact IDs0..12287 when count<=12288,
+ * otherwise select the normal linked table. Invalid direct IDs are absent. */
+void world_lookup_raw_clear(uint16_t count) WORLD_MEMORY_CALL;
 
 /* ROM0 helper for MBC5 banks 0..511. Source may be fixed ROM below 0x4000
  * or lie within the selected 0x4000..0x7fff window; a copy must not cross

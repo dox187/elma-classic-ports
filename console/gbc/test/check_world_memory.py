@@ -22,6 +22,9 @@ def main():
     assembly = source.read_bytes()
     tested = OUT/'world-memory-under-test.s'
     tested.write_bytes(assembly)
+    lookup_source=BASE/'src/world_lookup_linked.s'
+    lookup=lookup_source.read_bytes()
+    tested_lookup=OUT/'lookup-under-test.s';tested_lookup.write_bytes(lookup)
     rng=random.Random(0x5107)
     cases=[(x,y,vertical,count) for x,y in ((0,0),(1,30),(30,1),(31,31),(32,63),(63,32),(255,255))
            for vertical in (0,1) for count in (0,1,2,19,21)]
@@ -280,7 +283,7 @@ void main(void) {
     command = [str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size',
         '-Wm-yC','-Wm-yt0x1a','-Wm-yo512','-Wm-ya4','-Wl-m','-Wl-j',
         '-I'+str(OUT),'-I'+str(BASE/'src'),'-o',str(OUT/'check.gbc'),str(OUT/'check.c'),
-        *(str(OUT/('data%d.c'%bank)) for bank in (8,300,511)),str(tested)]
+        *(str(OUT/('data%d.c'%bank)) for bank in (8,300,511)),str(tested),str(tested_lookup)]
     compiled = subprocess.run(command,capture_output=True,text=True)
     if compiled.returncode:
         raise AssertionError(compiled.stdout+compiled.stderr)
@@ -299,7 +302,8 @@ void main(void) {
             if p.memory[symbols['_memory_done']]:break
         report = {'status':'passed','fixture':'isolated production-helper ROM; 8MiB MBC5+32KiB RAM',
             'source':str(source.resolve()),'source_sha256':hashlib.sha256(assembly).hexdigest(),
-            'rom_sha256':hashlib.sha256(rom).hexdigest(),'source_still_current':source.read_bytes()==assembly,
+            'lookup_sha256':hashlib.sha256(lookup).hexdigest(),
+            'rom_sha256':hashlib.sha256(rom).hexdigest(),'source_still_current':source.read_bytes()==assembly and lookup_source.read_bytes()==lookup,
             'lookup_checks':number('lookup_checks',4),'clear_checks':number('clear_checks',4),
             'far_copy_checks':number('far_checks',2),'interrupts':number('irq_count',2),
             'far_gather_checks':number('gather_checks',2),

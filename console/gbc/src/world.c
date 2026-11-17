@@ -17,7 +17,11 @@
 world_level_t game_world;
 game_object_t game_objects[LEVEL_OBJECT_MAX];
 uint8_t world_level_index;
+#ifdef WORLD_GRAPHICS_ZX0
 const uint8_t world_lookup_format=1;
+#else
+const uint8_t world_lookup_format=2;
+#endif
 uint16_t world_uploads,world_cache_failures;
 /* Internal cache symbols are shared with the near bank6 acquisition kernel. */
 uint16_t world_cache_ids[CACHE_COUNT],world_cache_next;
@@ -264,7 +268,11 @@ static void release_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) 
 void world_begin(uint16_t x,uint16_t y) BANKED {
     uint16_t i;
     prepare_stage=PREP_NONE;prepare_added_count=0;retired_count=0;
+#ifdef WORLD_GRAPHICS_ZX0
     world_lookup_clear(game_world.pattern_count);
+#else
+    world_lookup_raw_clear(game_world.pattern_count);
+#endif
 #ifdef WORLD_GRAPHICS_ZX0
     for(i=0;i<MAP_CACHE_COUNT;++i){map_cache_ids[i]=INVALID;map_cache_planes[i]=0;}
     for(i=0;i<PATTERN_CACHE_COUNT;++i)pattern_cache_ids[i]=INVALID;

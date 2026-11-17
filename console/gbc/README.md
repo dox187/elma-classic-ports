@@ -452,13 +452,17 @@ source hash before accepting these costs.
 The retained 0.90 release uses 1,024-byte pattern and 1,536-byte map blocks.
 The 8 MiB ROM
 reads uncompressed patterns and maps directly, without these decoded caches.
+It uses SRAM banks1–3 as a direct table for up to 12,288 pattern IDs. All but
+one course fit; the larger Bowling course uses the linked bank0
+lookup. Every lookup restores SRAM bank0, and the player save region is shared
+with the retained earlier builds.
 
 Both builds use this bank0 layout:
 
 | Address | Purpose |
 |---|---|
-| A000–A7FF | 1,024 lookup bucket heads |
-| A800–AEEF | 444 entries storing full pattern IDs and chain links |
+| A000–A7FF | 1,024 fallback lookup bucket heads |
+| A800–AEEF | 444 fallback entries storing full pattern IDs and chain links |
 | AEF0–AFFF | Reserved |
 | B000–B7FF | 32x32 viewport slot mirror |
 | B800–BFFF | Two persistent player/record save slots |

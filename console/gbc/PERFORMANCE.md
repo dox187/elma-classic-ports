@@ -379,6 +379,36 @@ The 4 MiB scope was dropped before integration. Production is unchanged;
 no further compression work or tests should run. Final IRQ-stress output
 was not reviewed after cancellation. Evidence: `build/v091-incremental-zx0`.
 
+## 13: direct raw pattern lookup — retained
+
+Use the raw build's spare SRAM banks1–3 for 12,288 direct ID-to-slot entries.
+All 53 fitting courses use this path; level46 keeps the full-ID linked table.
+The selected lookup module is separate from common far/mirror access. Each
+operation restores SRAM0; the save region stays untouched. The fallback costs
+32 extra cycles per API call. Raw code grows 172 ROM0 bytes and one RAM byte;
+LCD-off direct initialization costs 246,304 cycles versus 168,336 linked.
+
+All 49,829 native lookup checks, 2,809 direct and 2,809 fallback acquisitions,
+and 3,031 cache views pass. The 39-acquisition/37-upload replay saves 20,156
+cycles with LCD off and 18,196–20,044 with LCD on. The natural full-game corpus
+stays exact across 216 cases / 27,447 states, with **333 misses / 141 wholly
+passing cases**, versus 340 / 140 before this change. The isolated 13.2%
+acquisition saving is not a 13.2% whole-game improvement.
+
+The shared-memory split also passes the full 131,072-ID linked check,
+327,680 clear checks, 202 far-copy and 340 gather checks. A reusable direct
+lookup test is added. The cache fixture's explicit `--launch-observer` keeps
+native byte/reference/deadline checks, SRAM guards and DMA-launch checks,
+while omitting instruction hooks that can stall PyBoy with pending interrupts.
+Reports identify this observation mode; they do not claim RAM-write or DMA
+completion timing instrumentation when it is disabled.
+
+ROM `elma-gbc-v0.91-direct-lookup-8m.gbc`, SHA-256
+`b27d9cae71b78d112153eb1987c94252fe98b1610b8bef6169f61bfe1b4dba26`.
+Evidence: `build/v091-raw-direct-lookup`,
+`build/v091-direct-lookup-{native,cache,acquire,gameplay-8m}`, and
+`build/playtest/world-memory-check`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step

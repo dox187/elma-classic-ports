@@ -97,7 +97,7 @@ void main(void){uint16_t i;disable_interrupts();DISPLAY_OFF;cpu_fast();world_loo
 '''
 for bank,start in enumerate(range(0,len(cases),1000),1):s+=f'for(i=0;i<N{bank};++i){{SWITCH_ROM({bank});memcpy(&row,&vectors{bank}[i],sizeof(row));case_id={start}+i;unit_case();}}\n'
 s+='done=1;while(1){}}\n';(P/'driver.c').write_text(s)
-cmd=[str(B/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x1a','-Wm-ya4','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(P),'-o',str(P/'check.gbc'),str(P/'driver.c'),str(P/'case.c'),str(args.assembly),str(B/'src/world_memory.s'),str(B/'src/world_alloc_fast.s')]+list(map(str,sources))
+cmd=[str(B/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x1a','-Wm-ya4','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(P),'-o',str(P/'check.gbc'),str(P/'driver.c'),str(P/'case.c'),str(args.assembly),str(B/'src/world_memory.s'),str(B/'src/world_lookup_linked.s'),str(B/'src/world_alloc_fast.s')]+list(map(str,sources))
 r=subprocess.run(cmd,capture_output=True,text=True);(P/'compile.log').write_text(r.stdout+r.stderr);assert not r.returncode,r.stdout+r.stderr
 rom=(P/'check.gbc').read_bytes();assert rom[0x149]==3
 sy={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',(P/'check.noi').read_text())};p=PyBoy(str(P/'check.gbc'),window='null',sound_emulated=False,cgb=True);p.set_emulation_speed(0);pending=[];registered=set();timing={'asm':{},'reference':{}}

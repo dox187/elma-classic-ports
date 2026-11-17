@@ -140,6 +140,7 @@ def main():
     names=['play.c','splash.c','audio.c','save.c','world.c','world_dma.c','world_zx0.s','world_memory.s','world_retire_fast.s','world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','menu.c','result.c','bike_render16.c','physics.c','physics_core.c',
            'physics_contacts.c','physics_collision.c','physics_sweep.c','physics_math.c','physics_math32.c','mul16.s','video.s','video_screen_fast.s','video_strip_pair.s','object16.s','objects_touch_fast.s','objects_draw_fast.s','objects_bounds_fast.s']
     sources=[BASE/'src'/name for name in names]
+    sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
     if rom_mib==4:
         sources=[path for path in sources if path.name!='world_upload_raw.s']
     if a.sweep_source:

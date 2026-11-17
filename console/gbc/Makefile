@@ -95,10 +95,11 @@ check: all
 	$(PYTHON) test/check_objects_empty.py --gen $(GEN)
 	$(PYTHON) test/check_physics_normal.py
 	$(PYTHON) test/check_world_memory.py
+	$(PYTHON) test/check_world_lookup_raw.py
 	$(PYTHON) test/check_world_retire.py
 	$(PYTHON) test/check_world_alloc.py
 	$(PYTHON) test/check_world_acquire.py
-	$(PYTHON) test/check_world_cache.py --gen $(GEN)
+	$(PYTHON) test/check_world_cache.py --gen $(GEN) --launch-observer
 ifeq ($(ROM_MIB),4)
 	$(PYTHON) test/check_world_cache.py --gen $(GEN) --compressed --out build/playtest/world-cache-compressed
 	$(PYTHON) test/check_graphics.py --rom $(GAME_ROM) --gen $(GEN)

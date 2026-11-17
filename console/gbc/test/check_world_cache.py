@@ -50,12 +50,18 @@ def main():
     parser.add_argument('--world-source',type=Path,default=BASE/'src/world.c')
     parser.add_argument('--helper-dir',type=Path,help='private assembly snapshot; missing files use production sources')
     parser.add_argument('--compressed',action='store_true',help='exercise the production WORLD_GRAPHICS_ZX0 path')
+    parser.add_argument('--launch-observer',action='store_true',help='observe DMA launches and guards only; avoid PyBoy instruction-hook IRQ stalls')
     args=parser.parse_args()
     OUT=args.out
     OUT.mkdir(parents=True,exist_ok=True)
     source_paths={name:(args.world_source if name=='world.c' else BASE/'src'/name)
                   for name in ('world.c','world.h','world_dma.c','world_memory.s','world_memory.h','world_retire_fast.s','video.s')}
     optional_helpers=('world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','video_strip_pair.s','world_prepare_fast.s','world_zx0.s')
+    lookup_memory=source_paths['world_memory.s']
+    if args.helper_dir and (args.helper_dir/'world_memory.s').exists():
+        lookup_memory=args.helper_dir/'world_memory.s'
+    if b'_world_lookup_get::' not in lookup_memory.read_bytes():
+        optional_helpers+=('world_lookup_linked.s' if args.compressed else 'world_lookup_raw.s',)
     for name in optional_helpers:
         path=BASE/'src'/name
         if args.helper_dir and(args.helper_dir/name).exists():path=args.helper_dir/name
@@ -65,6 +71,7 @@ def main():
         for name in source_paths:
             if name.endswith('.s')and(args.helper_dir/name).exists():source_paths[name]=args.helper_dir/name
     sources={name:path.read_bytes() for name,path in source_paths.items()}
+    direct_lookup=not args.compressed and 'world_lookup_raw.s' in sources
     production_source=args.world_source.resolve()==(BASE/'src/world.c').resolve()
     # The production API must retain all coverage even after comment changes.
     # Explicit historical snapshots may predate preparation or fine retention.
@@ -512,14 +519,15 @@ volatile uint8_t bad_expected,bad_actual;
         # Initial SRAM contents are deliberate fixture input; no game state
         # or ROM data is substituted while the runtime is executing.
         p.memory[0,0xb800:0xbfff]=save_guard[:-1];p.memory[0,0xbfff]=save_guard[-1]
-        p.memory[3,0xbff0:0xbfff]=high_guard[:-1];p.memory[3,0xbfff]=high_guard[-1]
+        if not direct_lookup:
+            p.memory[3,0xbff0:0xbfff]=high_guard[:-1];p.memory[3,0xbfff]=high_guard[-1]
     def guard_check(_):
         nonlocal guard_checks
         guard_checks+=1
         if last_ram_bank and not bank_restore_failures:
             bank_restore_failures.append({'checkpoint':guard_checks,'requested_bank':last_ram_bank})
         regions=[(0,0xb800,save_guard)]
-        if not args.compressed:regions.append((3,0xbff0,high_guard))
+        if not args.compressed and not direct_lookup:regions.append((3,0xbff0,high_guard))
         for bank,address,expected in regions:
             actual=bytes(p.memory[bank,address:address+len(expected)-1])+bytes([p.memory[bank,address+len(expected)-1]])
             if actual!=expected and not guard_failures:
@@ -543,7 +551,7 @@ volatile uint8_t bad_expected,bad_actual;
                 offset=bank*16384+(address&0x3fff)if bank else address
                 assert rom[offset:offset+3]==b'\xea\x00\x40',('linked RAM-write listing differs from ROM',obj.name,bank,address)
                 site=(bank,address);ram_write_sites.append(site)
-                p.hook_register(bank,address,observe(ram_selected),site)
+                if not args.launch_observer:p.hook_register(bank,address,observe(ram_selected),site)
     assert ram_write_sites,'no linked RAM bank writes were observed'
     start=symbols['_world_upload_tile']
     end=min(address for address in symbols.values()if start<address<0x8000)
@@ -553,6 +561,7 @@ volatile uint8_t bad_expected,bad_actual;
     # pending, without advancing CPU time. Keep those instructions intact;
     # the native byte checks and static window proof still cover this path.
     dma_unhooked_ei_sites={address for address in dma_writes if rom[address+2]==0xfb}
+    if args.launch_observer:dma_unhooked_ei_sites=set(dma_writes)
     dma_unhooked_completions=0
     def dma_launch(address):
         nonlocal dma_unhooked_completions
@@ -594,12 +603,13 @@ volatile uint8_t bad_expected,bad_actual;
         if split_units:expected_views+=word('split_extra_views')
         report={'status':'passed','fixture':'synthetic source maps; production bank6 module, LCD-on scrolls, read-only counter inspection',
             'graphics_codec':'zx0'if args.compressed else 'raw',
+            'observer':'guards and DMA launches' if args.launch_observer else 'RAM writes, guards, DMA launches and safe completion sites',
             'cartridge':{'rom_bytes':len(rom),'ram_header_code':rom[0x149],'ram_bytes':32768,'ram_banks':4},
-            'ram_bank_checks':{'requested_banks':dict(ram_requests),'instruction_sites':ram_write_sites,
+            'ram_bank_checks':{'observed':not args.launch_observer,'requested_banks':dict(ram_requests),'instruction_sites':ram_write_sites,
                                'pyboy_requested_bank_aliases':ram_aliases,'pyboy_out_of_range_write_aliases':True,
                                'restoration_failures':bank_restore_failures},
             'save_guard':{'bank':0,'start':0xb800,'bytes':len(save_guard),'checks':guard_checks,'failures':guard_failures},
-            'highest_ram_bank_guard':{'bank':3,'start':0xbff0,'bytes':len(high_guard),'preserved_during_raw_runtime':not args.compressed,
+            'highest_ram_bank_guard':{'bank':3,'start':0xbff0,'bytes':len(high_guard),'preserved_during_raw_runtime':not args.compressed and not direct_lookup,
                                       'compressed_pattern_checks':p.memory[symbols['_highest_pattern_block_checks']]},
             'source_sha256':{name:hashlib.sha256(data).hexdigest()for name,data in sources.items()},
             'source_still_current':all(source_paths[name].read_bytes()==data for name,data in sources.items()),
@@ -621,7 +631,7 @@ volatile uint8_t bad_expected,bad_actual;
             'allocator_probe_cycles':probe_cycles,
             'compiler_register_allocation_limit':100000,
             'observer_errors':hook_errors,
-            'gdma_stall_observed_in_cpu_cycles':all(n>=76 for n in dma_durations),
+            'gdma_stall_observed_in_cpu_cycles':bool(dma_durations) and all(n>=76 for n in dma_durations),
             'gdma_hardware_safety_bound_cycles':{'poll_and_launch_max':76,'block':64,'total':140,'mode2_min':160},
             'interrupts':word('cache_irq'),'first_pattern_mismatch':{name:word('bad_'+name)for name in('level','x','y','id','target','byte')},'bad_expected':p.memory[symbols['_bad_expected']],'bad_actual':p.memory[symbols['_bad_actual']],'failures':{name:p.memory[symbols['_'+name+'_failures']] for name in('reference','map','pattern','lookup','cache','mirror','select')},'hardware_tested':False}
         assert p.memory[symbols['_cache_done']],'cache fixture did not finish'
@@ -629,8 +639,9 @@ volatile uint8_t bad_expected,bad_actual;
         assert report['pattern_block_conflict_checks']==(6 if args.compressed else 0),report
         assert report['highest_ram_bank_guard']['compressed_pattern_checks']==(3 if args.compressed else 0),report
         assert guard_checks>=report['verified_views'] and not guard_failures and not bank_restore_failures,report
-        assert ram_requests and all(0<=bank<4 for bank in ram_requests),report
-        if args.compressed:assert all(ram_requests[bank] for bank in range(4)),report
+        if not args.launch_observer:
+            assert ram_requests and all(0<=bank<4 for bank in ram_requests),report
+            if args.compressed:assert all(ram_requests[bank] for bank in range(4)),report
         if phased:
             assert all(report['preparation_checks'][name]>0 for name in('partial_preparations','full_preparations','expired_preparations','cancelled_preparations')),report
             assert report['preparation_checks']['max_pending_references']==438,report

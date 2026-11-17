@@ -309,7 +309,12 @@ class Driver:
                     assert physical < 252 or 256 <= physical < 448, 'background overwrote reserved sprite patterns'
                     start = 0x8000+tile*16
                     assert bytes(self.p.memory[bank,start:start+16]) == patterns[pattern*16:pattern*16+16], 'streamed viewport pattern differs: level%d (%d,%d) id%d'%(index+1,tx,ty,pattern)
-                    if self.rom_constant('world_lookup_format',0)==1:
+                    lookup_format=self.rom_constant('world_lookup_format',0)
+                    if lookup_format==2 and self.byte('world_lookup_direct'):
+                        address=0xa000+(pattern&4095)*2
+                        lookup_bank=1+(pattern>>12)
+                        cached=self.p.memory[lookup_bank,address]|self.p.memory[lookup_bank,address+1]<<8
+                    elif lookup_format in (1,2):
                         address=0xa000+(pattern&1023)*2
                         cached=self.p.memory[0,address]|self.p.memory[0,address+1]<<8
                         for _ in range(444):
@@ -324,7 +329,7 @@ class Driver:
                         cached = self.p.memory[pattern>>12,address] | self.p.memory[pattern>>12,address+1]<<8
                     assert cached == (physical if physical<252 else physical-4), 'SRAM lookup disagrees with visible cache slot'
                     if '_world_slot_strip_get' in self.symbols:
-                        compact=self.rom_constant('world_lookup_format',0)==1
+                        compact=self.rom_constant('world_lookup_format',0)in(1,2)
                         address=(0xb000 if compact else 0xa000)+2*((ty&31)*32+(tx&31))
                         mirrored=self.p.memory[0 if compact else 8,address]|self.p.memory[0 if compact else 8,address+1]<<8
                         assert mirrored==cached,'SRAM slot mirror disagrees with displayed viewport'
