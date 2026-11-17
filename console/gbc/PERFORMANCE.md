@@ -610,6 +610,33 @@ before target changes cancel it. Native cache/phase fixtures remain correct.
 Reject without source integration or a complete candidate build. Evidence:
 `build/v091-prepare-diagonal/handoff.json`, including patched-byte provenance.
 
+## 22: exact rider response orchestration — retained
+
+Move the rider acceleration orchestration into a near-bank8 kernel while
+keeping the existing rider limit, vector, rounded coefficient and move helpers.
+The HOST and generic native paths retain their C implementation. No static RAM
+is added and bank8 shrinks 302 bytes. The C caller frame drops from 36 to 4
+bytes; the new helper uses 16 local and 16 argument bytes, so this is not a
+claim about maximum total stack depth.
+
+All 1,640 paired boundary/random cases match both frozen C and an independent
+integer oracle; the private extension adds 326 captured calls. The isolated
+kernel saves 2,636 cycles per vector. Complete trajectories preserve all
+1,727 states of 161 bytes, including interrupts and wide freefall. Active
+fixture updates save 2,196–3,324 cycles; previous Gravity Ride and Bumpy peaks
+improve 278,880 to 276,668 and 291,196 to 288,984 respectively.
+
+All 216 integrated cases / 27,447 states remain exact. Misses improve
+**155 to 137**, stretched input intervals **144 to 129**, and wholly passing
+cases **171 to 175**. Changed LCD/preparation phase still makes individual
+presentation peaks non-monotonic; Double Trouble/gas update148 reaches
+437,440 cycles. The complete 30-FPS gate remains failed.
+
+ROM `elma-gbc-v0.91-rider-8m.gbc`, SHA-256
+`82efafb66125e0fbeccec642d1497590a6167ac63f791d174599d0362461f640`.
+Evidence: `build/v091-rider-response`, `build/v091-rider-native`,
+`build/v091-rider-integrated-trace` and `build/v091-rider-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -624,15 +651,15 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-object-cache-8m.gbc --gen build/gen-8m --out build/v091-object-cache-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-rider-8m.gbc --gen build/gen-8m --out build/v091-rider-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 155**; wholly passing cases improve **72 to
-171 of 216** in the object-candidate cache. This is still a failed 30-FPS
+Timing misses improve **1,025 to 137**; wholly passing cases improve **72 to
+175 of 216** after the rider-response kernel. This is still a failed 30-FPS
 gate. Some physics calls alone exceed the frame budget: Bumpy Journey reaches
-291,196 in the isolated wheel-response fixture. Exact native arithmetic and
+288,984 in the isolated rider-response fixture. Exact native arithmetic and
 presentation optimization remain necessary.
 
 PyBoy does not charge the GDMA CPU stall or fully reproduce early LY-153

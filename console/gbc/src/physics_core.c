@@ -36,6 +36,13 @@ void riding_brake32(int16_t*) __sdcccall(0);
 uint8_t riding_recip_index(int16_t,int16_t) __sdcccall(0);
 void riding_rider_vectors32(int16_t,int16_t,int16_t*) __sdcccall(0);
 void riding_rider_move32(int32_t,int32_t) __sdcccall(0);
+#if defined(RIDING_COEFFICIENT_LOOKUP)
+typedef char rider_response_layout[
+    sizeof(bike_t)==109 &&
+    offsetof(bike_t,rider_x)==66 && offsetof(bike_t,rider_y)==70 &&
+    offsetof(bike_t,rider_vx)==74 && offsetof(bike_t,rider_vy)==78 ? 1 : -1];
+void riding_rider_response32(int16_t,int16_t,int32_t,int32_t,int32_t) __sdcccall(0);
+#endif
 #endif
 
 static int16_t Cs, Sn;   // cos and sin of the body's angle
@@ -120,6 +127,9 @@ static void rider_limit( void ) {
 // beallitvezeto, at the same rate as the body and wheels:
 static void rider( int32_t gx, int32_t gy ) {
 	rider_limit();
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+	riding_rider_response32(-KMUL(Sn,C_RREST),KMUL(Cs,C_RREST),Oms,gx,gy);
+#else
 #ifdef __SDCC
 	int16_t v[4];
 	riding_rider_vectors32(-KMUL(Sn,C_RREST),KMUL(Cs,C_RREST),v);
@@ -142,6 +152,7 @@ static void rider( int32_t gx, int32_t gy ) {
 	Bike.rider_vy += ay;
 	Bike.rider_x += Bike.rider_vx * 4L;
 	Bike.rider_y += Bike.rider_vy * 4L;
+#endif
 #endif
 }
 
