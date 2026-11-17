@@ -543,6 +543,29 @@ Evidence: `build/v091-scroll-schedule`, `build/v091-wait-native` and
 `build/v091-wait-gameplay-8m`. Intermediate ROM hashes are retained in their
 `v091-idle-{tail,fast}-gameplay-8m` reports.
 
+## 19: exact wheel response orchestration — retained
+
+Near-bank9 support, rolling and free-wheel kernels use the existing exact
+projection, coefficient and move helpers. Contact collection, pushout and
+support ordering stay unchanged. Preserve full 32-bit saturation/wrap and the
+signed17 free-wheel angular sum. No static RAM is added; bank9 shrinks 499
+bytes and the wheel caller's stack frame falls from 28 to 6 bytes.
+
+The reusable fixture passes 1,356 boundary/random vectors against C and
+independent wide-integer formulas; the private captured extension adds 233.
+All 1,727 trajectory and 326 route states match the 161-byte frozen reference.
+The private generic level fixture also passes 53,416 HOST / 27,164 native
+queries. All measured active fixture calls save at least 2,000 cycles.
+Gravity Ride's previous physics peak improves 284,296 to 278,880 and Bumpy
+Journey's 295,500 to 291,196; the latter still exceeds the entire budget.
+
+All 216 integrated gameplay cases / 27,447 states remain exact. Misses improve
+**233 to 194**, stretched input intervals **224 to 184**, and wholly passing
+cases **163 to 168**. ROM `elma-gbc-v0.91-wheel-8m.gbc`, SHA-256
+`39ee7456a302a22c3196f1637ff9c97b0d62bb1d126781a2cd95dd7dbf02d3dc`.
+Evidence: `build/v091-wheel-response`, `build/v091-wheel-native`,
+`build/v091-wheel-integrated-trace` and `build/v091-wheel-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -557,16 +580,16 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-wait-8m.gbc --gen build/gen-8m --out build/v091-wait-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-wheel-8m.gbc --gen build/gen-8m --out build/v091-wheel-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 233**; wholly passing cases improve **72 to
-163 of 216** in the scheduling candidate. This is still a failed 30-FPS gate.
-Some physics calls alone exceed the frame budget: the brake candidate reaches
-299,220 cycles in Bumpy Journey and 291,696 in Gravity Ride. Exact native
-arithmetic/contact optimization is the next requirement.
+Timing misses improve **1,025 to 194**; wholly passing cases improve **72 to
+168 of 216** in the wheel-response candidate. This is still a failed 30-FPS
+gate. Some physics calls alone exceed the frame budget: Bumpy Journey reaches
+291,196 in the isolated wheel-response fixture. Exact native arithmetic and
+presentation optimization remain necessary.
 
 PyBoy does not charge the GDMA CPU stall or fully reproduce early LY-153
 wrapping. The benchmark additionally reports a 64-cycle-per-world-upload

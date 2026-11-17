@@ -230,6 +230,10 @@ static void pushout( circle_t* k, contact_t* c, contact_t* other ) {
 // talppontigazitas: true if the point really supports the wheel. With two
 // points, the velocity towards it is removed (with one, rolling around it
 // takes only the velocity along the ground anyway).
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+uint8_t riding_supports32(circle_t*,const contact_t*,int32_t,int32_t,uint8_t) __sdcccall(1);
+#define supports riding_supports32
+#else
 static uint8_t supports( circle_t* k, const contact_t* c, int32_t dvx, int32_t dvy,
 						 uint8_t remove ) {
 	int32_t nv = riding_dotq32(k->vx,k->vy,c->nx,c->ny,14);
@@ -241,6 +245,8 @@ static uint8_t supports( circle_t* k, const contact_t* c, int32_t dvx, int32_t d
 	}
 	return 1;
 }
+
+#endif
 
 static uint8_t same_side( int32_t d, int32_t m ) {
 	return !((d < 0 && m > 0) || (d > 0 && m < 0));
@@ -299,6 +305,15 @@ static void move( circle_t* k ) {
 }
 #endif
 
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+#include <stddef.h>
+typedef char wheel_response_layout[ELSZ==10 && sizeof(circle_t)==22 && offsetof(circle_t,vx)==8 &&
+ offsetof(circle_t,vy)==12 && offsetof(circle_t,omega)==20 &&
+ offsetof(contact_t,nx)==0 && offsetof(contact_t,ny)==2?1:-1];
+void riding_free32(circle_t*,int32_t,int32_t,int16_t) __sdcccall(0);
+void riding_roll32(circle_t*,const contact_t*,int32_t,int32_t,int16_t) __sdcccall(0);
+#endif
+
 // beallit for a wheel: dv is the velocity change from the forces, tq the
 // torque on it.
 void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED {
@@ -336,10 +351,14 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
 			n = 0;
 	}
 	if( n == 0 ) {
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+        riding_free32(k,dvx,dvy,tq);
+#else
 		k->omega = sat16((int32_t)k->omega+KMUL(tq,C_FREE));
 		k->vx += dvx;
 		k->vy += dvy;
 		move( k );
+#endif
 		return;
 	}
 	if( n == 2 ) {
@@ -347,6 +366,9 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
 		k->omega = 0;
 		return;
 	}
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+ riding_roll32(k,&Ct[0],dvx,dvy,tq);
+#else
 	// Rolls around the contact point:
 	int16_t n90x = -Ct[0].ny, n90y = Ct[0].nx;
 	int32_t vn = riding_dotq32(k->vx,k->vy,n90x,n90y,14);
@@ -359,4 +381,5 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
 	k->vx = riding_mulq32(sp,n90x,14);
 	k->vy = riding_mulq32(sp,n90y,14);
 	move( k );
+#endif
 }
