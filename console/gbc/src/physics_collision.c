@@ -68,10 +68,14 @@ void seg_query(uint8_t cx,uint8_t cy,uint8_t subcell) {
     cell_pointer_t pointer;
     Seg_left=0;Seg_subcell=255;
     if(cx>=level.width||cy>=level.height)return;
-    id=(uint16_t)cy*level.width+cx;
+    /* Cache identity needs only the two coordinates. Delay the directory's
+     * row multiplication until a miss; all levels are smaller than256 cells
+     * on either axis, so FFFF remains reserved for an invalid entry. */
+    id=((uint16_t)cy<<8)|cx;
     for(c=0;c<CACHES;++c)
         if(cell_ids[c]==id && (cell_subcells[c]==255 || cell_subcells[c]==subcell))goto found;
-    read_data(&pointer,level.directory_bank,level.directory_address+id*4,4);
+    read_data(&pointer,level.directory_bank,
+              level.directory_address+((uint16_t)cy*level.width+cx)*4,4);
     if(pointer.count==255) {
         read_data(&pointer,level.base_bank+pointer.bank,pointer.address+(uint16_t)subcell*4,4);
         sub=subcell;

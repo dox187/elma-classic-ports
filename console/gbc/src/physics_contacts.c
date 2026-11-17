@@ -67,6 +67,26 @@ static void contact_point( contact_t* c, int16_t qx, int16_t qy ) {
 	c->ty = qy-mulq14( c->ny, c->l );
 }
 
+/* Consume rejected boxes in record order, leaving the same cursor as the
+ * original seg_next loop at every returned candidate and at exhaustion. */
+#if defined(__SDCC) && !defined(PHYSICS_SEGMENT_SCAN_C)
+#include <stddef.h>
+typedef char segment_scan_layout[sizeof(seg_t)==18 && offsetof(seg_t,x0)==14 &&
+ offsetof(seg_t,x1)==15 && offsetof(seg_t,y0)==16 && offsetof(seg_t,y1)==17?1:-1];
+const seg_t *riding_segment_box(uint8_t bx,uint8_t by) __sdcccall(0);
+#define segment_next_box riding_segment_box
+#else
+static const seg_t *segment_next_box(uint8_t bx,uint8_t by) {
+	const seg_t *s;
+	while( (s = seg_next()) ) {
+		if( bx < s->x0 || bx > s->x1 || by < s->y0 || by > s->y1 )
+			continue;
+		return s;
+	}
+	return 0;
+}
+#endif
+
 // talppontkereses of UTKOZES.CPP: at most two contact points of the wheel
 // with its center at cx, cy (u).
 static uint8_t contacts( int32_t cx, int32_t cy ) {
@@ -75,9 +95,7 @@ static uint8_t contacts( int32_t cx, int32_t cy ) {
 	int16_t qx = (int16_t)(cx & 4095), qy = (int16_t)(cy & 4095);
 	seg_query( seg_cell(cx), seg_cell(cy), (uint8_t)((qx>>10)|((qy>>8)&12)) );
 	uint8_t bx = SEG_BOX( qx ), by = SEG_BOX( qy );
-	while( (s = seg_next()) ) {
-		if( bx < s->x0 || bx > s->x1 || by < s->y0 || by > s->y1 )
-			continue;
+	while( (s = segment_next_box(bx,by)) ) {
 		int16_t x = qx-s->px, y = qy-s->py;
 		int16_t d = dotq14( x, y, -s->ey, s->ex );
 		if( d >= R_WHEEL || d <= -R_WHEEL )
@@ -135,10 +153,8 @@ uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {
 	int16_t qx = (int16_t)(cx & 4095), qy = (int16_t)(cy & 4095);
 	seg_query( seg_cell(cx), seg_cell(cy), (uint8_t)((qx>>10)|((qy>>8)&12)) );
 	uint8_t bx = SEG_BOX( qx ), by = SEG_BOX( qy );
-	while( (s = seg_next()) ) {
-		// The box is larger by the radius of a wheel, more than rad:
-		if( bx < s->x0 || bx > s->x1 || by < s->y0 || by > s->y1 )
-			continue;
+	// The box is larger by the radius of a wheel, more than rad:
+	while( (s = segment_next_box(bx,by)) ) {
 		int16_t x = qx-s->px, y = qy-s->py;
 		int16_t d = dotq14( x, y, -s->ey, s->ex );
 		if( d >= rad || d <= -rad )
