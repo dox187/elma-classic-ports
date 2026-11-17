@@ -637,6 +637,33 @@ ROM `elma-gbc-v0.91-rider-8m.gbc`, SHA-256
 Evidence: `build/v091-rider-response`, `build/v091-rider-native`,
 `build/v091-rider-integrated-trace` and `build/v091-rider-gameplay-8m`.
 
+## 23: reuse exact head-sweep cross products — retained
+
+Fuse the infinite-line rejection into the capsule predicate without changing
+its position before AABB rejection. Reuse its exact cross products for segment
+intersection and endpoint-distance checks; pass relative coordinates to the
+distance helper. Bounded edge/path pieces retain the original signed arithmetic
+and strict radius comparisons. Bank4 shrinks 119 bytes with no static RAM
+increase. The capsule local frame grows 32 to 54 bytes while the removed
+line-rejection frame used 27; maximum total stack depth was not measured.
+
+All 8,211 native geometry vectors, including 19 real captures, pass the
+independent oracle. All 1,727 trajectory and 326 route states remain exact.
+Gravity Ride's previous physics peak improves 276,668 to 274,788; Bumpy's
+288,984 to 269,920. Two non-peak Bumpy updates regress by 3,580 and 204 cycles.
+These tradeoffs are retained because the limiting peak and complete corpus
+improve. The previous rejected AABB-first ordering is not used.
+
+All 216 integrated cases / 27,447 states remain exact. Misses improve
+**137 to 129**, stretched input intervals **129 to 123**, and wholly passing
+cases **175 to 177**. Every physics call in this corpus is now below the full
+two-frame budget (maximum 275,800), but presentation and other loop work still
+cause whole-update failures. This is not a stable 30-FPS release.
+
+ROM `elma-gbc-v0.91-head-8m.gbc`, SHA-256
+`e86923362def284df7493aa1a1b8156f017cc5d1eb076261dc0364298639ba53`.
+Evidence: `build/v091-head-sweep-kernel` and `build/v091-head-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -651,16 +678,16 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-rider-8m.gbc --gen build/gen-8m --out build/v091-rider-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-head-8m.gbc --gen build/gen-8m --out build/v091-head-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 137**; wholly passing cases improve **72 to
-175 of 216** after the rider-response kernel. This is still a failed 30-FPS
-gate. Some physics calls alone exceed the frame budget: Bumpy Journey reaches
-288,984 in the isolated rider-response fixture. Exact native arithmetic and
-presentation optimization remain necessary.
+Timing misses improve **1,025 to 129**; wholly passing cases improve **72 to
+177 of 216** after the head-sweep change. This is still a failed 30-FPS gate.
+The largest physics call is 275,800 cycles, leaving too little time for the
+rest of the update. Exact native arithmetic and presentation optimization
+remain necessary.
 
 PyBoy does not charge the GDMA CPU stall or fully reproduce early LY-153
 wrapping. The benchmark additionally reports a 64-cycle-per-world-upload

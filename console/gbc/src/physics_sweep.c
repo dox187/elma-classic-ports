@@ -26,18 +26,17 @@ static uint8_t close_point(int16_t x,int16_t y,uint16_t radius,uint32_t radius2)
  * |cross|=q*R+r. Only the ambiguous q^2<=L^2<(q+1)^2 case needs
  * 2*R*q*r+r^2 < R^2*(L^2-q^2). Both sides fit32 for these8m pieces.
  */
-static uint8_t close_segment(int16_t px,int16_t py,int16_t ax,int16_t ay,
-                            int16_t dx,int16_t dy,uint32_t length2,
-                            uint16_t radius,uint32_t radius2){
-    int16_t x=px-ax,y=py-ay,adx,ady;
-    int32_t dot,c;
+static uint8_t close_segment(int16_t x,int16_t y,int16_t dx,int16_t dy,uint32_t length2,
+                            uint16_t radius,uint32_t radius2,int32_t c){
+    int16_t adx,ady;
+    int32_t dot;
     uint32_t distance,q2,delta,left,right;
     uint16_t q,r;
     if(!length2)return close_point(x,y,radius,radius2);
     dot=mul16(x,dx)+mul16(y,dy);
     if(dot<=0)return close_point(x,y,radius,radius2);
     if((uint32_t)dot>=length2)return close_point(x-dx,y-dy,radius,radius2);
-    c=cross(x,y,dx,dy);distance=c<0?(uint32_t)(-c):(uint32_t)c;
+    distance=c<0?(uint32_t)(-c):(uint32_t)c;
     adx=absolute(dx);ady=absolute(dy);
     if(distance<(uint32_t)mul16(radius,maximum(adx,ady)))return 1;
     if(distance>=(uint32_t)mul16(radius,adx+ady))return 0;
@@ -53,39 +52,39 @@ static uint8_t close_segment(int16_t px,int16_t py,int16_t ax,int16_t ay,
     return left<right;
 }
 
+/* Keep the infinite-line rejection first, then reuse its exact cross
+ * products through the finite capsule. With d=q-p and e=b-a, c0=(p-a)x e,
+ * cd=d x e and ca=(a-p)x d give the other three crosses by addition.
+ * Bounded8m pieces keep all relative vectors in signed16 and products32. */
 static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
-                       int16_t ax,int16_t ay,int16_t ex,int16_t ey,uint16_t radius){
-    int16_t bx=ax+ex,by=ay+ey,dx=qx-px,dy=qy-py;
+                       const seg_t *s,uint16_t radius){
+    int16_t ax=s->px,ay=s->py,ex=s->dx,ey=s->dy;
+    int16_t bx=ax+ex,by=ay+ey,dx=qx-px,dy=qy-py,x=px-ax,y=py-ay;
     uint32_t d2,e2,r2;
-    int32_t c1,c2,c3,c4;
+    int32_t c0=cross(x,y,ex,ey),cd=0,ca=0;
+    /* Stored length is nearest-integer; len+1 bounds its exact length. */
+    int32_t limit=mul16((int16_t)radius,s->len+1);
+    uint8_t have_cd=0,have_ca=0;
+    if(!(c0<limit && c0>-limit)){
+        cd=cross(dx,dy,ex,ey);have_cd=1;
+        if(c0>=limit ? c0+cd>=limit : c0+cd<=-limit)return 0;
+    }
     if(maximum(px,qx)+(int16_t)radius<=minimum(ax,bx)||minimum(px,qx)-(int16_t)radius>=maximum(ax,bx)
        ||maximum(py,qy)+(int16_t)radius<=minimum(ay,by)||minimum(py,qy)-(int16_t)radius>=maximum(ay,by))return 0;
     if(maximum(px,qx)>=minimum(ax,bx)&&minimum(px,qx)<=maximum(ax,bx)
        &&maximum(py,qy)>=minimum(ay,by)&&minimum(py,qy)<=maximum(ay,by)){
-        c1=cross(dx,dy,ax-px,ay-py);c2=cross(dx,dy,bx-px,by-py);
-        if(straddles(c1,c2)){
-            c3=cross(ex,ey,px-ax,py-ay);c4=cross(ex,ey,qx-ax,qy-ay);
-            if(straddles(c3,c4))return 1;
-        }
+        if(!have_cd){cd=cross(dx,dy,ex,ey);have_cd=1;}
+        ca=cross(-x,-y,dx,dy);have_ca=1;
+        if(straddles(ca,ca-cd)&&straddles(c0,c0+cd))return 1;
     }
     d2=(uint32_t)(mul16(dx,dx)+mul16(dy,dy));
     e2=(uint32_t)(mul16(ex,ex)+mul16(ey,ey));r2=(uint32_t)mul16(radius,radius);
-    if(close_segment(px,py,ax,ay,ex,ey,e2,radius,r2))return 1;
-    if(close_segment(qx,qy,ax,ay,ex,ey,e2,radius,r2))return 1;
-    if(close_segment(ax,ay,px,py,dx,dy,d2,radius,r2))return 1;
-    return close_segment(bx,by,px,py,dx,dy,d2,radius,r2);
-}
-
-/* A center path entirely outside the radius-expanded infinite edge line
- * cannot hit its finite segment. Stored length is nearest-integer, so len+1
- * bounds the exact integer-vector length from above without a square root. */
-static uint8_t outside_line(int16_t px,int16_t py,int16_t qx,int16_t qy,
-                            const seg_t *s,uint16_t radius){
-    int32_t c0=cross(px-s->px,py-s->py,s->dx,s->dy);
-    int32_t limit=mul16((int16_t)radius,s->len+1),c1;
-    if(c0<limit && c0>-limit)return 0;
-    c1=c0+cross(qx-px,qy-py,s->dx,s->dy);
-    return c0>=limit ? c1>=limit : c1<=-limit;
+    if(close_segment(x,y,ex,ey,e2,radius,r2,c0))return 1;
+    if(!have_cd)cd=cross(dx,dy,ex,ey);
+    if(close_segment(x+dx,y+dy,ex,ey,e2,radius,r2,c0+cd))return 1;
+    if(!have_ca)ca=cross(-x,-y,dx,dy);
+    if(close_segment(-x,-y,dx,dy,d2,radius,r2,ca))return 1;
+    return close_segment(ex-x,ey-y,dx,dy,d2,radius,r2,ca-cd);
 }
 
 /* Cached wheel-expanded boxes conservatively contain the smaller head
@@ -96,7 +95,7 @@ static uint8_t scan(int16_t px,int16_t py,int16_t qx,int16_t qy,uint16_t radius)
     const seg_t *s;
     while((s=seg_next())){
         if(x1<s->x0||x0>s->x1||y1<s->y0||y0>s->y1)continue;
-        if(!outside_line(px,py,qx,qy,s,radius) && capsule(px,py,qx,qy,s->px,s->py,s->dx,s->dy,radius))return 1;
+        if(capsule(px,py,qx,qy,s,radius))return 1;
     }
     return 0;
 }
@@ -159,6 +158,6 @@ uint8_t riding_capsule_test(int16_t px,int16_t py,int16_t qx,int16_t qy,
     seg_t s;
     s.px=ax;s.py=ay;s.dx=ex;s.dy=ey;
     s.len=(int16_t)isqrt32((uint32_t)(mul16(ex,ex)+mul16(ey,ey)));
-    return !outside_line(px,py,qx,qy,&s,radius) && capsule(px,py,qx,qy,ax,ay,ex,ey,radius);
+    return capsule(px,py,qx,qy,&s,radius);
 }
 #endif

@@ -32,6 +32,7 @@ def main():
     parser.add_argument('--gen',type=Path,default=BASE/'build/gen')
     parser.add_argument('--out',type=Path,default=BASE/'build/sweep-check')
     parser.add_argument('--vectors',type=int,default=8192)
+    parser.add_argument('--captures',type=Path,help='append JSON capsule rows or records containing a row field')
     args=parser.parse_args();out=args.out.resolve();out.mkdir(parents=True,exist_ok=True);source=args.source.resolve();gen=args.gen.resolve()
     rows=[]
     for radius in(1,2,16,244,246,255):
@@ -62,6 +63,15 @@ def main():
         a=[rng.randint(-8704,12800)for _ in range(2)];b=[rng.randint(-8704,12800)for _ in range(2)]
         if max(abs(q[i]-p[i])for i in range(2))>8192 or max(abs(b[i]-a[i])for i in range(2))>8192:continue
         rows.append((*p,*q,*a,b[0]-a[0],b[1]-a[1],rng.randint(1,255)))
+    captured=[]
+    if args.captures:
+        for record in json.loads(args.captures.read_text()):
+            row=record['row']if isinstance(record,dict)else record
+            assert len(row)==9 and all(isinstance(v,int)for v in row),row
+            assert all(-32768<=v<=32767 for v in row[:8])and 1<=row[8]<=255,row
+            captured.append(tuple(row))
+        rows.extend(captured)
+    assert len(rows)<=65535
     expected=[oracle(row)for row in rows]
     stub='''#include "physics_core.h"\nconst seg_t *Seg_cur;uint8_t Seg_left,Seg_subcell;
 void seg_query(uint8_t x,uint8_t y,uint8_t sub){x;y;sub;Seg_left=0;Seg_subcell=255;}
@@ -97,7 +107,7 @@ void main(void){cpu_fast();\n'''
     for bank in banks[:len(batches)]:driver+='SWITCH_ROM(%d);check(cases%d,COUNT%d,%d);\n'%(bank,bank,bank,bank)
     driver+='sweep_done=1;while(1)vsync();}\n';(out/'native.c').write_text(driver)
     assembly=[BASE/'src'/name for name in('physics_math.s','physics_mul_fast.s','physics_kmul_fast.s','physics_div_fast.s','physics_shift_fast.s')]
-    tables=sorted((BASE/'build/gen').glob('physics_quarter_*.c'))+sorted((BASE/'build/gen').glob('physics_scale_*.c'))
+    tables=sorted(gen.glob('physics_quarter_*.c'))+sorted(gen.glob('physics_scale_*.c'))
     command=[BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-DPHYSICS_ASM','-DPHYSICS_SWEEP_TEST','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(BASE/'src'),'-I'+str(gen),'-I'+str(out),'-o',out/'native.gbc',out/'native.c',out/'stub.c',source,BASE/'src/physics_math.c',*assembly,*sources,*tables]
     result=subprocess.run(list(map(str,command)),capture_output=True,text=True);(out/'native-compile.log').write_text(result.stdout+result.stderr)
     assert not result.returncode,result.stderr
@@ -109,7 +119,7 @@ void main(void){cpu_fast();\n'''
             if emu.memory[symbols['_sweep_done']]:break
         assert emu.memory[symbols['_sweep_done']],'native sweep vectors did not finish'
         def word(name):a=symbols[name];return emu.memory[a]+256*emu.memory[a+1]
-        report={'vectors':len(rows),'native_vectors':word('_sweep_vectors'),'failures':word('_sweep_failures'),'bank_restore_failures':word('_bank_failures')}
+        report={'captured_vectors':len(captured),'vectors':len(rows),'native_vectors':word('_sweep_vectors'),'failures':word('_sweep_failures'),'bank_restore_failures':word('_bank_failures')}
         assert report['native_vectors']==len(rows),report
         assert report['failures']==report['bank_restore_failures']==0,report
     finally:emu.stop(save=False)
