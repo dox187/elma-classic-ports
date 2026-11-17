@@ -5,7 +5,7 @@ ELMA_RES ?= ../../elma.res
 ELMA_LGR ?= ../../lgr/default.lgr
 PHYS_HZ ?= 30
 DAMPER ?= exponential
-ROM_MIB ?= 4
+ROM_MIB ?= 8
 ifeq ($(filter $(ROM_MIB),4 8),)
 $(error ROM_MIB must be 4 or 8)
 endif
@@ -92,14 +92,15 @@ check: all
 	$(PYTHON) test/check_objects_touch.py
 	$(PYTHON) test/check_objects_draw.py
 	$(PYTHON) test/check_objects_bounds.py
+	$(PYTHON) test/check_objects_empty.py --gen $(GEN)
 	$(PYTHON) test/check_physics_normal.py
 	$(PYTHON) test/check_world_memory.py
 	$(PYTHON) test/check_world_retire.py
 	$(PYTHON) test/check_world_alloc.py
 	$(PYTHON) test/check_world_acquire.py
 	$(PYTHON) test/check_world_cache.py --gen $(GEN)
-	$(PYTHON) test/check_world_cache.py --gen $(GEN) --compressed --out build/playtest/world-cache-compressed
 ifeq ($(ROM_MIB),4)
+	$(PYTHON) test/check_world_cache.py --gen $(GEN) --compressed --out build/playtest/world-cache-compressed
 	$(PYTHON) test/check_graphics.py --rom $(GAME_ROM) --gen $(GEN)
 endif
 	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN)

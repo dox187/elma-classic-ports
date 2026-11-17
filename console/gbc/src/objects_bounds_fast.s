@@ -1,6 +1,6 @@
 ; Coarse object bounds: signed integer parts of head and both wheels, +/-1.
 ; Store unsigned-biased words (signed xor8000), with inclusive saturation.
-; Near bank5, ABI0 destination@SP+2. No shared RAM or bank/IRQ changes.
+; Bounds helper: near bank5, ABI0 destination@SP+2; no bank/IRQ changes.
 .module objects_bounds_fast
 .area _CODE_5
 _gbc_objects_bounds::
@@ -142,7 +142,9 @@ keep_min:
  ld (hl),e
  ret
 
-; Inclusive coarse rectangle. ABI0 object@2,bounds@4; E=boolean.
+; Inclusive coarse rectangle, with rejected points clipping an empty region.
+; ABI0 object@2,bounds@4; E=boolean. The caller resets the empty region once
+; per scan and publishes it only if every eligible object was rejected.
 _gbc_object_near::
  ldhl sp,#2
  ld a,(hl+)
@@ -162,11 +164,18 @@ object_x_ptr:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- push de
- call inside_axis
- pop de
- or a,a
- jr z,object_outside
+ ld a,c
+ sub a,(hl)
+ inc hl
+ ld a,b
+ sbc a,(hl)
+ jr c,clip_x_min
+ inc hl
+ ld a,(hl+)
+ sub a,c
+ ld a,(hl)
+ sbc a,b
+ jr c,clip_x_max
  inc hl
  ld a,e
  add a,#3
@@ -180,27 +189,54 @@ object_y_ptr:
  ld a,(de)
  xor a,#0x80
  ld b,a
- call inside_axis
- ld e,a
- ret
-object_outside:
- ld e,#0
- ret
-inside_axis:
  ld a,c
  sub a,(hl)
  inc hl
  ld a,b
  sbc a,(hl)
- jr c,axis_outside
+ jr c,clip_y_min
  inc hl
  ld a,(hl+)
  sub a,c
  ld a,(hl)
  sbc a,b
- jr c,axis_outside
- ld a,#1
+ jr c,clip_y_max
+ ld e,#1
  ret
-axis_outside:
- xor a
+clip_x_min:
+ ld hl,#_gbc_objects_empty_bounds
+ jr clip_min
+clip_x_max:
+ ld hl,#_gbc_objects_empty_bounds+2
+ jr clip_max
+clip_y_min:
+ ld hl,#_gbc_objects_empty_bounds+4
+ jr clip_min
+clip_y_max:
+ ld hl,#_gbc_objects_empty_bounds+6
+clip_max:
+ ; A point above the current maximum cannot be zero.
+ dec bc
+ ld a,c
+ sub a,(hl)
+ inc hl
+ ld a,b
+ sbc a,(hl)
+ jr c,clip_store
+ ld e,#0
+ ret
+clip_min:
+ ; A point below the current minimum cannot be 65535.
+ inc bc
+ ld a,(hl+)
+ sub a,c
+ ld a,(hl)
+ sbc a,b
+ jr nc,object_outside
+clip_store:
+ ld (hl),b
+ dec hl
+ ld (hl),c
+object_outside:
+ ld e,#0
  ret

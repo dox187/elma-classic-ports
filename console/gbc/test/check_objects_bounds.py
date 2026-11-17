@@ -42,6 +42,7 @@ uint8_t fixture_bounds(void) BANKED {gbc_objects_bounds(result+1);return gbc_obj
 uint8_t fixture_bounds(void) BANKED;
 uint8_t gbc_bike[52],object[18];
 uint16_t result[6];
+uint16_t gbc_objects_empty_bounds[4];
 volatile uint16_t completed,failures,bank_failures,guard_failures;
 volatile uint8_t done;
 static void check(const case_t *p,uint8_t bank){

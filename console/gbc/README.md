@@ -3,6 +3,9 @@
 Last completed version: **0.90 — intermediate playable prototype**.
 Development version: **0.91**, recorded in [`VERSION`](VERSION), targets stable
 30 FPS without changing the current physics results or adding input latency.
+Active development now targets the **8 MiB ROM only**. Work on the 4 MiB
+compressed variant stopped on 2026-11-17; its existing releases and experiments
+are retained for reference.
 See the [performance experiment log](PERFORMANCE.md) for measured candidates
 and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
 
@@ -23,8 +26,8 @@ website and A/Start prompt. The 0.73 per-frame timer and frozen finish panel,
 and 0.72 held volt controls are retained. Both playable filenames include the
 version and live directly in `build/`; the previous versioned builds are retained.
 
-Two cartridge builds are maintained together, both targeting **MBC5 + 32 KiB
-battery-backed RAM** and containing the same 54 courses, graphics and physics:
+The retained 0.90 release has two cartridge builds, both targeting **MBC5 +
+32 KiB battery-backed RAM** with the same 54 courses, graphics and physics:
 
 | Build | Scenery | Versioned test image |
 |---|---|---|
@@ -252,10 +255,10 @@ use numpy and Pillow, and the emulator tests use PyBoy. From this directory:
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-test.txt
 make bootstrap
-make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
+make 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 ```
 
-The defaults are `PHYS_HZ=30 DAMPER=exponential`.
+The defaults are `ROM_MIB=8 PHYS_HZ=30 DAMPER=exponential`.
 
 The current checkout builds versioned **0.91 development ROMs**. They are not
 accepted releases until their complete-game timing and regression checks pass.
@@ -270,7 +273,7 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.90-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.91-test-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. Exact physics
@@ -437,7 +440,7 @@ all patterns still visible. Idle CPU time prepares the next offscreen row or
 column, retaining the same 399 current cells until the camera enters the new
 tile. Temporary references cover at most 438 cells; reversal discards the
 prediction safely. This preparation adds no simulation or presentation frame.
-The 0.91 development 4 MiB layout stores independent ZX0 blocks of 32 patterns
+The discontinued 0.91 development 4 MiB layout stores ZX0 blocks of 32 patterns
 (512 bytes) and three independent 512-byte planes per 32x16 map chunk. Five
 decoded map chunks use SRAM bank1; 32 decoded pattern blocks use banks2–3.
 Preparation can stop between cold planes; a complete cached map gathers all

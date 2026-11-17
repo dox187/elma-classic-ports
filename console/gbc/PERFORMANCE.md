@@ -12,6 +12,10 @@ Revisit a rejected candidate only when new evidence changes its assumptions.
 Host high-precision physics research is documented separately in the README;
 it is not the physics running in these ROMs.
 
+**Scope change, 2026-11-17:** the 4 MiB variant is no longer a development
+target. Continue optimization and validation on 8 MiB only. Compressed-format
+experiments below remain historical evidence; do not continue their work.
+
 ## Frozen 0.90 baseline — 2026-11-17
 
 Release commit: `7efd2a1`. ROMs remain directly in `build`:
@@ -302,6 +306,78 @@ unlikely to close its remaining gap.
 Evidence: `build/v091-acquire-bookkeeping`, `build/v091-raw-scroll-hotspot`,
 `build/v091-stream-glue-cache-{4m,8m}`, and
 `build/v091-stream-glue-gameplay-{4m,8m}`.
+
+## 10: exact contact memoization — deferred for worst-frame regression
+
+Two per-wheel entries store full coordinates and pure contact geometry before
+pushout. Collision reset invalidates them. A native gate bypasses moving
+wheels; HOST stays uncached. All 27,447 controller steps plus 1,727 trajectory
+steps match the frozen 161-byte state, and 7,568 normal cases pass.
+
+The candidate saves 1.44% of fixture physics time (2,260 cycles/update), mainly
+settled neutral wheels. Moving bypass averages +361 cycles and reaches +608;
+eligible misses reach +5,920. The heaviest moving updates regress slightly,
+and the cache costs 59 RAM / 727 ROM bytes. Defer integration: this does not
+address the remaining worst-frame deadline failures. Revisit only if a cheaper
+gate or broader exact reuse changes the measured tradeoff.
+Evidence: `build/v091-contact-memoization/{findings,timing-analysis}.json`.
+
+## 11: proven-empty object regions — retained with fused clipping
+
+After an empty coarse scan, retain an inclusive rectangle containing the
+bike bounds but no eligible object coordinate. Reuse is exact only while the
+new bounds remain inside and the apple count is unchanged. Level start
+invalidates the proof; active object flags only clear between starts.
+Collision radii, fractional positions, effect order and drawing stay intact.
+
+The first implementation builds the rectangle in a second object pass. Its
+1,226 native paired cases pass, including signed boundaries, ordered effects,
+interrupts and 100 captured Haircut states. Haircut's object-check mean falls
+42,855 to 19,968 cycles, but a cold 64-object scan regresses by up to 41,572.
+The integrated 216-case corpus is still exact: raw misses **444 to 335**,
+compressed **950 to 848**, with 140 / 81 wholly passing cases. Raw level7/brake
+gains one new miss; the next candidate fuses clipping into the existing near
+test to remove the duplicated walk before retaining the implementation.
+
+| Intermediate candidate | SHA-256 |
+|---|---|
+| `elma-gbc-v0.91-empty-region-4m.gbc` | `3fdd95554afb65f1fea48ed25b43756ca199fa633f0b5383fecb6303fde92637` |
+| `elma-gbc-v0.91-empty-region-8m.gbc` | `09b4ca57484f6d30c42c9209faf86faff9becb24a70b38e419bbc89ff9dec53a` |
+
+Evidence: `build/v091-dense-objects` and
+`build/v091-empty-region-gameplay-{4m,8m}`. These are development measurements;
+the strict 30-FPS gate remains unmet.
+
+The final helper clips the rectangle during the existing assembly near test,
+removing the second pass. Cold 64-object scans improve 304–352 cycles over the
+original; sampled boundary cases add at most 352. Dense-near scans improve
+3,168 cycles on average. Haircut object checks average 18,970 cycles. The cache
+uses 10 bytes; bank5 shrinks 260 bytes versus the second-pass candidate.
+
+The reusable fixture passes 1,094 native paired scenes, 12,544 clipping cases,
+729 saturating bound combinations, and the independent 4,096-bound fixture.
+The optional captured Haircut run passes 1,226 paired scenes. Full raw gameplay
+again matches all 216 cases / 27,447 states, with **340 misses / 140 passing
+cases**, versus 444 / 131 before object caching. This is five more misses than
+the second-pass intermediate despite better isolated costs; whole-loop timing
+also includes IRQ/LCD phase and idle-preparation changes. Do not infer complete
+frame timing from an isolated helper measurement.
+
+Retained ROM `elma-gbc-v0.91-fused-empty-8m.gbc`, SHA-256
+`77ee3c8061987acb5f138e9e40f68e4113d027be16ab3a213a1ec75dd24c39d1`.
+Evidence: `build/v091-object-empty-clip`, `build/v091-fused-empty-native`,
+`build/v091-fused-empty-gameplay-8m`, and `build/objects-bounds-check`.
+
+## 12: resumable ZX0 — stopped after scope change
+
+A private 323-byte decoder plus 38-byte bank wrapper can yield after at most
+65 output bytes, using 14 HRAM bytes. The completed native run covers 11,514
+production streams, six bank-300 mirrors and 90 cancellation/restart cases;
+maximum wrapper cost is 17,048 cycles. Total decode work increases, so this
+was only useful for moving compressed work into smaller idle windows.
+The 4 MiB scope was dropped before integration. Production is unchanged;
+no further compression work or tests should run. Final IRQ-stress output
+was not reviewed after cancellation. Evidence: `build/v091-incremental-zx0`.
 
 ## Controller benchmark and remaining physics work
 

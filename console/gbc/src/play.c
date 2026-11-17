@@ -62,6 +62,9 @@ volatile uint32_t game_previous_best;
 volatile uint8_t game_player_index,game_new_record;
 uint16_t game_camera_x, game_camera_y;
 uint8_t game_object_active[LEVEL_OBJECT_MAX];
+static uint8_t objects_empty_valid,objects_empty_apples;
+/* Shared with the bank-5 coarse test; published only after an empty scan. */
+uint16_t gbc_objects_empty_bounds[4];
 static uint8_t previous, last_hud_state,result_details;
 static uint8_t volt_wait,objects_valid,objects_apples,objects_used,object_phase;
 static uint8_t visible_objects[LEVEL_OBJECT_MAX],visible_count;
@@ -143,16 +146,28 @@ void gbc_objects_bounds(uint16_t *bounds) __sdcccall(0);
 uint8_t gbc_object_near(const game_object_t *obj,const uint16_t *bounds) __sdcccall(0);
 
 static void check_objects(void) BANKED {
-    uint8_t i,hit,use_bounds=OBJECT_COUNT>4;
+    uint8_t i,hit,use_bounds=OBJECT_COUNT>4,any_near=0;
     uint16_t bounds[4];
     const game_object_t *object;
     /* Every collision radius is below one meter. Its object's integer
      * coordinate must lie within the three physical circles' integer bounds
      * expanded by one. Dense courses avoid three full tests per distant item. */
-    if(use_bounds)gbc_objects_bounds(bounds);
+    if(use_bounds) {
+        gbc_objects_bounds(bounds);
+        /* Active flags only clear between starts; the apple key also covers
+         * flowers becoming eligible. Fractional movement stays exact. */
+        if(objects_empty_valid && objects_empty_apples==game_apples_left
+           && bounds[0]>=gbc_objects_empty_bounds[0] && bounds[1]<=gbc_objects_empty_bounds[1]
+           && bounds[2]>=gbc_objects_empty_bounds[2] && bounds[3]<=gbc_objects_empty_bounds[3])
+            goto objects_checked;
+        gbc_objects_empty_bounds[0]=gbc_objects_empty_bounds[2]=0;
+        gbc_objects_empty_bounds[1]=gbc_objects_empty_bounds[3]=65535U;
+    }
+    objects_empty_valid=0;
     for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
         if(!game_object_active[i] || (object->kind==1 && game_apples_left))continue;
         if(use_bounds && !gbc_object_near(object,bounds))continue;
+        any_near=1;
         hit=gbc_object_touch(&gbc_bike.wheel[0],object,0)
             || gbc_object_touch(&gbc_bike.wheel[1],object,0)
             || gbc_object_touch(&gbc_bike.head,object,1);
@@ -165,6 +180,10 @@ static void check_objects(void) BANKED {
         } else if(object->kind==1 && !game_apples_left)game_state=FINISHED;
         else if(object->kind==3){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
     }
+    if(use_bounds && !any_near) {
+        objects_empty_valid=1;objects_empty_apples=game_apples_left;
+    }
+objects_checked:
     if(game_state==FINISHED) {
         audio_update(0,0,0,0);
         game_previous_best=save_best(game_player_index,game_level_index);
@@ -259,6 +278,7 @@ static void start_game(void) BANKED {
     audio_init();
     game_ready=0;DISPLAY_OFF;
     world_select(game_level_index);physics_select_level(game_level_index);physics_reset_current();
+    objects_empty_valid=0;
     game_state=RIDING;game_apples_left=0;game_time_frames=0;clock_fraction=0;volt_wait=0;
     game_player_index=save_player;game_new_record=0;game_previous_best=0;
     last_hud_state=255;object_phase=0;result_details=0;
