@@ -77,6 +77,7 @@ check: all
 	$(PYTHON) test/check_physics_rider.py
 	$(PYTHON) test/check_physics_anchor.py
 	$(PYTHON) test/check_physics_brake.py --gen $(GEN)
+	$(PYTHON) test/check_physics_contact_loop.py --gen $(GEN)
 	$(PYTHON) test/check_physics_contact_sign.py
 	$(PYTHON) test/check_physics_recip.py
 	$(PYTHON) test/check_physics_shift.py
@@ -96,6 +97,7 @@ check: all
 	$(PYTHON) test/check_objects_empty.py --gen $(GEN)
 	$(PYTHON) test/check_physics_normal.py
 	$(PYTHON) test/check_world_memory.py
+	$(PYTHON) test/check_world_fetch_raw.py --gen $(GEN)
 	$(PYTHON) test/check_world_lookup_raw.py
 	$(PYTHON) test/check_world_retire.py
 	$(PYTHON) test/check_world_alloc.py

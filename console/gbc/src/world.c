@@ -167,15 +167,30 @@ static uint16_t acquire(uint16_t id) {
 
 #endif
 
+#ifndef WORLD_GRAPHICS_ZX0
+/* Read all three map planes while the nine-bit data bank is selected once. */
+void world_far_gather3(uint16_t bank,const uint8_t *source,uint8_t *low,
+    uint8_t *high,uint8_t *attrs,uint8_t count,uint8_t stride) __sdcccall(0);
+#endif
+
 static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,uint8_t offset,uint8_t partial) {
     uint16_t ci,local;uint8_t run,i=offset;
+#ifndef WORLD_GRAPHICS_ZX0
+    uint16_t width,height;
+    if(!count)return 0;
+    width=game_world.width>>3;height=game_world.height>>3;
+#endif
 #ifdef WORLD_GRAPHICS_ZX0
     uint8_t plane;
     if(!partial)prepare_map_plane=0;
 #endif
     count+=offset;
     while(i<count) {
+#ifdef WORLD_GRAPHICS_ZX0
         if(x>=game_world.width/8 || y>=game_world.height/8) {
+#else
+        if(x>=width || y>=height) {
+#endif
             strip_low[i]=strip_high[i]=strip_attrs[i]=0;++i;
             if(vertical)++y;else ++x;
             continue;
@@ -201,8 +216,13 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
         }
         local=(y&15)*32+(x&31);
         run=vertical?16-(y&15):32-(x&31);if(run>count-i)run=count-i;
+#ifdef WORLD_GRAPHICS_ZX0
         if(vertical){if(game_world.height/8-y<run)run=game_world.height/8-y;}
         else if(game_world.width/8-x<run)run=game_world.width/8-x;
+#else
+        if(vertical){if(height-y<run)run=height-y;}
+        else if(width-x<run)run=width-x;
+#endif
 #ifdef WORLD_GRAPHICS_ZX0
         /* A complete cached map has no cold work to budget between planes.
          * Gather the fragment once, as for the raw profile, instead of paying
@@ -235,11 +255,8 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
         }
         }
 #else
-#define gather(source,dest) world_far_gather(chunk.bank,(const uint8_t *)(source),dest,run,vertical?32:1)
-        gather(chunk.address+local,strip_low+i);
-        gather(chunk.address+512+local,strip_high+i);
-        gather(chunk.address+1024+local,strip_attrs+i);
-#undef gather
+        world_far_gather3(chunk.bank,(const uint8_t *)(chunk.address+local),
+            strip_low+i,strip_high+i,strip_attrs+i,run,vertical?32:1);
 #endif
         i+=run;if(vertical)y+=run;else x+=run;
         if(partial)break;

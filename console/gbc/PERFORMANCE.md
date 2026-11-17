@@ -478,6 +478,33 @@ Evidence: `build/v091-contact-loop`, `build/v091-contact-loop-native`,
 `build/v091-contact-loop-gameplay-8m`. The reusable boundary fixture keeps the
 original C collector as an independent frozen reference.
 
+## 17: combined raw map-plane reads — retained
+
+Read the low/high/attribute planes under one nine-bit ROM-bank selection;
+specialize unit stride and hoist raw tile extents. The helper adds 107 ROM0
+bytes, while bank6 shrinks 152 bytes; no static RAM is added. The C fetch frame
+grows from 19 to 25 bytes. Count zero remains a no-op.
+
+The native fixture passes 12,048 cases with interrupts off and on, covering
+clipping, partial reads, count/offset combinations, banks255/256/500/511 and
+the last ROM-window byte. Its private captured extension adds 58 real calls;
+all improve, totaling 57,104 saved cycles. Double Trouble/gas update148's two
+fetches improve 25,324 to 20,964. Short synthetic reads starting outside the
+extent can regress by up to 420 cycles; in-bounds synthetic reads do not.
+All 3,031 cache views, save guards and preparation deadlines pass.
+
+The integrated corpus remains exact across all 216 cases / 27,447 states.
+Misses improve **271 to 262**, with **163 entirely passing cases**. Frontend,
+profiles/saves, finish audio and volt checks pass. The 54-course visual/start
+suite and complete Freefall run pass their functional checks but each reports
+one timing overrun, so their strict performance gate remains failed.
+
+ROM `elma-gbc-v0.91-strip-8m.gbc`, SHA-256
+`6047c799d8d99d7ab64254c3a101a07b1317cbaae86f66c62b806d2fa076d863`.
+Evidence: `build/v091-raw-strip-fetch`, `build/v091-strip-native`,
+`build/v091-strip-cache`, `build/v091-strip-gameplay-8m` and
+`build/v091-strip-checks`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -487,13 +514,13 @@ The strict deadline is fixed and timing failures do not truncate the corpus.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-contact-loop-8m.gbc --gen build/gen-8m --out build/v091-contact-loop-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-strip-8m.gbc --gen build/gen-8m --out build/v091-strip-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 271**; wholly passing cases improve **72 to
-157 of 216** in the contact-loop candidate. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 262**; wholly passing cases improve **72 to
+163 of 216** in the combined plane-read candidate. This is still a failed 30-FPS gate.
 Some physics calls alone exceed the frame budget: the brake candidate reaches
 299,220 cycles in Bumpy Journey and 291,696 in Gravity Ride. Exact native
 arithmetic/contact optimization is the next requirement.

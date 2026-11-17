@@ -284,3 +284,90 @@ _world_slot_strip_set::
  jr 521$
 530$:
  ret
+
+; Three independent destination arrays, map planes separated by 512 bytes.
+; bank@2 source@4 low@6 high@8 attrs@10 count@12 stride@13.
+; Count zero is a no-op; source fragments cannot cross the ROM window.
+_world_far_gather3::
+ ldhl sp,#12
+ ld b,(hl)
+ inc hl
+ ld c,(hl)
+ ld a,b
+ or a,a
+ ret z
+ ld a,(#__current_bank)
+ push af
+ ldhl sp,#4
+ ld a,(hl+)
+ ld (#0x2000),a
+ ld a,(hl)
+ and a,#1
+ ld (#0x3000),a
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ push bc
+ push hl
+ ldhl sp,#12
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ pop hl
+ push hl
+ call 410$
+ pop hl
+ pop bc
+ inc h
+ inc h
+ push bc
+ push hl
+ ldhl sp,#14
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ pop hl
+ push hl
+ call 410$
+ pop hl
+ pop bc
+ inc h
+ inc h
+ push hl
+ ldhl sp,#14
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ pop hl
+ call 410$
+ xor a,a
+ ld (#0x3000),a
+ pop af
+ ld (#0x2000),a
+ ld (#__current_bank),a
+ ret
+410$:
+ ld a,c
+ dec a
+ jr nz,430$
+420$:
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ dec b
+ jr nz,420$
+ ret
+430$:
+ ld a,(hl)
+ ld (de),a
+ inc de
+ ld a,l
+ add a,c
+ ld l,a
+ jr nc,440$
+ inc h
+440$:
+ dec b
+ jr nz,430$
+ ret
