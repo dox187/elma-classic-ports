@@ -14,9 +14,11 @@ import numpy as np
 from assets import array
 from levels import Packer
 from zx0 import decompress
+from zx0_cost import DECODER_SHA256, decode_cycles, validate_decoder
 
 PATTERN_BLOCK_BYTES = 512
 MAP_PLANE_BYTES = 512
+COST_PREFIX_BYTES = 1
 
 
 def compress(data, compiler, cache):
@@ -50,7 +52,10 @@ def main():
     if manifest.get('rom_mib', 4) != 4:
         raise ValueError('ZX0 graphics belong to the 4 MiB profile; use a separate generated directory')
     compiler = (args.sdk / 'bin/gbcompress').resolve()
+    decoder = Path(__file__).resolve().parents[1] / 'src/world_zx0.s'
+    validate_decoder(decoder)
     codec_key = hashlib.sha256(Path(__file__).read_bytes() + Path(__file__).with_name('zx0.py').read_bytes()
+                               + Path(__file__).with_name('zx0_cost.py').read_bytes() + decoder.read_bytes()
                                + compiler.read_bytes()).hexdigest()
     header_path = gen / 'level_catalogue.h'
     if (manifest.get('compression_key') == codec_key
@@ -58,10 +63,13 @@ def main():
         and manifest.get('pattern_codec') == 'zx0-512'
         and manifest.get('pattern_block_bytes') == PATTERN_BLOCK_BYTES
         and manifest.get('map_plane_bytes') == MAP_PLANE_BYTES
+        and manifest.get('decode_cost_prefix_bytes') == COST_PREFIX_BYTES
+        and manifest.get('decoder_sha256') == DECODER_SHA256
         and all(re.search(r'^#define ' + name + ' ' + str(value) + '$', header_path.read_text(), re.M)
                 for name, value in (('WORLD_GRAPHICS_ZX0', 1),
                                     ('WORLD_PATTERN_BLOCK_BYTES', PATTERN_BLOCK_BYTES),
-                                    ('WORLD_MAP_PLANE_BYTES', MAP_PLANE_BYTES)))
+                                    ('WORLD_MAP_PLANE_BYTES', MAP_PLANE_BYTES),
+                                    ('WORLD_ZX0_COST_PREFIX', COST_PREFIX_BYTES)))
         and all((gen / ('level_bank_%d.c' % bank)).is_file()
                 for bank in range(manifest['first_bank'], manifest['last_bank'] + 1))):
         print('ZX0 scenery unchanged: banks %d..%d' % (manifest['first_bank'], manifest['last_bank']))
@@ -93,11 +101,16 @@ def main():
     print('Compressing %d unique scenery blocks with ZX0' % len(unique), flush=True)
     with ThreadPoolExecutor(max_workers=4) as pool:
         compressed = dict(zip(unique, pool.map(lambda data: compress(data, compiler, cache), unique)))
+    # One native double-speed scanline is 912 CPU T-cycles. Prefix only the
+    # exact decoder allowance; runtime adds its separate work/IRQ margin.
+    cost_lines = {blob: (decode_cycles(compressed[blob], len(blob)) + 911) // 912 for blob in unique}
+    if not all(0 < value <= 255 for value in cost_lines.values()):
+        raise ValueError('ZX0 decode cost does not fit its one-byte prefix')
     packer = Packer(manifest['first_bank'])
     pointers = {}
     def allocate(blob):
         if blob not in pointers:
-            pointers[blob] = packer.allocate(compressed[blob])
+            pointers[blob] = packer.allocate(bytes((cost_lines[blob],)) + compressed[blob])
         return pointers[blob]
     directory = []
     pattern_bytes = map_bytes = 0
@@ -128,15 +141,17 @@ def main():
     catalogue = re.sub(r'(const world_level_t world_levels\[\]=\{).*?\n\};',
                        lambda match: match[1] + '\n' + ',\n'.join(directory) + '\n};', catalogue, count=1, flags=re.S)
     header = (gen / 'level_catalogue.h').read_text()
-    header = re.sub(r'^[ \t]*#[ \t]*define[ \t]+WORLD_(GRAPHICS_ZX0|PATTERN_BLOCK_BYTES|MAP_PLANE_BYTES)\b[^\n]*\n?',
+    header = re.sub(r'^[ \t]*#[ \t]*define[ \t]+WORLD_(GRAPHICS_ZX0|PATTERN_BLOCK_BYTES|MAP_PLANE_BYTES|ZX0_COST_PREFIX)\b[^\n]*\n?',
                     '', header, flags=re.M)
     header = header.replace('#define GBC_LEVEL_CATALOGUE_H',
                             '#define GBC_LEVEL_CATALOGUE_H\n#define WORLD_GRAPHICS_ZX0 1\n'
+                            '#define WORLD_ZX0_COST_PREFIX 1\n'
                             '#define WORLD_PATTERN_BLOCK_BYTES %d\n#define WORLD_MAP_PLANE_BYTES %d' %
                             (PATTERN_BLOCK_BYTES, MAP_PLANE_BYTES))
     manifest.update(rom_mib=4, compression_key=codec_key, map_codec='zx0-planes32x16',
                     pattern_codec='zx0-512', pattern_block_bytes=PATTERN_BLOCK_BYTES,
                     map_plane_bytes=MAP_PLANE_BYTES,
+                    decode_cost_prefix_bytes=COST_PREFIX_BYTES, decoder_sha256=DECODER_SHA256,
                     last_bank=packer.bank, payload_bytes=sum(map(len, packer.banks)),
                     physical_bank_bytes=len(packer.banks) * 16384,
                     compressed_pattern_bytes=pattern_bytes, compressed_map_bytes=map_bytes)

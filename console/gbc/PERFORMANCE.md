@@ -241,6 +241,35 @@ of shared workspace. Do not integrate the helper or repeat the isolated-call
 claim as a whole-game gain. Larger rendering and physics costs remain.
 Evidence: `build/v091-contact-projection`.
 
+## 08: exact per-block ZX0 scheduling costs — retained
+
+Replace the fixed 130-line cold-work reservation with each stream's measured
+decoder cost, rounded up to 912-T-cycle scanlines, plus a separate 30-line
+wrapper/cache/IRQ margin. A 12-line guard protects the metadata read itself.
+One prefix byte precedes each stream; all nine ROM-bank bits remain available.
+The source-hashed decoder model is checked by the packer and build. Updated
+payload is 2,546,131 bytes in banks 94–250, within the 4 MiB profile.
+
+All 11,514 production streams and 26 synthetic streams exactly match native
+entry-through-return cycles, with zero undercounts. Additional checks cover
+1,910 copy-loop lengths, changed decoder source and truncated streams. Packed
+graphics remain byte-exact; the 3,031-view cache fixture passes with zero guard,
+reference, bank or preparation-deadline errors. Old untimed 0.91 data are
+retained in `build/v091-planes-gen-4m`; current `build/gen` includes the prefix.
+
+The full 216-case / 27,447-state corpus remains identical to 0.90. The 4 MiB
+over-budget count falls **1,053 to 959**, with 73 entirely passing cases.
+Freefall improves from 47 misses before the suspension/cost changes to 40.
+Its detailed profile now performs 23 cold decodes during idle preparation,
+moving 1,245,592 decoder cycles outside active updates; previously none fit.
+The largest remaining cold blocks still cannot fit many idle windows.
+
+ROM `elma-gbc-v0.91-timed-zx0-4m.gbc`, SHA-256
+`1d8822adb5bafae128e2f16128d8b8df1a673ad17144257a8bbbfce6f3a3a0f6`.
+Evidence: `build/v091-timed-zx0-{cost,graphics,gameplay-4m,freefall}`,
+`build/v091-cost-prefix-cache`, and
+`build/v091-compressed-regression/v0.91-timed-zx0-4m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step

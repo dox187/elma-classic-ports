@@ -39,17 +39,21 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     if levels.get('rom_mib',rom_mib)!=rom_mib or levels.get('pattern_codec',pattern_codec)!=pattern_codec:
         raise ValueError('Level manifest has inconsistent ROM size or pattern codec')
     header=(gen/'level_catalogue.h').read_text()
-    for name,value in (('WORLD_GRAPHICS_ZX0',1),('WORLD_PATTERN_BLOCK_BYTES',512),('WORLD_MAP_PLANE_BYTES',512)):
+    for name,value in (('WORLD_GRAPHICS_ZX0',1),('WORLD_PATTERN_BLOCK_BYTES',512),('WORLD_MAP_PLANE_BYTES',512),('WORLD_ZX0_COST_PREFIX',1)):
         definitions=re.findall(r'^[ \t]*#[ \t]*define[ \t]+'+name+r'\b([^\n]*)$',header,re.M)
         expected=[str(value)] if rom_mib==4 else []
         if [definition.strip()for definition in definitions]!=expected:
             raise ValueError('Level catalogue header and manifest disagree about '+name)
     if rom_mib==4 and (not levels.get('compression_key') or levels.get('pattern_block_bytes')!=512
-                      or levels.get('map_plane_bytes')!=512 or levels.get('pattern_codec')!=pattern_codec):
+                      or levels.get('map_plane_bytes')!=512 or levels.get('pattern_codec')!=pattern_codec
+                      or levels.get('decode_cost_prefix_bytes')!=1):
         raise ValueError('Compressed graphics are missing their 512-byte block metadata')
-    if rom_mib==8 and any(key in levels for key in ('compression_key','pattern_block_bytes','map_plane_bytes')):
+    if rom_mib==8 and any(key in levels for key in ('compression_key','pattern_block_bytes','map_plane_bytes','decode_cost_prefix_bytes','decoder_sha256')):
         raise ValueError('Raw graphics retain stale compression metadata')
     if rom_mib==4:
+        from zx0_cost import validate_decoder
+        if levels.get('decoder_sha256')!=validate_decoder(BASE/'src/world_zx0.s'):
+            raise ValueError('Compressed decode costs do not match the native decoder')
         def pointer(value,length=1):
             return (isinstance(value,(list,tuple)) and len(value)==2
                     and all(type(part)is int for part in value)

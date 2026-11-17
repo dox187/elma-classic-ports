@@ -41,7 +41,7 @@ static world_far_t chunk;
  * Five decoded maps use bank1; 32 half-KiB pattern blocks use banks2..3.
  * Each map plane is decoded independently, so preparation can yield between
  * low IDs, high IDs and attributes without exposing incomplete cells. */
-#if WORLD_PATTERN_BLOCK_BYTES != 512 || WORLD_MAP_PLANE_BYTES != 512
+#if WORLD_PATTERN_BLOCK_BYTES != 512 || WORLD_MAP_PLANE_BYTES != 512 || WORLD_ZX0_COST_PREFIX != 1
 #error Regenerate the 0.91 half-KiB graphics profile.
 #endif
 #define MAP_CACHE_COUNT 5
@@ -109,7 +109,7 @@ static uint16_t cached_pattern_address(uint16_t block) {
         world_far_t pointer;
         world_far_copy(game_world.patterns.bank,(const uint8_t *)(game_world.patterns.address+block*4),
                        (uint8_t *)&pointer,4);
-        world_decompress(pointer.bank,pointer.address,ram_bank,address);
+        world_decompress(pointer.bank,pointer.address+WORLD_ZX0_COST_PREFIX,ram_bank,address);
         pattern_cache_ids[cache]=block;
     }
     return address;
@@ -219,7 +219,7 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
                 world_far_copy(game_world.chunks.bank,
                     (const uint8_t *)(game_world.chunks.address+ci*12U+(uint16_t)plane*4U),
                     (uint8_t *)&pointer,4);
-                world_decompress(pointer.bank,pointer.address,1,source);
+                world_decompress(pointer.bank,pointer.address+WORLD_ZX0_COST_PREFIX,1,source);
                 map_cache_planes[chunk_cache]|=mask;
             }
             world_sram_gather(1,(const uint8_t *)(source+local),dest+i,run,vertical?32:1);
@@ -354,7 +354,20 @@ static void prepare_publish(uint8_t vertical) {
 }
 
 #ifdef WORLD_GRAPHICS_ZX0
-static uint16_t prepare_fetch_lines(void) {
+static uint16_t block_decode_lines(uint16_t bank,uint16_t address,uint16_t start) {
+    world_far_t pointer;
+    uint8_t lines;
+    /* Do not spend the tail of the frame reading a cold unit's metadata.
+     * The exact decoder prefix excludes the wrapper and all other work;
+     * another 30 lines cover directory reads, cache/gather/DMA, IRQs and
+     * returning through the dispatcher. */
+    if(!prepare_budget(start,12))return 65535U;
+    world_far_copy(bank,(const uint8_t *)address,(uint8_t *)&pointer,4);
+    world_far_copy(pointer.bank,(const uint8_t *)pointer.address,&lines,1);
+    return (uint16_t)lines+30U;
+}
+
+static uint16_t prepare_fetch_lines(uint16_t start) {
     uint8_t cached;
     uint16_t x=prepare_strip_x,y=prepare_strip_y,ci;
     if(prepare_stage==PREP_COL_FETCH)y+=prepare_index;else x+=prepare_index;
@@ -362,16 +375,15 @@ static uint16_t prepare_fetch_lines(void) {
     ci=(y>>4)*game_world.chunks_x+(x>>5);
     for(cached=0;cached<MAP_CACHE_COUNT;++cached)
         if(map_cache_ids[cached]==ci && (map_cache_planes[cached]&(1U<<prepare_map_plane)))return 20;
-    /* Each native 512-byte plane is checked below100K cycles. Reserve
-     * 118,560 cycles for decoding, gathering, directory reads and margins. */
-    return 130;
+    return block_decode_lines(game_world.chunks.bank,
+        game_world.chunks.address+ci*12U+(uint16_t)prepare_map_plane*4U,start);
 }
 
-static uint8_t prepare_acquire_lines(void) {
+static uint16_t prepare_acquire_lines(uint16_t start) {
     uint16_t id=strip_low[prepare_index]|((uint16_t)strip_high[prepare_index]<<8);
     uint16_t block=id>>5;
-    /* The all-block check limits each512-byte pattern decode to100K cycles. */
-    if(pattern_cache_ids[block&(PATTERN_CACHE_COUNT-1)]!=block && world_lookup_get(id)>=CACHE_COUNT)return 130;
+    if(pattern_cache_ids[block&(PATTERN_CACHE_COUNT-1)]!=block && world_lookup_get(id)>=CACHE_COUNT)
+        return block_decode_lines(game_world.patterns.bank,game_world.patterns.address+block*4U,start);
     return 20;
 }
 #endif
@@ -394,9 +406,9 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
                 :prepare_stage==PREP_COL_FETCH||prepare_stage==PREP_ROW_FETCH?PREP_FETCH_LINES:25;
 #ifdef WORLD_GRAPHICS_ZX0
             if(prepare_stage==PREP_COL_ACQUIRE || prepare_stage==PREP_ROW_ACQUIRE)
-                lines=prepare_acquire_lines();
+                lines=prepare_acquire_lines(start);
             else if(prepare_stage==PREP_COL_FETCH || prepare_stage==PREP_ROW_FETCH)
-                lines=prepare_fetch_lines();
+                lines=prepare_fetch_lines(start);
 #endif
             if(!prepare_budget(start,lines))return;
         }

@@ -238,7 +238,8 @@ class Driver:
     def graphics_block(self, pointer, size):
         if not self.level_manifest.get('compression_key'):
             return self.rom_far(pointer,size)
-        return decompress(self.rom_far(pointer,0x8000-pointer[1]),size)
+        prefix=self.level_manifest.get('decode_cost_prefix_bytes',0)
+        return decompress(self.rom_far(pointer,0x8000-pointer[1])[prefix:],size)
 
     def level_source(self, index):
         if index not in self.level_sources:

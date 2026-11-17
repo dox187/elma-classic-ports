@@ -75,8 +75,8 @@ def main():
     for name in sources:
         if name.endswith('.s')or name=='world_dma.c':(OUT/name).write_bytes(sources[name])
     header=(args.gen/'level_catalogue.h').read_text()
-    header=re.sub(r'^\s*#define WORLD_(?:GRAPHICS_ZX0|PATTERN_BLOCK_BYTES|MAP_PLANE_BYTES)\b[^\n]*\n','',header,flags=re.M)
-    if args.compressed:header='#define WORLD_GRAPHICS_ZX0 1\n#define WORLD_PATTERN_BLOCK_BYTES 512\n#define WORLD_MAP_PLANE_BYTES 512\n'+header
+    header=re.sub(r'^\s*#define WORLD_(?:GRAPHICS_ZX0|PATTERN_BLOCK_BYTES|MAP_PLANE_BYTES|ZX0_COST_PREFIX)\b[^\n]*\n','',header,flags=re.M)
+    if args.compressed:header='#define WORLD_GRAPHICS_ZX0 1\n#define WORLD_PATTERN_BLOCK_BYTES 512\n#define WORLD_MAP_PLANE_BYTES 512\n#define WORLD_ZX0_COST_PREFIX 1\n'+header
     (OUT/'level_catalogue.h').write_text(re.sub(r'#define LEVEL_COUNT \d+','#define LEVEL_COUNT 3',header))
     (OUT/'assets.h').write_text('#include <stdint.h>\nextern const uint8_t object_tiles[];\nextern const uint16_t object_palette[];\n')
     bank_data={}
@@ -92,6 +92,7 @@ def main():
     if args.compressed:
         sys.path.insert(0,str(BASE/'tools'))
         from pack_graphics import compress
+        from zx0_cost import decode_cycles
         compiler=BASE/'.toolchain/gbdk/bin/gbcompress'
         cache=OUT/'zx0-cache'/hashlib.sha256(compiler.read_bytes()).hexdigest()[:16]
         cache.mkdir(parents=True,exist_ok=True)
@@ -99,6 +100,7 @@ def main():
         unique=list(dict.fromkeys(blocks+[chunk[offset:offset+512]for chunks in level_chunks for chunk in chunks for offset in (0,512,1024)]))
         with ThreadPoolExecutor(max_workers=4)as pool:
             packed=dict(zip(unique,pool.map(lambda blob:compress(blob,compiler,cache),unique)))
+        packed={blob:bytes(((decode_cycles(stream,len(blob))+911)//912,))+stream for blob,stream in packed.items()}
         # The first complete stream ends at a ROM-bank boundary; no compressed
         # block may cross one. Both directories and data use nine-bit banks.
         bank=300;bank_data[bank]=bytearray(16384-len(packed[blocks[0]]))

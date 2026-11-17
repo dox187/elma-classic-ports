@@ -442,6 +442,10 @@ The 0.91 development 4 MiB layout stores independent ZX0 blocks of 32 patterns
 decoded map chunks use SRAM bank1; 32 decoded pattern blocks use banks2–3.
 Preparation can stop between cold planes; a complete cached map gathers all
 three planes together. Small courses that fit are preloaded with the LCD off.
+Each compressed stream carries its exact native decode cost, rounded up to
+double-speed scanlines. Idle preparation uses that cost plus a separate margin
+for bank switching, cache work and interrupts. The build verifies the decoder
+source hash before accepting these costs.
 The retained 0.90 release uses 1,024-byte pattern and 1,536-byte map blocks.
 The 8 MiB ROM
 reads uncompressed patterns and maps directly, without these decoded caches.

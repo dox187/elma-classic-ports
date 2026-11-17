@@ -62,10 +62,13 @@ def graphics_profile(manifest):
 
 def collect_blocks(gen, manifest):
     pattern_size, split_planes = graphics_profile(manifest)
+    prefix = manifest.get('decode_cost_prefix_bytes', 0)
+    assert prefix in (0, 1)
     unique = {}
 
     def add(pointer, data, kind, level, index, plane=None):
         bank, address = pointer
+        address += prefix
         assert manifest['first_bank'] <= bank <= manifest['last_bank']
         assert 0x4000 <= address < 0x8000 and 0 < len(data) <= MAX_DECODED
         key = bank, address
@@ -127,6 +130,12 @@ def verify_inputs(gen, manifest, blocks, rom):
                 f'ROM directory differs from manifest: level {record["index"] + 1}, {directory}')
     for block in blocks:
         packed = rom_data(rom, (block.bank, block.address), 0x8000 - block.address)
+        if manifest.get('decode_cost_prefix_bytes'):
+            from zx0_cost import decode_cycles, validate_decoder
+            assert manifest['decoder_sha256'] == validate_decoder()
+            stored = rom_data(rom, (block.bank, block.address - 1), 1)[0]
+            assert stored == (decode_cycles(packed, len(block.expected)) + 911) // 912, (
+                f'ROM decode cost differs from native model: {block.location()}')
         assert decompress(packed, len(block.expected)) == block.expected, (
             f'Host decode differs from tiles.npz: {block.location()}')
     payloads = {}
