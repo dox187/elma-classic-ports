@@ -431,6 +431,28 @@ Evidence: `build/v091-brake-reaction`, `build/v091-brake-native`, and
 `build/v091-brake-gameplay-8m`. `test/check_physics_brake.py` retains the
 independent vector/model fixture using the selected generated constants.
 
+## 15: fixed cache-reference retirement — retained
+
+Use the production cache addresses directly in a near-bank6 helper, removing
+generic pointer arguments and repeated stack traffic. Full 16-bit reference
+counts, duplicates, zero references and the exact 1-to-0 bitmap transition
+remain unchanged. The kernel moves from 104 ROM0 bytes to 88 bank6 bytes,
+adds no RAM and uses four fewer transient stack bytes.
+
+The native paired fixture passes 71,368 cases, including every 16-bit reference
+value, all 444 slots, duplicate lists, zero/count255, timer interrupts and SRAM
+guards. The private captured run adds 25 actual retirement calls and tests a
+page-crossing mask table. The 39-entry update148 call improves 16,580 to 9,952
+cycles; all captured calls together improve 219,536 to 137,584. The production
+cache fixture passes 3,031 views with guards and DMA-launch observation.
+
+All 216 gameplay cases / 27,447 states remain exact. Deadline misses fall
+**317 to 304**, and **156 cases** now pass throughout. ROM
+`elma-gbc-v0.91-retire-8m.gbc`, SHA-256
+`a1ad063ffc9771834ab34230a819baf2bce60555f2eb03b1a83ef9a3a14b3ae6`.
+Evidence: `build/v091-reference-retirement`, `build/v091-retire-native`,
+`build/v091-retire-cache` and `build/v091-retire-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -440,15 +462,16 @@ The strict deadline is fixed and timing failures do not truncate the corpus.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-8m.gbc --gen build/gen-8m --out build/v091-current-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-retire-8m.gbc --gen build/gen-8m --out build/v091-retire-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 928**; wholly passing cases improve **72 to
-85 of 216**. This is still a failed 30-FPS gate. Some physics calls alone exceed
-the frame budget: Bumpy Journey/brake reaches 315,040 cycles; Gravity Ride/brake
-313,656. Exact native arithmetic/contact optimization is the next requirement.
+Timing misses improve **1,025 to 304**; wholly passing cases improve **72 to
+156 of 216** in the retirement candidate. This is still a failed 30-FPS gate.
+Some physics calls alone exceed the frame budget: the brake candidate reaches
+299,220 cycles in Bumpy Journey and 291,696 in Gravity Ride. Exact native
+arithmetic/contact optimization is the next requirement.
 
 PyBoy does not charge the GDMA CPU stall or fully reproduce early LY-153
 wrapping. The benchmark additionally reports a 64-cycle-per-world-upload

@@ -72,7 +72,7 @@ void gbc_video_strip_pair(uint8_t x,uint8_t y,uint8_t vertical,uint8_t count,con
 void world_upload_tile(uint16_t bank,uint16_t source,uint16_t pattern) NONBANKED;
 void world_decompress(uint16_t bank,uint16_t source,uint8_t ram_bank,uint16_t dest) NONBANKED;
 uint16_t world_find_free(uint16_t next,uint8_t *bitmap) __sdcccall(0);
-void world_refs_retire(uint16_t *refs,const uint16_t *slots,uint8_t count,uint8_t *bitmap) __sdcccall(0);
+void world_refs_retire_fixed(const uint16_t *slots,uint8_t count) __sdcccall(0);
 
 void world_level_name(uint8_t index,char *dest) NONBANKED {
     if(index>=LEVEL_COUNT){dest[0]=0;return;}
@@ -317,7 +317,7 @@ static uint8_t prepare_budget(uint16_t start,uint16_t required_lines) {
 
 static void prepare_cancel(void) {
     if(prepare_added_count)
-        world_refs_retire(references,prepare_added,prepare_added_count,free_bits);
+        world_refs_retire_fixed(prepare_added,prepare_added_count);
     prepare_stage=PREP_NONE;prepare_added_count=0;retired_count=0;
 #ifdef WORLD_GRAPHICS_ZX0
     prepare_map_plane=0;
@@ -556,6 +556,6 @@ void world_scroll(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) BANKED {
     }
     prepare_run(0,0);
     move_bkg((uint8_t)x,(uint8_t)y);
-    world_refs_retire(references,retired,retired_count,free_bits);
+    world_refs_retire_fixed(retired,retired_count);
     prepare_stage=PREP_NONE;prepare_added_count=0;retired_count=0;
 }
