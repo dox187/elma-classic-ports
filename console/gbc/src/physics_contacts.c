@@ -11,7 +11,19 @@ typedef struct {
 	int16_t tx, ty;  // the contact point, u from the origin of the lines
 } contact_t;
 
+#if defined(__SDCC) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
+#include <stddef.h>
+contact_t Ct[2];
+/* The native iterator uses these exact layouts and the wheel-radius bounds. */
+typedef char contact_loop_layout[sizeof(contact_t)==10 &&
+ offsetof(contact_t,nx)==0 && offsetof(contact_t,ny)==2 && offsetof(contact_t,l)==4 &&
+ offsetof(contact_t,tx)==6 && offsetof(contact_t,ty)==8 && sizeof(seg_t)==18 &&
+ offsetof(seg_t,px)==0 && offsetof(seg_t,py)==2 && offsetof(seg_t,dx)==4 &&
+ offsetof(seg_t,dy)==6 && offsetof(seg_t,ex)==8 && offsetof(seg_t,ey)==10 &&
+ offsetof(seg_t,len)==12 && R_WHEEL==410?1:-1];
+#else
 static contact_t Ct[2];
+#endif
 // 2^18/sqrt( d2 ) for d2 in steps of 512 u^2 from 16384 u^2:
 #ifdef __SDCC
 #define Rsqrt riding_normal_rsqrt
@@ -87,6 +99,33 @@ static const seg_t *segment_next_box(uint8_t bx,uint8_t by) {
 }
 #endif
 
+#if defined(__SDCC) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
+/* Ct and the segment cursor already make contact queries serial. Keep only
+ * the native iterator coordinates here; projection and merge math stay exact. */
+int16_t riding_contact_qx, riding_contact_qy;
+uint8_t riding_contacts_loop(int16_t,int16_t);
+uint8_t riding_contact_merge(void) {
+ int16_t qx=riding_contact_qx,qy=riding_contact_qy;
+	contact_point( &Ct[0], qx, qy );
+	contact_point( &Ct[1], qx, qy );
+	int16_t dx = Ct[1].tx-Ct[0].tx, dy = Ct[1].ty-Ct[0].ty;
+	if( dx < MERGE && dx > -MERGE && dy < MERGE && dy > -MERGE &&
+		mul16( dx, dx )+mul16( dy, dy ) < (int32_t)MERGE*MERGE ) {
+		// Merged into their average:
+		int16_t ax = qx-Ct[0].tx-(dx >> 1);
+		int16_t ay = qy-Ct[0].ty-(dy >> 1);
+		normalize( ax, ay, mul16( ax, ax )+mul16( ay, ay ), &Ct[0] );
+	}
+	else
+		return 2;
+ return 0;
+}
+static uint8_t contacts(int32_t cx,int32_t cy) {
+ int16_t qx=(int16_t)(cx&4095),qy=(int16_t)(cy&4095);
+ seg_query(seg_cell(cx),seg_cell(cy),(uint8_t)((qx>>10)|((qy>>8)&12)));
+ return riding_contacts_loop(qx,qy);
+}
+#else
 // talppontkereses of UTKOZES.CPP: at most two contact points of the wheel
 // with its center at cx, cy (u).
 static uint8_t contacts( int32_t cx, int32_t cy ) {
@@ -146,6 +185,8 @@ static uint8_t contacts( int32_t cx, int32_t cy ) {
 	}
 	return found;
 }
+
+#endif
 
 // Whether a circle at cx, cy (u) touches the ground:
 uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {

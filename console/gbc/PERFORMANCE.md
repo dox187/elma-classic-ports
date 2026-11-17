@@ -453,6 +453,31 @@ All 216 gameplay cases / 27,447 states remain exact. Deadline misses fall
 Evidence: `build/v091-reference-retirement`, `build/v091-retire-native`,
 `build/v091-retire-cache` and `build/v091-retire-gameplay-8m`.
 
+## 16: native contact candidate loop — retained
+
+Move candidate iteration, endpoint selection and contact-record writes into a
+bank9 kernel. Keep the existing ordered box iterator, projection, multiply,
+normalization and contact merge formulas. An initial scalar-workspace variant
+saved only 222 cycles/update and was rejected. The retained kernel adds 17 RAM
+bytes and reduces bank9 by 383 bytes. Merge invokes a C helper, so a reduced
+maximum stack depth is not claimed.
+
+All 7,038 adversarial boundary groups preserve all 20 contact bytes, count and
+final segment cursor. Normalization passes 7,568 cases. The captured Gravity
+Ride replay saves 1,624–8,976 cycles/update (mean 4,741), with no regressions.
+Complete native/HOST trajectories preserve 1,727 states of 161 bytes, including
+wide freefall and interrupts. Their previous physics peaks improve by
+3,908–5,396 cycles; none of those fixture steps regresses.
+
+The integrated 216-case / 27,447-state corpus stays exact. Misses improve
+**304 to 271**, with **157 wholly passing cases**. ROM
+`elma-gbc-v0.91-contact-loop-8m.gbc`, SHA-256
+`523254912ce7d8a68436ad17e91f5edca5cbd96cb2e0d8f03ebc5652d3f50957`.
+Evidence: `build/v091-contact-loop`, `build/v091-contact-loop-native`,
+`build/v091-contact-loop-integrated-trace` and
+`build/v091-contact-loop-gameplay-8m`. The reusable boundary fixture keeps the
+original C collector as an independent frozen reference.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -462,13 +487,13 @@ The strict deadline is fixed and timing failures do not truncate the corpus.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-retire-8m.gbc --gen build/gen-8m --out build/v091-retire-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-contact-loop-8m.gbc --gen build/gen-8m --out build/v091-contact-loop-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 304**; wholly passing cases improve **72 to
-156 of 216** in the retirement candidate. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 271**; wholly passing cases improve **72 to
+157 of 216** in the contact-loop candidate. This is still a failed 30-FPS gate.
 Some physics calls alone exceed the frame budget: the brake candidate reaches
 299,220 cycles in Bumpy Journey and 291,696 in Gravity Ride. Exact native
 arithmetic/contact optimization is the next requirement.
