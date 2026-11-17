@@ -16,38 +16,32 @@ _riding_normal_fast::
  jr z,normal_cache_miss
  ldhl sp,#2
  ld de,#normal_cache_key
- ld b,#8
-normal_cache_compare:
+ .rept 8
  ld a,(de)
  cp (hl)
  jr nz,normal_cache_miss
  inc de
  inc hl
- dec b
- jr nz,normal_cache_compare
+ .endm
  ldhl sp,#10
  ld a,(hl+)
  ld d,(hl)
  ld e,a
  ld hl,#normal_cache_value
- ld b,#6
-normal_cache_restore:
+ .rept 6
  ld a,(hl+)
  ld (de),a
  inc de
- dec b
- jr nz,normal_cache_restore
+ .endm
  ret
 normal_cache_miss:
  ldhl sp,#2
  ld de,#normal_cache_key
- ld b,#8
-normal_cache_copy_key:
+ .rept 8
  ld a,(hl+)
  ld (de),a
  inc de
- dec b
- jr nz,normal_cache_copy_key
+ .endm
  ; Table misses retain the caller's original ABI0 stack.
  ldhl sp,#9
  bit 7,(hl)
@@ -212,13 +206,11 @@ normal_cache_store_result:
  ld d,(hl)
  ld e,a
  ld hl,#normal_cache_value
- ld b,#6
-normal_cache_store:
+ .rept 6
  ld a,(de)
  inc de
  ld (hl+),a
- dec b
- jr nz,normal_cache_store
+ .endm
  ld a,#1
  ld (#normal_cache_valid),a
  ret

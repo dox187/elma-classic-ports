@@ -48,6 +48,15 @@ void riding_rider_response32(int16_t,int16_t,int32_t,int32_t,int32_t) __sdcccall
 static int16_t Cs, Sn;   // cos and sin of the body's angle
 static int32_t Oms;      // body angular velocity, see C_OMS
 
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP) && RIDING_ANGLE_SHIFT == 7
+typedef char head_pose_layout[
+    offsetof(bike_t,body.alfa)==16 && offsetof(bike_t,rider_x)==66 &&
+    offsetof(bike_t,rider_y)==70 && offsetof(bike_t,head_x)==82 &&
+    offsetof(bike_t,head_y)==86 && offsetof(bike_t,turned)==90 ? 1 : -1];
+void riding_head_pose32(int16_t*,int16_t*) __sdcccall(0);
+/* Refresh Cs/Sn as well as the head, for the following native step. */
+static void head_position(void) { riding_head_pose32(&Cs,&Sn); }
+#else
 static void angle( void ) {
 	uint16_t a = (uint16_t)(Bike.body.alfa >> RIDING_ANGLE_SHIFT);
 	Cs = fcos( a );
@@ -63,6 +72,8 @@ static void head_position(void) {
  Bike.head_x=x+(int32_t)(hc-KMUL(Sn,C_H_Y))*256L;
  Bike.head_y=y+(int32_t)(hs+KMUL(Cs,C_H_Y))*256L;
 }
+
+#endif
 
 #ifdef __SDCC
 #define move riding_move32

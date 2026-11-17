@@ -743,20 +743,72 @@ changed/revisited d2 bytes, signed boundaries, reciprocal-index wrapping and
 different guarded destinations. Another 1,289 captured/signed native-parity
 calls pass. All 1,727 trajectory and 326 route states remain exact. On the
 captured Gravity Ride workload, 198/412 calls hit and the mean falls from
-4,440 to 3,107 cycles; warm hits cost808. Cold calls add708–1,156, so this is
+4,440 to 3,107 cycles; warm hits cost 808. Cold calls add 708–1,156, so this is
 not a universal per-call improvement.
 
 All 216 combined cases / 27,447 states remain exact. Misses improve
 **119 to 114**, cadence violations **112 to 107**, and passing cases **180 to
 181**. Animal Farm/brake and Steppes/neutral become passing; Gravity Ride/seeded
-gains one miss on its first cold update (279,552 to289,012 including existing
+gains one miss on its first cold update (279,552 to 289,012 including existing
 post-overrun preparation). This explicit regression remains to be removed.
-The maximum physics call falls275,800 to270,932; the30-FPS gate remains failed.
+The maximum physics call falls 275,800 to 270,932; the 30-FPS gate remains failed.
 
 ROM `elma-gbc-v0.91-normal-8m.gbc`, SHA-256
 `50d36d5f0d7bcb6a1d151928c098032fda8e356e05322a55b4509ce47b9412f7`.
 Evidence: `build/v091-normal-cache`, `build/v091-normal-gameplay-8m` and the
 read-only first-update breakdown in `build/v091-preparation-margin`.
+
+## 27: head-pose orchestration and fixed-size normal-cache loops — retained
+
+The bank8 head helper extracts the required 16 angle bits directly and retains
+the existing sine and four rounded coefficient kernels. It refreshes both
+cosine/sine caches during initialization, turns and completed steps. Native
+validation covers all 65,536 phases with both turn states, varying discarded
+angle bits, 16 coordinate boundaries and an independent integer oracle:
+131,072 cases, all 109 Bike bytes, caches, guards and banks remain correct.
+Direct head calls save 1,252–1,264 cycles; isolated active updates save at least
+1,124. Bank8 shrinks 110 bytes, static RAM is unchanged and measured head-path
+stack depth falls 30 to 24 bytes.
+
+Separately unroll the fixed eight-byte normal-cache comparison/key copy and
+six-byte result transfers. Keep every byte access and comparison, removing
+only loop counters/branches. Warm hits improve 808 to 576 cycles; a cold copy
+and result store save 232 before any partial-key comparison saving. The
+23,586-call independent normal fixture remains exact, with guards/banks intact.
+
+All 1,727 integrated trajectory states and all 216 full-game cases / 27,447
+states remain exact. Misses improve **114 to 106**, cadence violations **107
+to 100**, passing cases **181 to 182**, with none lost. Gravity Ride/seeded's
+first cold update improves 289,012 to 281,108 but still exceeds 280,896.
+ROM `elma-gbc-v0.91-pose-8m.gbc`, SHA-256
+`695dcecaeae4b9312ec04bad386b537062979970b51b2639e6c46dc45dd36dd2`.
+Evidence: `build/v091-head-pose`, `build/v091-normal-unroll`,
+`build/v091-pose-integrated-trace` and `build/v091-pose-gameplay-8m`.
+
+## 28: fixed scenery slots — prototype deferred
+
+An offline conflict graph assigns nonconflicting pattern IDs to the same
+physical slot. Independent shifted-grid verification proves all distinct IDs
+within a 22x20 old/new viewport union differ in slot, including padded ID0.
+Thirty of 54 courses fit 444 slots; other courses retain the current cache.
+The prototype keeps reference/free-bit/save invariants and uses a proved live
+reference shortcut. It passes 3,031 native views, 324 cancellations, 13,159 live
+invariant checks, 3,108 static / 2,809 fallback metadata cases, and all 216 real-ROM
+physics/visible-source comparisons.
+
+Against the frozen dispatch build, misses improve 124 to 122 and cadence 117
+to 115, but passing cases stay 178. Bumpy/brake and Sink/gas each gain one miss.
+The prototype adds 67,734 table bytes, 216 directory bytes, 305 code bytes and 1
+WRAM byte, using only previously unused banks 481–485. Defer production
+integration: the current implementation has a small, uneven gain and needs
+a reproducible asset-generation/build path. Do not regenerate or retest the
+same coloring expecting a different result without a new runtime hypothesis.
+Evidence: `build/v091-static-slot-audit` and `build/v091-static-slots`.
+
+A separate coordinate-modulo22x20 model plus four common fixed patterns raises
+uploads from 13,907 to 17,902 even before speculative preparation. It only models
+incoming cells, not native cycles. Do not confuse it with the pattern conflict
+graph prototype. Evidence: `build/v091-coordinate-slots/model.json`.
 
 ## Controller benchmark and remaining physics work
 
@@ -772,14 +824,14 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-normal-8m.gbc --gen build/gen-8m --out build/v091-normal-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-pose-8m.gbc --gen build/gen-8m --out build/v091-pose-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 114**; wholly passing cases improve **72 to
-181 of 216** after the normal cache. This is still a failed 30-FPS gate.
-The largest physics call is 270,932 cycles, leaving too little time for the
+Timing misses improve **1,025 to 106**; wholly passing cases improve **72 to
+182 of 216** after the head-pose/cache-loop changes. This is still a failed 30-FPS gate.
+Some physics calls still leave too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.
 

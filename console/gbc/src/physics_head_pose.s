@@ -1,0 +1,152 @@
+; Exact 30Hz head pose, bank8, ABI0: cached cosine/sine pointers.
+; Existing sine and rounded coefficient kernels retain every result bit.
+; Stack workspace: cosine0..1, sine2..3, head cosine4..5, head sine6..7.
+; Coordinates wrap32 after the signed16 sum is shifted by eight.
+.module physics_head_pose
+.area _CODE_8
+_riding_head_pose32::
+ add sp,#-8
+; Low16(alfa>>7), avoiding a full32 shift of discarded high bits.
+ ld hl,#_Bike+16
+ ld a,(hl+)
+ rlca
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ rl e
+ rl d
+ push de
+ call _riding_sin16
+ pop bc
+ ldhl sp,#2
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ld a,b
+ add a,#0x40
+ ld b,a
+ push bc
+ call _riding_sin16
+ pop hl
+ ldhl sp,#0
+ ld (hl),e
+ inc hl
+ ld (hl),d
+; Refresh the caches used by the next step, including init/turn callers.
+ ldhl sp,#10
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld a,e
+ ld (bc),a
+ inc bc
+ ld a,d
+ ld (bc),a
+ ldhl sp,#12
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#2
+ ld a,(hl+)
+ ld (bc),a
+ inc bc
+ ld a,(hl)
+ ld (bc),a
+; hc=KMUL(Cs,C_H_X), hs=KMUL(Sn,C_H_X).
+ push de
+ call _riding_coeff16_C_H_X
+ pop hl
+ ldhl sp,#4
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ldhl sp,#2
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ call _riding_coeff16_C_H_X
+ pop hl
+ ldhl sp,#6
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ld a,(#_Bike+90)
+ or a,a
+ jr nz,head_pose_sign_ready
+ ldhl sp,#4
+ xor a
+ sub a,(hl)
+ ld (hl+),a
+ ld a,#0
+ sbc a,(hl)
+ ld (hl+),a
+ xor a
+ sub a,(hl)
+ ld (hl+),a
+ ld a,#0
+ sbc a,(hl)
+ ld (hl),a
+head_pose_sign_ready:
+; head_x=rider_x+signed16(hc-KMUL(Sn,C_H_Y))*256.
+ ldhl sp,#2
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ call _riding_coeff16_C_H_Y
+ pop hl
+ ldhl sp,#4
+ ld a,(hl+)
+ sub a,e
+ ld e,a
+ ld a,(hl)
+ sbc a,d
+ ld d,a
+ add a,a
+ sbc a,a
+ ld c,a
+ ld hl,#_Bike+66
+ ld a,(hl+)
+ ld (#_Bike+82),a
+ ld a,(hl+)
+ add a,e
+ ld (#_Bike+83),a
+ ld a,(hl+)
+ adc a,d
+ ld (#_Bike+84),a
+ ld a,(hl)
+ adc a,c
+ ld (#_Bike+85),a
+; head_y=rider_y+signed16(hs+KMUL(Cs,C_H_Y))*256.
+ ldhl sp,#0
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ call _riding_coeff16_C_H_Y
+ pop hl
+ ldhl sp,#6
+ ld a,(hl+)
+ add a,e
+ ld e,a
+ ld a,(hl)
+ adc a,d
+ ld d,a
+ add a,a
+ sbc a,a
+ ld c,a
+ ld hl,#_Bike+70
+ ld a,(hl+)
+ ld (#_Bike+86),a
+ ld a,(hl+)
+ add a,e
+ ld (#_Bike+87),a
+ ld a,(hl+)
+ adc a,d
+ ld (#_Bike+88),a
+ ld a,(hl)
+ adc a,c
+ ld (#_Bike+89),a
+ add sp,#8
+ ret
