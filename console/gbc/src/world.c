@@ -523,8 +523,18 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
                 /* Synchronous publication must finish the strip anyway.
                  * Avoid repeating the stage dispatcher for every tile;
                  * idle preparation still yields at each bounded unit. */
+#ifdef WORLD_GRAPHICS_ZX0
                 do {prepare_acquire();}
                 while(!budgeted && prepare_index<prepare_count);
+#else
+                /* The outer guard covers the first item. Later items keep
+                 * the same guard without repeating the stage dispatcher. */
+                do {
+                    prepare_acquire();
+                    if(prepare_index>=prepare_count)break;
+                    if(budgeted && !prepare_budget(start,20))return;
+                } while(1);
+#endif
                 if(prepare_index==prepare_count)prepare_stage=PREP_COL_PUBLISH;
                 break;
             case PREP_COL_PUBLISH:
@@ -537,8 +547,18 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
                 if(prepare_index==prepare_count){prepare_index=0;prepare_stage=PREP_ROW_ACQUIRE;}
                 break;
             case PREP_ROW_ACQUIRE:
+#ifdef WORLD_GRAPHICS_ZX0
                 do {prepare_acquire();}
                 while(!budgeted && prepare_index<prepare_count);
+#else
+                /* The outer guard covers the first item. Later items keep
+                 * the same guard without repeating the stage dispatcher. */
+                do {
+                    prepare_acquire();
+                    if(prepare_index>=prepare_count)break;
+                    if(budgeted && !prepare_budget(start,20))return;
+                } while(1);
+#endif
                 if(prepare_index==prepare_count)prepare_stage=PREP_ROW_PUBLISH;
                 break;
             case PREP_ROW_PUBLISH:

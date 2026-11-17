@@ -663,6 +663,40 @@ cause whole-update failures. This is not a stable 30-FPS release.
 ROM `elma-gbc-v0.91-head-8m.gbc`, SHA-256
 `e86923362def284df7493aa1a1b8156f017cc5d1eb076261dc0364298639ba53`.
 Evidence: `build/v091-head-sweep-kernel` and `build/v091-head-gameplay-8m`.
+The separate functional suite passes all 54 starts (12 idle updates each),
+433 observed Freefall steps, frontend, player/save, finish audio, volt and
+300-step driving checks. Starts and Freefall now report zero overruns.
+Evidence: `build/v091-head-checks`.
+
+## 24: retain the acquisition stage between budgeted items — retained
+
+Keep the original outer budget guard for the first item, fetch and publication;
+subsequent raw acquisitions check the same 20-line guard inside the stage loop.
+This avoids repeating stage dispatch while retaining every bounded work unit.
+The first variant added fetch-path discrimination and deferred a fragment at a
+scanline threshold, regressing Double Trouble/neutral by 8,232 cycles. Reject
+that variant; the retained version leaves the fetch guard unchanged.
+
+Independent native validation passes 3,031 cache views and 374 phase/wrap cases
+/ 748 views, including 142 conflicting cancellations, with no visible-byte,
+reference, mirror, save-guard or preparation-deadline failures. The focused
+controller audit passes 3,270 visible/cache inspections. Footprint is +45 bank6
+bytes, zero static RAM or ROM0 increase.
+
+The isolated rider-baseline corpus improves 137 to 130 misses, 129 to 122
+stretched input intervals and 175 to 177 passing cases, with none lost. Its
+weighted mean saves 1,399 cycles/update. Timing is not monotonic: Sink/seeded
+update106 grows 273,540 to 362,328 after preparation-phase changes, and
+Twin Peaks/brake gains one miss. These remain failed cases.
+
+Combined with the head-sweep change, all 216 cases / 27,447 states remain exact.
+Misses improve **129 to 124**, cadence violations **123 to 117**, and wholly
+passing cases **177 to 178**. The strict 30-FPS gate remains failed.
+ROM `elma-gbc-v0.91-dispatch-8m.gbc`, SHA-256
+`49a2e1bd7685ff26f3a8cfc13c37a0b0af223f17e0aa672938ac71d329ac9627`.
+Evidence: `build/v091-prepare-dispatch` (both variants, native/captured checks,
+private hash-exact relink and full-corpus comparison) and
+`build/v091-dispatch-gameplay-8m`.
 
 ## Controller benchmark and remaining physics work
 
@@ -678,13 +712,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-head-8m.gbc --gen build/gen-8m --out build/v091-head-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-dispatch-8m.gbc --gen build/gen-8m --out build/v091-dispatch-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 129**; wholly passing cases improve **72 to
-177 of 216** after the head-sweep change. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 124**; wholly passing cases improve **72 to
+178 of 216** after the preparation dispatcher change. This is still a failed 30-FPS gate.
 The largest physics call is 275,800 cycles, leaving too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.
