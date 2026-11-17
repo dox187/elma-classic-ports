@@ -1,7 +1,12 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.90 — intermediate playable prototype**, recorded in
-[`VERSION`](VERSION). The rider now updates on every physics step and responds
+Last completed version: **0.90 — intermediate playable prototype**.
+Development version: **0.91**, recorded in [`VERSION`](VERSION), targets stable
+30 FPS without changing the current physics results or adding input latency.
+See the [performance experiment log](PERFORMANCE.md) for measured candidates
+and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
+
+In 0.90, the rider updates on every physics step and responds
 to the body's rotation after a volt. Green scenery is slightly brighter.
 This release uses the native fixed-point riding core; the much more precise
 Q44/Q46 host experiments described below are separate research. Neither full
@@ -251,6 +256,10 @@ make 4m 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 ```
 
 The defaults are `PHYS_HZ=30 DAMPER=exponential`.
+
+The current checkout builds versioned **0.91 development ROMs**. They are not
+accepted releases until their complete-game timing and regression checks pass.
+The retained 0.90 images below are the last completed intermediate release.
 
 Open **`build/elma-gbc-v0.90-4m.gbc`** (4 MiB) or
 **`build/elma-gbc-v0.90-8m.gbc`** (8 MiB) in a Game Boy Color emulator.
