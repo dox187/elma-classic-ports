@@ -23,6 +23,8 @@ bike_t Bike;
 #ifdef __SDCC
 void riding_anchor32(circle_t*,int16_t,int16_t,int16_t*) __sdcccall(0);
 uint8_t riding_recip_index(int16_t,int16_t) __sdcccall(0);
+void riding_rider_vectors32(int16_t,int16_t,int16_t*) __sdcccall(0);
+void riding_rider_move32(int32_t,int32_t) __sdcccall(0);
 #endif
 
 static int16_t Cs, Sn;   // cos and sin of the body's angle
@@ -34,11 +36,10 @@ static void angle( void ) {
 	Sn = fsin( a );
 }
 
-/* Odd rider updates advance2H. Export/collide at its exact halfway pose. */
+/* Rider, renderer and head collision all observe the same completed step. */
 static void head_position(void) {
  int32_t x=Bike.rider_x,y=Bike.rider_y;
  int16_t hc,hs;
- if(Bike.steps&1){x-=Bike.rider_vx*4L;y-=Bike.rider_vy*4L;}
  angle();hc=KMUL(Cs,C_H_X);hs=KMUL(Sn,C_H_X);
  if(!Bike.turned){hc=-hc;hs=-hs;}
  Bike.head_x=x+(int32_t)(hc-KMUL(Sn,C_H_Y))*256L;
@@ -105,20 +106,32 @@ static void rider_limit( void ) {
 	Bike.rider_y = Bike.body.ry + ((int32_t)dotq14( x, y, Sn, Cs ) << 8);
 }
 
-// beallitvezeto, for two steps:
+// beallitvezeto, at the same rate as the body and wheels:
 static void rider( int32_t gx, int32_t gy ) {
 	rider_limit();
+#ifdef __SDCC
+	int16_t v[4];
+	riding_rider_vectors32(-KMUL(Sn,C_RREST),KMUL(Cs,C_RREST),v);
+	int16_t dirx=v[0],diry=v[1],dx=v[2],dy=v[3];
+#else
 	int16_t dirx = sat16( ((Bike.body.rx-Bike.rider_x) >> 4)-KMUL( Sn, C_RREST ) );
 	int16_t diry = sat16( ((Bike.body.ry-Bike.rider_y) >> 4)+KMUL( Cs, C_RREST ) );
 	int16_t dx = sat16( (Bike.rider_x-Bike.body.rx) >> 4 );
 	int16_t dy = sat16( (Bike.rider_y-Bike.body.ry) >> 4 );
+#endif
 	// The velocity of the body there:
 	int32_t relx = Bike.rider_vx-(Bike.body.vx+riding_mulq32(Oms,-dy,14));
 	int32_t rely = Bike.rider_vy-(Bike.body.vy+riding_mulq32(Oms,dx,14));
-	Bike.rider_vx += KMUL32(dirx,C_RIDER_S)-KMUL32(relx,C_RIDER_F)+gx;
-	Bike.rider_vy += KMUL32(diry,C_RIDER_S)-KMUL32(rely,C_RIDER_F)+gy;
-	Bike.rider_x += (int32_t)Bike.rider_vx << 3;
-	Bike.rider_y += (int32_t)Bike.rider_vy << 3;
+	int32_t ax = KMUL32(dirx,C_RIDER_S)-KMUL32(relx,C_RIDER_F)+gx;
+	int32_t ay = KMUL32(diry,C_RIDER_S)-KMUL32(rely,C_RIDER_F)+gy;
+#ifdef __SDCC
+	riding_rider_move32(ax,ay);
+#else
+	Bike.rider_vx += ax;
+	Bike.rider_vy += ay;
+	Bike.rider_x += Bike.rider_vx * 4L;
+	Bike.rider_y += Bike.rider_vy * 4L;
+#endif
 }
 
 void ph_init( int32_t x, int32_t y ) {
@@ -318,9 +331,12 @@ uint8_t ph_step( uint8_t input ) {
 		default: gy = -g; break;
 	}
 
-	uint8_t odd = ++Bike.steps & 1;
-	if( odd )
-		rider( gx << 1, gy << 1 );
+	++Bike.steps;
+	// Suspension uses the pre-volt velocity, as in erokszamitasa. The rider
+	// follows after the volt and must use its new body-point velocity.
+	if( Bike.body.omega != oldomega )
+		Oms = KMUL32((int32_t)Bike.body.omega,C_OMS);
+	rider( gx, gy );
 
 	Bike.body.omega = sat16( (int32_t)Bike.body.omega+dwb );
 	Bike.body.vx += dvbx+gx;
@@ -330,7 +346,7 @@ uint8_t ph_step( uint8_t input ) {
 	for( uint8_t k = 0; k < 2; k++ )
 		riding_wheel( &Bike.wheel[k], dvx[k]+gx, dvy[k]+gy, tq[k] );
 
-	// Every30Hz pose uses the same rider midpoint as the renderer.
+	// Head collision and rendering use the completed 30 Hz rider pose.
 	head_position();
 	return !riding_swept_head(riding_sra8(previous_head_x),riding_sra8(previous_head_y),riding_sra8(Bike.head_x),riding_sra8(Bike.head_y));
 }

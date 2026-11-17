@@ -171,39 +171,6 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_y+3)
  adc a,b
  ld (#_gbc_bike+27),a
- ld a,(#_Bike+93)
- and a,#1
- jr z,export_raw_6
- ld a,(#_Bike+74)
- ld e,a
- ld a,(#_Bike+75)
- ld d,a
- ld a,(#_Bike+76)
- ld c,a
- ld a,(#_Bike+77)
- ld b,a
- sla e
- rl d
- rl c
- rl b
- sla e
- rl d
- rl c
- rl b
- ld a,(#_Bike+66)
- sub a,e
- ld e,a
- ld a,(#_Bike+67)
- sbc a,d
- ld d,a
- ld a,(#_Bike+68)
- sbc a,c
- ld c,a
- ld a,(#_Bike+69)
- sbc a,b
- ld b,a
- jr export_shift_6
-export_raw_6:
  ld a,(#_Bike+66)
  ld e,a
  ld a,(#_Bike+67)
@@ -212,7 +179,6 @@ export_raw_6:
  ld c,a
  ld a,(#_Bike+69)
  ld b,a
-export_shift_6:
  sra b
  rr c
  rr d
@@ -233,39 +199,6 @@ export_shift_6:
  ld a,(#_physics_level_origin_x+3)
  adc a,b
  ld (#_gbc_bike+33),a
- ld a,(#_Bike+93)
- and a,#1
- jr z,export_raw_7
- ld a,(#_Bike+78)
- ld e,a
- ld a,(#_Bike+79)
- ld d,a
- ld a,(#_Bike+80)
- ld c,a
- ld a,(#_Bike+81)
- ld b,a
- sla e
- rl d
- rl c
- rl b
- sla e
- rl d
- rl c
- rl b
- ld a,(#_Bike+70)
- sub a,e
- ld e,a
- ld a,(#_Bike+71)
- sbc a,d
- ld d,a
- ld a,(#_Bike+72)
- sbc a,c
- ld c,a
- ld a,(#_Bike+73)
- sbc a,b
- ld b,a
- jr export_shift_7
-export_raw_7:
  ld a,(#_Bike+70)
  ld e,a
  ld a,(#_Bike+71)
@@ -274,7 +207,6 @@ export_raw_7:
  ld c,a
  ld a,(#_Bike+73)
  ld b,a
-export_shift_7:
  sra b
  rr c
  rr d

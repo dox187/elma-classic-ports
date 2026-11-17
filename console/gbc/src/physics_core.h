@@ -59,7 +59,7 @@ typedef struct {
 	uint8_t turned;     // facing right (hatra_f)
 	uint8_t gravity;
 	uint8_t brake_was;
-	uint8_t steps;      // counts the steps, the rider moves every other one
+	uint8_t steps;      // completed physics steps, modulo 256
 	uint8_t gfrac;      // fraction of the gravity step
 	uint32_t dbrake[2];
 	uint8_t volt[2];    // steps left of a volt, 0 if none

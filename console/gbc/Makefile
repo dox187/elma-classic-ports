@@ -74,6 +74,7 @@ check: all
 	$(PYTHON) test/check_riding_math32.py
 	$(PYTHON) test/check_physics_export.py --gen $(GEN)
 	$(PYTHON) test/check_physics_move.py
+	$(PYTHON) test/check_physics_rider.py
 	$(PYTHON) test/check_physics_anchor.py
 	$(PYTHON) test/check_physics_contact_sign.py
 	$(PYTHON) test/check_physics_recip.py

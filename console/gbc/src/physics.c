@@ -23,7 +23,6 @@ static void pose(gbc_pose_t *p,const circle_t *c) {
 
 static void export_state(void) {
     int32_t rider_x=Bike.rider_x,rider_y=Bike.rider_y;
-    if(Bike.steps&1){rider_x-=Bike.rider_vx*4L;rider_y-=Bike.rider_vy*4L;}
     pose(&gbc_bike.body,&Bike.body);
     pose(&gbc_bike.wheel[0],&Bike.wheel[0]);
     pose(&gbc_bike.wheel[1],&Bike.wheel[1]);

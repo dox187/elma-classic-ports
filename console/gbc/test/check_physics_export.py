@@ -18,12 +18,10 @@ def signed(n):return (n+2**31)%2**32-2**31
 
 def expected(raw,ox,oy,shift,alive):
     result=bytearray(52);result[50]=alive
-    for source,target,axis,velocity in ((0,0,ox,None),(4,4,oy,None),(22,10,ox,None),
-            (26,14,oy,None),(44,20,ox,None),(48,24,oy,None),(66,30,ox,74),
-            (70,34,oy,78),(82,40,ox,None),(86,44,oy,None)):
+    for source,target,axis in ((0,0,ox),(4,4,oy),(22,10,ox),
+            (26,14,oy),(44,20,ox),(48,24,oy),(66,30,ox),
+            (70,34,oy),(82,40,ox),(86,44,oy)):
         value=struct.unpack_from('<i',raw,source)[0]
-        if velocity is not None and raw[93]&1:
-            value=signed(value-4*struct.unpack_from('<i',raw,velocity)[0])
         struct.pack_into('<i',result,target,signed((value>>2)+axis))
     for source,target in ((16,8),(38,18),(60,28)):
         angle=struct.unpack_from('<I',raw,source)[0]>>shift
