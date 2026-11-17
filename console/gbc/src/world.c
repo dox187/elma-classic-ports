@@ -375,6 +375,235 @@ static void prepare_acquire(void) {
     ++prepare_index;
 }
 #else
+/* Raw preparation retains the pattern ID and selected slot in the exact
+ * argument order used by the upload and lookup helpers. No shared scratch. */
+#ifndef WORLD_GRAPHICS_ZX0
+static void prepare_acquire(void) __naked {
+    __asm
+        ld a,(#_prepare_index)
+        ld c,a
+        ld b,#0
+        ld hl,#_strip_low
+        add hl,bc
+        ld e,(hl)
+        ld hl,#_strip_high
+        add hl,bc
+        ld d,(hl)
+        push de
+        call _world_lookup_get
+        ld a,d
+        or a
+        jr z,fpa_hit
+        cp #1
+        jr nz,fpa_miss
+        ld a,e
+        cp #188
+        jr nc,fpa_miss
+fpa_hit:
+        ld h,d
+        ld l,e
+        add hl,hl
+        ld bc,#_world_cache_references
+        add hl,bc
+        ld a,(hl+)
+        ld b,a
+        ld a,(hl)
+        or b
+        jr z,fpa_hit_zero
+        dec hl
+        inc (hl)
+        jp nz,fpa_done_id
+        inc hl
+        inc (hl)
+        jp fpa_done_id
+fpa_hit_zero:
+        dec hl
+        ld (hl),#1
+        call fpa_clear_free
+        jp fpa_done_id
+fpa_miss:
+        ld a,(#_world_cache_next)
+        ld e,a
+        ld a,(#_world_cache_next+1)
+        ld d,a
+        ld h,d
+        ld l,e
+        add hl,hl
+        ld bc,#_world_cache_references
+        add hl,bc
+        ld a,(hl+)
+        or (hl)
+        jr z,fpa_direct_free
+        ld hl,#_world_cache_free_bits
+        push hl
+        push de
+        call _world_find_free
+        add sp,#4
+        ld a,d
+        cp #255
+        jr nz,fpa_chosen
+        ld hl,#_world_cache_failures
+        inc (hl)
+        jr nz,fpa_failed
+        inc hl
+        inc (hl)
+fpa_failed:
+        ld de,#0
+        jp fpa_done_id
+fpa_direct_free:
+        call fpa_clear_free
+fpa_chosen:
+        push de
+        ld h,d
+        ld l,e
+        inc hl
+        ld a,h
+        cp #1
+        jr nz,fpa_next_ready
+        ld a,l
+        cp #188
+        jr nz,fpa_next_ready
+        ld hl,#0
+fpa_next_ready:
+        ld a,l
+        ld (#_world_cache_next),a
+        ld a,h
+        ld (#_world_cache_next+1),a
+        ld h,d
+        ld l,e
+        add hl,hl
+        ld bc,#_world_cache_ids
+        add hl,bc
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        ld a,d
+        and e
+        inc a
+        jr z,fpa_upload
+        ld hl,#65535
+        push hl
+        push de
+        call _world_lookup_set
+        add sp,#4
+fpa_upload:
+        ; The retained slot and ID are already the upload ABI0 arguments.
+        call _world_cache_upload
+        pop de
+        pop bc
+        ; Reorder once for absent insertion and retain the selected slot.
+        push de
+        push bc
+        ld h,d
+        ld l,e
+        add hl,hl
+        ld a,l
+        add a,#<(_world_cache_ids)
+        ld l,a
+        ld a,h
+        adc a,#>(_world_cache_ids)
+        ld h,a
+        ld (hl),c
+        inc hl
+        ld (hl),b
+        ld h,d
+        ld l,e
+        add hl,hl
+        ld bc,#_world_cache_references
+        add hl,bc
+        ld (hl),#1
+        inc hl
+        ld (hl),#0
+        call _world_lookup_insert_absent
+        pop bc
+        pop de
+        jr fpa_outputs
+fpa_done_id:
+        pop bc
+fpa_outputs:
+        ld a,(#_prepare_index)
+        ld c,a
+        ld b,#0
+        ld a,c
+        add a,a
+        add a,#<(_output_slots)
+        ld l,a
+        ld a,#>(_output_slots)
+        adc a,#0
+        ld h,a
+        ld a,e
+        ld (hl+),a
+        ld (hl),d
+
+        ld hl,#_prepare_added_count
+        ld a,(hl)
+        inc (hl)
+        add a,a
+        add a,#<(_prepare_added)
+        ld l,a
+        ld a,#>(_prepare_added)
+        adc a,#0
+        ld h,a
+        ld a,e
+        ld (hl+),a
+        ld (hl),d
+
+        ld a,e
+        cp #252
+        ld a,d
+        sbc a,#0
+        ld a,e
+        jr c,00110$
+        add a,#4
+        ld e,a
+        ld hl,#_strip_attrs
+        add hl,bc
+        ld a,(hl)
+        or #8
+        jr 00111$
+00110$:
+        ld hl,#_strip_attrs
+        add hl,bc
+        ld a,(hl)
+00111$:
+        ld hl,#_output_tiles
+        add hl,bc
+        ld (hl),e
+        ld hl,#_output_attrs
+        add hl,bc
+        ld (hl),a
+        ld hl,#_prepare_index
+        inc (hl)
+        ret
+fpa_clear_free:
+ push de
+ ld a,e
+ and #7
+ ld c,a
+ ld b,#0
+ ld hl,#fpa_clear_masks
+ add hl,bc
+ ld b,(hl)
+ ld h,d
+ ld l,e
+ srl h
+ rr l
+ srl h
+ rr l
+ srl h
+ rr l
+ ld de,#_world_cache_free_bits
+ add hl,de
+ ld a,(hl)
+ and b
+ ld (hl),a
+ pop de
+ ret
+fpa_clear_masks:
+ .db 254,253,251,247,239,223,191,127
+    __endasm;
+}
+#else
 /* Near bank6 bookkeeping keeps both slot lists and the acquisition order.
  * Indices remain bounded by the staged caller; no scratch RAM is needed. */
 static void prepare_acquire(void) __naked {
@@ -447,6 +676,7 @@ static void prepare_acquire(void) __naked {
         ret
     __endasm;
 }
+#endif
 #endif
 
 static void prepare_publish(uint8_t vertical) {

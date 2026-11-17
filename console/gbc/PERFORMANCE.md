@@ -952,6 +952,54 @@ ROM `elma-gbc-v0.91-visible-8m.gbc`, SHA-256
 Evidence: `build/objects-visible-prototype`, `build/v091-visible-check` and
 `build/v091-visible-gameplay-8m`.
 
+## 35: rider-limit coordinate glue — exact, deferred
+
+Two bank 8 helpers preserve wrapped/saturated local coordinates and moved
+rider restoration. Seat and ellipse math stay in C. All 3,212 native/oracle
+vectors pass, including 326 captures, 744 ellipse projections, 490 wrapped
+subtractions and 288 wrapped restorations. The 1,727 trajectory / 326 route
+states and generic 54-level fixture remain exact. Isolated active updates save
+380–1,528 cycles, bank 8 shrinks 131 bytes and static RAM is unchanged. The C
+frame grows four bytes; the measured hard-route stack maximum stays 237.
+
+The whole game nevertheless regresses after the visibility optimization:
+misses 67 to 70, cadence 59 to 62, with 191 passing cases unchanged. Mandatory
+presentation costs move because different partial strips finish in preceding
+idle windows. A second comparison with fused acquisition has 66 misses with
+this glue versus 65 without it (58 versus 57 cadence violations), both with
+192 passing cases. Keep the current C glue; preserve the exact candidate and
+vectors for later scheduling comparisons rather than assume a local saving
+guarantees smoother gameplay.
+Evidence: `build/v091-rider-limit`, `build/v091-limit-public-vectors`,
+`build/v091-limit-gameplay-8m`, `build/v091-acquire-gameplay-8m` and
+`build/v091-acquire-nolimit-gameplay-8m`.
+
+## 36: fused raw acquisition bookkeeping — retained
+
+Raw prepare_acquire keeps the pattern ID and selected slot on the same stack
+through lookup, upload and insertion. It avoids rebuilding arguments across
+two helper boundaries. Allocation order, reference/free-bit transitions,
+lookup entries, output slots/attributes and pending references remain exact.
+Per-item budget guards stay unchanged, as do the generic acquisition helper
+and compressed path. No shared scratch is added.
+
+All 2,809 direct, 2,809 linked, 756 boundary and 39 captured native pairs pass.
+The captured Double Trouble acquisitions save 8,252 cycles with identical
+cache/output arrays and all four SRAM banks after every call. The public cache
+fixture passes 3,031 views and six focused controller routes pass 1,870
+source/cache inspections. Bank 6 grows 233 bytes, static RAM is unchanged.
+Maximum wrapper stack at existing helper entries falls 14 to 10 bytes; at
+upload entry it falls 14 to 6, excluding unchanged callee/IRQ stack usage.
+
+After visibility clipping, with the retained C rider-limit glue, all 216 cases
+/ 27,447 states remain exact. Misses improve **67 to 65**, cadence violations
+**59 to 57**, and wholly passing cases **191 to 192**. A complete source build
+reproduces the cached-object comparison image exactly.
+ROM `elma-gbc-v0.91-acquire-nolimit-8m.gbc`, SHA-256
+`0d7db587dfde503418bbf828eed7fab1160d36cd99a61d6fc5bbe56ab84de772`.
+Evidence: `build/v091-acquire-fused` and
+`build/v091-acquire-nolimit-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -966,13 +1014,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-visible-8m.gbc --gen build/gen-8m --out build/v091-visible-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-acquire-nolimit-8m.gbc --gen build/gen-8m --out build/v091-acquire-nolimit-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 67**; wholly passing cases improve **72 to
-191 of 216** after the visibility optimization. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 65**; wholly passing cases improve **72 to
+192 of 216** after fused acquisition. This is still a failed 30-FPS gate.
 Some physics calls still leave too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.
