@@ -15,7 +15,8 @@ from assets import array
 from levels import Packer
 from zx0 import decompress
 
-PATTERN_BLOCK_BYTES = 1024
+PATTERN_BLOCK_BYTES = 512
+MAP_PLANE_BYTES = 512
 
 
 def compress(data, compiler, cache):
@@ -53,9 +54,14 @@ def main():
                                + compiler.read_bytes()).hexdigest()
     header_path = gen / 'level_catalogue.h'
     if (manifest.get('compression_key') == codec_key
-        and manifest.get('map_codec') == 'zx0-raw3-plane32x16'
-        and manifest.get('pattern_codec') == 'zx0-1024'
-        and re.search(r'^#define WORLD_GRAPHICS_ZX0 1$', header_path.read_text(), re.M)
+        and manifest.get('map_codec') == 'zx0-planes32x16'
+        and manifest.get('pattern_codec') == 'zx0-512'
+        and manifest.get('pattern_block_bytes') == PATTERN_BLOCK_BYTES
+        and manifest.get('map_plane_bytes') == MAP_PLANE_BYTES
+        and all(re.search(r'^#define ' + name + ' ' + str(value) + '$', header_path.read_text(), re.M)
+                for name, value in (('WORLD_GRAPHICS_ZX0', 1),
+                                    ('WORLD_PATTERN_BLOCK_BYTES', PATTERN_BLOCK_BYTES),
+                                    ('WORLD_MAP_PLANE_BYTES', MAP_PLANE_BYTES)))
         and all((gen / ('level_bank_%d.c' % bank)).is_file()
                 for bank in range(manifest['first_bank'], manifest['last_bank'] + 1))):
         print('ZX0 scenery unchanged: banks %d..%d' % (manifest['first_bank'], manifest['last_bank']))
@@ -69,15 +75,21 @@ def main():
             pattern_blocks = [patterns[i:i + PATTERN_BLOCK_BYTES]
                               for i in range(0, len(patterns), PATTERN_BLOCK_BYTES)]
             ids, attrs = source['ids'], source['attrs']
+            w, h = record['size_px']
+            if (len(patterns) != record['pattern_count'] * 16
+                    or ids.shape != (h // 8, w // 8) or attrs.shape != ids.shape
+                    or h % 128 or w % 256 or ids.max() >= record['pattern_count']):
+                raise ValueError('Invalid rendered tile cache for level %d' % (record['index'] + 1))
             chunks = []
             for y in range(0, ids.shape[0], 16):
                 for x in range(0, ids.shape[1], 32):
                     cells = ids[y:y + 16, x:x + 32].ravel()
-                    chunks.append(bytes((cells & 255).astype(np.uint8))
-                                  + bytes((cells >> 8).astype(np.uint8))
-                                  + attrs[y:y + 16, x:x + 32].tobytes())
+                    chunks.append([(cells & 255).astype(np.uint8).tobytes(),
+                                   (cells >> 8).astype(np.uint8).tobytes(),
+                                   attrs[y:y + 16, x:x + 32].tobytes()])
         blocks[record['index']] = pattern_blocks, chunks
-    unique = set(blob for pair in blocks.values() for group in pair for blob in group)
+    unique = {blob for pattern_blocks, chunks in blocks.values() for blob in pattern_blocks}
+    unique.update(blob for pattern_blocks, chunks in blocks.values() for chunk in chunks for blob in chunk)
     print('Compressing %d unique scenery blocks with ZX0' % len(unique), flush=True)
     with ThreadPoolExecutor(max_workers=4) as pool:
         compressed = dict(zip(unique, pool.map(lambda data: compress(data, compiler, cache), unique)))
@@ -94,8 +106,9 @@ def main():
         pattern_pointers = [allocate(blob) for blob in pattern_blocks]
         record['patterns'] = packer.allocate(b''.join(struct.pack('<HH', *p) for p in pattern_pointers), 2)
         record['pattern_blocks'] = pattern_pointers
-        record['chunks'] = [allocate(blob) for blob in chunks]
-        record['chunk_directory'] = packer.allocate(b''.join(struct.pack('<HH', *p) for p in record['chunks']), 2)
+        record['chunks'] = [[allocate(blob) for blob in chunk] for chunk in chunks]
+        record['chunk_directory'] = packer.allocate(
+            b''.join(struct.pack('<HH', *p) for chunk in record['chunks'] for p in chunk), 2)
         with np.load(gen / 'levels' / ('%02d' % (record['index'] + 1)) / 'tiles.npz') as source:
             pal = source['palettes'].reshape(-1, 3).astype(np.uint16) >> 3
             colors = pal[:, 0] | (pal[:, 1] << 5) | (pal[:, 2] << 10)
@@ -108,18 +121,22 @@ def main():
                           *record['patterns'], *record['chunk_directory'], *record['palette'],
                           *record['objects_pointer'], w // 256, h // 128, len(record['objects'])))
         pattern_bytes += sum(len(compressed[blob]) for blob in pattern_blocks)
-        map_bytes += sum(len(compressed[blob]) for blob in chunks)
+        map_bytes += sum(len(compressed[blob]) for chunk in chunks for blob in chunk)
     if packer.bank >= 252:
         raise ValueError('Compressed graphics end at bank %d, overlapping coefficient banks 252..255' % packer.bank)
     catalogue = (gen / 'level_catalogue.c').read_text()
     catalogue = re.sub(r'(const world_level_t world_levels\[\]=\{).*?\n\};',
                        lambda match: match[1] + '\n' + ',\n'.join(directory) + '\n};', catalogue, count=1, flags=re.S)
     header = (gen / 'level_catalogue.h').read_text()
-    header = re.sub(r'^[ \t]*#[ \t]*define[ \t]+WORLD_GRAPHICS_ZX0\b[^\n]*\n?', '', header, flags=re.M)
+    header = re.sub(r'^[ \t]*#[ \t]*define[ \t]+WORLD_(GRAPHICS_ZX0|PATTERN_BLOCK_BYTES|MAP_PLANE_BYTES)\b[^\n]*\n?',
+                    '', header, flags=re.M)
     header = header.replace('#define GBC_LEVEL_CATALOGUE_H',
-                            '#define GBC_LEVEL_CATALOGUE_H\n#define WORLD_GRAPHICS_ZX0 1')
-    manifest.update(rom_mib=4, compression_key=codec_key, map_codec='zx0-raw3-plane32x16',
-                    pattern_codec='zx0-1024', pattern_block_bytes=PATTERN_BLOCK_BYTES,
+                            '#define GBC_LEVEL_CATALOGUE_H\n#define WORLD_GRAPHICS_ZX0 1\n'
+                            '#define WORLD_PATTERN_BLOCK_BYTES %d\n#define WORLD_MAP_PLANE_BYTES %d' %
+                            (PATTERN_BLOCK_BYTES, MAP_PLANE_BYTES))
+    manifest.update(rom_mib=4, compression_key=codec_key, map_codec='zx0-planes32x16',
+                    pattern_codec='zx0-512', pattern_block_bytes=PATTERN_BLOCK_BYTES,
+                    map_plane_bytes=MAP_PLANE_BYTES,
                     last_bank=packer.bank, payload_bytes=sum(map(len, packer.banks)),
                     physical_bank_bytes=len(packer.banks) * 16384,
                     compressed_pattern_bytes=pattern_bytes, compressed_map_bytes=map_bytes)

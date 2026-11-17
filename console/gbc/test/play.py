@@ -256,12 +256,24 @@ class Driver:
                 actual=self.rom_far(record['patterns'],len(data['patterns']))
             assert actual == data['patterns'], 'ROM pattern payload differs from generated level%d'%(index+1)
             ids,attrs = data['ids'],data['attrs']
+            split_planes=self.level_manifest.get('map_codec')=='zx0-planes32x16'
+            if split_planes:
+                assert self.level_manifest.get('map_plane_bytes')==512
+                assert all(len(chunk)==3 for chunk in record['chunks'])
+            pointers=([pointer for chunk in record['chunks'] for pointer in chunk]
+                      if split_planes else record['chunks'])
+            directory=self.rom_far(record['chunk_directory'],len(pointers)*4)
+            assert list(struct.iter_unpack('<HH',directory))==[tuple(p)for p in pointers], (
+                'ROM map directory differs from generated level%d'%(index+1))
             for cy in range(0,ids.shape[0],16):
                 for cx in range(0,ids.shape[1],32):
                     values = ids[cy:cy+16,cx:cx+32].ravel()
                     expected = bytes((values&255).astype(np.uint8))+bytes((values>>8).astype(np.uint8))+bytes(attrs[cy:cy+16,cx:cx+32].ravel())
                     chunk = (cy//16)*(ids.shape[1]//32)+cx//32
-                    assert self.graphics_block(record['chunks'][chunk],1536) == expected, 'ROM map payload differs from generated level%d chunk%d'%(index+1,chunk)
+                    entry=record['chunks'][chunk]
+                    actual=(b''.join(self.graphics_block(pointer,512) for pointer in entry)
+                            if split_planes else self.graphics_block(entry,1536))
+                    assert actual == expected, 'ROM map payload differs from generated level%d chunk%d'%(index+1,chunk)
             data['record'] = record
             self.level_sources[index] = data
         return self.level_sources[index]

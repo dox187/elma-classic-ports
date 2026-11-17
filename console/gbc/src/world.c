@@ -38,11 +38,17 @@ static uint16_t last_chunk;
 static world_far_t chunk;
 #ifdef WORLD_GRAPHICS_ZX0
 /* SRAM0 holds the compact lookup, viewport mirror and protected saves.
- * Five decoded maps use bank1; 16 pattern blocks use banks2..3. */
+ * Five decoded maps use bank1; 32 half-KiB pattern blocks use banks2..3.
+ * Each map plane is decoded independently, so preparation can yield between
+ * low IDs, high IDs and attributes without exposing incomplete cells. */
+#if WORLD_PATTERN_BLOCK_BYTES != 512 || WORLD_MAP_PLANE_BYTES != 512
+#error Regenerate the 0.91 half-KiB graphics profile.
+#endif
 #define MAP_CACHE_COUNT 5
-#define PATTERN_CACHE_COUNT 16
+#define PATTERN_CACHE_COUNT 32
 static uint16_t map_cache_ids[MAP_CACHE_COUNT],pattern_cache_ids[PATTERN_CACHE_COUNT];
-static uint8_t map_cache_next,chunk_ram_bank;
+static uint8_t map_cache_next,chunk_ram_bank,chunk_cache;
+static uint8_t map_cache_planes[MAP_CACHE_COUNT],prepare_map_plane;
 #endif
 
 /* Prepare only incoming ring cells, which are outside the old21x19 view.
@@ -97,8 +103,8 @@ void world_game_assets(void) BANKED {
 
 #ifdef WORLD_GRAPHICS_ZX0
 static uint16_t cached_pattern_address(uint16_t block) {
-    uint8_t cache=block&(PATTERN_CACHE_COUNT-1),ram_bank=2+(cache>>3);
-    uint16_t address=0xa000U+((uint16_t)(cache&7)<<10);
+    uint8_t cache=block&(PATTERN_CACHE_COUNT-1),ram_bank=2+(cache>>4);
+    uint16_t address=0xa000U+((uint16_t)(cache&15)<<9);
     if(pattern_cache_ids[cache]!=block) {
         world_far_t pointer;
         world_far_copy(game_world.patterns.bank,(const uint8_t *)(game_world.patterns.address+block*4),
@@ -112,9 +118,9 @@ static uint16_t cached_pattern_address(uint16_t block) {
 
 void world_cache_upload(uint16_t slot,uint16_t id) __sdcccall(0) {
 #ifdef WORLD_GRAPHICS_ZX0
-    uint16_t address=cached_pattern_address(id>>6);
+    uint16_t address=cached_pattern_address(id>>5);
     rRAMB=2+((id>>9)&1);
-    world_upload_tile(CURRENT_BANK,address+((id&63)<<4),physical(slot));
+    world_upload_tile(CURRENT_BANK,address+((id&31)<<4),physical(slot));
     rRAMB=0;
 #else
     uint16_t offset=game_world.patterns.address+((id&1023)<<4);
@@ -158,6 +164,10 @@ static uint16_t acquire(uint16_t id) {
 
 static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,uint8_t offset,uint8_t partial) {
     uint16_t ci,local;uint8_t run,i=offset;
+#ifdef WORLD_GRAPHICS_ZX0
+    uint8_t plane;
+    if(!partial)prepare_map_plane=0;
+#endif
     count+=offset;
     while(i<count) {
         if(x>=game_world.width/8 || y>=game_world.height/8) {
@@ -171,17 +181,12 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
             uint8_t cached;
             for(cached=0;cached<MAP_CACHE_COUNT;++cached)if(map_cache_ids[cached]==ci)break;
             if(cached==MAP_CACHE_COUNT) {
-                world_far_t pointer;
                 cached=map_cache_next;
                 if(++map_cache_next==MAP_CACHE_COUNT)map_cache_next=0;
-                world_far_copy(game_world.chunks.bank,(const uint8_t *)(game_world.chunks.address+ci*4),
-                               (uint8_t *)&pointer,4);
-                chunk_ram_bank=1;
-                chunk.address=0xa000U+(uint16_t)cached*1536;
-                world_decompress(pointer.bank,pointer.address,chunk_ram_bank,chunk.address);
                 map_cache_ids[cached]=ci;
+                map_cache_planes[cached]=0;
             }
-            chunk_ram_bank=1;
+            chunk_ram_bank=1;chunk_cache=cached;
             chunk.address=0xa000U+(uint16_t)cached*1536;
             last_chunk=ci;
 #else
@@ -194,14 +199,43 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
         if(vertical){if(game_world.height/8-y<run)run=game_world.height/8-y;}
         else if(game_world.width/8-x<run)run=game_world.width/8-x;
 #ifdef WORLD_GRAPHICS_ZX0
-#define gather(source,dest) world_sram_gather(chunk_ram_bank,(const uint8_t *)(source),dest,run,vertical?32:1)
+        /* A complete cached map has no cold work to budget between planes.
+         * Gather the fragment once, as for the raw profile, instead of paying
+         * three dispatches and cache-budget checks for the same cells. */
+        if(map_cache_planes[chunk_cache]==7) {
+            world_sram_gather(1,(const uint8_t *)(chunk.address+local),strip_low+i,run,vertical?32:1);
+            world_sram_gather(1,(const uint8_t *)(chunk.address+512+local),strip_high+i,run,vertical?32:1);
+            world_sram_gather(1,(const uint8_t *)(chunk.address+1024+local),strip_attrs+i,run,vertical?32:1);
+            prepare_map_plane=0;
+        } else {
+        /* A partial fetch completes one plane of this fragment. Its row or
+         * column index advances only after all three output arrays are ready. */
+        for(plane=partial?prepare_map_plane:0;plane<3;++plane) {
+            uint16_t source=chunk.address+((uint16_t)plane<<9);
+            uint8_t mask=1U<<plane;
+            uint8_t *dest=plane==0?strip_low:plane==1?strip_high:strip_attrs;
+            if(!(map_cache_planes[chunk_cache]&mask)) {
+                world_far_t pointer;
+                world_far_copy(game_world.chunks.bank,
+                    (const uint8_t *)(game_world.chunks.address+ci*12U+(uint16_t)plane*4U),
+                    (uint8_t *)&pointer,4);
+                world_decompress(pointer.bank,pointer.address,1,source);
+                map_cache_planes[chunk_cache]|=mask;
+            }
+            world_sram_gather(1,(const uint8_t *)(source+local),dest+i,run,vertical?32:1);
+            if(partial) {
+                if(++prepare_map_plane<3)return 0;
+                prepare_map_plane=0;break;
+            }
+        }
+        }
 #else
 #define gather(source,dest) world_far_gather(chunk.bank,(const uint8_t *)(source),dest,run,vertical?32:1)
-#endif
         gather(chunk.address+local,strip_low+i);
         gather(chunk.address+512+local,strip_high+i);
         gather(chunk.address+1024+local,strip_attrs+i);
 #undef gather
+#endif
         i+=run;if(vertical)y+=run;else x+=run;
         if(partial)break;
     }
@@ -231,9 +265,9 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
     prepare_stage=PREP_NONE;prepare_added_count=0;retired_count=0;
     world_lookup_clear(game_world.pattern_count);
 #ifdef WORLD_GRAPHICS_ZX0
-    for(i=0;i<MAP_CACHE_COUNT;++i)map_cache_ids[i]=INVALID;
+    for(i=0;i<MAP_CACHE_COUNT;++i){map_cache_ids[i]=INVALID;map_cache_planes[i]=0;}
     for(i=0;i<PATTERN_CACHE_COUNT;++i)pattern_cache_ids[i]=INVALID;
-    map_cache_next=0;
+    map_cache_next=0;prepare_map_plane=0;
 #endif
     for(i=0;i<CACHE_COUNT;++i){cached_ids[i]=INVALID;references[i]=0;}
     for(i=0;i<FREE_BYTES;++i)free_bits[i]=255;
@@ -242,8 +276,8 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
 #ifdef WORLD_GRAPHICS_ZX0
     /* Small courses fit entirely in the decoded caches. Load their remaining
      * blocks with the LCD off so riding never pays a first-use decode cost. */
-    if(game_world.pattern_count<=PATTERN_CACHE_COUNT*64U)
-        for(i=0;i<(game_world.pattern_count+63U)/64U;++i)cached_pattern_address(i);
+    if(game_world.pattern_count<=PATTERN_CACHE_COUNT*32U)
+        for(i=0;i<(game_world.pattern_count+31U)/32U;++i)cached_pattern_address(i);
     if((uint16_t)game_world.chunks_x*game_world.chunks_y<=MAP_CACHE_COUNT)
         for(i=0;i<(uint16_t)game_world.chunks_x*game_world.chunks_y;++i)
             fetch_strip((i%game_world.chunks_x)*32U,(i/game_world.chunks_x)*16U,0,1,0,0);
@@ -256,7 +290,10 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
 /* One unknown partial scanline plus3K caller/end margin is excluded.
  * A pending VBlank can precede its sys_time ISR; account for it atomically.
  * At fast CPU, required lines include bounded work,3K margin and a partial
- * scanline: setup21,fetch35,publish25,acquire20. */
+ * scanline: setup21,cached/raw fetch20,publish25,acquire20. */
+/* A raw fetch reads at most one chunk fragment (three planes). Reserve
+ * 18,240 cycles including the caller and partial-line margin. */
+#define PREP_FETCH_LINES 20
 static uint8_t prepare_budget(uint16_t start,uint16_t required_lines) {
     uint16_t now,elapsed,lines;
     uint8_t ly,pending;
@@ -273,6 +310,9 @@ static void prepare_cancel(void) {
     if(prepare_added_count)
         world_refs_retire(references,prepare_added,prepare_added_count,free_bits);
     prepare_stage=PREP_NONE;prepare_added_count=0;retired_count=0;
+#ifdef WORLD_GRAPHICS_ZX0
+    prepare_map_plane=0;
+#endif
 }
 
 static uint8_t prepare_matches(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) {
@@ -288,6 +328,9 @@ static void prepare_begin(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) {
     prepare_horizontal=prepare_old_left!=prepare_left;
     prepare_vertical=prepare_old_top!=prepare_top;
     retired_count=0;prepare_added_count=0;prepare_index=0;
+#ifdef WORLD_GRAPHICS_ZX0
+    prepare_map_plane=0;
+#endif
     if(prepare_horizontal)release_strip(x>old_x?prepare_old_left:prepare_old_left+20,
                                         prepare_old_top,1,19);
     if(prepare_vertical)release_strip(prepare_horizontal
@@ -315,19 +358,20 @@ static uint16_t prepare_fetch_lines(void) {
     uint8_t cached;
     uint16_t x=prepare_strip_x,y=prepare_strip_y,ci;
     if(prepare_stage==PREP_COL_FETCH)y+=prepare_index;else x+=prepare_index;
-    if(x>=game_world.width/8 || y>=game_world.height/8)return 35;
+    if(x>=game_world.width/8 || y>=game_world.height/8)return 20;
     ci=(y>>4)*game_world.chunks_x+(x>>5);
-    for(cached=0;cached<MAP_CACHE_COUNT;++cached)if(map_cache_ids[cached]==ci)return 35;
-    /* The all-block check limits map decoding to220K cycles. Include
-     * directory lookup, strip gathering, interrupts and the caller margin. */
-    return 270;
+    for(cached=0;cached<MAP_CACHE_COUNT;++cached)
+        if(map_cache_ids[cached]==ci && (map_cache_planes[cached]&(1U<<prepare_map_plane)))return 20;
+    /* Each native 512-byte plane is checked below100K cycles. Reserve
+     * 118,560 cycles for decoding, gathering, directory reads and margins. */
+    return 130;
 }
 
 static uint8_t prepare_acquire_lines(void) {
     uint16_t id=strip_low[prepare_index]|((uint16_t)strip_high[prepare_index]<<8);
-    uint16_t block=id>>6;
-    /* The all-block check limits pattern decoding to190K cycles. */
-    if(pattern_cache_ids[block&(PATTERN_CACHE_COUNT-1)]!=block && world_lookup_get(id)>=CACHE_COUNT)return 220;
+    uint16_t block=id>>5;
+    /* The all-block check limits each512-byte pattern decode to100K cycles. */
+    if(pattern_cache_ids[block&(PATTERN_CACHE_COUNT-1)]!=block && world_lookup_get(id)>=CACHE_COUNT)return 130;
     return 20;
 }
 #endif
@@ -347,7 +391,7 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
         }
         if(budgeted) {
             uint16_t lines=prepare_stage==PREP_COL_ACQUIRE||prepare_stage==PREP_ROW_ACQUIRE?20
-                :prepare_stage==PREP_COL_FETCH||prepare_stage==PREP_ROW_FETCH?35:25;
+                :prepare_stage==PREP_COL_FETCH||prepare_stage==PREP_ROW_FETCH?PREP_FETCH_LINES:25;
 #ifdef WORLD_GRAPHICS_ZX0
             if(prepare_stage==PREP_COL_ACQUIRE || prepare_stage==PREP_ROW_ACQUIRE)
                 lines=prepare_acquire_lines();
@@ -359,11 +403,15 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
         switch(prepare_stage) {
             case PREP_COL_FETCH:
                 prepare_index+=fetch_strip(prepare_strip_x,prepare_strip_y+prepare_index,1,
-                                          prepare_count-prepare_index,prepare_index,1);
+                                          prepare_count-prepare_index,prepare_index,budgeted);
                 if(prepare_index==prepare_count){prepare_index=0;prepare_stage=PREP_COL_ACQUIRE;}
                 break;
             case PREP_COL_ACQUIRE:
-                prepare_acquire();
+                /* Synchronous publication must finish the strip anyway.
+                 * Avoid repeating the stage dispatcher for every tile;
+                 * idle preparation still yields at each bounded unit. */
+                do {prepare_acquire();}
+                while(!budgeted && prepare_index<prepare_count);
                 if(prepare_index==prepare_count)prepare_stage=PREP_COL_PUBLISH;
                 break;
             case PREP_COL_PUBLISH:
@@ -372,11 +420,12 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
                 prepare_stage=prepare_vertical?PREP_ROW_FETCH:PREP_READY;break;
             case PREP_ROW_FETCH:
                 prepare_index+=fetch_strip(prepare_strip_x+prepare_index,prepare_strip_y,0,
-                                          prepare_count-prepare_index,prepare_index,1);
+                                          prepare_count-prepare_index,prepare_index,budgeted);
                 if(prepare_index==prepare_count){prepare_index=0;prepare_stage=PREP_ROW_ACQUIRE;}
                 break;
             case PREP_ROW_ACQUIRE:
-                prepare_acquire();
+                do {prepare_acquire();}
+                while(!budgeted && prepare_index<prepare_count);
                 if(prepare_index==prepare_count)prepare_stage=PREP_ROW_PUBLISH;
                 break;
             case PREP_ROW_PUBLISH:

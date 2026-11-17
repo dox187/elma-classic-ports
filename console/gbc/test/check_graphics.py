@@ -40,21 +40,31 @@ class Block:
     kind: str
     level: int
     index: int
+    plane: int = None
     references: int = 1
 
     def location(self):
-        return {'bank': self.bank, 'address': self.address, 'level': self.level,
-                'index': self.index, 'decoded_bytes': len(self.expected)}
+        location = {'bank': self.bank, 'address': self.address, 'level': self.level,
+                    'index': self.index, 'decoded_bytes': len(self.expected)}
+        if self.plane is not None:
+            location['plane'] = self.plane
+        return location
+
+
+def graphics_profile(manifest):
+    profile = manifest.get('pattern_codec'), manifest.get('map_codec'), manifest.get('pattern_block_bytes')
+    if profile == ('zx0-512', 'zx0-planes32x16', 512) and manifest.get('map_plane_bytes') == 512:
+        return 512, True
+    if profile == ('zx0-1024', 'zx0-raw3-plane32x16', 1024) and 'map_plane_bytes' not in manifest:
+        return 1024, False
+    raise ValueError('Generate matching ZX0 pattern and map graphics before running this check')
 
 
 def collect_blocks(gen, manifest):
-    if (manifest.get('pattern_codec') != 'zx0-1024'
-            or manifest.get('map_codec') != 'zx0-raw3-plane32x16'
-            or manifest.get('pattern_block_bytes') != 1024):
-        raise ValueError('Generate the production ZX0 graphics before running this check')
+    pattern_size, split_planes = graphics_profile(manifest)
     unique = {}
 
-    def add(pointer, data, kind, level, index):
+    def add(pointer, data, kind, level, index, plane=None):
         bank, address = pointer
         assert manifest['first_bank'] <= bank <= manifest['last_bank']
         assert 0x4000 <= address < 0x8000 and 0 < len(data) <= MAX_DECODED
@@ -64,29 +74,34 @@ def collect_blocks(gen, manifest):
             assert unique[key].kind == kind, 'One packed pointer has conflicting block kinds'
             unique[key].references += 1
         else:
-            unique[key] = Block(bank, address, data, kind, level, index)
+            unique[key] = Block(bank, address, data, kind, level, index, plane)
 
     for record in manifest['levels']:
         level = record['index'] + 1
         with np.load(gen / 'levels' / f'{level:02d}' / 'tiles.npz') as source:
             patterns = source['patterns'].tobytes()
             assert len(patterns) == record['pattern_count'] * 16
-            assert len(record['pattern_blocks']) == (len(patterns) + 1023) // 1024
+            assert len(record['pattern_blocks']) == (len(patterns) + pattern_size - 1) // pattern_size
             for i, pointer in enumerate(record['pattern_blocks']):
-                add(pointer, patterns[i * 1024:(i + 1) * 1024], 'pattern', level, i)
+                add(pointer, patterns[i * pattern_size:(i + 1) * pattern_size], 'pattern', level, i)
             ids, attrs = source['ids'], source['attrs']
             assert ids.shape == attrs.shape and ids.shape[0] % 16 == ids.shape[1] % 32 == 0
             chunks = []
             for y in range(0, ids.shape[0], 16):
                 for x in range(0, ids.shape[1], 32):
                     cells = ids[y:y + 16, x:x + 32].ravel()
-                    chunks.append((cells & 255).astype(np.uint8).tobytes()
-                                  + (cells >> 8).astype(np.uint8).tobytes()
-                                  + attrs[y:y + 16, x:x + 32].tobytes())
+                    chunks.append([(cells & 255).astype(np.uint8).tobytes(),
+                                   (cells >> 8).astype(np.uint8).tobytes(),
+                                   attrs[y:y + 16, x:x + 32].tobytes()])
             assert len(chunks) == len(record['chunks'])
-            for i, (pointer, data) in enumerate(zip(record['chunks'], chunks)):
-                assert len(data) == MAX_DECODED
-                add(pointer, data, 'map', level, i)
+            for i, (entry, planes) in enumerate(zip(record['chunks'], chunks)):
+                assert all(len(data) == 512 for data in planes)
+                if split_planes:
+                    assert len(entry) == 3, 'Each map chunk must contain three plane pointers'
+                    for plane, (pointer, data) in enumerate(zip(entry, planes)):
+                        add(pointer, data, 'map', level, i, plane)
+                else:
+                    add(entry, b''.join(planes), 'map', level, i)
     assert len(manifest['levels']) == manifest['count'] and unique
     return list(unique.values())
 
@@ -101,10 +116,13 @@ def rom_data(rom, pointer, length):
 
 
 def verify_inputs(gen, manifest, blocks, rom):
+    _, split_planes = graphics_profile(manifest)
     # Check the directories too: these are the pointers the game actually uses.
     for record in manifest['levels']:
-        for directory, entries in (('patterns', 'pattern_blocks'), ('chunk_directory', 'chunks')):
-            expected = b''.join(struct.pack('<HH', *pointer) for pointer in record[entries])
+        map_entries = ([pointer for chunk in record['chunks'] for pointer in chunk]
+                       if split_planes else record['chunks'])
+        for directory, entries in (('patterns', record['pattern_blocks']), ('chunk_directory', map_entries)):
+            expected = b''.join(struct.pack('<HH', *pointer) for pointer in entries)
             assert rom_data(rom, record[directory], len(expected)) == expected, (
                 f'ROM directory differs from manifest: level {record["index"] + 1}, {directory}')
     for block in blocks:
@@ -304,14 +322,19 @@ def main():
     timing = check_native(fixture, linked, blocks)
     # Leave the rest of world.c's cold-work allowance for directory reads,
     # cache bookkeeping, strip gathering, interrupts and the caller margin.
-    assert timing['pattern']['max'] <= 190000, 'Pattern decoder exceeds its preparation budget'
-    assert timing['map']['max'] <= 220000, 'Map decoder exceeds its preparation budget'
+    _, split_planes = graphics_profile(manifest)
+    limits = {'pattern': 100000, 'map': 100000} if split_planes else {'pattern': 190000, 'map': 220000}
+    for kind, limit in limits.items():
+        assert timing[kind]['max'] <= limit, f'{kind.title()} decoder exceeds its preparation budget'
     report = {'rom': str(game_rom), 'rom_sha256': hashlib.sha256(rom).hexdigest(),
               'levels': manifest['count'], 'references': sum(b.references for b in blocks),
               'unique_blocks': len(blocks), 'verified_blocks': len(blocks),
               'graphics_banks': [min(payloads), max(payloads)], 'cached_objects': reused,
               'decoded_bytes': sum(len(b.expected) for b in blocks),
               'guard_failures': 0, 'bank_failures': 0,
+              'pattern_codec': manifest['pattern_codec'], 'map_codec': manifest['map_codec'],
+              'pattern_block_bytes': manifest['pattern_block_bytes'],
+              'map_plane_bytes': manifest.get('map_plane_bytes'), 'decode_cycle_limits': limits,
               'timing_unit': 'CPU T-cycles at CGB double speed, function entry through return',
               'timing': timing}
     (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')

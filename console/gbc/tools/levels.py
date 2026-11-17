@@ -236,7 +236,7 @@ def main():
         +(a.out/'physics_bank_manifest.json').read_bytes()).hexdigest()
     cache_dir=a.out
     cached=rendered_cache(cache_dir,render_key,source_hashes)
-    desired_codec='zx0-raw3-plane32x16' if a.rom_mib==4 else 'raw3-plane32x16'
+    desired_codec='zx0-planes32x16' if a.rom_mib==4 else 'raw3-plane32x16'
     if cached and cached.get('fingerprint')==fingerprint and cached.get('rom_mib')==a.rom_mib \
        and cached.get('map_codec')==desired_codec and cached['first_bank']==first \
        and all((a.out/name).is_file()for name in ('level_catalogue.c','level_catalogue.h')) \

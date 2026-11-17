@@ -437,10 +437,13 @@ all patterns still visible. Idle CPU time prepares the next offscreen row or
 column, retaining the same 399 current cells until the camera enters the new
 tile. Temporary references cover at most 438 cells; reversal discards the
 prediction safely. This preparation adds no simulation or presentation frame.
-The 4 MiB ROM stores independent ZX0 blocks of 64 patterns (1,024 bytes) and
-32x16 map cells (1,536 bytes across three planes). Five decoded map blocks use
-SRAM bank1; 16 decoded pattern blocks use banks2–3. A miss decodes a complete
-block; small courses that fit are preloaded with the LCD off. The 8 MiB ROM
+The 0.91 development 4 MiB layout stores independent ZX0 blocks of 32 patterns
+(512 bytes) and three independent 512-byte planes per 32x16 map chunk. Five
+decoded map chunks use SRAM bank1; 32 decoded pattern blocks use banks2–3.
+Preparation can stop between cold planes; a complete cached map gathers all
+three planes together. Small courses that fit are preloaded with the LCD off.
+The retained 0.90 release uses 1,024-byte pattern and 1,536-byte map blocks.
+The 8 MiB ROM
 reads uncompressed patterns and maps directly, without these decoded caches.
 
 Both builds use this bank0 layout:

@@ -33,12 +33,15 @@ Frontend, players, clock/results, cross-size save reload, held volts, finish
 audio and the 4,800-block native compressed-graphics check pass.
 Evidence: `build/v090-release-checks/{4m,8m}/`.
 
-Reproduce from `console/gbc`, using the matching `--gen build/gen-8m` for 8 MiB:
+The retained 0.90 compressed manifests/source tiles are frozen in
+`build/v090-gen-4m`; current `build/gen` uses the 0.91 layout. Reproduce from
+`console/gbc`, using the matching `--gen build/gen-8m` for the unchanged raw
+8 MiB layout:
 
 ```sh
-.venv/bin/python test/all_levels.py --rom build/elma-gbc-v0.90-4m.gbc --gen build/gen --out build/baseline-starts-4m --idle-updates 12
-.venv/bin/python test/freefall.py --rom build/elma-gbc-v0.90-4m.gbc --gen build/gen --out build/baseline-freefall-4m
-.venv/bin/python test/profile_play.py --rom build/elma-gbc-v0.90-4m.gbc --gen build/gen --out build/baseline-driving-4m --steps 300
+.venv/bin/python test/all_levels.py --rom build/elma-gbc-v0.90-4m.gbc --gen build/v090-gen-4m --out build/baseline-starts-4m --idle-updates 12
+.venv/bin/python test/freefall.py --rom build/elma-gbc-v0.90-4m.gbc --gen build/v090-gen-4m --out build/baseline-freefall-4m
+.venv/bin/python test/profile_play.py --rom build/elma-gbc-v0.90-4m.gbc --gen build/v090-gen-4m --out build/baseline-driving-4m --steps 300
 ```
 
 The retained pre-release rider probe has identical native gameplay code but
@@ -57,9 +60,183 @@ cannot by itself close a 75,440-cycle worst-update gap. Do not treat the
 isolated metadata test as a complete-game timing result. The next experiment
 must locate the synchronous scrolling cost before integrating this helper.
 
-## Next measurement
+## 01: batch synchronous tile acquisitions — retained
 
-Separate `world_scroll` strip fetching, tile acquisition/uploads, publication
-and preparation overhead in the retained 8 MiB ROM. Extend controller-only
-coverage to moving views on all courses and compare exact native state bytes
-at identical physics steps before accepting rendering changes.
+The detailed 8 MiB audit reproduces all 432 Freefall update costs exactly.
+At step 351, `world_scroll` costs 171,892 cycles, including 35,640 dispatcher
+cycles and 23,652 acquisition-bookkeeping cycles; just six DMA uploads total
+5,408 cycles. Consecutive synchronous acquisitions repeat 736 dispatcher
+cycles. Evidence: `build/v091-render-audit/{handoff,report}.json`.
+
+Finish the remaining acquisitions in a synchronous subloop. Budgeted idle
+preparation retains its per-unit checks, allocation order and cancellation.
+`elma-gbc-v0.91-batch-8m.gbc` SHA-256:
+`bacd344bcc6ae0a0e5b5272f87cc38679d87e2fb1cbbff0512745d5382047b97`.
+Freefall misses fall **13 to 5**, peak **356,336 to 343,456 cycles**; the
+54-start misses fall **6 to 4**. The 300-step Warm Up profile remains at zero.
+Both raw/compressed native cache fixtures pass 3,031 views with no byte,
+reference, save-guard or preparation-deadline failures.
+Evidence: `build/v091-batch-{freefall-profile,starts-8m,drive-8m,cache-raw,cache-4m}`.
+
+## 02: raw-fetch preparation allowance — retained, insufficient alone
+
+Reserve 20 scanlines (18,240 cycles) instead of 35 for one raw chunk fragment.
+The detailed route's largest fragment cost is 10,556 cycles. This change
+allows useful fetch work nearer the deadline; compressed cold-work bounds
+remain separate. Freefall still has five misses and the same 343,456 peak,
+but step 66 falls from 299,532 to 287,712 cycles. Do not repeat this change
+expecting it alone to finish the timing work. ROM:
+`elma-gbc-v0.91-rawfetch-8m.gbc`; evidence:
+`build/v091-rawfetch-freefall-profile/report.json`.
+
+## 03: absent-ID insertion and DMA boundary wait — retained
+
+Acquisition already knows the new pattern ID is absent. Insert at the lookup
+bucket head without searching that absent ID again; preserve mapping contents
+and allocation/reference semantics. The native acquisition fixture passes
+2,809 cases against its C reference. Memory tests cover all 65,536 IDs,
+64 colliding IDs, eviction/reinsertion, protected RAM and bank restoration.
+Evidence: `build/v091-insert-{acquire,memory}/report.json`.
+
+The DMA polling loop now accepts VBlank when leaving HBlank instead of waiting
+through the entire blanking interval. Only one linked byte changes (`2` to
+`3`), with the same 143-byte helper. A 4,112-call phase sweep per version has
+zero byte/guard/bank/register/IRQ failures. Worst polling falls 9,444 to 672
+cycles; the late-line-143 helper maximum including IRQs falls 11,532 to 2,220.
+The independent poll/launch/transfer bound is **140 < 160 cycles**. Evidence:
+`build/v091-dma-window/report.json` and `test/check_world_dma_window.py`.
+
+Combined ROM `elma-gbc-v0.91-insert-dma-8m.gbc` SHA-256:
+`f2bdd2d0b0ed49c6ef3cba0606a7b08661935e24e280017ee911cce22df61e07`.
+Freefall still has five misses, peak **335,096 cycles**. The broad controller
+benchmark below proves unchanged native gameplay; further work is needed.
+
+## 04: smaller compressed work units — regression found; not accepted alone
+
+An exact nine-layout size audit rejects 256-byte pattern blocks: even with
+the old maps they exceed the bank limit by 71,102 span bytes. A 512-byte
+pattern plus 32x8 map layout also fails by 19,528 bytes. Do not judge fit
+using payload alone; bank-boundary padding and directories count too.
+
+The selected layout uses **512-byte patterns and independent 512-byte map
+planes**, keeping the original 32x16 map cells. It occupies banks **94–249**,
+2,534,598 payload bytes, with 34,716 contiguous bytes left before bank 252.
+Native maximum decode costs are **89,968 pattern / 91,996 map-plane cycles**,
+versus 179,208 / 215,976 for the old indivisible units. Decoding all three map
+planes still costs about 1.22% more in total; the gain requires yielding
+between planes, not merely repacking bytes.
+
+Runtime changes keep 32 half-KiB pattern slots in the same SRAM banks 2–3
+and five maps in bank 1, with three validity bits per map. A partial fetch
+advances its strip index only after all three planes have arrived; cancellation
+discards that fragment's staging progress. No partial tile/attribute data is
+published. All 11,514 packed streams pass native byte, directory, guard and
+bank checks. Both new raw/compressed cache fixtures pass 3,031 views with zero
+failures. Evidence: `build/v091-block-audit`, `build/v091-plane-format`,
+`build/v091-planes-cache-{raw,4m}`.
+
+The first complete-game integration regresses: 4 MiB starts have 17 misses
+and Freefall 67, versus 13 and 54 in 0.90. Completing synchronous fetches in
+one call reduces Freefall misses to 60, but that candidate also includes the
+new segment iterator and coordinate cache key. It is not an isolated timing
+measurement of fetch batching. A smaller maximum decoder cost is insufficient
+evidence to retain a layout.
+
+A read-only Freefall audit finds **zero cold decodes during budgeted idle
+preparation** in both layouts: the 130-line reservation still prevents them.
+Synchronous decoder work falls from 11,323,632 to 9,605,672 cycles, but repeated
+cached-plane dispatch raises `fetch_strip` exclusive work from 2,599,028 to
+5,525,092, and fetch-budget checks from 871,972 to 2,553,208. The next bounded
+candidate gathers all three already-valid planes in one fragment operation,
+under the existing 20-line warm guard. Cold work keeps its separate guard.
+
+That warm-fragment candidate passes all 3,031 native cache views and all 216
+controller cases / 27,447 exact physics steps. Freefall falls to **47 misses**.
+The complete 4 MiB corpus improves **1,506 to 1,203 over-budget updates** from
+0.90; passing cases improve 50 to 63, and the worst update falls 1,489,760 to
+1,011,344 cycles. Retain the smaller units with the warm fast path, but the
+cold reservation remains an unresolved scheduling limit. ROM
+`elma-gbc-v0.91-warmplanes-4m.gbc`, SHA-256
+`63c037a0ae53cdb7d6c4d3cad07668830b0acfba0644ad730cef77b0784d8154`;
+evidence `build/v091-warmplanes-{cache,freefall,gameplay-4m}` and
+`build/v091-baseline-gameplay-4m/report.json`.
+
+## 05: exact native physics and rider frame selection — retained
+
+`ph_step` moves only its arrays and damping workspace to fixed native storage.
+Static RAM grows by 60 bytes, its stack frame shrinks 104 to 44 bytes and
+bank-8 code shrinks by 96. All 1,727 native/HOST states match frozen 0.90.
+Mean active-update savings are 988–1,002 cycles. A second layout also moved
+long-lived scalars; it added 24 further bytes and cost 153–206 more cycles, so
+it was rejected. Evidence: `build/v091-step-workspace/findings.json`.
+
+Collision cache identity is `(cy << 8) | cx`; directory multiplication happens
+only on a miss. The bank-9 segment-box iterator preserves record order and
+every cursor/remaining-count result. Its fixture passes 13,784 cases and
+42,439 native comparisons, including page crossings and 255 records. Paired
+isolated iteration costs fall 46.23%; this is not the whole physics speedup.
+Evidence, from repository root: `build/v091-segment-scan/report.json`.
+
+The rider compression helper preserves both separately rounded products and
+their thresholds, including overflow and subtraction borrows. All 15,000
+native/frozen-C/model cases pass; bounded frame-preparation overhead falls
+7,500 to 5,709 cycles with identical upload recorders. Code shrinks 260 bytes,
+RAM is unchanged. Actual DMA and head publication remain covered by the
+complete Freefall/54-start runs. Evidence, from repository root:
+`build/v091-bike-prepare/report.json`.
+
+Combined candidate ROM hashes:
+
+| ROM | SHA-256 |
+|---|---|
+| `elma-gbc-v0.91-combined1-4m.gbc` | `50cc452d549c39bf01d93871e58db42320c5a970fdfee4b2578b1f5657bbce8a` |
+| `elma-gbc-v0.91-combined1-8m.gbc` | `7b7988ac4ffeb7b24ec9bf3489508b22143593893941bd3f1cbebc55cc0e6a98` |
+
+Both sizes pass all 216 reference cases / 27,447 exact native steps, with
+matching inputs, physics, clocks and object results. The combined native/HOST
+fixture also passes all 1,727 snapshots. Frontend, saves across ROM sizes,
+volts, finish audio, source VRAM, head publication and packed graphics pass.
+Timing remains a failed gate:
+
+| Measurement | 0.90 8 MiB | Combined 8 MiB | Combined 4 MiB |
+|---|---:|---:|---:|
+| Corpus over-budget updates | 1,025 | 624 | 1,307 |
+| Entirely passing cases / 216 | 72 | 105 | 52 |
+| 54-start misses | 6 | 2 | 15 |
+| Freefall misses | 13 | 5 | 56 |
+| Warm Up 300-step profile misses | 0 | 0 | 4 |
+
+Evidence: `build/v091-combined1-{gameplay-4m,gameplay-8m,trace,checks}`.
+Further exact suspension/contact work and compressed scheduling are required;
+these development artifacts are not a stable-30-FPS release.
+
+## Controller benchmark and remaining physics work
+
+`test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
+inputs and natural death/finish. It records all 109 internal and 52 public
+state bytes at physics return, plus clock/object state after each update.
+The strict deadline is fixed and timing failures do not truncate the corpus.
+
+```sh
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-8m.gbc --gen build/gen-8m --out build/v091-current-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+```
+
+All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
+steps** match the 0.90 reference exactly in the combined raw candidate.
+Timing misses improve **1,025 to 928**; wholly passing cases improve **72 to
+85 of 216**. This is still a failed 30-FPS gate. Some physics calls alone exceed
+the frame budget: Bumpy Journey/brake reaches 315,040 cycles; Gravity Ride/brake
+313,656. Exact native arithmetic/contact optimization is the next requirement.
+
+PyBoy does not charge the GDMA CPU stall or fully reproduce early LY-153
+wrapping. The benchmark additionally reports a 64-cycle-per-world-upload
+margin estimate, but this does not simulate the shifted interrupt/LCD
+schedule or establish physical-cartridge stability. Cache tests avoid hooks
+directly replacing EI: with a pending IRQ, that PyBoy instrumentation can loop
+without advancing emulated time. This was a test-observer failure; the
+superseded raw-fetch fixture run was stopped and the current fixtures pass.
+The gameplay observer also ignores a repeated first-instruction hook when an
+IRQ returns to the same unreturned call and stack depth. This fixes the
+spurious extra step in level 45/seeded; all 216 combined cases pass the exact
+reference comparison with this observation fix.

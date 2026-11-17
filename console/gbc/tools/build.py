@@ -29,7 +29,7 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     levels=json.loads((gen/'level_manifest.json').read_text())
     physics=json.loads((gen/'physics_bank_manifest.json').read_text())
     coefficients=json.loads((gen/'physics-coefficient-manifest.json').read_text())
-    codecs={'zx0-raw3-plane32x16':(4,'zx0-1024'), 'raw3-plane32x16':(8,'raw-2bpp')}
+    codecs={'zx0-planes32x16':(4,'zx0-512'), 'raw3-plane32x16':(8,'raw-2bpp')}
     if levels.get('map_codec') not in codecs:
         raise ValueError('Unknown level graphics codec: '+str(levels.get('map_codec')))
     rom_mib,pattern_codec=codecs[levels['map_codec']]
@@ -38,14 +38,37 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
                          (requested_rom_mib,'compressed'if requested_rom_mib==4 else'raw',gen,levels['map_codec']))
     if levels.get('rom_mib',rom_mib)!=rom_mib or levels.get('pattern_codec',pattern_codec)!=pattern_codec:
         raise ValueError('Level manifest has inconsistent ROM size or pattern codec')
-    codec_define=re.search(r'^[ \t]*#[ \t]*define[ \t]+WORLD_GRAPHICS_ZX0\b([^\n]*)$',
-                           (gen/'level_catalogue.h').read_text(),re.M)
-    if bool(codec_define)!=(rom_mib==4) or (codec_define and codec_define[1].strip()!='1'):
-        raise ValueError('Level catalogue header and manifest disagree about the graphics codec')
-    if rom_mib==4 and (not levels.get('compression_key') or levels.get('pattern_block_bytes')!=1024):
-        raise ValueError('Compressed graphics are missing their compression metadata')
-    if rom_mib==8 and levels.get('compression_key'):
+    header=(gen/'level_catalogue.h').read_text()
+    for name,value in (('WORLD_GRAPHICS_ZX0',1),('WORLD_PATTERN_BLOCK_BYTES',512),('WORLD_MAP_PLANE_BYTES',512)):
+        definitions=re.findall(r'^[ \t]*#[ \t]*define[ \t]+'+name+r'\b([^\n]*)$',header,re.M)
+        expected=[str(value)] if rom_mib==4 else []
+        if [definition.strip()for definition in definitions]!=expected:
+            raise ValueError('Level catalogue header and manifest disagree about '+name)
+    if rom_mib==4 and (not levels.get('compression_key') or levels.get('pattern_block_bytes')!=512
+                      or levels.get('map_plane_bytes')!=512 or levels.get('pattern_codec')!=pattern_codec):
+        raise ValueError('Compressed graphics are missing their 512-byte block metadata')
+    if rom_mib==8 and any(key in levels for key in ('compression_key','pattern_block_bytes','map_plane_bytes')):
         raise ValueError('Raw graphics retain stale compression metadata')
+    if rom_mib==4:
+        def pointer(value,length=1):
+            return (isinstance(value,(list,tuple)) and len(value)==2
+                    and all(type(part)is int for part in value)
+                    and levels['first_bank']<=value[0]<=levels['last_bank']
+                    and 0x4000<=value[1] and value[1]+length<=0x8000)
+        if len(levels['levels'])!=levels['count']:
+            raise ValueError('Compressed level count differs from its catalogue')
+        for record in levels['levels']:
+            blocks=record.get('pattern_blocks',[]);chunks=record.get('chunks',[])
+            width,height=record['size_px']
+            if (width%256 or height%128 or len(blocks)!=(record['pattern_count']+31)//32
+                    or not blocks or not all(pointer(block)for block in blocks)
+                    or not pointer(record.get('patterns'),len(blocks)*4)):
+                raise ValueError('Invalid compressed pattern directory for level %d'%(record['index']+1))
+            if (len(chunks)!=(width//256)*(height//128) or not chunks
+                    or not all(isinstance(chunk,(list,tuple)) and len(chunk)==3
+                               and all(pointer(plane)for plane in chunk)for chunk in chunks)
+                    or not pointer(record.get('chunk_directory'),len(chunks)*12)):
+                raise ValueError('Invalid three-plane map directory for level %d'%(record['index']+1))
     bank_count=rom_mib*64
     coefficient_first={4:252,8:477}[rom_mib]
     coefficient_last=coefficient_first+3
