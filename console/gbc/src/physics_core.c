@@ -169,6 +169,14 @@ static int16_t clamp_w( int32_t w ) {
 	return (int16_t)w;
 }
 
+/* ph_step follows the single global Bike and is never called by interrupts.
+ * Give its arrays fixed SM83 addresses; HOST keeps automatic storage. */
+#ifdef __SDCC
+#define STEP_LOCAL static
+#else
+#define STEP_LOCAL
+#endif
+
 uint8_t ph_step( uint8_t input ) {
 	int32_t previous_head_x=Bike.head_x,previous_head_y=Bike.head_y;
 #ifndef __SDCC
@@ -186,7 +194,8 @@ uint8_t ph_step( uint8_t input ) {
 		Bike.dbrake[1] = Bike.wheel[1].alfa-Bike.body.alfa;
 	}
 	Bike.brake_was = brake;
-	int16_t tq[2] = { 0, 0 };
+	STEP_LOCAL int16_t tq[2];
+	tq[0] = 0; tq[1] = 0;
 	if( input & IN_GAS ) {
 		if( Bike.turned ) {
 			if( Bike.wheel[0].omega > -WHEEL_MAXW )
@@ -212,19 +221,19 @@ uint8_t ph_step( uint8_t input ) {
 	// of the springs, from the rotation of (K_X, -K_Y):
 	int16_t a = KMUL( Cs, C_K_X ), b = KMUL( Sn, C_K_Y );
 	int16_t c = KMUL( Sn, C_K_X ), d = KMUL( Cs, C_K_Y );
-	int16_t gsx[2], gsy[2];
+	STEP_LOCAL int16_t gsx[2], gsy[2];
 	gsx[1] = a+b;
 	gsy[1] = c-d;
 	gsx[0] = b-a;
 	gsy[0] = -c-d;
 
-	int32_t dvx[2], dvy[2];
+	STEP_LOCAL int32_t dvx[2], dvy[2];
 	int32_t ts = 0;
-	riding_torque32_t damping;
+	STEP_LOCAL riding_torque32_t damping;
 	for( uint8_t k = 0; k < 2; k++ ) {
 		circle_t* w = &Bike.wheel[k];
 		#ifdef __SDCC
-        int16_t anchor[4];
+        STEP_LOCAL int16_t anchor[4];
         riding_anchor32(w,gsx[k],gsy[k],anchor);
         int16_t gx=anchor[0],gy=anchor[1];
 #else
@@ -350,3 +359,5 @@ uint8_t ph_step( uint8_t input ) {
 	head_position();
 	return !riding_swept_head(riding_sra8(previous_head_x),riding_sra8(previous_head_y),riding_sra8(Bike.head_x),riding_sra8(Bike.head_y));
 }
+
+#undef STEP_LOCAL
