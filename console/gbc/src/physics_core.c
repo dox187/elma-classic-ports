@@ -21,7 +21,15 @@ static const int16_t Ellipse_inside_y[]={RIDING_ELLIPSE_INSIDE_Y_VALUES};
 
 bike_t Bike;
 #ifdef __SDCC
+#include <stddef.h>
+typedef char suspension_layout[
+    sizeof(circle_t)==22 && offsetof(circle_t,vx)==8 && offsetof(circle_t,vy)==12 &&
+    offsetof(bike_t,body)==0 && offsetof(bike_t,wheel)==22 &&
+    sizeof(riding_torque32_t)==24 && offsetof(riding_torque32_t,relx)==0 &&
+    offsetof(riding_torque32_t,rely)==8 && offsetof(riding_torque32_t,kx)==16 &&
+    offsetof(riding_torque32_t,ky)==20 ? 1 : -1];
 void riding_anchor32(circle_t*,int16_t,int16_t,int16_t*) __sdcccall(0);
+int32_t riding_suspension32(const int16_t*,const int16_t*,int32_t,int32_t*,int32_t*,riding_torque32_t*) __sdcccall(0);
 uint8_t riding_recip_index(int16_t,int16_t) __sdcccall(0);
 void riding_rider_vectors32(int16_t,int16_t,int16_t*) __sdcccall(0);
 void riding_rider_move32(int32_t,int32_t) __sdcccall(0);
@@ -230,6 +238,11 @@ uint8_t ph_step( uint8_t input ) {
 	STEP_LOCAL int32_t dvx[2], dvy[2];
 	int32_t ts = 0;
 	STEP_LOCAL riding_torque32_t damping;
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+    ts = riding_suspension32(gsx,gsy,Oms,dvx,dvy,&damping);
+    for( uint8_t k = 0; k < 2; k++ ) {
+        int16_t kx=damping.kx[k],ky=damping.ky[k];
+#else
 	for( uint8_t k = 0; k < 2; k++ ) {
 		circle_t* w = &Bike.wheel[k];
 		#ifdef __SDCC
@@ -257,6 +270,7 @@ uint8_t ph_step( uint8_t input ) {
 		dvy[k] += KMUL32(rely,C_FRIC_W);
 		damping.kx[k]=kx;damping.ky[k]=ky;
 		damping.relx[k]=relx;damping.rely[k]=rely;
+#endif
 
 		if( tq[k] ) {
 			// 1/d^2 from a table, with d^2 from the high bits of k:

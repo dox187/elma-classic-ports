@@ -210,6 +210,37 @@ Evidence: `build/v091-combined1-{gameplay-4m,gameplay-8m,trace,checks}`.
 Further exact suspension/contact work and compressed scheduling are required;
 these development artifacts are not a stable-30-FPS release.
 
+## 06: two-wheel suspension orchestration — retained
+
+Use a bank-8 helper for both wheels' anchor, spring and damping work. Keep
+the existing arithmetic helpers, pre-volt angular velocity, full 32-bit linear
+velocities and reaction-torque calculation. Native structure offsets are
+compile-time checked; generic SDCC and HOST fixtures retain the C path.
+The helper adds 18 net static bytes and 22 bank-8 bytes; the step frame shrinks
+44 to 41 bytes. It saves 7,490–7,796 cycles per active reference update.
+
+All 761 full-width/boundary vectors and 1,727 native/HOST snapshots pass.
+The production integration also passes all 216 controller cases / 27,447
+states in both sizes, and the generic 54-level fixture passes 53,416 HOST
+queries and 27,164 native queries. Corpus misses improve to **460 / 1,053**
+for 8 / 4 MiB; wholly passing cases become **126 / 72**. Still not stable.
+Evidence: `build/v091-suspension`, `build/v091-suspension-trace`,
+`build/v091-suspension-levels`, `build/v091-suspension-gameplay-{4m,8m}`.
+
+| Candidate | SHA-256 |
+|---|---|
+| `elma-gbc-v0.91-suspension-4m.gbc` | `bb0bee62353578ea1a8993c44441540750900396e5e999809bedc76559d6ce00` |
+| `elma-gbc-v0.91-suspension-8m.gbc` | `8a54b2d06c5f260d3c2d4d16f8401a1097e789e46441cc0cf5cbf6a1592ec6ab` |
+
+## 07: contact projection glue — rejected for marginal integrated gain
+
+The ABI0 helper regressed the actual contact loop despite a promising isolated
+projection call. An ABI1 variant passes 11,442 vectors and 360 captured contact
+groups, but saves only 146 cycles per Gravity Ride update, with 8 extra bytes
+of shared workspace. Do not integrate the helper or repeat the isolated-call
+claim as a whole-game gain. Larger rendering and physics costs remain.
+Evidence: `build/v091-contact-projection`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
