@@ -84,10 +84,9 @@ void main(void){uint16_t i,c,start;uint8_t bank,target;
     symbols={name:int(address,16)for name,address in re.findall(r'DEF (_\w+) 0x([0-9a-fA-F]+)',(out/'check.noi').read_text())};rom=(out/'check.gbc').read_bytes()
     start=symbols['_gbc_video_strip_pair'];end=symbols['_gbc_video_strip_pair_end'];assert start>>16==end>>16==6
     offset=6*16384+(start&65535)-0x4000;code=rom[offset:offset+(end-start)]
-    window=bytes.fromhex('f0 41 e6 02 20 fa 3c e0 4f f1 77 af e0 4f f1 77')
-    preload=bytes.fromhex('1a 13 f5 0a 03 f5')
-    assert code.count(preload+window)==64,'Both source bytes must precede each fresh STAT test and bounded pair write'
-    safe_window_cycles=sum((12,8,8,4,12,12,8,4,12,12,8));assert safe_window_cycles==100<160
+    window=bytes.fromhex('f0 41 e6 02 20 fa 3c e0 4f 0a 77 af e0 4f 1a 77 03 13')
+    assert code.count(window)==64,'All pairs must use the exact bounded direct-load write sequence'
+    safe_window_cycles=sum((12,8,8,4,12,8,8,4,12,8,8));assert safe_window_cycles==92<160
     emulator=PyBoy(str(out/'check.gbc'),window='null',sound_emulated=False,cgb=True);emulator.set_emulation_speed(0);active=[];returns=set();timing={'pair':[],'baseline':[]}
     def completed(key):
         if not active or active[-1]['key']!=key or active[-1]['sp']+2!=emulator.register_file.SP:return

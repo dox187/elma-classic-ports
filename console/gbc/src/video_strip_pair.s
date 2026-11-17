@@ -2,28 +2,24 @@
 ; Near bank 6, ABI0 x2,y3,vertical4,count5,tiles6,attrs8; count 1..32.
 ; Enters/returns IRQ enabled, ends with VBK=0. Count 0 changes only VBK to 0.
 ; A table selects an unrolled entry to avoid per-cell count spills.
-; Final STAT sample through both writes is 100 fast T-cycles, less than mode 2's 160 T-cycles.
+; Final STAT read through both writes is 92 fast T-cycles, less than mode 2's 160 T-cycles.
 .module video_strip_pair
 .area _CODE_6
 .macro pair_bytes
- ld a,(de)
- inc de
- push af
- ld a,(bc)
- inc bc
- push af
 1$:
  ldh a,(#0x41)
  and a,#2
  jr nz,1$
  inc a
  ldh (#0x4f),a
- pop af
+ ld a,(bc)
  ld (hl),a
  xor a
  ldh (#0x4f),a
- pop af
+ ld a,(de)
  ld (hl),a
+ inc bc
+ inc de
 .endm
 .macro pair_horizontal_advance
  ld a,l

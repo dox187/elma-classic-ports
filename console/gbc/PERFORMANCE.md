@@ -698,6 +698,33 @@ Evidence: `build/v091-prepare-dispatch` (both variants, native/captured checks,
 private hash-exact relink and full-corpus comparison) and
 `build/v091-dispatch-gameplay-8m`.
 
+## 25: remove paired VRAM-copy stack traffic — retained
+
+Read the attribute and tile bytes directly through BC/DE inside the existing
+fresh-STAT write window; advance both pointers after the final write. Remove
+two push/pop pairs per cell. Every caller supplies stable ROM/WRAM data, and
+the accepted LCD modes, attribute-before-tile order, wrap logic and interrupt
+handling remain unchanged. Fixed work saves 56 cycles/cell and bank6 shrinks
+256 bytes with no static RAM increase.
+
+The strict linked-instruction assertion proves 92 fast T-cycles from the start
+of the final STAT read through both writes, down from 100 and below the
+following mode2 minimum of 160. The expanded native fixture passes 2,486 cases
+plus 32 interrupt stress calls and observes 84,064 writes: every count0–32,
+wrap start, both orientations, source-page carries, ROM/WRAM sources, all entry
+LCD modes, registers, banks and guards. The original reusable fixture and all
+3,031 independent cache views also pass. Per-strip phase differences can add
+32 cycles in isolated cases; mean and observed worst improve. Physical hardware
+has not been tested.
+
+All 216 integrated cases / 27,447 states remain exact. Misses improve
+**124 to 119**, cadence violations **117 to 112**, and wholly passing cases
+**178 to 180**, with none lost. The whole-update 30-FPS gate remains failed.
+ROM `elma-gbc-v0.91-video-8m.gbc`, SHA-256
+`0058d193c2b567ffbd9dd1d973fbbb836f927be2adfa6c75c6048e450c2821f6`.
+Evidence: `build/v091-strip-pair`, `build/v091-video-native` and
+`build/v091-video-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -712,13 +739,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-dispatch-8m.gbc --gen build/gen-8m --out build/v091-dispatch-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-video-8m.gbc --gen build/gen-8m --out build/v091-video-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 124**; wholly passing cases improve **72 to
-178 of 216** after the preparation dispatcher change. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 119**; wholly passing cases improve **72 to
+180 of 216** after the paired VRAM-copy change. This is still a failed 30-FPS gate.
 The largest physics call is 275,800 cycles, leaving too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.
