@@ -104,9 +104,18 @@ static const seg_t *segment_next_box(uint8_t bx,uint8_t by) {
  * the native iterator coordinates here; projection and merge math stay exact. */
 int16_t riding_contact_qx, riding_contact_qy;
 uint8_t riding_contacts_loop(int16_t,int16_t);
+typedef char equal_contact_merge_radius[MERGE>0?1:-1];
 uint8_t riding_contact_merge(void) {
  int16_t qx=riding_contact_qx,qy=riding_contact_qy;
 	contact_point( &Ct[0], qx, qy );
+ /* Equal normals and lengths project to the same point. Keep the final
+  * normalization: rounding does not make that operation idempotent. */
+ if(Ct[0].nx==Ct[1].nx && Ct[0].ny==Ct[1].ny && Ct[0].l==Ct[1].l) {
+  int16_t ax=qx-Ct[0].tx, ay=qy-Ct[0].ty;
+  Ct[1].tx=Ct[0].tx;Ct[1].ty=Ct[0].ty;
+  normalize(ax,ay,mul16(ax,ax)+mul16(ay,ay),&Ct[0]);
+  return 0;
+ }
 	contact_point( &Ct[1], qx, qy );
 	int16_t dx = Ct[1].tx-Ct[0].tx, dy = Ct[1].ty-Ct[0].ty;
 	if( dx < MERGE && dx > -MERGE && dy < MERGE && dy > -MERGE &&

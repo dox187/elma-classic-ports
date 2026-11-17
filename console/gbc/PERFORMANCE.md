@@ -810,6 +810,29 @@ uploads from 13,907 to 17,902 even before speculative preparation. It only model
 incoming cells, not native cycles. Do not confuse it with the pattern conflict
 graph prototype. Evidence: `build/v091-coordinate-slots/model.json`.
 
+## 29: share the projection of equal contacts — retained
+
+If both contacts have identical nx/ny/length, their projected tx/ty are also
+identical. Compute that point once and copy it to the second contact, then
+perform the original final normalization. That normalization is not assumed
+idempotent. A compile-time assertion retains the positive merge-radius proof;
+all20 contact bytes and the return count remain exact.
+
+Paired native validation passes 2,322 direct merge vectors, 7,038 frozen-C
+contact groups, 1,727 trajectory and 326 route states. Read-only real-game
+captures preserve 686 steps including clock/object results. Equal contacts
+occur in118/174 captured merges; Gravity Ride's mean merge saving is3,284
+cycles. Unequal captures add80, with a synthetic maximum addition of292.
+Footprint is +262 bank9 bytes, no static RAM and the same20-byte local frame.
+
+All216 integrated cases /27,447 states remain exact. Misses improve **106
+to98**, cadence violations **100 to93**, and passing cases remain **182**,
+with none lost. The largest physics call is269,780; complete updates still
+miss the strict deadline.
+ROM `elma-gbc-v0.91-merge-8m.gbc`, SHA-256
+`5b73b360180f1706d437ef170fa8670b030822ee3233714fb229811b4e613b06`.
+Evidence: `build/v091-equal-contacts` and `build/v091-merge-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -824,13 +847,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-pose-8m.gbc --gen build/gen-8m --out build/v091-pose-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-merge-8m.gbc --gen build/gen-8m --out build/v091-merge-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 106**; wholly passing cases improve **72 to
-182 of 216** after the head-pose/cache-loop changes. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 98**; wholly passing cases improve **72 to
+182 of 216** after sharing equal-contact projections. This is still a failed 30-FPS gate.
 Some physics calls still leave too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.
