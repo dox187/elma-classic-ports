@@ -50,6 +50,26 @@ _world_lookup_get::
  ld b,(hl)
  jp lookup_find
 
+; id@SP+2 is known absent, slot@SP+4 is unlinked. Insert at the bucket head
+; without searching the same missing ID again. Acquisition has just checked
+; absence and removed this slot's old ID; IRQs never modify this table.
+_world_lookup_insert_absent::
+ xor a,a
+ ld (#0x4000),a
+ ldhl sp,#2
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl)
+ ; Form A000 + 2*(id & 1023), retaining no source registers.
+ and a,#3
+ ld h,a
+ ld l,c
+ add hl,hl
+ ld a,h
+ or a,#0xa0
+ ld h,a
+ jr lookup_insert
+
 ; id@SP+2, slot@SP+4. Preserve no registers, leave RAM bank zero selected.
 _world_lookup_set::
  xor a,a

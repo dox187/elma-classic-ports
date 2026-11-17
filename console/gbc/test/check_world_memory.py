@@ -152,7 +152,7 @@ static void check_lookup(void) {
    if(world_lookup_get(old)!=65535)lookup_failures=1;
   }
   *(volatile uint8_t *)0x4000=1;
-  world_lookup_set(id,slot);
+  world_lookup_insert_absent(id,slot);
   if(*(volatile uint8_t *)0xaef0!=0x93)ram_restore_failures=1;
   if(world_lookup_get(id)!=slot)lookup_failures=1;
   ++lookup_checks;
@@ -171,7 +171,7 @@ static void check_collisions(void) {
  uint16_t i,id,expected;
  world_lookup_clear(0);
  /* All64 IDs share bucket1023, including ID65535; use distinct valid slots. */
- for(i=0;i<64;++i)world_lookup_set(1023U+(i<<10),i);
+ for(i=0;i<64;++i)world_lookup_insert_absent(1023U+(i<<10),i);
  for(i=0;i<64;++i) {
   id=1023U+(i<<10);
   if(world_lookup_get(id)!=i)collision_failures=1;
@@ -187,8 +187,8 @@ static void check_collisions(void) {
   if(world_lookup_get(1023U+(i<<10))!=expected)collision_failures=1;
   ++collision_checks;
  }
- for(i=0;i<64;i+=2)world_lookup_set(1023U+(i<<10),i+256U);
- world_lookup_set(65535,443);
+ for(i=0;i<64;i+=2)world_lookup_insert_absent(1023U+(i<<10),i+256U);
+ world_lookup_insert_absent(65535,443);
  for(i=0;i<64;++i) {
   id=1023U+(i<<10);expected=i==63?443U:i+((i&1)?128U:256U);
   if(world_lookup_get(id)!=expected)collision_failures=1;

@@ -1,7 +1,10 @@
 /* One aligned background pattern, directly from its MBC5 ROM bank.
  * VRAM is accessible during modes 0..2. Wait for a fresh mode 0 or mode 2
- * window with interrupts masked: the single 64-T-cycle block plus polling
- * latency fits mode 2's 160 double-speed T-cycles (and the longer mode 0).
+ * window with interrupts masked, also accepting mode 1 while polling. The
+ * 32-T-cycle polling interval cannot skip mode 2, and the conservative 76 T
+ * from a transition through the launch plus the 64-T-cycle block fits mode
+ * 2's 160 double-speed T-cycles (and the longer mode 0). A mode 1 sample is
+ * safe even at VBlank's end because the following mode 2 is still available.
  * https://gbdev.io/pandocs/CGB_Registers.html#lcd-vram-dma-transfers
  */
 #include <gb/gb.h>
@@ -43,7 +46,9 @@ void world_upload_tile(uint16_t bank,uint16_t source,uint16_t pattern) NONBANKED
             jr 003$
 001$:
             ldh a,(#0x41)
-            and a,#2
+            /* Mode 0 advances to fresh mode 2 or VBlank, including line 143.
+             * Testing only bit 1 here would wait through the entire VBlank. */
+            and a,#3
             jr z,001$
             xor a
             ldh (#0x55),a

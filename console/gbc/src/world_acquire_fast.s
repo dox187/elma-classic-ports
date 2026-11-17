@@ -151,7 +151,7 @@ acquire_upload:
  inc hl
  ld b,(hl)
  push bc
- call _world_lookup_set
+ call _world_lookup_insert_absent
  add sp,#4
  pop de
  ret
