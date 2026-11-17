@@ -858,6 +858,49 @@ ROM `elma-gbc-v0.91-torque-8m.gbc`, SHA-256
 `18676431c092322508463df5cd7c5541f422d81305afc5e1d46836a93d7a7bf4`.
 Evidence: `build/v091-torque-reaction` and `build/v091-torque-gameplay-8m`.
 
+## 31: exact wheel pushout orchestration — retained
+
+Native bank 9 assembly replaces pushout's C bookkeeping and retains the
+existing mulq14/dotq14 kernels. The signed 16-bit correction narrows before
+its positive test. A displacement shifted by eight bits leaves the position's
+low byte unchanged; update the upper three bytes with the original carries.
+On the positive branch, length plus the narrowed correction is exactly 405
+modulo 65,536. The first contact's length is written before reading the optional
+second contact, including when both pointers are equal. Layout and radius
+assertions protect those identities; HOST and PHYSICS_PUSHOUT_C retain C.
+
+All 11,361 paired native calls pass against C and an independent integer oracle,
+including 241 captures, boundary values, optional/equal contacts, guard bytes
+and ROM/RAM banks. The length identity also passes all 65,536 input values.
+Every paired call saves 224–2,076 cycles. Code shrinks by 311 bank 9 bytes with
+no static RAM; measured helper stack depth falls from 50 to 34 bytes. All
+1,727 trajectory and 326 route states remain exact. Those isolated updates
+never regress, although one full-game physics call moves by +864 cycles with
+the changed interrupt phase.
+
+On top of the torque candidate, all 216 cases / 27,447 states remain exact.
+Misses improve **84 to 82**, cadence violations **78 to 74**, with **188**
+wholly passing cases and none lost. Maximum physics cost is 266,512 cycles.
+All seven separate functional checks pass: menus, profiles/saves, finish audio,
+volt input, 54 starts, the complete 433-step Freefall and a 300-step profile.
+The starts and Freefall have zero overruns and retain source-graphics checks.
+ROM `elma-gbc-v0.91-pushout-8m.gbc`, SHA-256
+`af69add17a6a1472bc57357b76c7d9acf6da4c34fb81ee5b1791164d22f713c8`.
+Evidence: `build/v091-pushout`, `build/v091-pushout-gameplay-8m` and
+`build/v091-pushout-checks`.
+
+## 32: larger normal cache — model deferred
+
+Replay the frozen read-only normalization keys from four difficult routes
+through one-, two-, four- and eight-entry LRU models. Gravity Ride gains only
+2 hits with two entries (198 to 200 of 412); Bumpy Journey, Sink and Downhill
+gain none. Four and eight entries give Gravity Ride 209 and 214 hits, still
+none extra on the other three routes. This model excludes additional lookup,
+replacement and storage costs. Defer a larger native cache: the measured reuse
+does not justify assuming a net gain, particularly on cold calls already
+near the deadline. No production code changed for this model.
+Evidence: `build/v091-normal-cache-model/model.json`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -872,13 +915,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-torque-8m.gbc --gen build/gen-8m --out build/v091-torque-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-pushout-8m.gbc --gen build/gen-8m --out build/v091-pushout-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 84**; wholly passing cases improve **72 to
-188 of 216** after the torque reaction optimization. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 82**; wholly passing cases improve **72 to
+188 of 216** after the wheel pushout optimization. This is still a failed 30-FPS gate.
 Some physics calls still leave too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.

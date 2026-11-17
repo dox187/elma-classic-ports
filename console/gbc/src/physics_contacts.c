@@ -224,6 +224,14 @@ uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {
 
 // helyigazitas: does not let the wheel into the ground deeper than the band.
 // The other contact point gets farther by the push along its direction.
+#if defined(__SDCC) && !defined(PHYSICS_PUSHOUT_C)
+#include <stddef.h>
+typedef char pushout_layout[sizeof(circle_t)==22 && offsetof(circle_t,rx)==0 &&
+ offsetof(circle_t,ry)==4 && sizeof(contact_t)==10 && offsetof(contact_t,nx)==0 &&
+ offsetof(contact_t,ny)==2 && offsetof(contact_t,l)==4 && R_WHEEL-BAND==405?1:-1];
+void riding_pushout32(circle_t*,contact_t*,contact_t*) __sdcccall(1);
+#define pushout riding_pushout32
+#else
 static void pushout( circle_t* k, contact_t* c, contact_t* other ) {
 	int16_t push = R_WHEEL-BAND-c->l;
 	if( push <= 0 )
@@ -235,6 +243,7 @@ static void pushout( circle_t* k, contact_t* c, contact_t* other ) {
 	if( other )
 		other->l += dotq14( px, py, other->nx, other->ny );
 }
+#endif
 
 // talppontigazitas: true if the point really supports the wheel. With two
 // points, the velocity towards it is removed (with one, rolling around it

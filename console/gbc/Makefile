@@ -82,6 +82,7 @@ check: all
 	$(PYTHON) test/check_physics_torque_reaction.py --gen $(GEN)
 	$(PYTHON) test/check_physics_contact_loop.py --gen $(GEN)
 	$(PYTHON) test/check_physics_wheel.py --gen $(GEN)
+	$(PYTHON) test/check_physics_pushout.py --gen $(GEN)
 	$(PYTHON) test/check_physics_contact_sign.py
 	$(PYTHON) test/check_physics_recip.py
 	$(PYTHON) test/check_physics_shift.py
