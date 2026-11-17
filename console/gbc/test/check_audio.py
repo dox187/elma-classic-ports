@@ -14,6 +14,11 @@ import numpy as np
 from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
+# Measured with live stationary poses: 5512 T steady / 6996 T transitions;
+# inactive-bike baseline: 2488 T. The extra work is the bounded one-wheel
+# motion probe, idle contour and independent creak scheduler. Leave roughly
+# 300..600 T for IRQ alignment; reject the initial 11k/13k motion version.
+CYCLE_BUDGET = {'live_steady': 6000, 'inactive_steady': 2800, 'update': 7600, 'transition': 7600}
 
 
 def rms(data):
@@ -81,16 +86,22 @@ def main():
     pitch_error = float(np.max(np.abs(actual_hz-reference_hz)))
     assert len(periods) == 512 and pitch_error < .65, ('original pitch-curve error', pitch_error)
     assert np.all(np.diff(actual_hz) >= 0) and actual_hz.max() < engine['load_base_hz']*2
+    effect_names = {1: 'apple', 2: 'crash', 3: 'finish', 5: 'volt', 6: 'turn'}
     effect_lengths = {0: 3, **{effect: manifest['effects'][name]['duration_vblanks']
-                              for effect, name in [(1, 'apple'), (2, 'crash'), (3, 'finish')]}}
+                              for effect, name in effect_names.items()}}
     (out / 'driver.c').write_text('''#include <gb/gb.h>
 #include <gb/cgb.h>
 #include "audio.h"
+#include "runtime.h"
+#include "physics_core.h"
+gbc_bike_t gbc_bike;
+bike_t Bike;
 volatile uint8_t ready,hold,riding,gas,brake,fx=255,reset_request,half_rate;
 volatile uint16_t speed,banks_bad,irq_count;
 void service(void) BANKED;
 void vblank(void) NONBANKED { ++irq_count; }
 void main(void) NONBANKED {
+ gbc_bike.alive=1;
  cpu_fast();add_VBL(vblank);SWITCH_ROM(9);audio_init();
  if(CURRENT_BANK!=9)++banks_bad;
  ready=1;
@@ -117,7 +128,8 @@ void service(void) BANKED {
     # code generation or adding probes to its timed update path.
     (out / 'observed_audio.c').write_text('''#include "audio.c"
 const void * const audio_state_addresses[] = {
- &effect_active,&effect_start,&effect_note,&engine_mode
+ &effect_active,&effect_start,&effect_note,&engine_mode,
+ &creak_active,&creak_start,&creak_note,&idle_phase,&idle_pitch_index,&gbc_bike.alive
 };
 ''')
     rom = out / 'check.gbc'
@@ -131,7 +143,8 @@ const void * const audio_state_addresses[] = {
     rom_bytes = rom.read_bytes()
     location = symbols['_audio_state_addresses']
     offset = (location >> 16) * 0x4000 + (location & 65535) - 0x4000
-    for index, name in enumerate(('effect_active', 'effect_start', 'effect_note', 'engine_mode')):
+    for index, name in enumerate(('effect_active', 'effect_start', 'effect_note', 'engine_mode',
+                                 'creak_active', 'creak_start', 'creak_note', 'idle_phase', 'idle_pitch_index', 'bike_alive')):
         symbols['_' + name] = int.from_bytes(rom_bytes[offset + 2 * index:offset + 2 * index + 2], 'little')
     for name in ('audio_init', 'audio_update', 'audio_effect'):
         assert symbols['_' + name] >> 16 == 3, (name, 'wrong ROM bank')
@@ -141,6 +154,7 @@ const void * const audio_state_addresses[] = {
     samples = []
     cycles = []
     engine_cycles = []
+    inactive_bike_cycles = []
     transition_cycles = []
     starts = []
     return_hooks = set()
@@ -150,18 +164,32 @@ const void * const audio_state_addresses[] = {
     apu_periods = {'wave': None, 'pulse': None}
     loaded_wave = bytearray(16)
     hook_failures = []
+    idle_phases, idle_levels, idle_pitch_indices = set(), set(), set()
 
     def returned(_):
         if starts and starts[-1][0] == p.register_file.SP - 2:
-            _, started, engine_only, transition = starts.pop()
+            _, started, engine_only, transition, alive = starts.pop()
             elapsed = p._cycles() - started
-            if get('riding') and apu_periods['wave'] != apu_periods['pulse']:
+            if get('riding') and get('engine_mode') and apu_periods['wave'] != apu_periods['pulse']:
                 hook_failures.append(('engine channels have different period registers', dict(apu_periods)))
+            if get('riding') and not get('engine_mode'):
+                phase, index = get('idle_phase'), get('idle_pitch_index')
+                level = p.memory[0xFF12] >> 4
+                expected_level = 2 if phase < 9 else 1 if phase < 17 or phase >= 19 else 0
+                percent = 95 + index
+                expected_period = 2048 - ((2048-engine['idle_period'])*100 + percent//2)//percent
+                if level != expected_level or not 1 <= index <= 9:
+                    hook_failures.append(('idle modulation outside contour', phase, index, level))
+                if apu_periods != {'wave': engine['idle_period'], 'pulse': expected_period}:
+                    hook_failures.append(('idle drift affected wrong channel', dict(apu_periods), expected_period))
+                idle_phases.add(phase)
+                idle_levels.add(level)
+                idle_pitch_indices.add(index)
             cycles.append(elapsed)
             if transition:
                 transition_cycles.append(elapsed)
             elif engine_only:
-                engine_cycles.append(elapsed)
+                (engine_cycles if alive else inactive_bike_cycles).append(elapsed)
 
     def entered(_):
         sp = p.register_file.SP
@@ -172,8 +200,9 @@ const void * const audio_state_addresses[] = {
         if pc not in return_hooks:
             p.hook_register(0, pc, returned, None)
             return_hooks.add(pc)
-        starts.append((sp, p._cycles(), bool(get('riding') and not get('effect_active')),
-                       bool(get('riding') and get('engine_mode') != bool(get('gas')))))
+        starts.append((sp, p._cycles(), bool(get('riding') and not get('effect_active') and not get('creak_active')),
+                       bool(get('riding') and get('engine_mode') != bool(get('gas'))),
+                       bool(get('bike_alive'))))
 
     p.hook_register(3, symbols['_audio_update'] & 65535, entered, None)
 
@@ -310,12 +339,13 @@ const void * const audio_state_addresses[] = {
         put('riding', 1)
         put('half_rate', 1)
         idle, idle_wave = engine_segment()
-        assert p.memory[0xFF12] == 0x30, 'idle exhaust volume'
+        assert p.memory[0xFF12] >> 4 <= 2, 'idle exhaust exceeds quieter peak'
         assert get('engine_mode') == 0
         assert len(idle) >= p.sound.sample_rate, 'idle capture shorter than one second'
         put('gas', 1)
         low, low_wave = engine_segment()
-        assert p.memory[0xFF12] == 0x80, 'loaded exhaust volume'
+        assert p.memory[0xFF12] == 0x60, 'loaded exhaust volume'
+        steady_load = dict(register_writes)
         # CGB active wave RAM reads alias the byte being played. Inspect the
         # actual DAC-off writes, then independently verify emitted PCM below.
         assert get('engine_mode') == 1 and bytes(loaded_wave) == expected_wave[1]
@@ -323,6 +353,8 @@ const void * const audio_state_addresses[] = {
         high, high_wave = engine_segment()
         put('brake', 1)
         brake, brake_wave = engine_segment()
+        assert register_writes['pulse_triggers'] == steady_load['pulse_triggers'], 'loaded exhaust retriggered on speed/brake'
+        assert register_writes['pulse_envelopes'] == steady_load['pulse_envelopes'], 'loaded envelope rewritten'
         put('gas', 0)
         put('brake', 0)
         coast, coast_wave = engine_segment()
@@ -335,8 +367,7 @@ const void * const audio_state_addresses[] = {
         assert register_writes['triggers'] == 4, ('engine retriggered without a mode change', register_writes)
         assert register_writes['levels'] == 5, ('unnecessary level writes', register_writes)
         assert register_writes['wave_bytes'] == 64, ('wave rewritten without a mode change', register_writes)
-        assert register_writes['pulse_triggers'] == 4, ('exhaust retriggered on a speed update', register_writes)
-        assert register_writes['pulse_envelopes'] == 5, ('unexpected exhaust envelope writes', register_writes)
+        assert register_writes['pulse_triggers'] > 4, 'idle volume envelope never changed'
         content_correlation = waveform_correlation(high_wave, int(periods[16000 >> 6]), 1, 0)
         assert content_correlation > .98, ('PCM does not reproduce the original cycle', content_correlation)
         idle_correlation = waveform_correlation(idle_wave, engine['idle_period'], 0, 1)
@@ -378,7 +409,7 @@ const void * const audio_state_addresses[] = {
         # source cycle, with no sweep, clipping or automatic volume decay.
         p.memory[0xFF25] = 0x11
         frames(2)
-        pulse = frames(72, engine_min_level=8)
+        pulse = frames(72, engine_min_level=6)
         p.memory[0xFF25] = 0xFF
         frames(2)
         # A narrow pulse's second FFT harmonic can win by bin alignment.
@@ -387,8 +418,8 @@ const void * const audio_state_addresses[] = {
         pulse_hz = float(p.sound.sample_rate / np.mean(np.diff(edges)))
         pulse_duty = float(np.count_nonzero(pulse[:, 0]) / len(pulse))
         assert abs(pulse_hz-2*65536/(2048-int(periods[16000 >> 6]))) < 1, pulse_hz
-        assert .12 < pulse_duty < .13 and set(np.unique(pulse[:, 0])) == {0, 8}, pulse_duty
-        report['exhaust_pulse'] = {'hz': pulse_hz, 'duty_fraction': pulse_duty, 'volume': 8}
+        assert .12 < pulse_duty < .13 and set(np.unique(pulse[:, 0])) == {0, 6}, pulse_duty
+        report['exhaust_pulse'] = {'hz': pulse_hz, 'duty_fraction': pulse_duty, 'volume': 6}
         # Observe low/mid/high speed bins and the entire argument boundary.
         # The reference uses original radians/model-second, not LUT indices.
         for speed in (0, 63, 64, 255, 1024, 4096, 8192, 16781, 32767, 32768, 65535):
@@ -429,7 +460,9 @@ const void * const audio_state_addresses[] = {
         put('half_rate', 1)
         for mode in (1, 0) * 12:
             put('gas', mode)
-            frames(2, engine_min_level=3)
+            # A request written at the emulator frame boundary can arrive
+            # after the 30 Hz caller has sampled it; allow its next return.
+            frames(3, engine_min_level=3)
             assert get('engine_mode') == mode
             assert bytes(loaded_wave) == expected_wave[mode]
         assert register_writes['triggers']-before['triggers'] == 24
@@ -466,7 +499,7 @@ const void * const audio_state_addresses[] = {
                     write_wav('effect-%d.wav' % effect, data)
                     effect_pcm[effect] = data
                 if effect >= 2:
-                    name = 'crash' if effect == 2 else 'finish'
+                    name = effect_names[effect]
                     for index, step in enumerate(manifest['effects'][name]['windows']):
                         if step['volume'] >= 2 and duration - index * 4 >= 3:
                             assert stable_steps.get(index, 0) >= 1, ('silent noise control point',
@@ -475,6 +508,32 @@ const void * const audio_state_addresses[] = {
                 silent()
                 assert not (p.memory[0xFF26] & 0x0F), ('effect stuck', effect, half_rate)
                 lengths['%d-%dhz' % (effect, 30 if half_rate else 60)] = age
+        # Creak owns an independent CH2 scheduler while riding. Isolate its
+        # native PCM to verify the whole contour at both service rates.
+        creak_duration = manifest['effects']['creak']['duration_vblanks']
+        for half_rate in (0, 1):
+            put('half_rate', half_rate)
+            put('riding', 1)
+            frames(2)
+            p.memory[0xFF25] = 0x22
+            put('fx', 4)
+            capture = [frames(1)]
+            assert get('creak_active') and p.memory[0xFF26] & 2, 'creak did not start on CH2'
+            while get('creak_active'):
+                capture.append(frames(1))
+                assert len(capture) < creak_duration + 4, 'creak never stopped'
+            age = (get('sys_time', 2) - get('creak_start', 2)) & 65535
+            assert creak_duration <= age <= creak_duration + half_rate, ('wrong creak duration', age)
+            data = np.concatenate(capture)
+            assert audible(data), ('inaudible creak', half_rate)
+            assert not (p.memory[0xFF26] & 2), 'creak stuck on CH2'
+            lengths['4-%dhz' % (30 if half_rate else 60)] = age
+            if not half_rate:
+                write_wav('effect-4.wav', data)
+                effect_pcm[4] = data
+            p.memory[0xFF25] = 0xFF
+            put('riding', 0)
+            silent()
         put('half_rate', 0)
         report['effect_durations_vblanks'] = lengths
         report['noise_step_pcm_peak_to_peak'] = noise_activity
@@ -485,16 +544,17 @@ const void * const audio_state_addresses[] = {
         relative = {}
         for name, data in [('idle', idle), ('gas_idle', low), ('gas_fast', high),
                            ('menu', reference), ('apple', effect_pcm[1]),
-                           ('crash', effect_pcm[2]), ('finish', effect_pcm[3])]:
+                           ('crash', effect_pcm[2]), ('finish', effect_pcm[3]),
+                           ('creak', effect_pcm[4]), ('volt', effect_pcm[5]), ('turn', effect_pcm[6])]:
             filtered = cgb_hpf_rms(data, p.sound.sample_rate)
             relative[name] = {'pcm_rms': round(rms(data), 4), 'cgb_hpf_proxy_rms': round(filtered, 4),
                               'cgb_hpf_proxy_db_vs_menu': round(20 * math.log10(filtered / hpf_reference), 2)}
         # Guard the corrected mix with one common gain. Never normalize
         # individual clips, which would hide the hardware volume regression.
-        # The exhaust layer is roughly half 0.83's volume; CH3 stays intact.
-        assert relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'] > -8, relative
-        assert relative['gas_fast']['cgb_hpf_proxy_db_vs_menu'] > -6, relative
-        assert -13 < relative['idle']['cgb_hpf_proxy_db_vs_menu'] < relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'], relative
+        # CH1 load is 25% below 0.91, idle is stepped 0..2; CH3 stays intact.
+        assert relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'] > -11, relative
+        assert relative['gas_fast']['cgb_hpf_proxy_db_vs_menu'] > -9, relative
+        assert -19 < relative['idle']['cgb_hpf_proxy_db_vs_menu'] < relative['gas_idle']['cgb_hpf_proxy_db_vs_menu'], relative
         # The old crash measured about -17.7 dB over this whole capture;
         # require at least roughly 6 dB improvement, beyond gain alone.
         assert relative['crash']['cgb_hpf_proxy_db_vs_menu'] > -12, relative
@@ -562,20 +622,33 @@ const void * const audio_state_addresses[] = {
         frames(effect_lengths[1] + 2)
         silent()
         assert not (p.memory[0xFF26] & 0x0F), 'wrapped effect stuck'
+        # Keep the no-motion baseline distinct from real riding, whose
+        # bounded pose observation must also fit the gameplay CPU budget.
+        put('bike_alive', 0)
+        put('riding', 1)
+        for gas in (0, 1):
+            put('gas', gas)
+            frames(74, engine_min_level=3)
+        put('riding', 0)
+        silent()
         assert get('banks_bad', 2) == 0, 'bank not restored'
         assert get('irq_count', 2) > 100, 'VBlank IRQs disabled'
         assert p.memory[0xFFFF] & 1 and not (p.memory[0xFF07] & 4), 'IRQ/timer changed'
-        assert cycles and max(cycles) <= 4200, ('audio update budget', max(cycles))
-        assert engine_cycles and max(engine_cycles) <= 1600, ('steady engine budget', max(engine_cycles))
-        assert transition_cycles and max(transition_cycles) <= 4200, ('throttle transition budget', max(transition_cycles))
+        assert idle_phases == set(range(21)) and idle_levels == {0, 1, 2}, 'idle contour incomplete'
+        assert len(idle_pitch_indices) > 1, 'idle pitch never varied'
+        report['idle_modulation'] = {'phases_seen': sorted(idle_phases), 'volumes_seen': sorted(idle_levels),
+                                     'pitch_indices_seen': sorted(idle_pitch_indices), 'wave_pitch_preserved': True}
         assert bytes(p.memory[0xFF30:0xFF40]) == expected_wave[1], 'effects corrupted wave RAM'
         report.update(bank_restore_failures=get('banks_bad', 2),
+                      cycle_budget_t=CYCLE_BUDGET,
                       vblank_irqs=get('irq_count', 2), stereo_verified=True,
                       pause_resume_verified=True, skipped_updates_verified=True,
                       wrap_verified=True, watchdog_verified=True,
                       watchdog_stop_vblanks=stopped_after,
                       engine_only_cycles={'min': min(engine_cycles), 'max': max(engine_cycles),
                                           'mean': round(sum(engine_cycles) / len(engine_cycles), 1)},
+                      inactive_bike_cycles={'min': min(inactive_bike_cycles), 'max': max(inactive_bike_cycles),
+                                            'mean': round(sum(inactive_bike_cycles) / len(inactive_bike_cycles), 1)},
                       transition_cycles={'min': min(transition_cycles), 'max': max(transition_cycles),
                                          'mean': round(sum(transition_cycles) / len(transition_cycles), 1)},
                       update_cycles={'min': min(cycles), 'max': max(cycles),
@@ -583,6 +656,10 @@ const void * const audio_state_addresses[] = {
         write_wav('preview.wav', np.concatenate(samples))
         (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report, indent=2))
+        assert cycles and max(cycles) <= CYCLE_BUDGET['update'], ('audio update budget', max(cycles))
+        assert engine_cycles and max(engine_cycles) <= CYCLE_BUDGET['live_steady'], ('steady engine budget', max(engine_cycles))
+        assert inactive_bike_cycles and max(inactive_bike_cycles) <= CYCLE_BUDGET['inactive_steady'], ('inactive bike budget', max(inactive_bike_cycles))
+        assert transition_cycles and max(transition_cycles) <= CYCLE_BUDGET['transition'], ('throttle transition budget', max(transition_cycles))
     finally:
         p.stop(save=False)
 

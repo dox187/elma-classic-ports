@@ -1,8 +1,8 @@
 # Elasto Mania for Game Boy Color
 
-Last completed version: **0.90 — intermediate playable prototype**.
-Development version: **0.91**, recorded in [`VERSION`](VERSION), targets stable
-30 FPS without changing the current physics results or adding input latency.
+Current version: **0.92 — riding audio update**, recorded in [`VERSION`](VERSION),
+adds riding audio to the preserved 0.91 performance work. Stable 30 FPS remains a target
+without changing the current physics results or adding input latency.
 Active development now targets the **8 MiB ROM only**. Work on the 4 MiB
 compressed variant stopped on 2026-11-17; its existing releases and experiments
 are retained for reference.
@@ -20,16 +20,49 @@ Freefall, menus, save profiles, volt controls and finish audio. Further graphics
 optimization and physical-cartridge timing checks remain; **0.91 is not yet a
 stable 30-FPS release**.
 
+The 0.91 test1 emulator corpus averages **29.84 updates/second**, against
+the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
+slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
+cases are a test pass rate, not the game's percentage speed. Local stalls
+remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.92 audio update
+
+- Suspension creak follows inward wheel travel under compression, using the
+  original `dorzsol.wav` contour on CH2. Apples take priority over creaking.
+- Idle CH1 volume fades over approximately 285 ms and rises over 67 ms.
+- Every two or three cycles, occasionally shift its frequency by one percent;
+  reset to the original frequency when the accumulated deviation reaches five
+  percent. CH3's original engine cycle and pitch remain unchanged.
+- CH1 throttle volume is reduced from 8 to 6 (25%). Idle peaks at 2 instead
+  of 3, the closest integer hardware level to 2.25, and falls to zero.
+- Accepted left/right volts use `ugras.wav`; turning uses `fordul.wav`.
+  Both use CH4, shared with flower/finish, which takes priority.
+
+The versioned 0.91 test1 image above remains available as the performance
+baseline. The playable **[0.92 — 8 MiB ROM](build/elma-gbc-v0.92-8m.gbc)**
+uses MBC5 and 32 KiB RAM. Audio remains a native pulse/noise approximation
+of the original recordings. Physical GBC speaker balance still needs testing.
+
+Validation: all seven functional checks pass, including all 54 level starts,
+menus, saving, volt controls, finish audio and Freefall. All 27,447 physics
+states still match the baseline. The 0.92 corpus averages **29.83 updates/s**;
+74 updates exceed the deadline (0.91 test1: 55), with 192/216 cases passing
+throughout. The added audio therefore has a small measured performance cost;
+stable 30 FPS is still unfinished. Native PCM, channel priorities, idle drift,
+clock wrap and watchdog tests pass. ROM SHA-256:
+`091d004160dd86213cbcbfc88a0395499ba073ed39dbf031f724c2b8e4f6324d`.
+
 In 0.90, the rider updates on every physics step and responds
 to the body's rotation after a volt. Green scenery is slightly brighter.
 This release uses the native fixed-point riding core; the much more precise
 Q44/Q46 host experiments described below are separate research. Neither full
 PC fidelity nor stable 30 FPS on every course is claimed.
 
-The 0.84 audio balance is retained: CH1 idle volume 3 and throttle volume 8,
-with the original-derived CH3 cycles, pitch curve, effect levels and master
-gain. The two-channel engine has quieter idle, no streaming interrupt and
-finite hardware watchdogs.
+The original-derived CH3 cycles, pitch curve and master gain are retained.
+The two-channel engine has quieter, variable idle, no streaming interrupt and
+finite hardware watchdogs. Each wheel's creak detector runs every other audio
+update; volt and turn detection runs every update. This affects sound only.
 
 It includes the 0.74 splash: original logo above native CG Pixel 3x5 platform/
 version text, `UNOFFICIAL FAN MADE PORT BY DOX187`, original copyright/author,

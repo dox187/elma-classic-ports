@@ -67,6 +67,8 @@ check: all
 	$(PYTHON) test/check.py --gen $(GEN)
 	$(PYTHON) test/check_splash.py --res "$(ELMA_RES)"
 	$(PYTHON) test/check_audio.py --gen $(GEN)
+	$(PYTHON) test/check_audio_idle.py --gen $(GEN)
+	$(PYTHON) test/check_riding_audio.py --gen $(GEN)
 	$(PYTHON) test/check_riding_math.py
 	$(PYTHON) test/check_riding_mul9.py
 	$(PYTHON) test/check_riding_division.py

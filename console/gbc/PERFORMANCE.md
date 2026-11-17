@@ -1101,6 +1101,44 @@ Evidence: `build/v091-mulq-wide`, `build/v091-test1-gameplay-8m`,
 `build/v091-test1-checks`, `build/v091-test1-extended-cache` and
 `build/v091-test1-overflow.json`.
 
+## 40: 0.92 riding audio — bounded added cost
+
+Retain 0.91 test1 as the performance baseline. Version 0.92 adds source-derived
+creak/volt/turn effects, a 17-down/4-up VBlank CH1 idle envelope and bounded
+pitch walk, and reduces CH1 load volume from 8 to 6 (idle peak 3 to 2).
+CH3 source cycles/pitch and all native physics results remain unchanged.
+
+The first two-wheel projection implementation regressed the full corpus from
+55 to 142 deadline misses and 196 to 174 passing cases. Preserve its evidence
+in `build/v092-gameplay-8m-initial` and `build/v092-checks-initial`; do not reuse
+that implementation. Quantize relative positions before projection, alternate
+wheel observations, use small-coefficient shift/add products and cardinal
+shortcuts, and skip inaudible compression checks during higher-priority audio.
+Volt and turn observation still runs on every audio update. Idle phase/pitch
+advancement uses elapsed VBlanks with bounded work, no interrupt or catch-up
+loop. Mute CH1's DAC before changing its software volume to avoid transient
+envelope artifacts on active hardware.
+
+Final 216 cases / 27,447 native states match the original reference exactly.
+There are **74 active misses, 68 cadence violations and 192 passing cases**;
+average cadence is **29.8265 updates/s** versus test1's 29.8369. This is a
+documented audio cost, not a completed stable-30-FPS release. All seven
+functional checks pass, including 54 starts with no reported overrun.
+
+The idle helper passes 10,797 assertions at 268–736 T. Native PCM tests measure
+5,512 T maximum steady live audio, 2,488 T inactive, and 6,996 T transitions.
+The separate 32-orientation/compression fixture reaches 9,336 T; its 10,000 T
+ceiling rejects the initial implementation. PCM tests cover all seven effects,
+channel priorities, 30/60 Hz service, bank/IRQ restoration, CH3 waveform
+correlation, idle drift and the 15-VBlank hardware watchdog. Actual cartridge
+timing and speaker balance still require hardware testing. ROM0 retains its
+66 free bytes; no physics/control loop changes are involved.
+
+ROM: `build/elma-gbc-v0.92-8m.gbc`, 8,388,608 bytes, SHA-256
+`091d004160dd86213cbcbfc88a0395499ba073ed39dbf031f724c2b8e4f6324d`.
+Evidence: `build/v092-gameplay-8m`, `build/v092-checks`,
+`build/v092-audio-check`, `build/v092-effects/test`, `build/audio-idle-check`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step

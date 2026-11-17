@@ -140,7 +140,10 @@ def effect_contour(samples, noise, max_volume):
         part -= part.mean()
         spectrum = np.abs(np.fft.rfft(part * np.hanning(len(part)))) ** 2
         frequencies = np.fft.rfftfreq(len(part), 1 / MIX_RATE)
-        peak = int(np.argmax(spectrum[1:]) + 1)
+        # CH2 cannot represent fundamentals below 64 Hz. Select the strongest
+        # representable source component instead of clamping sub-bass rumble.
+        first = 1 if noise else int(np.searchsorted(frequencies, 64))
+        peak = int(np.argmax(spectrum[first:]) + first)
         centroid = float((spectrum * frequencies).sum() / max(1, spectrum.sum()))
         windows.append({'rms': float(np.sqrt(np.mean(part * part))),
                         'peak_hz': float(frequencies[peak]), 'centroid_hz': centroid,
@@ -171,7 +174,7 @@ def effect_contour(samples, noise, max_volume):
                    'channel': 4 if noise else 2,
                    **({'noise_startup_max_vblanks': 1} if noise else {}),
                    'method': 'RMS envelope and spectral centroid mapped to 15-bit noise' if noise else
-                             'RMS envelope, dominant frequency and second-harmonic duty mapped to pulse',
+                             'RMS envelope, strongest representable source frequency (>=64 Hz) and second-harmonic duty mapped to pulse',
                    'windows': [{key: round(value, 4) if isinstance(value, float) else value
                                 for key, value in window.items()} for window in windows]}
 
@@ -241,7 +244,10 @@ def generate(res_path, out, constants=None):
     effects = {}
     for label, name, noise, volume in [('apple', 'eves.wav', False, 10),
                                        ('crash', 'torik.wav', True, 15),
-                                       ('finish', 'siker.wav', True, 15)]:
+                                       ('finish', 'siker.wav', True, 15),
+                                       ('creak', 'dorzsol.wav', False, 8),
+                                       ('volt', 'ugras.wav', True, 12),
+                                       ('turn', 'fordul.wav', True, 10)]:
         samples, metadata = read_wave(resource, name)
         steps, details = effect_contour(samples, noise, volume)
         effects[label] = {'source': name} | metadata | details
@@ -254,7 +260,8 @@ def generate(res_path, out, constants=None):
         'source_res_sha256': hashlib.sha256(res_path.read_bytes()).hexdigest(),
         'source_logic': ['src/H_WAV.CPP: wav::wav and wav::loopol',
                          'desktop/F_SDL/SDL_HHIGH.CPP: I1..I5, Mix and starthanghigh',
-                         'src/LEJATSZO.CPP: driven-wheel frequency 2-exp(-abs(omega)*0.025)',
+                         'src/LEJATSZO.CPP: driven-wheel frequency 2-exp(-abs(omega)*0.025), WAV_UGRAS1/2 and WAV_FORDULAS',
+                         'src/LEPTET.CPP: surlodasverseny positive compression displacement and velocity',
                          'console/gbc/src/physics_core.h: PH_WS angular-velocity units',
                          'desktop/F_SDL/SDL_SOUND.CPP: fixed 11025 Hz mixer'],
         'mixer_note': 'The original loader ignores WAV header rate; all samples use the 11025 Hz mixer.',
@@ -267,12 +274,17 @@ def generate(res_path, out, constants=None):
                    'idle_hz': idle_hz, 'idle_period': idle_period, 'load_base_hz': load_hz,
                    'curve': curve,
                    'pulse_layer': {'channel': 1, 'duty_percent': 12.5,
-                                   'idle_volume': 3, 'load_volume': 8,
+                                   'idle_volume': [0, 2], 'load_volume': 6,
                                    'frequency_ratio_to_wave': 2,
                                    'method': 'Native exhaust reinforcement; unchanged CH3 source cycles, '
-                                             'shared period register, no steady-state pulse retriggers.'},
+                                             'idle CH1 envelope breathes over 21 VBlanks and pitch walks by 1% every 2-3 cycles, '
+                                             'resetting at +/-5%; CH3 retains its source period.'},
                    'wave_switch': 'Only at throttle-mode changes, with CH3 DAC off; no active wave RAM writes.'},
         'effects': effects,
+        'suspension_trigger': 'Read-only 32-direction Q4 projection of exported wheel/body separation; '
+                              'each wheel sampled on alternate updates (15 Hz at the standard game cadence); '
+                              'positive compression and inward travel, with 1/32 m travel deadband; '
+                              'dorzsol.wav on CH2 below apple priority, no retrigger while active.',
         'limitations': ['Representative periodic engine cycles cannot reproduce the complete changing recordings or their start/rev transition.',
                        'The CH1 exhaust pulse improves speaker audibility but adds a synthesized timbre to the original-derived CH3 cycles.',
                        'Native pulse/noise effect contours are approximations, not the original PCM.',
