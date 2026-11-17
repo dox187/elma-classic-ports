@@ -96,7 +96,7 @@ def main():
 #include "physics_core.h"
 gbc_bike_t gbc_bike;
 bike_t Bike;
-uint8_t riding_audio_contact[2]={1,1};
+uint8_t riding_audio_contact[2]={1,1}, riding_audio_impact[2];
 volatile uint8_t ready,hold,riding,gas,brake,fx=255,reset_request,half_rate;
 volatile uint16_t speed,banks_bad,irq_count;
 void service(void) BANKED;

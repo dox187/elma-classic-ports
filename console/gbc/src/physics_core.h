@@ -68,7 +68,7 @@ typedef struct {
 
 extern bike_t Bike;
 /* Read-only audio observation of the most recent wheel contact query. */
-extern uint8_t riding_audio_contact[2];
+extern uint8_t riding_audio_contact[2], riding_audio_impact[2];
 uint8_t riding_touches(int32_t cx,int32_t cy,int16_t rad) PH_BANKED;
 // Continuous head path in local u coordinates (1m=1024), before world rebasing.
 uint8_t riding_swept_head(int32_t old_x,int32_t old_y,int32_t x,int32_t y) PH_BANKED;

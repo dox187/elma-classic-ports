@@ -1164,6 +1164,39 @@ ROM SHA-256: `92243b18d66a5471d054377f98e164fef91e7130b3d66e0a6e470d6f3c328aec`.
 Evidence: `build/v092-creakfix-effects`, `build/v092-creakfix-audio`,
 `build/v092-creakfix-checks`, `build/v092-creakfix-gameplay`.
 
+## 42: 0.92 collision-driven creak instead of suspension proxy
+
+Further hardware feedback: grounded throttle/weight transfer still crossed the
+compression threshold. Remove that detector entirely. The existing collision
+solver now reports a new supported wheel contact only when incoming velocity
+along a contact normal is below -2 model m/s, before the response changes it.
+Tangential speed and spring compression do not count. Two event bytes are
+separate from native Bike state. Audio observes each completed physics step
+once; repeated service calls cannot replay the event. Takeoff still mutes the
+creak, and gas does not suppress a real landing sound.
+
+Remove the two-wheel pose history, projections and hysteresis. Normal velocity
+is evaluated only at new supported contacts, using the existing exact dot
+product. All 216 cases / 27,447 native states match the reference; 77 active
+misses / 77 cadence violations / 189 passing cases, average 29.8216 updates/s.
+All seven functional checks and 54 starts pass. Native PCM regression passes
+with maximum observed audio service cost 4,296 T in its fixture. Stable 30 FPS
+and physical-speaker verification remain outstanding.
+
+The production-physics synthetic-floor regression matches 240 native/host
+steps. After 120 settling steps, 60 gas steps travel 2.5873 m with zero impact
+events, zero creaks and zero isolated CH2 PCM. A one-meter drop with gas held
+produces impacts at steps 28 and 34 and audible CH2 PCM (peak-to-peak 12).
+The event-consumer fixture rejects arbitrary grounded compression in all 32
+orientations, consumes each step once (including wrap), and preserves volt,
+turn, priority and pause behavior; its maximum audio service is 5,860 T.
+
+The previous 0.92 file is replaced in place, keeping the version. ROM SHA-256:
+`03bad0ac2d625603b03b40cf509e333f33411da2feadfa63ff47af20bdb5fb96`.
+Evidence: `build/v092-impactfix-gameplay`, `build/v092-impactfix-checks`,
+`build/v092-impactfix-audio`, `build/impact-audio-check`,
+`build/riding-audio-check`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step

@@ -28,11 +28,11 @@ remain; these short routes do not establish full-course or cartridge timing.
 
 ## 0.92 audio update
 
-- Suspension creak requires actual wheel contact and substantial inward
-  compression, using the original `dorzsol.wav` contour on CH2. Small spring
-  movements and airborne oscillation stay silent; both wheels leaving ground
-  stops the creak. A new sound requires suspension release first. Apples take
-  priority over creaking. This correction stays in version 0.92.
+- Suspension creak requires a new supported wheel collision and sufficient
+  incoming speed into the terrain. Acceleration, weight transfer and spring
+  compression alone do not trigger it. The original `dorzsol.wav` contour
+  plays once on CH2; takeoff mutes it and apples take priority. This correction
+  stays in version 0.92.
 - Idle CH1 volume fades over approximately 285 ms and rises over 67 ms.
 - Every two or three cycles, occasionally shift its frequency by one percent;
   reset to the original frequency when the accumulated deviation reaches five
@@ -50,11 +50,11 @@ of the original recordings. Physical GBC speaker balance still needs testing.
 Validation: all seven functional checks pass, including all 54 level starts,
 menus, saving, volt controls, finish audio and Freefall. All 27,447 physics
 states still match the baseline. The corrected 0.92 averages **29.82 updates/s**;
-82 updates exceed the deadline (0.91 test1: 55), with 188/216 cases passing
+77 updates exceed the deadline (0.91 test1: 55), with 189/216 cases passing
 throughout. The added audio therefore has a small measured performance cost;
 stable 30 FPS is still unfinished. Native PCM, channel priorities, idle drift,
 clock wrap and watchdog tests pass. ROM SHA-256:
-`92243b18d66a5471d054377f98e164fef91e7130b3d66e0a6e470d6f3c328aec`.
+`03bad0ac2d625603b03b40cf509e333f33411da2feadfa63ff47af20bdb5fb96`.
 
 In 0.90, the rider updates on every physics step and responds
 to the body's rotation after a volt. Green scenery is slightly brighter.
@@ -64,8 +64,9 @@ PC fidelity nor stable 30 FPS on every course is claimed.
 
 The original-derived CH3 cycles, pitch curve and master gain are retained.
 The two-channel engine has quieter, variable idle, no streaming interrupt and
-finite hardware watchdogs. Each wheel's creak detector runs every other audio
-update; volt and turn detection runs every update. This affects sound only.
+finite hardware watchdogs. Collision sounds consume a reported impact once
+per physics step; no extra terrain query or pose projection is used. This
+affects sound only.
 
 It includes the 0.74 splash: original logo above native CG Pixel 3x5 platform/
 version text, `UNOFFICIAL FAN MADE PORT BY DOX187`, original copyright/author,

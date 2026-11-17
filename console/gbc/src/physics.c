@@ -41,6 +41,7 @@ void physics_reset(int32_t x,int32_t y) GBC_BANKED {
     if(physics_level_index==255)physics_collision_select(0);
     physics_collision_reset();
     riding_audio_contact[0]=riding_audio_contact[1]=0;
+    riding_audio_impact[0]=riding_audio_impact[1]=0;
     ph_init((x-physics_level_origin_x)*4L,(y-physics_level_origin_y)*4L);
     gbc_bike.alive=1;export_state();
 }

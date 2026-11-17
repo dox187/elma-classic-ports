@@ -1,6 +1,6 @@
-"""Native APU regression for source-derived suspension, volt and turn effects.
+"""Native APU regression for source-derived impact, volt and turn effects.
 
-The fixture supplies exported poses and native volt counters, without running
+The fixture supplies physical-step impact events, poses and volt counters, without running
 or altering physics. It verifies detection, channel ownership, priorities,
 clock wrap, actual PCM, bank restoration and the bounded motion update cost.
 """
@@ -41,8 +41,8 @@ def main():
 #include "physics_core.h"
 gbc_bike_t gbc_bike;
 bike_t Bike;
-uint8_t riding_audio_contact[2]={1,1};
-volatile uint8_t ready,fx=255,reset_request,riding=1,hold,half_rate=1,native_size=sizeof(Bike);
+uint8_t riding_audio_contact[2]={1,1},riding_audio_impact[2];
+volatile uint8_t ready,fx=255,reset_request,riding=1,hold,half_rate=1,gas,native_size=sizeof(Bike);
 volatile uint16_t banks_bad,irq_count;
 void vblank(void) NONBANKED { ++irq_count; }
 void service(void) BANKED;
@@ -59,18 +59,18 @@ void main(void) NONBANKED {
     (out/'caller.c').write_text('''#pragma bank 5
 #include <gb/gb.h>
 #include "audio.h"
-extern volatile uint8_t fx,riding,half_rate;
+extern volatile uint8_t fx,riding,half_rate,gas;
 extern volatile uint16_t banks_bad;
 void service(void) BANKED {
  if(fx!=255) { audio_effect(fx);fx=255; }
- if(!half_rate || !(sys_time&1))audio_update(riding,0,0,0);
+ if(!half_rate || !(sys_time&1))audio_update(riding,gas,0,0);
  if(CURRENT_BANK!=5)++banks_bad;
 }
 ''')
     (out/'observed_audio.c').write_text('''#include "audio.c"
 const void * const observed[] = {
  &effect_active,&effect_start,&effect_id,&creak_active,&creak_start,
- &motion_valid,&Bike.volt[0],&Bike.volt[1]
+ &motion_valid,&Bike.volt[0],&Bike.volt[1],&Bike.steps
 };
 ''')
     rom=out/'check.gbc'
@@ -83,7 +83,7 @@ const void * const observed[] = {
     data=rom.read_bytes()
     address=symbols['_observed'];offset=(address>>16)*16384+(address&65535)-16384
     for i,name in enumerate(('effect_active','effect_start','effect_id','creak_active','creak_start',
-                             'motion_valid','volt0','volt1')):
+                             'motion_valid','volt0','volt1','steps')):
         symbols['_'+name]=int.from_bytes(data[offset+2*i:offset+2*i+2],'little')
     p=PyBoy(str(rom),window='null',sound_emulated=True,sound_sample_rate=48000,cgb=True)
     p.set_emulation_speed(0)
@@ -128,7 +128,9 @@ const void * const observed[] = {
             location=address+10+10*i
             p.memory[location:location+8]=list(int(x*65536).to_bytes(4,'little',signed=True)+int(y*65536).to_bytes(4,'little',signed=True))
     def reset(angle=0):
-        put('reset_request',1);put('volt0',0);put('volt1',0);put('riding',1)
+        put('reset_request',1);put('volt0',0);put('volt1',0);put('riding',1);put('gas',0)
+        p.memory[symbols['_riding_audio_contact']:symbols['_riding_audio_contact']+2]=[1,1]
+        p.memory[symbols['_riding_audio_impact']:symbols['_riding_audio_impact']+2]=[0,0]
         pose(angle);frames(4)
         assert get('motion_valid') and not get('creak_active')
     report={}
@@ -137,60 +139,52 @@ const void * const observed[] = {
             frames(1)
             if get('ready'):break
         assert get('ready')
+        contact=symbols['_riding_audio_contact']
+        impact=symbols['_riding_audio_impact']
+        def physical_step(events=(0,0)):
+            p.memory[impact:impact+2]=list(events)
+            put('steps',(get('steps')+1)&255)
         for angle in range(0,65536,2048):
             reset(angle)
-            frames(24)
-            assert not get('creak_active'),'stationary wheels creaked'
-            pose(angle,-.2);frames(4)
-            assert not get('creak_active'),'extending suspension creaked'
-            pose(angle,.2);pcm=frames(4)
-            assert get('creak_active'),'compression failed to creak'
-            assert p.memory[0xff26]&7==7,'creak did not coexist with engine'
-            onset=get('creak_start',2)
-            pose(angle,.3);frames(4)
-            assert get('creak_start',2)==onset,'continued compression restarted creak'
-            frames(44)
-            assert not get('creak_active'),'stationary compressed wheel restarted creak'
-        report['compression_orientations_degrees']=list(np.arange(0,360,11.25))
-        contact=symbols['_riding_audio_contact']
-        reset()
-        for depth in (0.03,0.07,0.02,0.09,0.01)*5:
-            pose(compression=depth);frames(4)
-            assert not get('creak_active'),'small grounded spring motion creaked'
-        reset()
-        p.memory[contact:contact+2]=[0,0]
-        for depth in (0.3,0.0,0.4,0.05)*8:
-            pose(compression=depth);frames(4)
-            assert not get('creak_active'),'airborne suspension creaked'
-        pose();frames(4)
-        p.memory[contact:contact+2]=[1,1]
-        pose(compression=.3);frames(4)
-        assert get('creak_active'),'landing compression missed'
-        onset=get('creak_start',2)
-        frames(44)
-        for depth in (.22,.34,.2,.35)*5:
-            pose(compression=depth);frames(4)
-            assert not get('creak_active'),'compressed suspension retriggered without release'
-            assert get('creak_start',2)==onset
-        pose();frames(4);pose(compression=.3);frames(4)
-        assert get('creak_active'),'new impact after release missed'
-        p.memory[contact:contact+2]=[0,0];frames(2)
-        assert not get('creak_active'),'creak continued after leaving ground'
-        p.memory[contact:contact+2]=[1,1]
-        report['airborne_small_motion_and_hysteresis_verified']=True
-
+            for depth in (-.2,.2,.6,-.5,1.5,0,.3)*2:
+                pose(angle,depth);physical_step();frames(4)
+                assert not get('creak_active'),'grounded compression alone creaked'
+        report['silent_compression_orientations_degrees']=list(np.arange(0,360,11.25))
         for wheel in (0,1):
-            reset()
-            pose(compression=(.2,0) if wheel==0 else (0,.2))
-            frames(4)
-            assert get('creak_active'),('one wheel compression missed',wheel)
-        # Quantized relative coordinates must cross their modular boundary
-        # without inventing compression from a rigid translation.
+            for gas in (0,1):
+                reset();put('gas',gas)
+                physical_step((1,0) if wheel==0 else (0,1));frames(2)
+                assert get('creak_active'),('impact missed',wheel,gas)
+                assert p.memory[0xff26]&7==7,'impact did not coexist with engine'
+                onset=get('creak_start',2)
+                frames(48)
+                assert not get('creak_active'),'held impact retriggered without a physical step'
+                assert get('creak_start',2)==onset
+                physical_step();frames(2)
+                physical_step((1,0) if wheel==0 else (0,1));frames(2)
+                assert get('creak_active'),'later physical impact missed'
+                assert get('creak_start',2)!=onset
+        reset();physical_step((1,1));frames(2)
+        p.memory[contact:contact+2]=[0,0];physical_step();frames(2)
+        assert not get('creak_active'),'creak continued after leaving ground'
+        for depth in (.3,0,.4,.05)*8:
+            pose(compression=depth);physical_step();frames(4)
+            assert not get('creak_active'),'airborne suspension creaked'
+        p.memory[contact:contact+2]=[1,1]
+        # Steps wrap every 256 physics calls and must still consume one event.
+        reset();put('steps',255);frames(2);physical_step((1,0));frames(2)
+        assert get('creak_active'),'impact missed across physical-step wrap'
+        frames(48)
+        assert not get('creak_active'),'wrapped impact replayed'
+        # Translation through the old quantized pose boundary stays silent.
         for origin in (127.9,128.1,-128.1,-127.9):
-            reset();pose(origin=origin);frames(8)
-            assert not get('creak_active'),'world translation creaked'
-            pose(compression=.2,origin=origin);frames(4)
-            assert get('creak_active'),'compression across position wrap missed'
+            reset()
+            for depth in (0,.2,.7,0):
+                pose(compression=depth,origin=origin);physical_step();frames(4)
+                assert not get('creak_active'),'pose translation/compression creaked'
+        report.update(grounded_compression_is_silent=True,impact_both_wheels_and_gas_verified=True,
+                      impact_consumed_once_per_physical_step=True,airborne_mute_verified=True,
+                      physical_step_wrap_verified=True)
         reset()
         # Isolate each effect in APU routing while leaving engine generators
         # live, and inspect every non-silent source window at 30 Hz servicing.
@@ -215,17 +209,17 @@ const void * const observed[] = {
             frames(4)
         p.memory[0xff25]=0xff
         reset()
-        put('volt0',7);frames(2)
+        put('volt0',7);physical_step();frames(2)
         assert get('effect_id')==5 and get('effect_active'),'left volt not detected'
         onset=get('effect_start',2)
-        put('volt0',6);frames(2)
+        put('volt0',6);physical_step();frames(2)
         assert get('effect_start',2)==onset,'volt countdown retriggered sound'
         frames(22)
-        put('volt1',7);frames(2)
+        put('volt1',7);physical_step();frames(2)
         assert get('effect_id')==5 and get('effect_active'),'right volt not detected'
         assert p.memory[0xff26]&13==13,'volt stopped engine or missed CH4'
         frames(22)
-        p.memory[symbols['_gbc_bike']+51]=1;frames(2)
+        p.memory[symbols['_gbc_bike']+51]=1;physical_step();frames(2)
         assert get('effect_id')==6 and get('effect_active'),'turn not detected'
         frames(58)
         # Lower-priority CH2 creak can coexist with CH4 volt, but an apple

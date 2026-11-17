@@ -334,11 +334,11 @@ void riding_roll32(circle_t*,const contact_t*,int32_t,int32_t,int16_t) __sdcccal
 
 // beallit for a wheel: dv is the velocity change from the forces, tq the
 // torque on it.
-uint8_t riding_audio_contact[2];
+uint8_t riding_audio_contact[2], riding_audio_impact[2];
 void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED {
 	uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
-	riding_audio_contact[k==&Bike.wheel[1]]=n;
 	uint8_t two = n == 2;
+	uint8_t wheel = k==&Bike.wheel[1];
 	if( n > 0 )
 		pushout( k, &Ct[0], two ? &Ct[1] : 0 );
 	if( two ) {
@@ -370,6 +370,16 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
 		else
 			n = 0;
 	}
+    /* Audio observes a new supported collision before its response changes
+     * velocity. Tangential speed and suspension travel do not imply impact.
+     * This event does not alter native bike state or collision decisions. */
+    riding_audio_impact[wheel]=0;
+    if(n && !riding_audio_contact[wheel]) {
+        if(riding_dotq32(k->vx,k->vy,Ct[0].nx,Ct[0].ny,14)<-(int32_t)(2.0*PH_VS)
+           || (n==2 && riding_dotq32(k->vx,k->vy,Ct[1].nx,Ct[1].ny,14)<-(int32_t)(2.0*PH_VS)))
+            riding_audio_impact[wheel]=1;
+    }
+    riding_audio_contact[wheel]=n;
 	if( n == 0 ) {
 #if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
         riding_free32(k,dvx,dvy,tq);

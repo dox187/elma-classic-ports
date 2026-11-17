@@ -21,10 +21,9 @@ static const uint8_t priority[] = {1,2,4,5,0,3,2};
 static const effect_step_t *effect_steps;
 static uint16_t effect_start;
 static uint8_t effect_id, effect_note, effect_active, effect_duration, engine_volume, engine_mode, pulse_volume;
-static uint16_t creak_start, motion_last[2];
-static uint8_t motion_wheel, compression_valid, creak_latched;
+static uint16_t creak_start;
+static uint8_t motion_step;
 static uint8_t creak_active, creak_note, motion_valid, last_turned, last_volt[2];
-static int16_t last_down[2];
 
 static uint16_t audio_now(void) {
     uint16_t now;
@@ -95,80 +94,21 @@ static void creak_tick(uint16_t now) {
     NR24_REG=0xC0|(uint8_t)(step->pitch>>8);
 }
 
-/* Original LEPTET.CPP surlodasverseny requires both spring compression
- * and inward relative movement along the bike's down axis. Observe the
- * exported poses only: no extra physics work or modified native state.
- * Q6 positions and 32 Q4 directions bound the cost. Actual wheel contact,
- * at least 10/64 m compression and 4/64 m inward travel reject airborne
- * oscillation and ordinary spring movement. Re-arm below 6/64 m compression;
- * the stronger onset threshold suits this fixed-volume effect.
- */
-static const int8_t motion_sine[32]={
-    0,3,6,9,11,13,15,16,16,16,15,13,11,9,6,3,
-    0,-3,-6,-9,-11,-13,-15,-16,-16,-16,-15,-13,-11,-9,-6,-3
-};
-/* The projection coefficients are at most 16. Avoid the general 16-bit
- * multiplier's fixed 16 iterations for these tiny, known coefficients. */
-static int16_t motion_scale(int16_t value,int8_t factor) {
-    if(factor<0) { value=-value;factor=-factor; }
-    switch(factor) {
-        case 0:return 0;
-        case 3:return (value<<1)+value;
-        case 6:return (value<<2)+(value<<1);
-        case 9:return (value<<3)+value;
-        case 11:return (value<<3)+(value<<1)+value;
-        case 13:return (value<<3)+(value<<2)+value;
-        case 15:return (value<<4)-value;
-        default:return value<<4;
-    }
-}
-
-static void motion_tick(uint16_t now) {
-    static uint8_t k,angle,valid;
-    static int16_t x,y,down,compression,travel;
-    static uint16_t elapsed;
-    if(!gbc_bike.alive) { motion_valid=0;compression_valid=0;creak_latched=0;return; }
+/* Collision events come from incoming speed along the terrain normal,
+ * not from throttle-induced spring travel. Observe each physics step once. */
+static void motion_tick(void) {
+    uint8_t k;
+    if(!gbc_bike.alive) { motion_valid=0;return; }
     if(!(riding_audio_contact[0]|riding_audio_contact[1]))creak_stop();
+    if(motion_valid && motion_step==Bike.steps)return;
     for(k=0;k<2;++k) {
         if(motion_valid && Bike.volt[k]>last_volt[k])audio_effect(FX_VOLT);
         last_volt[k]=Bike.volt[k];
     }
     if(motion_valid && gbc_bike.turned!=last_turned)audio_effect(FX_TURN);
-    last_turned=gbc_bike.turned;motion_valid=1;
-    if(creak_active || (effect_active && effect_id!=FX_VOLT && effect_id!=FX_TURN)) {
-        compression_valid=0;return;
-    }
-    /* Each wheel is sampled every other update, with its own timestamp.
-     * Volts and turns remain serviced every update. This bounds the cost
-     * without adding work to the physics or fixed-ROM frame loop. */
-    k=motion_wheel;motion_wheel^=1;
-    valid=1U<<k;
-    elapsed=(uint16_t)(now-motion_last[k]);
-    angle=(uint8_t)((gbc_bike.body.angle+1024U)>>11)&31;
-    /* Subtract modular Q8 positions before reducing to Q6. Translation,
-     * including a world-coordinate wrap, cancels; rounding is <1 Q6 unit. */
-    y=(int16_t)((uint16_t)(gbc_bike.wheel[k].y>>8)-(uint16_t)(gbc_bike.body.y>>8))>>2;
-    if(y>511)y=511;else if(y< -511)y= -511;
-    if(!(angle&15))down=angle?y:-y;
-    else {
-        x=(int16_t)((uint16_t)(gbc_bike.wheel[k].x>>8)-(uint16_t)(gbc_bike.body.x>>8))>>2;
-        if(x>511)x=511;else if(x< -511)x= -511;
-        if(!(angle&7))down=angle==8?x:-x;
-        else down=(motion_scale(x,motion_sine[angle])-motion_scale(y,motion_sine[(angle+8)&31]))>>4;
-    }
-    compression=(int16_t)(F_BODY_Y>>12)-down;
-    travel=last_down[k]-down;
-    /* A contact is required: airborne spring oscillation is not an impact.
-     * Hysteresis permits one sound per substantial compression, not a loop
-     * on every tiny inward movement after the previous contour ends. */
-    if(compression<=6)creak_latched&=~valid;
-    if(riding_audio_contact[k] && !(creak_latched&valid)
-       && (compression_valid&valid) && elapsed && elapsed<=8
-       && compression>=10 && travel>=4 && compression<128 && travel<128
-       && (uint16_t)(compression*travel)>=12U*elapsed) {
-        audio_effect(FX_CREAK);creak_latched=3;
-    }
-    last_down[k]=down;motion_last[k]=now;compression_valid|=valid;
+    if(motion_valid && (riding_audio_impact[0]|riding_audio_impact[1]))
+        audio_effect(FX_CREAK);
+    last_turned=gbc_bike.turned;motion_step=Bike.steps;motion_valid=1;
 }
 
 void audio_init(void) BANKED {
@@ -187,7 +127,7 @@ void audio_init(void) BANKED {
     for(i=0;i<16;++i)((volatile uint8_t *)0xFF30)[i]=engine_wave[0][i];
     engine_mode=0;
     engine_volume=0;
-    effect_active=0;creak_active=0;motion_valid=0;compression_valid=0;creak_latched=0;motion_wheel=0;pulse_volume=255;
+    effect_active=0;creak_active=0;motion_valid=0;pulse_volume=255;
     audio_idle_reset(audio_now());
 }
 
@@ -197,8 +137,8 @@ void audio_update(uint8_t riding,uint8_t gas,uint8_t brake,uint16_t speed) BANKE
     const uint8_t *wave;
     now=audio_now();
     effect_tick(now);creak_tick(now);
-    if(!riding) { engine_stop();creak_stop();motion_valid=0;compression_valid=0;creak_latched=0;return; }
-    motion_tick(now);
+    if(!riding) { engine_stop();creak_stop();motion_valid=0;return; }
+    motion_tick();
     mode=!!gas;
     if(!mode && (engine_mode || !engine_volume))audio_idle_reset(now);
     pulse_level=mode?6:audio_idle_tick(now);
