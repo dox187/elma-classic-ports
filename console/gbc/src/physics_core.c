@@ -33,6 +33,7 @@ typedef char suspension_layout[
 void riding_anchor32(circle_t*,int16_t,int16_t,int16_t*) __sdcccall(0);
 int32_t riding_suspension32(const int16_t*,const int16_t*,int32_t,int32_t*,int32_t*,riding_torque32_t*) __sdcccall(0);
 void riding_brake32(int16_t*) __sdcccall(0);
+void riding_torque_reaction32(const int16_t*,const riding_torque32_t*,int32_t*,int32_t*) __sdcccall(0);
 uint8_t riding_recip_index(int16_t,int16_t) __sdcccall(0);
 void riding_rider_vectors32(int16_t,int16_t,int16_t*) __sdcccall(0);
 void riding_rider_move32(int32_t,int32_t) __sdcccall(0);
@@ -192,9 +193,16 @@ void ph_turn( void ) {
 
 // 2^30/d^2 for d^2 in steps of 2^13 u^2 (distances below 0.36 m count as
 // 0.36 m):
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+const int16_t Recip_d2[] = {
+#else
 static const int16_t Recip_d2[] = {
+#endif
 #include "../../nes/src/recip.inc"
 };
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+typedef char torque_recip_layout[sizeof(Recip_d2)==512 ? 1 : -1];
+#endif
 
 #if !defined(__SDCC) || !defined(RIDING_COEFFICIENT_LOOKUP)
 static int16_t clamp_w( int32_t w ) {
@@ -271,8 +279,7 @@ uint8_t ph_step( uint8_t input ) {
 	STEP_LOCAL riding_torque32_t damping;
 #if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
     ts = riding_suspension32(gsx,gsy,Oms,dvx,dvy,&damping);
-    for( uint8_t k = 0; k < 2; k++ ) {
-        int16_t kx=damping.kx[k],ky=damping.ky[k];
+    riding_torque_reaction32(tq,&damping,dvx,dvy);
 #else
 	for( uint8_t k = 0; k < 2; k++ ) {
 		circle_t* w = &Bike.wheel[k];
@@ -301,7 +308,6 @@ uint8_t ph_step( uint8_t input ) {
 		dvy[k] += KMUL32(rely,C_FRIC_W);
 		damping.kx[k]=kx;damping.ky[k]=ky;
 		damping.relx[k]=relx;damping.rely[k]=rely;
-#endif
 
 		if( tq[k] ) {
 			// 1/d^2 from a table, with d^2 from the high bits of k:
@@ -321,6 +327,7 @@ uint8_t ph_step( uint8_t input ) {
 			dvy[k] -= riding_mulq32(tr,kx,14);
 		}
 	}
+#endif
 	// The body gets all the forces between them, of the opposite sign, with
 	// 20 times the mass of a wheel:
 	int32_t dvbx = -KMUL32(dvx[0]+dvx[1],C_TWENTIETH);

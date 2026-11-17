@@ -9,9 +9,9 @@ are retained for reference.
 See the [performance experiment log](PERFORMANCE.md) for measured candidates
 and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
 
-The measured `build/elma-gbc-v0.91-merge-8m.gbc` candidate preserves all
+The measured `build/elma-gbc-v0.91-torque-8m.gbc` candidate preserves all
 27,447 native states in the 216-case controller corpus. Deadline misses fall
-from 1,025 to 98, with 182 cases passing throughout. The latest separate
+from 1,025 to 84, with 188 cases passing throughout. The latest separate
 functional run (`v0.91-video`) passes all 54 starts, complete Freefall, menus,
 save profiles, volt controls and finish audio. Further graphics/physics
 optimization and physical-cartridge timing checks remain; **0.91 is not yet a

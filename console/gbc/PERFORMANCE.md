@@ -833,6 +833,31 @@ ROM `elma-gbc-v0.91-merge-8m.gbc`, SHA-256
 `5b73b360180f1706d437ef170fa8670b030822ee3233714fb229811b4e613b06`.
 Evidence: `build/v091-equal-contacts` and `build/v091-merge-gameplay-8m`.
 
+## 30: wheel torque reaction orchestration — retained
+
+A bank 8 helper performs the existing two-wheel torque reaction with eight
+stack-local bytes. It keeps the reciprocal index, truncating product,
+C_REACT coefficient, rounded products and wrapping accumulations unchanged.
+Zero torque skips the vector loads. The generic/HOST implementation remains
+in C. The native reciprocal table is exported with a size assertion.
+
+All 2,718 paired vectors pass, including 326 captured states, 676 accumulator
+wraps, 691 zero-torque wheels and 512 occurrences each of the minimum and
+maximum signed torque. All 1,727 trajectory plus 326 route states remain
+exact, and the generic fixture passes all 54 levels. Matched active updates
+save 404–3,884 cycles. Code shrinks by 176 bank 8 bytes with no static RAM;
+the measured route stack maximum remains 237 bytes, while the main trajectory
+maximum rises from 223 to 229 bytes. The ph_step local frame remains 41 bytes.
+
+The integrated 216-case / 27,447-state controller corpus is exact. Misses
+improve **98 to 84**, cadence violations **93 to 78**, and wholly passing
+cases **182 to 188**, with none lost. Gravity Ride/seeded's cold first update
+now passes. The maximum physics call is 267,008 cycles; complete updates still
+exceed the strict deadline.
+ROM `elma-gbc-v0.91-torque-8m.gbc`, SHA-256
+`18676431c092322508463df5cd7c5541f422d81305afc5e1d46836a93d7a7bf4`.
+Evidence: `build/v091-torque-reaction` and `build/v091-torque-gameplay-8m`.
+
 ## Controller benchmark and remaining physics work
 
 `test/benchmark_gameplay.py` uses actual menu/buttons, deterministic per-step
@@ -847,13 +872,13 @@ allow this additional cadence check to be reproduced.
 
 ```sh
 .venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.90-8m.gbc --gen build/gen-8m --out build/v091-baseline-gameplay-8m --steps 180
-.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-merge-8m.gbc --gen build/gen-8m --out build/v091-merge-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.91-torque-8m.gbc --gen build/gen-8m --out build/v091-torque-gameplay-8m --steps 180 --reference build/v091-baseline-gameplay-8m/report.json
 ```
 
 All 216 cases (54 levels times neutral/gas/brake/seeded) and **27,447 native
 steps** match the 0.90 reference exactly in the combined raw candidate.
-Timing misses improve **1,025 to 98**; wholly passing cases improve **72 to
-182 of 216** after sharing equal-contact projections. This is still a failed 30-FPS gate.
+Timing misses improve **1,025 to 84**; wholly passing cases improve **72 to
+188 of 216** after the torque reaction optimization. This is still a failed 30-FPS gate.
 Some physics calls still leave too little time for the
 rest of the update. Exact native arithmetic and presentation optimization
 remain necessary.
