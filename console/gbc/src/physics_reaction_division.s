@@ -1,4 +1,4 @@
-; Exact close-compression torque quotient. Private integration candidate.
+; Exact close-compression torque quotient for the production suspension.
 ; int32_t riding_close_reaction32(int32_t torque, uint32_t distance2)
 ;     __sdcccall(0);
 ; Caller has ROM bank 8 selected. Args and return use GBDK stack ABI0;
@@ -6,7 +6,7 @@
 ; Mathematical result: clamp_i32(trunc_zero(torque * 4194304 / distance2)).
 ; distance2==0 returns 0. All other uint32 denominators accepted.
 ; Six local bytes plus two bytes for the internal call; no ROM0 code.
-.module reaction_division
+.module physics_reaction_division
 .area _CODE_8
 _riding_close_reaction32::
  add sp,#-6

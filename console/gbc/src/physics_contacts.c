@@ -247,8 +247,8 @@ static void pushout( circle_t* k, contact_t* c, contact_t* other ) {
 #include <stddef.h>
 typedef char wheel_contact_layout[sizeof(contact_t)==10 && offsetof(contact_t,nx)==0 && offsetof(contact_t,ny)==2?1:-1];
 uint8_t riding_supports32(circle_t*,const contact_t*,int32_t,int32_t,uint8_t);
-void riding_free32(circle_t*,int32_t,int32_t,int16_t) __sdcccall(0);
-void riding_roll32(circle_t*,const contact_t*,int32_t,int32_t,int16_t) __sdcccall(0);
+void riding_free32(circle_t*,int32_t,int32_t,int32_t) __sdcccall(0);
+void riding_roll32(circle_t*,const contact_t*,int32_t,int32_t,int32_t) __sdcccall(0);
 #define supports riding_supports32
 #else
 static uint8_t supports( circle_t* k, const contact_t* c, int32_t dvx, int32_t dvy,
@@ -280,7 +280,7 @@ static uint8_t sure_new(const contact_t *t1,const contact_t *t2,const circle_t *
  m=k->omega+KMUL32(riding_mulshift32(vn,t2->l,10),C_NEW);
  return same_side(d,m);
 }
-static uint8_t sure_old(const contact_t *t1,const contact_t *t2,int32_t dvx,int32_t dvy,int16_t tq) {
+static uint8_t sure_old(const contact_t *t1,const contact_t *t2,int32_t dvx,int32_t dvy,int32_t tq) {
  int16_t d=dotq14(t1->tx-t2->tx,t1->ty-t2->ty,-t2->ny,t2->nx);
  int32_t dvn,p,m;
  if(!d)return 1;
@@ -315,7 +315,7 @@ uint8_t riding_landing_contact[2];
 #if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
 uint8_t riding_contact_filter(circle_t*,uint8_t);
 #endif
-void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED {
+void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED {
 	uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
 #if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
     n=riding_contact_filter(k,n);
@@ -377,7 +377,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
 #if defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
         riding_free32(k,dvx,dvy,tq);
 #else
-		k->omega = sat16((int32_t)k->omega+KMUL(tq,C_FREE));
+		k->omega += KMUL32(tq,C_FREE);
 		k->vx += dvx;
 		k->vy += dvy;
 		move( k );
@@ -399,7 +399,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
 	int32_t t = (int32_t)tq+KMUL32(dvn,C_ROLL_T);
     /* Integrate linear rolling speed before quantizing angular state. */
 	int32_t sp = vn+Q24_MUL(t,C_ROLL_DV);
- k->omega=sat16(Q24_MUL(sp,C_ROLL_W));
+ k->omega=Q24_MUL(sp,C_ROLL_W);
 	k->vx = riding_mulq32(sp,n90x,14);
 	k->vy = riding_mulq32(sp,n90y,14);
 	move( k );

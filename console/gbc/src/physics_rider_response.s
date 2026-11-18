@@ -65,7 +65,7 @@ _riding_rider_response32::
  ld a,(hl)
  adc a,b
  ld b,a
- ld hl,#_Bike+74
+ ld hl,#_Bike+80
  ld a,(hl)
  sub a,e
  ld e,a
@@ -189,7 +189,7 @@ _riding_rider_response32::
  ld a,(hl)
  adc a,b
  ld b,a
- ld hl,#_Bike+78
+ ld hl,#_Bike+84
  ld a,(hl)
  sub a,e
  ld e,a

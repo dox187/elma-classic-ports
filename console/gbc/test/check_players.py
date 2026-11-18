@@ -8,6 +8,7 @@ import argparse
 import json
 from pathlib import Path
 import shutil
+import traceback
 
 import numpy as np
 
@@ -144,7 +145,7 @@ def details_check(d, frames, previous, status):
         text_check(d, 2, y, hint.ljust(32))
 
 
-def timer_cadence(d):
+def timer_cadence(d, report):
     """Check each presentation's VRAM and changes in the actual LCD output."""
     checks, changes = [], []
     address = d.symbols['_physics_step']
@@ -167,18 +168,42 @@ def timer_cadence(d):
             if old_pixels is not None and not np.array_equal(pixels, old_pixels):
                 changes.append(d.p.frame_count)
             old_pixels = pixels
-        assert len(checks) >= 88 and len(changes) >= 88, 'timer does not update at the riding rate'
         intervals = np.diff(changes).tolist()
-        assert max(intervals) <= 3, ('visible clock stalls between updates', intervals)
-        cadence_checks = len(checks)
-        # Exercise carries into tens of seconds and minutes with the same
-        # real clock and exact tile checks, without injecting a counter.
-        d.tick(3600)
-        assert any(time_string(t).startswith('01:00.') for t in checks)
-        assert d.word('game_overruns') == overruns, 'live timer introduced idle-ride deadline misses'
-        return {'physics_publications_checked': len(checks), 'cadence_publications': cadence_checks,
-                'lcd_changes_in_180_frames': len(changes), 'minute_rollover_verified': True,
-                'lcd_change_intervals_frames': sorted(set(intervals)), 'idle_deadline_misses': 0}
+        failures = report['timing_failures']
+        if len(checks) < 88 or len(changes) < 88:
+            failures.append('timer does not update at the riding rate: '
+                            '%d physics publications and %d LCD changes in 180 display frames; '
+                            'both must be >= 88' % (len(checks), len(changes)))
+        if not intervals or max(intervals) > 3:
+            failures.append('visible clock stalls between updates: intervals %s; '
+                            'maximum must be <= 3 display frames' % sorted(set(intervals)))
+        cadence = {'physics_publications_checked': len(checks),
+                   'cadence_publications': len(checks),
+                   'lcd_changes_in_180_frames': len(changes),
+                   'minute_rollover_verified': False,
+                   'lcd_change_intervals_frames': sorted(set(intervals))}
+        report['timer_cadence'] = cadence
+        assert len(checks) > 1 and all(b > a for a, b in zip(checks, checks[1:])), 'simulation clock did not advance'
+        assert changes, 'visible clock did not advance'
+        # Wait for simulation time, not a presumed real-time update rate.
+        # Every publication still gets an exact VRAM text check above.
+        for waited in range(15001):
+            if checks and time_string(checks[-1]).startswith('01:00.'):
+                cadence['minute_rollover_verified'] = True
+                break
+            if waited == 15000:
+                break
+            assert d.byte('game_state') == RIDING, 'idle ride ended before minute rollover'
+            d.tick()
+        cadence.update(physics_publications_checked=len(checks),
+                       minute_rollover_wait_display_frames=waited,
+                       idle_deadline_misses=(d.word('game_overruns')-overruns) & 65535)
+        if cadence['idle_deadline_misses']:
+            failures.append('live timer introduced %d idle-ride deadline misses; must be zero'
+                            % cadence['idle_deadline_misses'])
+        report['performance_requirement_met'] = not failures
+        assert cadence['minute_rollover_verified'], 'clock did not reach minute rollover within 15000 display frames'
+        return cadence
     finally:
         d.p.hook_deregister(address >> 16, address & 65535)
         d.p.hook_register(address >> 16, address & 65535, Driver._physics_entry, d)
@@ -200,6 +225,11 @@ def main():
     shutil.copyfile(args.rom.with_suffix('.noi'), rom.with_suffix('.noi'))
     Path(str(rom)+'.ram').unlink(missing_ok=True)
     d = Driver(rom, args.out, args.gen)
+    report = {'status': 'failed', 'rom_sha256': d.rom_sha256,
+              'cross_profile_reload': bool(args.alternate_rom),
+              'hardware_tested': False, 'finish_is_contact_fixture': True,
+              'functional_checks_passed': False, 'functional_failures': [],
+              'performance_requirement_met': False, 'timing_failures': []}
     try:
         d.ready()
         assert d.rom_bytes[0x147] == 0x1b
@@ -265,7 +295,7 @@ def main():
         now = d.time_frames()
         assert any(np.array_equal(visible, font_pixels(time_string(t)))
                    for t in range(max(0, now-16), now+1)), 'visible timer is stale or wrong'
-        cadence = timer_cadence(d)
+        cadence = timer_cadence(d, report)
         d.snapshot('riding-time')
         d.pulse('select')
         assert d.byte('game_state') == PAUSED
@@ -363,7 +393,8 @@ def main():
         d.ready()
         assert d.byte('game_state') == RIDING and d.level_index() == 1, 'A did not start the next course'
         d.visible_vram(force=True)
-        report = {'status': 'passed', 'rom_sha256': tested_sha,
+        report.update({'status': 'passed' if report['performance_requirement_met'] else 'failed',
+                  'functional_checks_passed': True, 'rom_sha256': tested_sha,
                   'reboot_rom_sha256':d.rom_sha256,
                   'cross_profile_reload':bool(args.alternate_rom),
                   'fixture_finish_frames': frames, 'hardware_tested': False,
@@ -373,12 +404,17 @@ def main():
                              'player selection and name persistence', 'visible live timer and pause',
                              'natural crash hints and A retry', 'finish records through contact fixture',
                              'first, slower, tied and improved result times', 'result retry/next/menu controls',
-                             'battery reload', 'player and course record isolation']}
-        (args.out/'report.json').write_text(json.dumps(report, indent=2)+'\n')
-        print(json.dumps(report, indent=2))
+                             'battery reload', 'player and course record isolation']})
+    except Exception as error:
+        report['functional_failures'].append({'type': type(error).__name__,
+                                              'message': str(error),
+                                              'traceback': traceback.format_exc()})
     finally:
         d.close()
+        (args.out/'report.json').write_text(json.dumps(report, indent=2)+'\n')
+        print(json.dumps(report, indent=2))
+    return 0 if report['status'] == 'passed' else 1
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

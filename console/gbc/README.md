@@ -3,13 +3,15 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest diagnostic:
-**[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**.
-It preserves the 0.94 physics with exact native optimizations. Freefall averages
-**13.59 updates/s**; stable 30 FPS remains unmet. The retained
-**[0.94 speed test — 8 MiB](build/elma-gbc-v0.94-speed-test-8m.gbc)**
-is the previous comparison checkpoint.
-It corrects the drive-torque cutoff; the remaining numeric limits and timing
-failures are documented below. The retained 0.93 checkpoint is
+**[0.96 test2 — 8 MiB](build/elma-gbc-v0.96-test2-8m.gbc)**.
+This ROM includes widened angular velocity/brake torque and the close-compression
+reaction correction, preserving the original integration schedule and precision.
+Freefall averages **13.54 updates/s**; stable 30 FPS remains unmet.
+The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
+contains the earlier exact optimizations with the old narrow physics.
+The **[0.94 speed test — 8 MiB](build/elma-gbc-v0.94-speed-test-8m.gbc)**
+is the earlier drive-cutoff checkpoint.
+The retained 0.93 checkpoint is
 **[0.93 rebound test — 8 MiB](build/elma-gbc-v0.93-rebound-test-8m.gbc)**.
 It fixes the measured rebound, but is too slow for release: Freefall averages
 **13.43 physics updates/s** in the emulator. The older
@@ -54,7 +56,57 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
-## 0.96 development checkpoint
+## 0.96 test2 — widened physics integrated into the ROM
+
+The native SM83 core now stores angular velocity, saved volt velocity and wheel
+brake torque as signed 32-bit values. Spring torque input also retains its full
+width. The previous 16-bit clipping and volt wrap are removed without lowering
+precision or changing the integration intervals. At 80 model m/s, wheel speed
+now reaches **200.001461 rad/s**, versus PC **200.000058**, instead of clipping
+near 142.8 rad/s. The audio API still receives its existing bounded speed range.
+
+During strong wheel/body compression, the old reciprocal table underestimated
+the reaction torque. Below its distance floor the ROM now computes the exact
+integer quotient before applying the unchanged physical coefficient. Zero
+separation retains the previous table fallback. Both ±60 m/s flat braking
+impacts now survive, matching PC; all **18 impact survival outcomes** match in
+the 122-case audit. Four synthetic ±120/±140 rad/s body-spin differences remain
+because of GBC's 3 m stretch guard. This is not a claim of global 99.9% fidelity.
+
+Validation of this implementation:
+
+- **9,213 default states + 3,179 high-speed states**, each 224 bytes including
+  motion/force residuals and audio events, match the corresponding HOST model
+  exactly when executed as native SM83 code.
+- All **45 PC rebound/braking cases** pass the 0.1% peak/airtime gates. The
+  122-case audit records no numeric limit hits and all six drive-cutoff gates pass.
+- Independent native checks cover **14,114 close-reaction quotients** and
+  **1,592 full-width motion cases**, plus 1,500 brake and 1,200 wheel fixtures.
+- Menu, volt controls, all 54 starts and complete no-input Freefall pass their
+  functional/graphics checks. Player names, timer text, result panels, records,
+  retry and battery reload pass; finish checks use an explicitly injected
+  flower contact rather than claiming a player-controlled finish.
+- The 216-case controller corpus completes **30,490 updates** without observer
+  or functional errors; all 216 timing gates still fail.
+
+**Timing still fails.** The native default mean is **481,028 T-cycles**, with a
+maximum of **925,724 T**, before rendering, against the **280,896 T entire-frame
+budget**. All-start/Freefall runs record **1,615 / 438 deadline misses**. Freefall
+averages **13.5432 updates/s** (4–6 display frames per update), versus 13.5858 in
+test1. The player/save suite completes its functional checks and still exits
+with failure for the unchanged cadence/deadline requirements. No hardware pass
+or stable-30-FPS release is claimed.
+
+ROM: **[elma-gbc-v0.96-test2-8m.gbc](build/elma-gbc-v0.96-test2-8m.gbc)**,
+**8,388,608 bytes**, MBC5 + 32 KiB RAM, header **1B/08/03**; banks **508–511 all FF**.
+SHA-256: `b5e5d2baacd43bc8857d954811addf323c39f8477e02d0e40459f14734ad1e5a`.
+The menu and splash show **0.96**. The versioned ROM is directly in `build/`.
+
+Remaining work: reduce the corrected model's cost enough to meet 30 FPS with
+rendering, investigate the four extreme-spin/stretch-guard discrepancies, and
+validate on the physical cartridge. Accuracy and timing targets remain mandatory.
+
+## 0.96 test1 — retained optimization checkpoint
 
 Test1 combines three exact native optimizations: suspension force submissions
 use bank8 register entries, Q24 v3 tables store short negative products directly,
@@ -88,8 +140,8 @@ reaction lookup's minimum wheel/body distance: around 0.28 m it underestimates
 torque reaction by **39–40%**. A localized direct reciprocal below the table floor
 fixes both ±60 m/s flat braking impacts, retains all 45 strict rebound results,
 and leaves four synthetic extreme-spin/stretch-guard mismatches. **Neither HOST
-prototype is included in test1.** Their native ABI, near-zero arithmetic bounds
-and runtime cost still require implementation and validation. Applying only the
+prototype is included in test1.** Test2 integrates and validates the widened native ABI and close-reaction arithmetic;
+its runtime cost still exceeds the release budget. Applying only the
 reciprocal correction to the old narrow model does not resolve its impact death.
 
 See [`PERFORMANCE.md`](PERFORMANCE.md) for the measured experiments, rejected

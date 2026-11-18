@@ -74,6 +74,10 @@ ifndef SCHEDULE_CHECK_DIR
 SCHEDULE_CHECK_DIR := build/scheduled-check-$(shell date +%Y%m%d-%H%M%S)
 endif
 check-scheduled: $(GAME_ROM)
+	$(PYTHON) test/check_wide_brake.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-brake
+	$(PYTHON) test/check_wide_wheels.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-wheels
+	$(PYTHON) test/check_close_reaction.py --out $(SCHEDULE_CHECK_DIR)/close-reaction
+	$(PYTHON) test/check_physics_move.py --out $(SCHEDULE_CHECK_DIR)/move
 	$(PYTHON) test/check_force_accumulator.py --out $(SCHEDULE_CHECK_DIR)/force
 	$(PYTHON) test/check_force_registers.py --out $(SCHEDULE_CHECK_DIR)/force-registers
 	$(PYTHON) test/check_physics_dot32.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/dot32

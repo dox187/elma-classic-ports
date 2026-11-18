@@ -44,7 +44,7 @@ suspension_copy_args:
  inc hl
  ld d,(hl)
  push de
- ld hl,#_Bike+22
+ ld hl,#_Bike+24
  push hl
  call _riding_anchor32
  add sp,#8
@@ -184,7 +184,7 @@ suspension_copy_args:
  add sp,#7
  ld b,h
  ld c,l
- ld hl,#_Bike+30
+ ld hl,#_Bike+32
  ld a,(hl)
  add a,e
  ld e,a
@@ -275,7 +275,7 @@ suspension_copy_args:
  add sp,#7
  ld b,h
  ld c,l
- ld hl,#_Bike+34
+ ld hl,#_Bike+36
  ld a,(hl)
  sub a,e
  ld e,a
@@ -394,7 +394,7 @@ suspension_copy_args:
  inc hl
  ld d,(hl)
  push de
- ld hl,#_Bike+44
+ ld hl,#_Bike+48
  push hl
  call _riding_anchor32
  add sp,#8
@@ -542,7 +542,7 @@ suspension_copy_args:
  add sp,#7
  ld b,h
  ld c,l
- ld hl,#_Bike+52
+ ld hl,#_Bike+56
  ld a,(hl)
  add a,e
  ld e,a
@@ -637,7 +637,7 @@ suspension_copy_args:
  add sp,#7
  ld b,h
  ld c,l
- ld hl,#_Bike+56
+ ld hl,#_Bike+60
  ld a,(hl)
  sub a,e
  ld e,a

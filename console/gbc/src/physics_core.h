@@ -6,7 +6,7 @@
 //   velocity   int32, PH_VS units per m/model-second
 //   angle      uint32, a full turn is RIDING_ANGLE_UNITS (2^23 at30Hz,
 //              2^24 at60Hz); exporting drops RIDING_ANGLE_SHIFT low bits
-//   angular velocity  int16, PH_WS units per rad/model-second
+//   angular velocity  int32, PH_WS units per rad/model-second
 // Short vectors are int16 in u (1 m = 1024) or in r16 (1 m = 16384).
 #ifndef GBC_PHYSICS_CORE_H
 #define GBC_PHYSICS_CORE_H
@@ -49,7 +49,7 @@ typedef struct {
 	int32_t rx, ry;
 	int32_t vx, vy;
 	uint32_t alfa;
-	int16_t omega;
+	int32_t omega;
 } circle_t;
 #ifdef __SDCC
 void riding_move32(circle_t *k) __sdcccall(0);
@@ -70,7 +70,7 @@ typedef struct {
 	uint8_t gfrac;      // fraction of the gravity step
 	uint32_t dbrake[2];
 	uint8_t volt[2];    // steps left of a volt, 0 if none
-	int16_t volt_omega[2];
+	int32_t volt_omega[2];
 } bike_t;
 
 extern bike_t Bike;
@@ -79,7 +79,7 @@ extern uint8_t riding_audio_contact[2], riding_audio_impact[2];
 uint8_t riding_touches(int32_t cx,int32_t cy,int16_t rad) PH_BANKED;
 // Continuous head path in local u coordinates (1m=1024), before world rebasing.
 uint8_t riding_swept_head(int32_t old_x,int32_t old_y,int32_t x,int32_t y) PH_BANKED;
-void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int16_t tq) PH_BANKED;
+void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED;
 
 // A line of the level, as the platform hands it over: its start in u from
 // the origin of the query, its vector to the end in u, its direction (16384

@@ -1,4 +1,4 @@
-; Packed109-byte engine to the52-byte public pose, while bank8 is selected.
+; Packed119-byte engine to the52-byte public pose, while bank8 is selected.
 ; Preserves alive. Integer operations wrap32, matching the fixed-point core.
 .module riding_export_fast
 .area _CODE_8
@@ -59,13 +59,13 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_y+3)
  adc a,b
  ld (#_gbc_bike+7),a
- ld a,(#_Bike+22)
- ld e,a
- ld a,(#_Bike+23)
- ld d,a
  ld a,(#_Bike+24)
- ld c,a
+ ld e,a
  ld a,(#_Bike+25)
+ ld d,a
+ ld a,(#_Bike+26)
+ ld c,a
+ ld a,(#_Bike+27)
  ld b,a
  sra b
  rr c
@@ -87,13 +87,13 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_x+3)
  adc a,b
  ld (#_gbc_bike+13),a
- ld a,(#_Bike+26)
- ld e,a
- ld a,(#_Bike+27)
- ld d,a
  ld a,(#_Bike+28)
- ld c,a
+ ld e,a
  ld a,(#_Bike+29)
+ ld d,a
+ ld a,(#_Bike+30)
+ ld c,a
+ ld a,(#_Bike+31)
  ld b,a
  sra b
  rr c
@@ -115,13 +115,13 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_y+3)
  adc a,b
  ld (#_gbc_bike+17),a
- ld a,(#_Bike+44)
+ ld a,(#_Bike+48)
  ld e,a
- ld a,(#_Bike+45)
+ ld a,(#_Bike+49)
  ld d,a
- ld a,(#_Bike+46)
+ ld a,(#_Bike+50)
  ld c,a
- ld a,(#_Bike+47)
+ ld a,(#_Bike+51)
  ld b,a
  sra b
  rr c
@@ -143,13 +143,13 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_x+3)
  adc a,b
  ld (#_gbc_bike+23),a
- ld a,(#_Bike+48)
+ ld a,(#_Bike+52)
  ld e,a
- ld a,(#_Bike+49)
+ ld a,(#_Bike+53)
  ld d,a
- ld a,(#_Bike+50)
+ ld a,(#_Bike+54)
  ld c,a
- ld a,(#_Bike+51)
+ ld a,(#_Bike+55)
  ld b,a
  sra b
  rr c
@@ -171,13 +171,13 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_y+3)
  adc a,b
  ld (#_gbc_bike+27),a
- ld a,(#_Bike+66)
+ ld a,(#_Bike+72)
  ld e,a
- ld a,(#_Bike+67)
+ ld a,(#_Bike+73)
  ld d,a
- ld a,(#_Bike+68)
+ ld a,(#_Bike+74)
  ld c,a
- ld a,(#_Bike+69)
+ ld a,(#_Bike+75)
  ld b,a
  sra b
  rr c
@@ -199,13 +199,13 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_x+3)
  adc a,b
  ld (#_gbc_bike+33),a
- ld a,(#_Bike+70)
+ ld a,(#_Bike+76)
  ld e,a
- ld a,(#_Bike+71)
+ ld a,(#_Bike+77)
  ld d,a
- ld a,(#_Bike+72)
+ ld a,(#_Bike+78)
  ld c,a
- ld a,(#_Bike+73)
+ ld a,(#_Bike+79)
  ld b,a
  sra b
  rr c
@@ -227,13 +227,13 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_y+3)
  adc a,b
  ld (#_gbc_bike+37),a
- ld a,(#_Bike+82)
+ ld a,(#_Bike+88)
  ld e,a
- ld a,(#_Bike+83)
+ ld a,(#_Bike+89)
  ld d,a
- ld a,(#_Bike+84)
+ ld a,(#_Bike+90)
  ld c,a
- ld a,(#_Bike+85)
+ ld a,(#_Bike+91)
  ld b,a
  sra b
  rr c
@@ -255,13 +255,13 @@ _physics_export_state_fast::
  ld a,(#_physics_level_origin_x+3)
  adc a,b
  ld (#_gbc_bike+43),a
- ld a,(#_Bike+86)
+ ld a,(#_Bike+92)
  ld e,a
- ld a,(#_Bike+87)
+ ld a,(#_Bike+93)
  ld d,a
- ld a,(#_Bike+88)
+ ld a,(#_Bike+94)
  ld c,a
- ld a,(#_Bike+89)
+ ld a,(#_Bike+95)
  ld b,a
  sra b
  rr c
@@ -299,26 +299,26 @@ _physics_export_state_fast::
  ld (#_gbc_bike+8),a
  ld a,b
  ld (#_gbc_bike+9),a
- ld a,(#_Bike+39)
+ ld a,(#_Bike+41)
  add a,a
  ld c,a
- ld a,(#_Bike+40)
+ ld a,(#_Bike+42)
  rla
  ld b,a
- ld a,(#_Bike+38)
+ ld a,(#_Bike+40)
  rlca
  and a,#1
  or a,c
  ld (#_gbc_bike+18),a
  ld a,b
  ld (#_gbc_bike+19),a
- ld a,(#_Bike+61)
+ ld a,(#_Bike+65)
  add a,a
  ld c,a
- ld a,(#_Bike+62)
+ ld a,(#_Bike+66)
  rla
  ld b,a
- ld a,(#_Bike+60)
+ ld a,(#_Bike+64)
  rlca
  and a,#1
  or a,c
@@ -331,13 +331,13 @@ export_angles8:
  ld (#_gbc_bike+8),a
  ld a,(#_Bike+18)
  ld (#_gbc_bike+9),a
- ld a,(#_Bike+39)
+ ld a,(#_Bike+41)
  ld (#_gbc_bike+18),a
- ld a,(#_Bike+40)
+ ld a,(#_Bike+42)
  ld (#_gbc_bike+19),a
- ld a,(#_Bike+61)
+ ld a,(#_Bike+65)
  ld (#_gbc_bike+28),a
- ld a,(#_Bike+62)
+ ld a,(#_Bike+66)
  ld (#_gbc_bike+29),a
 export_finish:
  ld a,(#_gbc_bike+8)
@@ -346,6 +346,6 @@ export_finish:
  ld a,(#_gbc_bike+9)
  ld (#_gbc_bike+39),a
  ld (#_gbc_bike+49),a
- ld a,(#_Bike+90)
+ ld a,(#_Bike+96)
  ld (#_gbc_bike+51),a
  ret

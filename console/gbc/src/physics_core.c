@@ -25,12 +25,12 @@ static const int16_t Ellipse_inside_y[]={RIDING_ELLIPSE_INSIDE_Y_VALUES};
 #include <stddef.h>
 /* Private scheduled suspension workspace; ph_step is non-reentrant. */
 typedef struct {
- int16_t cs,sn; int32_t oms; int16_t tq[2];
+ int16_t cs,sn; int32_t oms; int32_t tq[2];
  int32_t dvx[2],dvy[2],dvbx,dvby,dwb;
 } riding_suspension_state_t;
-typedef char suspension_layout[sizeof(riding_suspension_state_t)==40 &&
-    offsetof(riding_suspension_state_t,dvx)==12 &&
-    offsetof(riding_suspension_state_t,dwb)==36 ? 1 : -1];
+typedef char suspension_layout[sizeof(riding_suspension_state_t)==44 &&
+    offsetof(riding_suspension_state_t,dvx)==16 &&
+    offsetof(riding_suspension_state_t,dwb)==40 ? 1 : -1];
 riding_suspension_state_t riding_suspension_state;
 const uint8_t riding_suspension_anchor_x=Q24_ANCHOR_X;
 const uint8_t riding_suspension_anchor_y=Q24_ANCHOR_Y;
@@ -57,7 +57,7 @@ static void angle( void ) {
 /* Rider, renderer and head collision all observe the same completed step. */
 #ifdef __SDCC
 void riding_head_pose32(int16_t*,int16_t*) __sdcccall(0);
-void riding_brake32(int16_t*) __sdcccall(0);
+void riding_brake32(int32_t*) __sdcccall(0);
 static void head_position(void) {riding_head_pose32(&Cs,&Sn);}
 #else
 static void head_position(void) {
@@ -96,7 +96,7 @@ static void rider_limit( void ) {
     under=0;
     if(x>RIDING_SEAT_FAST_X || y<RIDING_SEAT_FAST_Y || y>RIDER_TOP)
 #endif
-        under=KMUL(y-SEAT_Y,C_SEAT_NY)-KMUL(x-SEAT_X,C_SEAT_NX);
+        under=KMUL((int32_t)y-SEAT_Y,C_SEAT_NY)-KMUL((int32_t)x-SEAT_X,C_SEAT_NX);
 	if( under < 0 ) {
 		x += KMUL( under, C_SEAT_NX );
 		y -= KMUL( under, C_SEAT_NY );
@@ -189,10 +189,40 @@ const int16_t Recip_d2[] = {
 #include "../../nes/src/recip.inc"
 };
 
-static int16_t clamp_w( int32_t w ) {
-	if( w > 16383 ) return 16383;
-	if( w < -16383 ) return -16383;
-	return (int16_t)w;
+#ifdef __SDCC
+uint8_t riding_recip_index(int16_t,int16_t) __sdcccall(0);
+int32_t riding_close_reaction32(int32_t,uint32_t) __sdcccall(0);
+#endif
+
+/* The table remains unchanged at ordinary separation. Its first 16 entries
+ * flatten close wheel/body compression, so use the exact distance there.
+ * The zero-distance case retains the original table fallback. */
+int32_t riding_reaction_input32(int32_t tq,int16_t kx,int16_t ky) MATH32_ABI {
+#ifdef __SDCC
+    uint8_t index=riding_recip_index(kx,ky);
+#else
+    int16_t x=kx>>4,y=ky>>4;
+    if(x>127)x=127;
+    if(x< -127)x=-127;
+    if(y>127)y=127;
+    if(y< -127)y=-127;
+    uint16_t d2=(uint16_t)((x*x+y*y)>>5);
+    uint8_t index=d2>255?255:(uint8_t)d2;
+#endif
+    if(index<16) {
+        uint32_t distance2=(uint32_t)mul16(kx,kx)+(uint32_t)mul16(ky,ky);
+        if(distance2) {
+#ifdef __SDCC
+            return riding_close_reaction32(tq,distance2);
+#else
+            int64_t result=(int64_t)tq*4194304/distance2;
+            if(result>INT32_MAX)return INT32_MAX;
+            if(result<INT32_MIN)return INT32_MIN;
+            return (int32_t)result;
+#endif
+        }
+    }
+    return riding_mulshift32(tq,Recip_d2[index],8);
 }
 
 /* ph_step follows the single global Bike and is never called by interrupts.
@@ -259,7 +289,7 @@ uint8_t ph_step( uint8_t input ) {
 		Bike.dbrake[1] = Bike.wheel[1].alfa-Bike.body.alfa;
 	}
 	Bike.brake_was = brake;
-	STEP_LOCAL int16_t tq[2];
+	STEP_LOCAL int32_t tq[2];
 	tq[0] = 0; tq[1] = 0;
 	if( input & IN_GAS ) {
 		if( Bike.turned ) {
@@ -280,8 +310,8 @@ uint8_t ph_step( uint8_t input ) {
 			/* da is signed24 after >>8; its uint8-factor product and round
              * fit signed32, so this is exact and avoids generic long multiply. */
             int32_t spring = KMUL32(da,C_BRAKE_A);
-			int16_t dw = clamp_w((int32_t)Bike.wheel[k].omega-Bike.body.omega);
-			tq[k] = sat16( -spring-(riding_landing_contact[k]?KMUL(dw,C_BRAKE_GW):KMUL(dw,C_BRAKE_W)) );
+			int32_t dw = Bike.wheel[k].omega-Bike.body.omega;
+			tq[k] = -spring-(riding_landing_contact[k]?KMUL32(dw,C_BRAKE_GW):KMUL32(dw,C_BRAKE_W));
 		}
 #endif
 	}
@@ -329,15 +359,7 @@ uint8_t ph_step( uint8_t input ) {
         int32_t olddvx=dvx[k],olddvy=dvy[k];
 
 		if( tq[k] ) {
-			// 1/d^2 from a table, with d^2 from the high bits of k:
-            int16_t kx8 = kx >> 4, ky8 = ky >> 4;
-			if( kx8 > 127 ) kx8 = 127;
-			if( kx8 < -127 ) kx8 = -127;
-			if( ky8 > 127 ) ky8 = 127;
-			if( ky8 < -127 ) ky8 = -127;
-			uint16_t d2 = (uint16_t)((kx8*kx8 + ky8*ky8) >> 5);
-            int16_t rec = Recip_d2[d2 > 255 ? 255 : d2];
-			int32_t tr = KMUL32(riding_mulshift32((int32_t)tq[k],rec,8),C_REACT);
+			int32_t tr = KMUL32(riding_reaction_input32(tq[k],kx,ky),C_REACT);
 			dvx[k] += riding_mulq32(tr,ky,14);
 			dvy[k] -= riding_mulq32(tr,kx,14);
  riding_force_sub(0,dvx[k]-olddvx,0);riding_force_sub(1,dvy[k]-olddvy,0);
@@ -347,13 +369,13 @@ uint8_t ph_step( uint8_t input ) {
 	// 20 times the mass of a wheel:
     int32_t dvbx=riding_force_finish(0);
     int32_t dvby=riding_force_finish(1);
-	int32_t dwb = -(int32_t)KMUL(sat16(riding_sra8(ts)>>2),C_SPRING_T)
+	int32_t dwb = -KMUL32(riding_sra8(ts)>>2,C_SPRING_T)
 	              -KMUL32(riding_torque_input32(&damping),C_FRIC_T);
 
 #endif
 
 	// Volts:
-	int16_t oldomega = Bike.body.omega;
+	int32_t oldomega = Bike.body.omega;
 	uint8_t volt = input & (IN_VOLT_RIGHT | IN_VOLT_LEFT);
 	if( Bike.volt[0] && (volt || --Bike.volt[0] == 0) ) {
 		Bike.body.omega += LOKET;
@@ -416,7 +438,7 @@ uint8_t ph_step( uint8_t input ) {
 		Oms = KMUL32((int32_t)Bike.body.omega,C_OMS);
 	rider( gx, gy );
 
-	Bike.body.omega = sat16( (int32_t)Bike.body.omega+dwb );
+	Bike.body.omega += dwb;
 	Bike.body.vx += dvbx+gx;
 	Bike.body.vy += dvby+gy;
 	move( &Bike.body );

@@ -1,7 +1,7 @@
-"""Research-only close-reaction division: native vs unbounded Python oracle.
+"""Production close-reaction division: native vs unbounded Python oracle.
 
-The fixture is not linked into the game. Native wide angular/torque ABI and
-zero-distance fallback integration remain separate prerequisites.
+The same assembly helper is linked into the game. Whole-physics parity tests
+cover its call-site and zero-distance table fallback.
 """
 import argparse, json, random, re, struct, subprocess
 from pathlib import Path
@@ -81,7 +81,7 @@ void main(void){uint16_t i;disable_interrupts();DISPLAY_OFF;cpu_fast();
 for bank,_ in sources:driver+=f'for(i=0;i<N{bank};++i){{SWITCH_ROM({bank});memcpy(&copy,&vecs{bank}[i],sizeof(copy));check();}}\n'
 driver+='done=1;while(1){}}\n'
 (OUT/'driver.c').write_text(driver)
-cmd=[BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(OUT),'-o',OUT/'check.gbc',OUT/'driver.c',BASE/'test/fixtures/reaction_division.s',*[v for _,v in sources]]
+cmd=[BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(OUT),'-o',OUT/'check.gbc',OUT/'driver.c',BASE/'src/physics_reaction_division.s',*[v for _,v in sources]]
 r=subprocess.run(list(map(str,cmd)),capture_output=True,text=True)
 (OUT/'compile.log').write_text(r.stdout+r.stderr)
 assert r.returncode==0,(OUT/'compile.log').read_text()

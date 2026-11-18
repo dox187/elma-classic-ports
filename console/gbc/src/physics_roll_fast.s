@@ -1,4 +1,4 @@
-; Exact rolling response: ABI0 k*,contact*,dvx32,dvy32,tq16, bank9.
+; Exact rolling response: ABI0 k*,contact*,dvx32,dvy32,tq32, bank9.
 ; Existing helpers preserve all projections, coefficient rounding and saturation.
 ; Local stack: tangent0..3, projected velocity4..7, torque/speed8..11.
 ; No shared scratch; circle_t offsets are compile-time checked by the caller.
@@ -132,26 +132,20 @@ _riding_roll32::
  push de
  call _riding_wheel_roll_t
  add sp,#4
-; t = signextend(tq) + coefficient(dvn), wrapping32.
+; t = tq + coefficient(dvn), wrapping32.
  ld b,h
  ld c,l
  ldhl sp,#26
  ld a,(hl+)
  add a,e
  ld e,a
- ld a,(hl)
+ ld a,(hl+)
  adc a,d
  ld d,a
- ld a,(hl)
- push af
- add a,a
- sbc a,a
- ld l,a
- pop af
- ld a,l
+ ld a,(hl+)
  adc a,c
  ld c,a
- ld a,l
+ ld a,(hl)
  adc a,b
  ld b,a
  ldhl sp,#8
@@ -198,22 +192,25 @@ _riding_roll32::
  ld (hl),c
  inc hl
  ld (hl),b
-; omega = sat16(Q24(sp,C_ROLL_W)); sp remains full precision.
+; omega = Q24(sp,C_ROLL_W); keep the full signed32 angular state.
  push bc
  push de
  call _riding_wheel_roll_w
  add sp,#4
- ld b,d
- ld c,e
- ld e,l
- ld d,h
- call _sat16
+ ld b,h
+ ld c,l
  ldhl sp,#14
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+ push de
  ld de,#20
  add hl,de
+ pop de
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
  ld (hl),c
  inc hl
  ld (hl),b

@@ -36,22 +36,29 @@ NATIVE_EXTRA = ('physics_q24.c', 'physics_force.c', 'physics_math.s', 'physics_m
                 'physics_export_fast.s','physics_rider_fast.s','physics_rider_response.s','physics_phase.s','physics_circle_scheduled.s',
                 'physics_supports_fast.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
                 'physics_head_pose.s','physics_brake_fast.s',
-                'physics_suspension_scheduled.s','physics_recip_fast.s','physics_contact_filter.s')
+                'physics_suspension_scheduled.s','physics_recip_fast.s','physics_contact_filter.s','physics_reaction_division.s')
 TABLES = ('physics_quarter_*.c', 'physics_scale_*.c', 'physics_sine_*.c',
           'physics_q24_table_*.c')
 
 # Explicit offsets in packed SM83 bike_t, not padded ctypes offsets. Angles
 # are deliberately excluded: changing them would invalidate cached sin/cos.
-SEED_FIELDS = {}
-for _index, _part in enumerate(('body', 'wheel0', 'wheel1')):
-    for _field, _offset, _fmt, _ctype in (('vx', 8, 'i', C.c_int32),
-                                        ('vy', 12, 'i', C.c_int32),
-                                        ('omega', 20, 'h', C.c_int16)):
-        SEED_FIELDS[f'{_part}.{_field}'] = (_index * 22 + _offset, _fmt, _ctype)
-SEED_FIELDS.update(rider_vx=(74, 'i', C.c_int32), rider_vy=(78, 'i', C.c_int32))
-for _index in range(2):
-    SEED_FIELDS[f'volt[{_index}]'] = (103 + _index, 'B', C.c_uint8)
-    SEED_FIELDS[f'volt_omega[{_index}]'] = (105 + 2 * _index, 'h', C.c_int16)
+def seed_fields(wide):
+    fields = {}
+    stride = 24 if wide else 22
+    for index, part in enumerate(('body', 'wheel0', 'wheel1')):
+        for field, offset, fmt, ctype in (('vx', 8, 'i', C.c_int32),
+                ('vy', 12, 'i', C.c_int32),
+                ('omega', 20, 'i' if wide else 'h', C.c_int32 if wide else C.c_int16)):
+            fields[f'{part}.{field}'] = (index*stride+offset, fmt, ctype)
+    fields.update(rider_vx=(80 if wide else 74, 'i', C.c_int32),
+                  rider_vy=(84 if wide else 78, 'i', C.c_int32))
+    for index in range(2):
+        fields[f'volt[{index}]'] = ((109 if wide else 103)+index, 'B', C.c_uint8)
+        fields[f'volt_omega[{index}]'] = ((111+4*index) if wide else (105+2*index),
+                         'i' if wide else 'h', C.c_int32 if wide else C.c_int16)
+    return fields
+
+SEED_FIELDS = seed_fields(True)
 
 
 def integer(value, low, high, label):
@@ -132,16 +139,16 @@ def seed_host(host, field, value):
 
 def packed_host(host):
     b, p = host.b, host.p
-    bike = b''.join(struct.pack('<iiiiIh', k.rx, k.ry, k.vx, k.vy, k.alfa, k.omega)
+    bike = b''.join(struct.pack('<iiiiIi' if host.wide_angular else '<iiiiIh', k.rx, k.ry, k.vx, k.vy, k.alfa, k.omega)
                     for k in (b.body, *b.wheel))
-    bike += struct.pack('<iiiiiiBBBBBIIBBhh', b.rider_x, b.rider_y,
+    bike += struct.pack('<iiiiiiBBBBBIIBBii' if host.wide_angular else '<iiiiiiBBBBBIIBBhh', b.rider_x, b.rider_y,
                         b.rider_vx, b.rider_vy, b.head_x, b.head_y, b.turned,
                         b.gravity, b.brake_was, b.steps, b.gfrac, *b.dbrake,
                         *b.volt, *b.volt_omega)
     public = b''.join(struct.pack('<iiH', k.x, k.y, k.angle)
                       for k in (p.body, *p.wheel, p.rider, p.head))
     public += struct.pack('<BB', p.alive, p.turned)
-    assert len(bike) == 109 and len(public) == 52
+    assert len(bike) == (119 if host.wide_angular else 109) and len(public) == 52
     return {'Bike': bike, 'gbc_bike': public,
             'move_residual': struct.pack('<8i', *(C.c_int32 * 8).in_dll(host.f, 'move_residual')),
             'force_residual': struct.pack('<2q', *(C.c_int64 * 2).in_dll(host.f, 'force_residual')),
@@ -356,7 +363,7 @@ def verify(out, rom, library, settings, metadata, steps, timeout, suite=None):
             return
         state['ready_case']=state['case']
         for field, value in suite[state['case']].get('seed', {}).items():
-            offset, fmt, _ = SEED_FIELDS[field]
+            offset, fmt, _ = seed_fields(host.wide_angular)[field]
             seed_host(host, field, value)
             data = struct.pack('<' + fmt, value)
             address = symbols['_Bike'] + offset
@@ -420,7 +427,7 @@ def verify(out, rom, library, settings, metadata, steps, timeout, suite=None):
                   outer_steps=len(costs), differences=failures[:20], difference_count=len(failures),
                   mean_tcycles=sum(costs) / len(costs) if costs else None,
                   max_tcycles=max(costs) if costs else None, elapsed_s=time.monotonic() - start,
-                  packed_bytes_per_state=214, cases=results, provenance=metadata,
+                  packed_bytes_per_state=224 if host.wide_angular else 214, cases=results, provenance=metadata,
                   duplicate_interrupt_hooks=state['duplicate_hooks'],
                   verification_sha256=comparison.sha256(Path(__file__)),
                   cost_note='SM83 T-cycles including turn when requested; excludes vsync and reset')

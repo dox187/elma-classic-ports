@@ -1,4 +1,4 @@
-"""Independent packed22 motion reference and native carry/wrap/guard checks."""
+"""Independent packed24 motion reference and native carry/wrap/guard checks."""
 import argparse
 import ctypes as C
 import hashlib
@@ -16,35 +16,35 @@ def rows():
  r=random.Random(2232128)
  positions=[0,1,0x7fffffff,0x80000000,0xffffffff,0x00ffffff,0x0000ffff,0x000000ff]
  velocity=[0,1,-1,0x7fffffff,-0x80000000,32768,-32769,0x3fffffff,-0x40000000]
- omega=[0,1,-1,32767,-32768,255,-256,256,-257]
+ omega=[0,1,-1,32767,-32768,32768,-32769,0x7fffffff,-0x80000000,0x00ffffff,-0x01000000,255,-256,256,-257]
  result=[]
  for i,x in enumerate(positions):
   for j,v in enumerate(velocity):
    for w in omega:
-    result.append(struct.pack('<IIiiIh',x,positions[(i+3)%len(positions)],v,velocity[(j+4)%len(velocity)],positions[(i+5)%len(positions)],w))
+    result.append(struct.pack('<IIiiIi',x,positions[(i+3)%len(positions)],v,velocity[(j+4)%len(velocity)],positions[(i+5)%len(positions)],w))
  for _ in range(512):
-  result.append(struct.pack('<IIiiIh',r.getrandbits(32),r.getrandbits(32),r.randint(-2**31,2**31-1),r.randint(-2**31,2**31-1),r.getrandbits(32),r.randint(-32768,32767)))
+  result.append(struct.pack('<IIiiIi',r.getrandbits(32),r.getrandbits(32),r.randint(-2**31,2**31-1),r.randint(-2**31,2**31-1),r.getrandbits(32),r.randint(-2**31,2**31-1)))
  return result
 
 def expected(data):
- x,y,vx,vy,a,w=struct.unpack('<IIiiIh',data)
- return struct.pack('<IIiiIh',(x+vx*4)&0xffffffff,(y+vy*4)&0xffffffff,vx,vy,(a+w*128)&0xffffffff,w)
+ x,y,vx,vy,a,w=struct.unpack('<IIiiIi',data)
+ return struct.pack('<IIiiIi',(x+vx*4)&0xffffffff,(y+vy*4)&0xffffffff,vx,vy,(a+w*128)&0xffffffff,w)
 
 def main():
  p=argparse.ArgumentParser();p.add_argument('--assembly',type=Path,default=BASE/'src/physics_move_fast.s');p.add_argument('--out',type=Path,default=BASE/'build/move32-check');p.add_argument('--lcc',type=Path,default=BASE/'.toolchain/gbdk/bin/lcc');a=p.parse_args();a.out.mkdir(parents=True,exist_ok=True)
  source_hash=hashlib.sha256(a.assembly.read_bytes()).hexdigest();cases=rows();want=[expected(v)for v in cases]
  reference=a.out/'host.c';reference.write_text('''#include <stdint.h>
 #include <string.h>
-void reference_move(uint8_t *k){uint32_t x,y,a,vx,vy;int16_t w;
-memcpy(&x,k,4);memcpy(&y,k+4,4);memcpy(&vx,k+8,4);memcpy(&vy,k+12,4);memcpy(&a,k+16,4);memcpy(&w,k+20,2);
+void reference_move(uint8_t *k){uint32_t x,y,a,vx,vy;int32_t w;
+memcpy(&x,k,4);memcpy(&y,k+4,4);memcpy(&vx,k+8,4);memcpy(&vy,k+12,4);memcpy(&a,k+16,4);memcpy(&w,k+20,4);
 x+=vx*4u;y+=vy*4u;a+=(uint32_t)(int32_t)w*128u;
 memcpy(k,&x,4);memcpy(k+4,&y,4);memcpy(k+16,&a,4);}
 ''')
  lib=a.out/('host.dylib'if sys.platform=='darwin'else'host.so');subprocess.run(['cc','-shared','-fPIC',str(reference),'-o',str(lib)],check=True)
  host=C.CDLL(str(lib));host.reference_move.argtypes=[C.POINTER(C.c_uint8)]
  for before,after in zip(cases,want):
-  buf=(C.c_uint8*22).from_buffer_copy(before);host.reference_move(buf);assert bytes(buf)==after
- sources=[];header='#include <stdint.h>\ntypedef struct {uint8_t before[22],after[22];} vector_t;\n'
+  buf=(C.c_uint8*24).from_buffer_copy(before);host.reference_move(buf);assert bytes(buf)==after
+ sources=[];header='#include <stdint.h>\ntypedef struct {uint8_t before[24],after[24];} vector_t;\n'
  for bank,start in enumerate(range(0,len(cases),256),1):
   subset=list(zip(cases[start:start+256],want[start:start+256]));name=f'vectors{bank}'
   header+=f'extern const vector_t {name}[];\n#define COUNT{bank} {len(subset)}\n'
@@ -57,15 +57,15 @@ memcpy(k,&x,4);memcpy(k+4,&y,4);memcpy(k+16,&a,4);}
 #include "physics_core.h"
 #include "vectors.h"
 void riding_move32(circle_t *k) __sdcccall(0);
-typedef char packed22[sizeof(circle_t)==22?1:-1];
+typedef char packed24[sizeof(circle_t)==24?1:-1];
 typedef char packed_offsets[offsetof(circle_t,rx)==0&&offsetof(circle_t,ry)==4&&offsetof(circle_t,vx)==8&&offsetof(circle_t,vy)==12&&offsetof(circle_t,alfa)==16&&offsetof(circle_t,omega)==20?1:-1];
 volatile uint8_t move_done;volatile uint16_t move_failures,guard_failures,bank_failures,move_cases;
 uint8_t arena[512];
 static void check(const vector_t *v,uint16_t id){uint16_t j,pos=16+(id*37u)%256u;uint8_t pattern;
  for(j=0;j<512;++j)arena[j]=(uint8_t)(0xa5u^j^id);
- memcpy(arena+pos,v->before,22);riding_move32((circle_t *)(arena+pos));
- for(j=0;j<22;++j)if(arena[pos+j]!=v->after[j])++move_failures;
- for(j=0;j<512;++j)if(j<pos||j>=pos+22){pattern=(uint8_t)(0xa5u^j^id);if(arena[j]!=pattern)++guard_failures;}
+ memcpy(arena+pos,v->before,24);riding_move32((circle_t *)(arena+pos));
+ for(j=0;j<24;++j)if(arena[pos+j]!=v->after[j])++move_failures;
+ for(j=0;j<512;++j)if(j<pos||j>=pos+24){pattern=(uint8_t)(0xa5u^j^id);if(arena[j]!=pattern)++guard_failures;}
  ++move_cases;}
 void main(void){uint16_t i;uint8_t bank;disable_interrupts();DISPLAY_OFF;cpu_fast();
 '''
@@ -89,7 +89,7 @@ void main(void){uint16_t i;uint8_t bank;disable_interrupts();DISPLAY_OFF;cpu_fas
    if p.memory[sy['_move_done']]:break
   def n(name,size=2):
    q=sy['_'+name];return int.from_bytes(bytes(p.memory[q:q+size]),'little')
-  report={name:n(name)for name in ('move_failures','guard_failures','bank_failures','move_cases')};report.update({'move_done':n('move_done',1),'host_matches_python':True,'packed_circle_bytes':22,'api_cycles':{'calls':len(cycles),'min':min(cycles),'max':max(cycles),'mean':sum(cycles)/len(cycles)},'assembly_sha256':source_hash})
+  report={name:n(name)for name in ('move_failures','guard_failures','bank_failures','move_cases')};report.update({'move_done':n('move_done',1),'host_matches_python':True,'packed_circle_bytes':24,'api_cycles':{'calls':len(cycles),'min':min(cycles),'max':max(cycles),'mean':sum(cycles)/len(cycles)},'assembly_sha256':source_hash})
   assert hashlib.sha256(a.assembly.read_bytes()).hexdigest()==source_hash,'Assembly changed while checking'
   (a.out/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))
   assert report['move_done'] and report['move_cases']==len(cases) and not any(report[v]for v in ('move_failures','guard_failures','bank_failures')),report

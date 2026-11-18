@@ -1,5 +1,5 @@
 ; Exact scheduled suspension orchestration. Global packed context:
-; cs0,sn2,oms4,tq8,dvx12,dvy20,dvbx28,dvby32,dwb36.
+; cs0,sn2,oms4,tq8,dvx16,dvy24,dvbx32,dvby36,dwb40.
 ; Existing Q24 products retain fractions immediately; all sums wrap32.
 ; Single ph_step owner, no interrupt/reentrant entry.
  .module physics_suspension_scheduled
@@ -276,7 +276,7 @@ _riding_suspension_scheduled::
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+22
+ ld hl,#_Bike+24
  ld a,e
  sub a,(hl)
  ld e,a
@@ -324,7 +324,7 @@ _riding_suspension_scheduled::
 ss_index_318:
  ld a,(hl)
  call ss_q24
- ld hl,#_riding_suspension_state+12
+ ld hl,#_riding_suspension_state+16
  ld (hl),e
  inc hl
  ld (hl),d
@@ -342,7 +342,7 @@ ss_index_318:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+26
+ ld hl,#_Bike+28
  ld a,e
  sub a,(hl)
  ld e,a
@@ -390,7 +390,7 @@ ss_index_318:
 ss_index_407:
  ld a,(hl)
  call ss_q24
- ld hl,#_riding_suspension_state+20
+ ld hl,#_riding_suspension_state+24
  ld (hl),e
  inc hl
  ld (hl),d
@@ -469,7 +469,7 @@ ss_index_407:
  inc hl
  ld (hl),b
 ; Lever coordinates preserve +128 before the arithmetic byte drop.
- ld hl,#_Bike+22
+ ld hl,#_Bike+24
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -517,7 +517,7 @@ ss_index_407:
  ld (hl),e
  inc hl
  ld (hl),d
- ld hl,#_Bike+26
+ ld hl,#_Bike+28
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -603,7 +603,7 @@ ss_index_407:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+30
+ ld hl,#_Bike+32
  ld a,e
  sub a,(hl)
  ld e,a
@@ -669,7 +669,7 @@ ss_index_691:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_riding_suspension_state+12
+ ld hl,#_riding_suspension_state+16
  ld a,e
  add a,(hl)
  ld e,a
@@ -685,7 +685,7 @@ ss_index_691:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+12
+ ld hl,#_riding_suspension_state+16
  ld (hl),e
  inc hl
  ld (hl),d
@@ -731,7 +731,7 @@ ss_index_691:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+34
+ ld hl,#_Bike+36
  ld a,e
  sub a,(hl)
  ld e,a
@@ -797,7 +797,7 @@ ss_index_842:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_riding_suspension_state+20
+ ld hl,#_riding_suspension_state+24
  ld a,e
  add a,(hl)
  ld e,a
@@ -813,7 +813,7 @@ ss_index_842:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+20
+ ld hl,#_riding_suspension_state+24
  ld (hl),e
  inc hl
  ld (hl),d
@@ -824,6 +824,10 @@ ss_index_842:
 ; Wheel 0: exact reciprocal reaction and integer-only body reaction.
  ld hl,#_riding_suspension_state+8
  ld a,(hl+)
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ inc hl
  or a,(hl)
  jp z,ss_reaction_done_0
  ld hl,#ss_damping+20
@@ -836,33 +840,18 @@ ss_index_842:
  inc hl
  ld d,(hl)
  push de
- call _riding_recip_index
- add sp,#4
- ld d,#0
- sla e
- rl d
- ld hl,#_Recip_d2
- add hl,de
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld a,#8
- push af
- inc sp
- push bc
  ld hl,#_riding_suspension_state+8
  ld e,(hl)
  inc hl
  ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
  push bc
  push de
- call _riding_mulshift32
- add sp,#7
+ call _riding_reaction_input32
+ add sp,#8
  ld b,h
  ld c,l
  ld hl,#_q24_index_C_REACT
@@ -921,7 +910,7 @@ ss_index_959:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_riding_suspension_state+12
+ ld hl,#_riding_suspension_state+16
  ld a,e
  add a,(hl)
  ld e,a
@@ -937,7 +926,7 @@ ss_index_959:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+12
+ ld hl,#_riding_suspension_state+16
  ld (hl),e
  inc hl
  ld (hl),d
@@ -997,7 +986,7 @@ ss_index_959:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_riding_suspension_state+20
+ ld hl,#_riding_suspension_state+24
  ld a,e
  add a,(hl)
  ld e,a
@@ -1013,7 +1002,7 @@ ss_index_959:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+20
+ ld hl,#_riding_suspension_state+24
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1031,7 +1020,7 @@ ss_reaction_done_0:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+44
+ ld hl,#_Bike+48
  ld a,e
  sub a,(hl)
  ld e,a
@@ -1079,7 +1068,7 @@ ss_reaction_done_0:
 ss_index_1197:
  ld a,(hl)
  call ss_q24
- ld hl,#_riding_suspension_state+16
+ ld hl,#_riding_suspension_state+20
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1097,7 +1086,7 @@ ss_index_1197:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+48
+ ld hl,#_Bike+52
  ld a,e
  sub a,(hl)
  ld e,a
@@ -1145,7 +1134,7 @@ ss_index_1197:
 ss_index_1286:
  ld a,(hl)
  call ss_q24
- ld hl,#_riding_suspension_state+24
+ ld hl,#_riding_suspension_state+28
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1224,7 +1213,7 @@ ss_index_1286:
  inc hl
  ld (hl),b
 ; Lever coordinates preserve +128 before the arithmetic byte drop.
- ld hl,#_Bike+44
+ ld hl,#_Bike+48
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -1272,7 +1261,7 @@ ss_index_1286:
  ld (hl),e
  inc hl
  ld (hl),d
- ld hl,#_Bike+48
+ ld hl,#_Bike+52
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -1358,7 +1347,7 @@ ss_index_1286:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+52
+ ld hl,#_Bike+56
  ld a,e
  sub a,(hl)
  ld e,a
@@ -1424,7 +1413,7 @@ ss_index_1570:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_riding_suspension_state+16
+ ld hl,#_riding_suspension_state+20
  ld a,e
  add a,(hl)
  ld e,a
@@ -1440,7 +1429,7 @@ ss_index_1570:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+16
+ ld hl,#_riding_suspension_state+20
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1486,7 +1475,7 @@ ss_index_1570:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+56
+ ld hl,#_Bike+60
  ld a,e
  sub a,(hl)
  ld e,a
@@ -1552,7 +1541,7 @@ ss_index_1721:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_riding_suspension_state+24
+ ld hl,#_riding_suspension_state+28
  ld a,e
  add a,(hl)
  ld e,a
@@ -1568,7 +1557,7 @@ ss_index_1721:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+24
+ ld hl,#_riding_suspension_state+28
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1577,8 +1566,12 @@ ss_index_1721:
  inc hl
  ld (hl),b
 ; Wheel 1: exact reciprocal reaction and integer-only body reaction.
- ld hl,#_riding_suspension_state+10
+ ld hl,#_riding_suspension_state+12
  ld a,(hl+)
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ inc hl
  or a,(hl)
  jp z,ss_reaction_done_1
  ld hl,#ss_damping+22
@@ -1591,33 +1584,18 @@ ss_index_1721:
  inc hl
  ld d,(hl)
  push de
- call _riding_recip_index
- add sp,#4
- ld d,#0
- sla e
- rl d
- ld hl,#_Recip_d2
- add hl,de
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld a,#8
- push af
- inc sp
- push bc
- ld hl,#_riding_suspension_state+10
+ ld hl,#_riding_suspension_state+12
  ld e,(hl)
  inc hl
  ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
  push bc
  push de
- call _riding_mulshift32
- add sp,#7
+ call _riding_reaction_input32
+ add sp,#8
  ld b,h
  ld c,l
  ld hl,#_q24_index_C_REACT
@@ -1676,7 +1654,7 @@ ss_index_1838:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_riding_suspension_state+16
+ ld hl,#_riding_suspension_state+20
  ld a,e
  add a,(hl)
  ld e,a
@@ -1692,7 +1670,7 @@ ss_index_1838:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+16
+ ld hl,#_riding_suspension_state+20
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1752,7 +1730,7 @@ ss_index_1838:
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_riding_suspension_state+24
+ ld hl,#_riding_suspension_state+28
  ld a,e
  add a,(hl)
  ld e,a
@@ -1768,7 +1746,7 @@ ss_index_1838:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+24
+ ld hl,#_riding_suspension_state+28
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1784,7 +1762,7 @@ ss_reaction_done_1:
  inc sp
  ld b,h
  ld c,l
- ld hl,#_riding_suspension_state+28
+ ld hl,#_riding_suspension_state+32
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1799,7 +1777,7 @@ ss_reaction_done_1:
  inc sp
  ld b,h
  ld c,l
- ld hl,#_riding_suspension_state+32
+ ld hl,#_riding_suspension_state+36
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1830,7 +1808,6 @@ ss_reaction_done_1:
  rr c
  rr d
  rr e
- call ss_sat16
  ld hl,#_q24_index_C_SPRING_T
  ld a,(#_riding_subphase)
  or a
@@ -1839,7 +1816,6 @@ ss_reaction_done_1:
 ss_index_2081:
  ld a,(hl)
  call ss_q24
- call ss_sat16
  xor a
  sub a,e
  ld e,a
@@ -1852,7 +1828,7 @@ ss_index_2081:
  ld a,#0
  sbc a,b
  ld b,a
- ld hl,#_riding_suspension_state+36
+ ld hl,#_riding_suspension_state+40
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1886,7 +1862,7 @@ ss_index_2116:
  ld a,#0
  sbc a,b
  ld b,a
- ld hl,#_riding_suspension_state+36
+ ld hl,#_riding_suspension_state+40
  ld a,e
  add a,(hl)
  ld e,a
@@ -1902,7 +1878,7 @@ ss_index_2116:
  ld a,b
  adc a,(hl)
  ld b,a
- ld hl,#_riding_suspension_state+36
+ ld hl,#_riding_suspension_state+40
  ld (hl),e
  inc hl
  ld (hl),d

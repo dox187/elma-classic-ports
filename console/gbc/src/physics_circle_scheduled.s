@@ -12,14 +12,7 @@ _riding_circle_scheduled::
  push hl
  ld de,#20
  add hl,de
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld a,b
- add a,a
- sbc a,a
- ld e,a
- ld d,a
+ call circle_load
  ld a,#7
  push af
  inc sp

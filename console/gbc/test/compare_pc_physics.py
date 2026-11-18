@@ -74,6 +74,17 @@ class Bike(C.Structure):
                 ('volt', C.c_uint8 * 2), ('volt_omega', C.c_int16 * 2)]
 
 
+class WideCircle(C.Structure):
+    _fields_ = [(name, C.c_int32 if name == 'omega' else kind)
+                for name, kind in Circle._fields_]
+
+
+class WideBike(C.Structure):
+    _fields_ = [(name, WideCircle if name == 'body' else WideCircle*2 if name == 'wheel'
+                else C.c_int32*2 if name == 'volt_omega' else kind)
+                for name, kind in Bike._fields_]
+
+
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -351,9 +362,12 @@ class Gbc:
         self.f.physics_select_level.argtypes = [C.c_uint8]
         self.f.physics_reset.argtypes = [C.c_int32, C.c_int32]
         self.f.physics_set_gravity.argtypes = [C.c_uint8]
-        assert self.f.fixture_internal_size() == C.sizeof(Bike)
+        internal_size = self.f.fixture_internal_size()
+        bike_type = WideBike if internal_size == C.sizeof(WideBike) else Bike
+        assert internal_size == C.sizeof(bike_type), 'Unknown internal physics ABI'
+        self.wide_angular = bike_type is WideBike
         assert self.f.fixture_public_size() == C.sizeof(Public)
-        self.b = Bike.in_dll(self.f, 'Bike'); self.p = Public.in_dll(self.f, 'gbc_bike')
+        self.b = bike_type.in_dll(self.f, 'Bike'); self.p = Public.in_dll(self.f, 'gbc_bike')
         self.contacts = hasattr(self.f, 'fixture_contact_version') and self.f.fixture_contact_version() == 1
         if self.contacts:
             self.f.fixture_contact_state.argtypes = [C.POINTER(C.c_int), C.POINTER(C.c_int)]

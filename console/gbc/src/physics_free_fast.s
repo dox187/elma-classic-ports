@@ -1,57 +1,43 @@
-; Exact free-wheel torque, velocity and motion; ABI0 k*,dvx32,dvy32,tq16.
-; No shared scratch. Keep the signed17 angular sum before sat16.
+; Exact free-wheel torque, velocity and motion; ABI0 k*,dvx32,dvy32,tq32.
+; No shared scratch. Angular and linear additions wrap modulo 2^32.
 .module physics_free_fast
 .area _CODE_9
 _riding_free32::
- ldhl sp,#12
+ ldhl sp,#14
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ ldhl sp,#14
  ld e,(hl)
  inc hl
  ld d,(hl)
  push de
  call _riding_wheel_free_coeff
- add sp,#2
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- push de
- ldhl sp,#4
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld de,#20
- add hl,de
- ld e,(hl)
- inc hl
- ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld c,a
- pop hl
- ld a,e
- add a,l
- ld e,a
- ld a,d
- adc a,h
- ld d,a
- ld a,b
- adc a,c
- ld c,e
- ld b,d
- ld e,a
- ld d,a
- call _sat16
+ add sp,#4
+ ld b,h
+ ld c,l
  ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
  ld l,a
  push hl
+ push de
  ld de,#20
  add hl,de
- ld (hl),c
- inc hl
- ld (hl),b
+ pop de
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl),a
  ldhl sp,#6
  ld e,(hl)
  inc hl

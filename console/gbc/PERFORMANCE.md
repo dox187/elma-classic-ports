@@ -1755,3 +1755,81 @@ stack bytes. Captured impact inputs cost18,244/18,260 T-cycles; range344–20,93
 Evidence: root `build/v096-reaction-division` (proof, ABI and original results),
 `build/v096-close-reaction-retained` (relocated durable fixture). This establishes
 the primitive only, not native widened-physics or full-game correctness.
+
+
+## 2026-11-18 — 0.96 test2 native widening and compression correction
+
+The combined correction is now linked into the playable 8 MiB ROM. This
+supersedes the preceding HOST-only integration status; retained test1 remains
+unchanged. The former division fixture is promoted to
+`src/physics_reaction_division.s`, and its independent oracle tests that exact
+production file. Widening alone and narrow-only reciprocal remain rejected.
+
+Native migration covers circle24/Bike119/workspace44, full-width brake and free/
+rolling torque ABIs, saved volt omega, body/spring updates, all affected assembly
+loads/stores and full 224-byte state verification. Audio narrows only at its
+existing bounded API. A ROM constant publishes the private physics state size
+for controller observers; older ROMs retain the old-size fallback.
+
+The first widened speed run exposed a real native/HOST mismatch at
+`volt--32760`, outer step10, in the rider/head position. The seat-relative
+subtractions still used SDCC's 16-bit integer promotion while HOST used32 bits.
+Explicit signed32 inputs fix it without changing the HOST trajectory. The
+final46-case suite matches **9,213 states**, mean **481,027.6073 T**, maximum
+**925,724 T**. The122-case native suite matches **3,179 states**, mean
+**485,619.6847 T**, maximum **1,068,264 T**. No discrepancies are waived.
+These are equality against the matching integer HOST, not original-PC identity.
+
+Original-PC audit: **3,173 instrumented/control HOST states** match, no numeric
+range hits in this matrix, all six cutoff gates pass, all18 impact survival
+results match. The ±60m/s flat braking impact deaths are resolved; four
+±120/±140rad/s body-spin outcomes still differ due to the production3m stretch
+guard. All45 strict rebound/braking fixtures pass 0.1% peak/airtime gates. At
++80m/s coast, wheel peak is200.001461rad/s versus PC200.000058. Original PC runs
+native double, not Windows x87; these fixtures do not prove global99.9% fidelity.
+
+Durable low-level regression gates now include 14,114 exact production close
+quotients, 1,592 full-width motion cases, 1,500 independent brake fixtures and
+1,200 wheel fixtures (2,400 native free/roll calls). Guard, mapper and state
+checks pass. Wheel parity deliberately shares arithmetic primitives with its
+C reference and initializes motion residuals to zero; the complete native
+state suites cover evolving residuals. The standalone reaction bridge also
+passed3,863 threshold/zero/torque cases during integration.
+
+Full ROM SHA-256:
+`b5e5d2baacd43bc8857d954811addf323c39f8477e02d0e40459f14734ad1e5a`.
+Path: GBC `build/elma-gbc-v0.96-test2-8m.gbc`, directly in build/, version0.96
+on menu/splash,8,388,608bytes, header1B/08/03, tailbanks508–511 allFF.
+ROM0 has451bytes free. No physical-cartridge acceptance is claimed.
+
+Menu and volt tests pass. All54 starts and full no-input Freefall pass functional
+and graphics checks with zero observer errors. Strict timing remains failed:
+1,615/438 deadline misses. Freefall has4frames×282,5frames×126,6frames×26,
+**13.5432 updates/s**, slightly below test1's13.5858. The player/save test now
+continues functional checks after recording cadence failures and exits nonzero
+at the end. Names, exact clock text/minute rollover, first/slower/tied/improved
+records, frozen result panels, retry, isolation and battery reload pass. Finish
+uses the existing explicit flower-contact fixture. Timing fails36 publications/
+35 visible changes in180 display frames,5-frame intervals and1,770 idle misses;
+none of the original timing thresholds was relaxed.
+
+The controller benchmark needed its own scheduled-profile migration: its old
+single-ph_step observer rejected the second microstep. It now observes nested
+core calls and validates all three inputs, with the volt bits present only on
+the first microstep, including early death and duplicate IRQ hook handling.
+The final controller-only216-case corpus completes **30,490 outer steps**, zero
+observer/correctness errors,119-byte private states. All216 timing cases fail;
+30,468 updates exceed the unchanged budget, worst1,101,180T in level40 gas.
+This is functional ROM coverage, not a completed-all-levels or PC-parity claim.
+
+Evidence (repository-root paths):
+- `build/v096-wide-integrated/{native2,speed2,rebound2,close,move,wheel-regression,brake-regression}`
+- `console/gbc/build/v096-wide-speed-audit/report.json`
+- `build/v096-test2/{frontend,volt,all-levels,freefall,gameplay-scheduled}`
+- `console/gbc/build/v096-test2/players/report.json`
+
+Next acceptance work remains substantial: reduce the full corrected model's
+runtime cost, resolve the four extreme-spin/guard discrepancies with geometry
+and numerical validation, then validate cartridge timing. Stable30FPS and
+accuracy remain simultaneous requirements. Test2 is an integrated diagnostic,
+not a final0.96 release.

@@ -28,6 +28,7 @@
 const uint8_t game_step_interval=60/PH_HZ;
 const uint8_t game_present_interval=GAME_FRAME_INTERVAL;
 const uint8_t game_physics_hz=PH_HZ;
+const uint8_t game_physics_state_bytes=sizeof(bike_t);
 const uint8_t game_sprite_height=16;
 const uint8_t game_head_oam_index=12;
 const uint8_t game_object_oam_base=BIKE_OBJECT_OAM_BASE;
@@ -439,7 +440,7 @@ void game_wait_first_frame(uint16_t start) NONBANKED {
 void main(void) NONBANKED {
     uint8_t keys,pressed,input,substep,tick,action,line;
     uint16_t start,now;
-    int16_t wheel_speed;
+    int32_t wheel_speed;
     DISPLAY_OFF;cpu_fast();game_state=MENU;game_level_index=0;
     save_init();audio_init();splash_show();
     menu_open(0,0);previous=joypad();game_ready=1;
@@ -447,6 +448,7 @@ void main(void) NONBANKED {
         vsync();__critical {start=sys_time;}
         keys=joypad();pressed=keys&~previous;previous=keys;
         wheel_speed=Bike.wheel[Bike.turned?0:1].omega;
+        if(wheel_speed>32768L || wheel_speed< -32768L)wheel_speed=32768L;
         audio_update(game_state==RIDING,keys&J_A,keys&J_B,
                      wheel_speed<0?(uint16_t)-wheel_speed:(uint16_t)wheel_speed);
         if(game_state==MENU || game_state==PAUSED) {

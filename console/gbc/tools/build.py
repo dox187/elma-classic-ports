@@ -206,7 +206,7 @@ def main():
             'physics_rider_fast.s','physics_rider_response.s','physics_phase.s','physics_circle_scheduled.s',
             'physics_supports_fast.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
             'physics_head_pose.s','physics_brake_fast.s',
-            'physics_suspension_scheduled.s','physics_recip_fast.s','physics_contact_filter.s')]
+            'physics_suspension_scheduled.s','physics_recip_fast.s','physics_contact_filter.s','physics_reaction_division.s')]
         sources.append(a.gen/'physics_q24_dispatch.c')
     else:
         sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name!='physics_mul16.s' and not x.name.startswith('physics_q24'))

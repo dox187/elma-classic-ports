@@ -1,5 +1,5 @@
-; Exact rider vectors and motion, packed bike109, stack ABI0, ROM bank8.
-; Bike: body.rx0 ry4, rider_x66 y70 vx74 vy78.
+; Exact rider vectors and motion, packed bike119, stack ABI0, ROM bank8.
+; Bike: body.rx0 ry4, rider_x72 y76 vx80 vy84.
 ; Vectors(restx,resty,out) writes dirx,diry,dx,dy as signed16.
 ; dir = sat16((wrap32(body-rider) >> 4) + signed16(rest));
 ; delta = sat16(wrap32(rider-body) >> 4).
@@ -11,7 +11,7 @@
 .area _CODE_8
 
 _riding_rider_vectors32::
- ld hl,#_Bike+66
+ ld hl,#_Bike+72
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -126,7 +126,7 @@ _riding_rider_vectors32::
  inc hl
  ld (hl),d
 
- ld hl,#_Bike+70
+ ld hl,#_Bike+76
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -272,7 +272,7 @@ _riding_rider_move32::
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+74
+ ld hl,#_Bike+80
  ld a,(hl)
  add a,e
  ld e,a
@@ -308,7 +308,7 @@ _riding_rider_move32::
  ld e,c
  ld b,h
  ld c,l
- ld hl,#_Bike+66
+ ld hl,#_Bike+72
  ld a,(hl)
  add a,e
  ld (hl+),a
@@ -330,7 +330,7 @@ _riding_rider_move32::
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#_Bike+78
+ ld hl,#_Bike+84
  ld a,(hl)
  add a,e
  ld e,a
@@ -366,7 +366,7 @@ _riding_rider_move32::
  ld e,c
  ld b,h
  ld c,l
- ld hl,#_Bike+70
+ ld hl,#_Bike+76
  ld a,(hl)
  add a,e
  ld (hl+),a

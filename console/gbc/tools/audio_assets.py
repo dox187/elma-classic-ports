@@ -193,14 +193,14 @@ def engine_pitches(constants, base_hz):
                  else .4368 / rate)
     omega_scale = angle_units / (2 * math.pi) * unit_time / 128
     # At most 64 native omega units per bin. Center interior bins; preserve
-    # exactly zero wheel speed. Values above the signed physics range clamp.
+    # exactly zero wheel speed. Values above the audio lookup range clamp.
     speed = np.arange(512) * 64 + 32
     speed[0] = 0
     multiplier = 2 - np.exp(-np.minimum(speed / omega_scale * .025, 30))
     target = base_hz * multiplier
     periods = np.rint(2048 - 65536 / target).astype(int)
-    # The mixer receives abs(int16 wheel.omega); 32768 is the maximum
-    # reachable magnitude. Its uint16 API saturates larger inputs as well.
+    # The caller saturates abs(int32 wheel.omega) to 32768 before narrowing.
+    # The uint16 mixer API also saturates larger inputs to that lookup limit.
     all_speed = np.minimum(np.arange(65536), 32768)
     exact = base_hz * (2 - np.exp(-np.minimum(all_speed / omega_scale * .025, 30)))
     actual = 65536 / (2048 - periods[np.minimum(all_speed >> 6, 511)])

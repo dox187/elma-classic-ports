@@ -27,12 +27,13 @@ def main():
     interval = math.floor(cooldown * rate / clock_scale) + 1
     d = Driver(args.rom, args.out, args.gen)
     calls, events, cases = [], [], {}
+    volt_offset = 109 if d.rom_constant("game_physics_state_bytes", 109) == 119 else 103
 
     def observe(_):
         # ph_step uses the SM83 SDCC register ABI: uint8_t argument in A.
         record = {'step': d.word('game_steps'), 'frame': d.p.frame_count,
                   'input': d.p.register_file.A,
-                  'volt_before': list(d.p.memory[d.symbols['_Bike']+103:d.symbols['_Bike']+105])}
+                  'volt_before': list(d.p.memory[d.symbols['_Bike']+volt_offset:d.symbols['_Bike']+volt_offset+2])}
         calls.append(record)
         if record['input'] & 12:
             events.append(record)

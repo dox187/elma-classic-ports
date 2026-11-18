@@ -81,6 +81,7 @@ def fixture_levels():
 
 def instrument(source,destination):
     shutil.copytree(source,destination)
+    wide='Bike.body.omega += dwb;' in (source/'physics_core.c').read_text()
     def edit(name,replacements):
         p=destination/name;s=p.read_text()
         for before,after in replacements:
@@ -89,18 +90,31 @@ def instrument(source,destination):
         p.write_text('#include "speed_audit.h"\n'+s)
     header=['#include <stdint.h>', 'int16_t sat16(int32_t);',
             'void audit_range(int64_t,int64_t,int64_t,uint8_t);',
-            'int16_t audit_narrow(int32_t,uint8_t);']
+            'int16_t audit_narrow(int32_t,uint8_t);',
+            'int32_t audit_wide(int64_t,uint8_t);']
     for i,label in enumerate(LABELS):
-        header.append(f'#define audit_{label}(v) audit_narrow((v),{i})')
+        helper='audit_wide' if wide else 'audit_narrow'
+        header.append(f'#define audit_{label}(v) {helper}((v),{i})')
     (destination/'speed_audit.h').write_text('\n'.join(header)+'\n')
-    edit('physics_core.c',[
+    core_replacements=[
+        ('int32_t dw = Bike.wheel[k].omega-Bike.body.omega;',
+         'int32_t dw = audit_brake_delta_omega((int64_t)Bike.wheel[k].omega-Bike.body.omega);'),
+        ('tq[k] = -spring-(riding_landing_contact[k]?KMUL32(dw,C_BRAKE_GW):KMUL32(dw,C_BRAKE_W));',
+         'tq[k] = audit_brake_torque(-(int64_t)spring-(riding_landing_contact[k]?KMUL32(dw,C_BRAKE_GW):KMUL32(dw,C_BRAKE_W)));'),
+        ('KMUL32(riding_sra8(ts)>>2,C_SPRING_T)',
+         'KMUL32(audit_spring_torque_input(riding_sra8(ts)>>2),C_SPRING_T)'),
+        ('Bike.body.omega += dwb;',
+         'Bike.body.omega = audit_body_omega((int64_t)Bike.body.omega+dwb);')
+    ] if wide else [
         ('static int16_t clamp_w( int32_t w ) {',
          'static int16_t clamp_w( int32_t w ) {\n audit_range(w,-16383,16383,3);'),
         ('tq[k] = sat16(', 'tq[k] = audit_brake_torque('),
         ('KMUL(sat16(riding_sra8(ts)>>2),C_SPRING_T)',
          'KMUL(audit_spring_torque_input(riding_sra8(ts)>>2),C_SPRING_T)'),
         ('Bike.body.omega = sat16( (int32_t)Bike.body.omega+dwb );',
-         'Bike.body.omega = audit_body_omega( (int32_t)Bike.body.omega+dwb );')])
+         'Bike.body.omega = audit_body_omega( (int32_t)Bike.body.omega+dwb );')]
+    edit('physics_core.c',core_replacements)
+    arithmetic_type='int64_t' if wide else 'int32_t'
     p=destination/'physics_core.c';s=p.read_text()
     prefix,volts=s.split('\t// Volts:',1)
     releases,starts=volts.split('\tif( input & IN_VOLT_RIGHT )',1)
@@ -109,20 +123,27 @@ def instrument(source,destination):
         for op,sign in (('+=','+'),('-=','-')):
             before=f'Bike.body.omega {op} LOKET;'
             assert part.count(before)==1
-            part=part.replace(before,f'Bike.body.omega = audit_{label}((int32_t)Bike.body.omega {sign} LOKET);')
+            part=part.replace(before,f'Bike.body.omega = audit_{label}(({arithmetic_type})Bike.body.omega {sign} LOKET);')
         if section=='release':releases=part
         else:starts=part
-    # Volt arithmetic originally wraps, unlike the saturating helper paths.
+    # Legacy volt assignments narrow without saturation; wide assignments
+    # retain int32 values. The observers preserve both paths' conversions.
     s=prefix+'\t// Volts:'+releases+'\tif( input & IN_VOLT_RIGHT )'+starts
     for op,sign in (('+=','+'),('-=','-')):
         before=f'Bike.body.omega {op} OMEGAVALT;';assert s.count(before)==1
-        s=s.replace(before,f'Bike.body.omega = audit_volt_residual_wrap((int32_t)Bike.body.omega {sign} OMEGAVALT);')
+        s=s.replace(before,f'Bike.body.omega = audit_volt_residual_wrap(({arithmetic_type})Bike.body.omega {sign} OMEGAVALT);')
     p.write_text(s)
-    edit('physics_contacts.c',[
+    contact_replacements=[
+        ('k->omega += KMUL32(tq,C_FREE);',
+         'k->omega = audit_free_wheel_omega((int64_t)k->omega+KMUL32(tq,C_FREE));'),
+        ('k->omega=Q24_MUL(sp,C_ROLL_W);',
+         'k->omega=audit_rolling_omega(Q24_MUL(sp,C_ROLL_W));')
+    ] if wide else [
         ('k->omega = sat16((int32_t)k->omega+KMUL(tq,C_FREE));',
          'k->omega = audit_free_wheel_omega((int32_t)k->omega+KMUL(tq,C_FREE));'),
         ('k->omega=sat16(Q24_MUL(sp,C_ROLL_W));',
-         'k->omega=audit_rolling_omega(Q24_MUL(sp,C_ROLL_W));')])
+         'k->omega=audit_rolling_omega(Q24_MUL(sp,C_ROLL_W));')]
+    edit('physics_contacts.c',contact_replacements)
     edit('physics_math32.c',[
         ('static int32_t clamp32(int64_t x) {',
          'static int32_t clamp32(int64_t x) {\n audit_range(x,INT32_MIN,INT32_MAX,10);')])
@@ -142,6 +163,10 @@ void audit_range(int64_t x,int64_t lo,int64_t hi,uint8_t tag){
 int16_t audit_narrow(int32_t x,uint8_t tag){
  audit_range(x,-32768,32767,tag);
  return tag>=6 && tag<=8 ? (int16_t)x : sat16(x);
+}
+int32_t audit_wide(int64_t x,uint8_t tag){
+ audit_range(x,INT32_MIN,INT32_MAX,tag);
+ return (int32_t)x;
 }
 uint32_t audit_count(uint8_t tag){return audit_hits[tag];}
 uint32_t audit_call_count(uint8_t tag){return audit_calls[tag];}
@@ -225,6 +250,10 @@ def main():
         observed_lib=comparison.build_host(out,gen,observed_source,'observed',contacts=True)
     finally:comparison.fixture_levels=original
     host=AuditedGbc(lib,settings);observed=AuditedGbc(observed_lib,settings)
+    assert host.wide_angular==observed.wide_angular, 'Observer changed angular ABI'
+    angular_bits=32 if host.wide_angular else 16
+    angular_bounds=[-(2**(angular_bits-1)),2**(angular_bits-1)-1]
+    brake_bounds=angular_bounds if host.wide_angular else [-16383,16383]
     pc=comparison.Pc(comparison.build_pc(out,contacts=True))
     for name in ('audit_count','audit_call_count','audit_min','audit_max'):
         fn=getattr(observed.f,name);fn.argtypes=[C.c_uint8]
@@ -237,8 +266,13 @@ def main():
             'constants_sha256':comparison.sha256(a.gen/'riding_constants.h'),
             'observational_identity_states':0,'cases':{},'limits':{
                 'linear32_m_per_model_s':[( -2**31)/settings['velocity_scale'],(2**31-1)/settings['velocity_scale']],
-                'angular16_rad_per_model_s':[-32768/settings['omega_scale'],32767/settings['omega_scale']],
-                'brake_relative_omega_rad_per_model_s':16383/settings['omega_scale']},
+                f'angular{angular_bits}_rad_per_model_s':[x/settings['omega_scale'] for x in angular_bounds],
+                'brake_relative_omega_rad_per_model_s':[x/settings['omega_scale'] for x in brake_bounds]},
+            'instrumentation':{'angular_bits':angular_bits,
+                'raw_bounds':{label:([-2**31,2**31-1] if i>=9 else
+                                     brake_bounds if i==3 else angular_bounds)
+                              for i,label in enumerate(LABELS)},
+                'note':'Legacy label names are retained; wide angular paths observe int32 range without adding saturation.'},
             'libraries':{str(x):comparison.sha256(x) for x in (lib,observed_lib,pc.library)}}
     for case in suite:
         seed(host,case);seed(observed,case);observed.f.audit_reset()

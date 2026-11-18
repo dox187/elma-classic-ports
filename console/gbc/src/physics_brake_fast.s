@@ -1,36 +1,46 @@
 ; Exact two-wheel brake spring and angular damping in bank8.
-; ABI0 tq*: replace both signed16 torques. Bike is read-only here.
-; Full wrapping angle subtraction precedes the signed8 shift; omega
-; subtraction is signed17 before clamping to +/-16383. No scratch RAM.
+; ABI0 tq*: replace both signed32 torques. Bike is read-only here.
+; Full wrapping angle subtraction precedes the signed8 shift; angular
+; damping and spring results retain all 32 bits. No scratch RAM.
 .module physics_brake_fast
 .area _CODE_8
 _riding_brake32::
  ld a,(#_riding_landing_contact)
- ld hl,#_Bike+38
- ld de,#_Bike+95
+ ld hl,#_Bike+40
+ ld de,#_Bike+101
  call brake_one
  ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
  ld (hl),c
  inc hl
  ld (hl),b
  ld a,(#_riding_landing_contact+1)
- ld hl,#_Bike+60
- ld de,#_Bike+99
+ ld hl,#_Bike+64
+ ld de,#_Bike+105
  call brake_one
  ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
  ld l,a
  inc hl
+ inc hl
+ inc hl
+ inc hl
+ ld (hl),e
+ inc hl
+ ld (hl),d
  inc hl
  ld (hl),c
  inc hl
  ld (hl),b
  ret
-; HL wheel.alfa, DE dbrake; signed16 result BC.
+; HL wheel.alfa, DE dbrake; signed32 result BCDE, low byte E.
 brake_one:
  push af
  push hl
@@ -86,62 +96,41 @@ brake_one:
  ld e,(hl)
  inc hl
  ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld c,a
- ld a,(#_Bike+21)
- add a,a
- sbc a,a
- ld b,a
- ld a,(#_Bike+20)
- ld l,a
- ld a,(#_Bike+21)
- ld h,a
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld hl,#_Bike+20
  ld a,e
- sub a,l
+ sub a,(hl)
  ld e,a
+ inc hl
  ld a,d
- sbc a,h
+ sbc a,(hl)
  ld d,a
+ inc hl
  ld a,c
- sbc a,b
- bit 7,a
- jr nz,brake_negative
- ld a,d
- cp #0x40
- jr c,brake_clamped
- ld de,#0x3fff
- jr brake_clamped
-brake_negative:
- ld a,d
- cp #0xc0
- jr c,brake_low
- jr nz,brake_clamped
- ld a,e
- or a
- jr nz,brake_clamped
-brake_low:
- ld de,#0xc001
-brake_clamped:
+ sbc a,(hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc a,(hl)
+ ld b,a
  ; Saved contact count is above the spring result and wheel pointer.
  ldhl sp,#7
  ld a,(hl)
  or a,a
- jr z,brake_free_damping
+ push bc
  push de
- call _riding_coeff16_C_BRAKE_GW
+ jr z,brake_free_damping
+ call _riding_coeff32_C_BRAKE_GW
  jr brake_damping_done
 brake_free_damping:
- push de
- call _riding_coeff16_C_BRAKE_W
+ call _riding_coeff32_C_BRAKE_W
 brake_damping_done:
- add sp,#2
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
+ add sp,#4
+ ld b,h
+ ld c,l
  ldhl sp,#0
  ld a,(hl+)
  add a,e
@@ -158,17 +147,15 @@ brake_damping_done:
 ; -(spring+friction), with the same wrapping32 result as -spring-friction.
  xor a
  sub a,e
- ld l,a
- ld a,#0
- sbc a,d
- ld h,a
- ld a,#0
- sbc a,c
  ld e,a
  ld a,#0
- sbc a,b
+ sbc a,d
  ld d,a
- ld b,h
- ld c,l
+ ld a,#0
+ sbc a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
  add sp,#8
- jp _sat16
+ ret

@@ -13,7 +13,7 @@ Consecutive gameplay input samples must also be two display frames apart;
 this catches missed VBlanks in the idle-wait path even when active work fits.
 
 The fidelity boundary is physics_step's actual stack return address, after
-the 109-byte Bike and 52-byte gbc_bike export, BEFORE the caller advances its
+the ROM-sized Bike and 52-byte gbc_bike export, BEFORE the caller advances its
 clock or checks objects. A second snapshot at the completed-update vsync
 includes those clock/object/death/finish effects. Both snapshots are compared
 byte-for-byte; absolute emulator cycles/frames and timing counters are not.
@@ -37,6 +37,7 @@ import gzip
 import hashlib
 from importlib.metadata import version
 import json
+import re
 import math
 from pathlib import Path
 import platform
@@ -148,6 +149,7 @@ class GameplayProfiler(Profiler):
         self.errors = []
         self.internal_vsyncs = 0
         self.irq_entry_repeats = Counter()
+        self.scheduled = "#define RIDING_PC_SCHEDULE 1" in (driver.gen / "riding_constants.h").read_text()
         super().__init__(driver)
         address = self.symbols["_ph_step"]
         self.p.hook_register(address >> 16, address & 65535, self._core_entry, self)
@@ -197,7 +199,7 @@ class GameplayProfiler(Profiler):
         steps = d.word("game_steps")
         return {"step": (steps - self.base_steps) & 65535,
                 "game_steps": steps, "game_frames": d.word("game_frames"),
-                "bike_hex": bytes(self.p.memory[internal:internal + 109]).hex(),
+                "bike_hex": bytes(self.p.memory[internal:internal + d.rom_constant("game_physics_state_bytes", 109)]).hex(),
                 "gbc_bike_hex": bytes(self.p.memory[public:public + 52]).hex(),
                 "state": d.byte("game_state"), "apples_left": d.byte("game_apples_left"),
                 "time_frames": d.time_frames(), "overruns": d.word("game_overruns"),
@@ -264,16 +266,23 @@ class GameplayProfiler(Profiler):
         argument = profiler.p.memory[(profiler.p.register_file.SP + 6) & 65535]
         profiler.stack[-1]["physics_input"] = argument
         profiler.stack[-1]["core_input"] = None
+        profiler.stack[-1]["core_inputs"] = []
 
     @staticmethod
     def _core_entry(profiler):
         if profiler.active is None:
             return
         calls = [call for call in profiler.stack if call["name"] == "_physics_step"]
-        if len(calls) != 1 or calls[0]["core_input"] is not None:
+        if len(calls) != 1:
             raise AssertionError("ph_step did not belong to one observed physics_step")
-        # The unbanked SM83 SDCC register ABI passes uint8_t input in A.
-        calls[0]["core_input"] = profiler.p.register_file.A
+        if profiler.entry_repeated("_ph_step"):
+            return
+        # Observe every scheduled microstep, with one volt impulse only.
+        value = profiler.p.register_file.A
+        calls[0]["core_inputs"].append(value)
+        if calls[0]["core_input"] is None:
+            calls[0]["core_input"] = value
+        profiler.enter("_ph_step")
 
     @staticmethod
     def _return(context):
@@ -285,10 +294,15 @@ class GameplayProfiler(Profiler):
                 continue
             argument = call["physics_input"]
             translated = (argument & 3) | ((argument & 4) << 1) | ((argument & 8) >> 1)
-            if call["core_input"] != translated:
+            inputs = call["core_inputs"]
+            expected_count = 3 if profiler.scheduled else 1
+            expected_inputs = [translated] + [translated & 3] * (len(inputs)-1)
+            alive = profiler.p.memory[profiler.symbols["_gbc_bike"]+50]
+            if (not inputs or len(inputs) > expected_count or inputs != expected_inputs
+                    or (alive and len(inputs) != expected_count)):
                 profiler.errors.append(f"physics {len(profiler.physics) + 1}: input ABI/translation mismatch")
             record = {"index": len(profiler.physics) + 1, "update": call["update"],
-                      "physics_input": argument, "core_input": call["core_input"],
+                      "physics_input": argument, "core_input": call["core_input"], "core_inputs": inputs,
                       "start_cycle": call["start_cycle"], "end_cycle": call["end_cycle"],
                       "cycles": call["cycles"], "frame": call["frame"],
                       "return_state": profiler.snapshot()}
@@ -586,11 +600,17 @@ def main():
                 "update_budget_cycles": UPDATE_BUDGET, "sound_emulated": False,
                 "brake_policy": "gas for min(60, max(1, steps // 3)) updates, then hold B",
                 "seeded_policy": "per-update seeded gas/brake/neutral, occasional left/right and Up"}
+    size_match = re.search(r'DEF _game_physics_state_bytes 0x([0-9A-Fa-f]+)', args.rom.with_suffix('.noi').read_text())
+    state_bytes = 109
+    if size_match:
+        address = int(size_match[1], 16)
+        bank, offset = address >> 16, address & 65535
+        state_bytes = args.rom.read_bytes()[bank * 16384 + (offset & 16383) if bank else offset]
     report = {"schema": SCHEMA, "status": "running", "rom": str(args.rom), "gen": str(args.gen),
               "started_utc": datetime.now(timezone.utc).isoformat(), "settings": settings,
               "source": "controller-only real ROM; read-only entry/return hooks; no guest-state injection",
               "state_boundary": "physics_step return before caller clock/object checks; completed-update vsync after them",
-              "state_sizes_bytes": {"Bike": 109, "gbc_bike": 52},
+              "state_sizes_bytes": {"Bike": state_bytes, "gbc_bike": 52},
               "emulator_timing_limitation": GDMA_LIMITATION,
               "performance_requirement_scope": "fixed budget for emulator cycles and GDMA surcharge estimate, zero game_overruns and two-display-frame input cadence",
               "trace_file": "trace.jsonl.gz", "cases": [], "errors": [],

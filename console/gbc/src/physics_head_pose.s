@@ -71,7 +71,7 @@ _riding_head_pose32::
  ld (hl),e
  inc hl
  ld (hl),d
- ld a,(#_Bike+90)
+ ld a,(#_Bike+96)
  or a,a
  jr nz,head_pose_sign_ready
  ldhl sp,#4
@@ -106,18 +106,18 @@ head_pose_sign_ready:
  add a,a
  sbc a,a
  ld c,a
- ld hl,#_Bike+66
+ ld hl,#_Bike+72
  ld a,(hl+)
- ld (#_Bike+82),a
+ ld (#_Bike+88),a
  ld a,(hl+)
  add a,e
- ld (#_Bike+83),a
+ ld (#_Bike+89),a
  ld a,(hl+)
  adc a,d
- ld (#_Bike+84),a
+ ld (#_Bike+90),a
  ld a,(hl)
  adc a,c
- ld (#_Bike+85),a
+ ld (#_Bike+91),a
 ; head_y=rider_y+signed16(hs+KMUL(Cs,C_H_Y))*256.
  ldhl sp,#0
  ld e,(hl)
@@ -136,17 +136,17 @@ head_pose_sign_ready:
  add a,a
  sbc a,a
  ld c,a
- ld hl,#_Bike+70
+ ld hl,#_Bike+76
  ld a,(hl+)
- ld (#_Bike+86),a
+ ld (#_Bike+92),a
  ld a,(hl+)
  add a,e
- ld (#_Bike+87),a
+ ld (#_Bike+93),a
  ld a,(hl+)
  adc a,d
- ld (#_Bike+88),a
+ ld (#_Bike+94),a
  ld a,(hl)
  adc a,c
- ld (#_Bike+89),a
+ ld (#_Bike+95),a
  add sp,#8
  ret

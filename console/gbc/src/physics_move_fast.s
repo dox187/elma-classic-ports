@@ -1,5 +1,5 @@
 ; Exact packed circle_t motion, stack ABI0, fixed ROM0.
-; rx += vx*4; ry += vy*4; alfa += signextend(omega)*128, all modulo2^32.
+; rx += vx*4; ry += vy*4; alfa += omega32*128, all modulo2^32.
 ; Layout rx0 ry4 vx8 vy12 alfa16 omega20. No velocity/omega writes.
 .module physics_move_fast
 .area _CODE
@@ -88,13 +88,16 @@ _riding_move32::
  ld e,(hl)
  inc hl
  ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,d
- sra c
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ srl b
+ rr c
+ rr d
  rr e
+ ld b,c
+ ld c,d
  ld d,e
  ld e,#0
  rr e
