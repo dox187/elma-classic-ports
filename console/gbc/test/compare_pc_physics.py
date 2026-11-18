@@ -101,7 +101,8 @@ def contact_copy(original, destination, anchor, declaration, observation):
 HOST_CONTACT_WRAPPER = r'''
 #include <stdlib.h>
 static int contact_modes[2] = {-1,-1}, contact_observations[2];
-static int contact_changes[2][3], contact_change_count;
+static int contact_changes[6][3], contact_change_count, contact_frame_calls[2];
+static double contact_times[6];
 int fixture_contact_version(void) {
 #ifdef COMPARE_CONTACTS
     return 1;
@@ -113,13 +114,22 @@ void fixture_contact_reset(void) {
     int i; for(i=0;i<2;++i) { contact_modes[i]=-1; contact_observations[i]=0; }
     contact_change_count=0;
 }
-void fixture_contact_begin(void) { contact_change_count=0; }
+void fixture_contact_begin(void) {
+    contact_change_count=0;contact_frame_calls[0]=contact_frame_calls[1]=0;
+}
 void fixture_observe_contact(const void* circle, int count) {
     int wheel=circle==&Bike.wheel[0]?0:circle==&Bike.wheel[1]?1:-1;
     if(wheel<0 || count<0 || count>2) abort();
     ++contact_observations[wheel];
+    ++contact_frame_calls[wheel];
     if(contact_modes[wheel]!=count) {
-        if(contact_change_count>=2) abort();
+        if(contact_change_count>=6) abort();
+#ifdef RIDING_PC_SCHEDULE
+        contact_times[contact_change_count]=contact_frame_calls[wheel]<3 ?
+            contact_frame_calls[wheel]*0.0055 : PH_H;
+#else
+        contact_times[contact_change_count]=PH_H;
+#endif
         contact_changes[contact_change_count][0]=wheel;
         contact_changes[contact_change_count][1]=contact_modes[wheel];
         contact_changes[contact_change_count++][2]=count;
@@ -133,6 +143,10 @@ int fixture_contact_count(void) { return contact_change_count; }
 void fixture_contact_event(int index,int* values) {
     int i; if(index<0 || index>=contact_change_count) abort();
     for(i=0;i<3;++i) values[i]=contact_changes[index][i];
+}
+double fixture_contact_time(int index) {
+    if(index<0 || index>=contact_change_count)abort();
+    return contact_times[index];
 }
 '''
 
@@ -148,6 +162,8 @@ def build_host(out, gen=BASE / 'build/gen', source=BASE / 'src', name='candidate
                        'uint16_t fixture_public_size(void){return sizeof(gbc_bike);}\n' +
                        (HOST_CONTACT_WRAPPER if contacts else ''))
     sources = [source / s for s in GBC_SOURCES]
+    if (source/'physics_q24.c').is_file():
+        sources.append(source/'physics_q24.c')
     instrumentation = None
     if contacts:
         original = source/'physics_contacts.c'; copied = out/(name+'-physics_contacts.c')
@@ -201,7 +217,7 @@ def build_pc(out, contacts=False):
     return library
 
 
-def freeze_baseline(out, revision, gen, contacts=False):
+def freeze_baseline(out, revision, gen, contacts=False, resource=None):
     """Rebuild a Git baseline with that revision's own constants generator."""
     out = Path(out).resolve(); snapshot = out/'baseline-source'
     library = out/('baseline-host.dylib' if sys.platform=='darwin' else 'baseline-host.so')
@@ -221,7 +237,8 @@ def freeze_baseline(out, revision, gen, contacts=False):
     files = subprocess.check_output(['git','ls-tree','-r','--name-only',revision,
                                      'console/gbc/src'],cwd=ROOT,text=True).splitlines()
     files += ['console/nes/src/recip.inc','console/nes/src/rsqrt.inc',
-              'console/gbc/tools/riding_constants.py','console/gbc/Makefile']
+              'console/gbc/tools/riding_constants.py','console/gbc/tools/physics_level.py',
+              'console/gbc/Makefile']
     for name in files:
         path=snapshot/name; path.parent.mkdir(parents=True,exist_ok=True)
         path.write_bytes(subprocess.check_output(['git','show',revision+':'+name],cwd=ROOT))
@@ -234,6 +251,17 @@ def freeze_baseline(out, revision, gen, contacts=False):
     damper=re.search(r'^DAMPER\s*\?=\s*(\w+)',makefile,re.M)[1]
     run([sys.executable,snapshot/'console/gbc/tools/riding_constants.py',
          frozen_gen/'riding_constants.h',hz,damper],out/'baseline-constants.log')
+    # Geometry formats evolve independently of the dynamics. Repack using the
+    # frozen revision's packer; never feed today's flagged segments to old code.
+    resource=Path(resource) if resource is not None else ROOT/'build-reg/elma.res'
+    generated=Path(gen)/'riding_level.json'
+    if not generated.exists() or json.loads(generated.read_text())['source_res_sha256']!=sha256(resource):
+        raise ValueError('Cannot verify original resource for frozen collision geometry')
+    spec=importlib.util.spec_from_file_location('gbc_frozen_geometry',snapshot/'console/gbc/tools/physics_level.py')
+    geometry=importlib.util.module_from_spec(spec);spec.loader.exec_module(geometry)
+    packer=geometry.BankPacker(geometry.FIRST_BANK)
+    pairs=[geometry.pack_level(level,i,packer) for i,level in enumerate(internal_levels(Resource(resource)))]
+    geometry.write_outputs(frozen_gen,packer,*zip(*pairs))
     library=build_host(out,frozen_gen,snapshot/'console/gbc/src','baseline-host')
     metadata.write_text(json.dumps({'git_revision':revision,'library_sha256':sha256(library),
         'generated_input_directory':str(Path(gen).resolve()),
@@ -258,7 +286,11 @@ def fixture_levels():
 
 def build_fixtures(out, constants_path, source, name, contacts=False):
     """Use the production geometry packer and collision reader for fixtures."""
-    path=BASE/'tools/physics_level.py'
+    path=Path(source).parent/'tools/physics_level.py'
+    if not path.is_file():
+        if 'baseline-source' in Path(source).parts:
+            raise ValueError('Frozen baseline lacks its geometry packer; use a fresh output directory')
+        path=BASE/'tools/physics_level.py'
     spec=importlib.util.spec_from_file_location('gbc_compare_geometry',path)
     geometry=importlib.util.module_from_spec(spec);spec.loader.exec_module(geometry)
     gen=Path(out)/(name+'-gen');gen.mkdir(parents=True,exist_ok=True)
@@ -273,11 +305,17 @@ def build_fixtures(out, constants_path, source, name, contacts=False):
 
 def constants(path):
     source = Path(path).read_text()
-    value = lambda key: float(re.search(r'#define ' + key + r' ([\d.]+)', source)[1])
+    def value(key, default=None):
+        match = re.search(r'^#define ' + key + r' ([\d.eE+-]+)', source, re.M)
+        return float(match[1]) if match else default
     rate, angle = value('PH_RATE'), int(value('RIDING_ANGLE_UNITS'))
     dt = .4368 / rate
+    velocity_time = value('PH_VELOCITY_UNIT_TIME', dt)
+    angular_time = value('PH_ANGULAR_UNIT_TIME', dt)
     return {'rate': rate, 'dt': dt, 'angle': angle,
-            'velocity_scale': 262144 * dt / 4, 'omega_scale': angle / (2 * math.pi) * dt / 128}
+            'pc_schedule': bool(value('RIDING_PC_SCHEDULE', 0)),
+            'velocity_scale': 262144 * velocity_time / 4,
+            'omega_scale': angle / (2 * math.pi) * angular_time / 128}
 
 
 def angle_delta(a, b):
@@ -320,6 +358,9 @@ class Gbc:
         if self.contacts:
             self.f.fixture_contact_state.argtypes = [C.POINTER(C.c_int), C.POINTER(C.c_int)]
             self.f.fixture_contact_event.argtypes = [C.c_int, C.POINTER(C.c_int)]
+            if hasattr(self.f, 'fixture_contact_time'):
+                self.f.fixture_contact_time.argtypes = [C.c_int]
+                self.f.fixture_contact_time.restype = C.c_double
 
     def reset(self, level, turned=True, start=None, objects=None):
         assert self.f.physics_select_level(level)
@@ -384,8 +425,11 @@ class Gbc:
         if self.contacts:
             for i in range(self.f.fixture_contact_count()):
                 values = (C.c_int * 3)(); self.f.fixture_contact_event(i, values)
+                event_time = self.t
+                if self.settings.get('pc_schedule'):
+                    event_time = self.t-self.settings['dt']+self.f.fixture_contact_time(i)
                 self.contact_events.append({'wheel': values[0], 'from': values[1] if values[1] >= 0 else None,
-                                            'count': values[2], 't_game': self.t})
+                                            'count': values[2], 't_game': event_time})
         if any(abs(C.c_int32(getattr(part,axis)-getattr(self.p.body,axis)).value)>3*65536
                for part in (*self.p.wheel,self.p.rider) for axis in ('x','y')):
             self.p.alive=0
@@ -739,7 +783,7 @@ def main():
         baseline_ref=args.baseline_ref or '17c1493'
         revision=subprocess.check_output(['git','rev-parse',baseline_ref],cwd=ROOT,text=True).strip()
         frozen=out/('baseline-'+revision[:12])
-        baseline_host=freeze_baseline(frozen,revision,args.gen,contacts=True)
+        baseline_host=freeze_baseline(frozen,revision,args.gen,contacts=True,resource=args.res)
         baseline_source=frozen/'baseline-source/console/gbc/src'
         baseline_constants=frozen/'baseline-gen/riding_constants.h'
         baseline_ref=revision

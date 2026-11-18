@@ -1368,3 +1368,65 @@ instead of 17.713 cm. Next integration research must preserve the actual
 native cost probe fails HOST state equivalence, so its timings cannot prove
 feasibility or infeasibility of a correct port. Evidence:
 repository-root `build/contact-substeps/pc-schedule-report.json`.
+
+Correction to the 90 Hz diagnostic: its reported native/HOST mismatch was
+a test-layout error. HOST structs contain alignment padding; native 109 bytes
+must be compared to explicitly packed fields. Replaying all 720 steps with
+field packing matches exactly. The existing 376,292 T mean three-call result
+is valid for that isolated 4 m coast case, but is not an optimized lower bound
+or a full-game performance claim. The unequal PC scheduler remains necessary.
+
+
+## 2026-11-18 — collision seams and faithful scheduled rebound model
+
+Artificial subdivision endpoints were incorrectly treated as real polygon
+corners. A radial cap near a split merged with the flat-line normal and
+injected vertical velocity into horizontal travel. Length flags now mark
+internal endpoints; radial caps are skipped there, and half-open ownership
+prevents double normalization exactly at a join. Records remain 18 bytes.
+Validation: 288 packed flat-join / 2 real-corner cases, 7038 native contact cases,
+8192 native head-sweep vectors. Original corners remain active. Geometry assets
+must be regenerated; stale formats are rejected by the game builder.
+
+Frozen baselines now retain their own geometry packer as well as their own
+constants generator. Current flagged geometry must never be fed to historical
+cores; this otherwise invalidates the PC comparison silently.
+
+The canonical scheduled HOST model uses .0055+.0055+remainder game-second
+steps, explicit original forces, separate linear/angular units, fine physical
+rest anchors and contact projection, direct tangential rolling velocity and
+retained fractional position/body impulses. Linear VS 23068.672 removes force
+quantization; angular units remain separate. All coefficients and fractional
+accumulators are now integer Q24, not HOST floating-point shortcuts.
+
+Independent 45-case validation passes: both wheels at all vx 0/4/8 coast drops
+from 4/8 m meet 0.1% peak error, and all 45 survival/death outcomes match PC. At 4 m,
+frame-sampled error is 0.089867%; comparing actual internal-substep peaks gives
+0.046035%. At 8 m these are 0.007095% and0.007713%. Separate holdouts 2/3/5/6/10 m
+also pass (2/3 m no hop). This fixes the measured rebound in HOST; native-port
+correctness, controls, audio event aggregation and full-game 30 FPS are still
+pending. It is not evidence that the old 0.93 test1 ROM is fixed.
+
+Evidence: root `build/pc-schedule-q24` (frozen source/driver/profile/manifest),
+GBC `build/rebound-q24-independent/results/report.json`,
+`build/rebound-seam-verified/report.json`. The new PC substep observer is checked
+bit-identical to its unobserved control. Frame-only contact timing cannot
+support a 0.1% airtime claim; the observer now compares the actual substeps.
+
+The first actual SM83 port now matches 720 canonical microsteps, including
+all 109 bike bytes, 32 position-residual bytes and 16 body-force-residual bytes.
+The first generic implementation averaged 2.965 million T-cycles per microstep;
+banked Q24 products reduce that to 567,918, still far above the playable budget.
+These are isolated physics measurements, not full-game FPS. Further exact
+arithmetic optimization is in progress; no replacement test ROM is released.
+Evidence: root `build/faithful-native/{c64-report,q24-report,profile}.json`.
+
+The scheduled constants now have a reproducible generator. Its 32 coefficient
+pairs match the frozen canonical model; legacy profiles remain byte-identical.
+Frame time and stored linear/angular velocity units are separate metadata.
+The three-substep runtime preserves a single accepted volt impulse and combines
+impact audio observations. Volts expire at the first microstep strictly after
+0.1 model seconds (21 intervals), while the outer held-key cooldown is unchanged.
+The audio pitch table uses the angular unit time rather than the outer frame
+time. The native APU fixture passes with a maximum physical-range pitch error
+of 0.410 Hz; evidence: GBC `build/v093-scheduled-audio`.

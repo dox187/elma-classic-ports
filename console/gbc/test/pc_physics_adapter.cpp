@@ -12,6 +12,12 @@ static int ContactModes[2] = {-1, -1};
 static int ContactObservations[2];
 struct contact_event { int wheel, before, count; double time; };
 static std::vector<contact_event> ContactEvents;
+struct substep_sample {
+    double time, values[24];
+    int flags[5], modes[2], observations[2];
+};
+static bool RecordSubsteps = false;
+static std::vector<substep_sample> Substeps;
 
 template<class T> static void state_bytes(std::vector<unsigned char>& out, const T& value) {
     const unsigned char* p = reinterpret_cast<const unsigned char*>(&value);
@@ -85,7 +91,7 @@ int compare_pc_load(const char* path) {
     Compare = engine(); Compare.name = "original"; Compare.pmot = Pmot1;
     Kajakell = Ptop->setallaktiv(Pmot1);
     eng_reset(&Compare); CompareTime = 0; ObservedTimes.clear();
-    ContactEvents.clear(); ContactCompletionTime=0;
+    ContactEvents.clear(); Substeps.clear(); ContactCompletionTime=0;
     for (int i=0;i<2;++i) { ContactModes[i]=-1; ContactObservations[i]=0; }
     return 1;
 }
@@ -104,6 +110,18 @@ void compare_pc_get(double* out, int* flags) {
     *out++=m.fejr.x; *out++=m.fejr.y;
     flags[0]=Compare.dead; flags[1]=Compare.finished; flags[2]=m.hatra_f;
     flags[3]=m.gravirany; flags[4]=m.kajaszam;
+}
+
+// Optional observational samples; the original integration schedule is untouched.
+void compare_pc_record_substeps(int enabled) { RecordSubsteps=enabled!=0; Substeps.clear(); }
+int compare_pc_substep_count(void) { return (int)Substeps.size(); }
+void compare_pc_substep(int index,double* values,int* flags,double* time,int* modes,int* observations) {
+    const substep_sample& sample=Substeps.at(index);
+    memcpy(values,sample.values,sizeof(sample.values));
+    memcpy(flags,sample.flags,sizeof(sample.flags));
+    memcpy(modes,sample.modes,sizeof(sample.modes));
+    memcpy(observations,sample.observations,sizeof(sample.observations));
+    *time=sample.time;
 }
 
 // Used only at t=0: both engines start with the same quantized world state.
@@ -129,12 +147,19 @@ void compare_pc_turn(void) { eng_turn(&Compare); }
 double compare_pc_step(int runtime_input, double interval) {
     const int in=(runtime_input&3)|((runtime_input&4)<<1)|((runtime_input&8)>>1);
     const double target=CompareTime+interval;
+    Substeps.clear();
     while (CompareTime <= target-0.000001 && !Compare.dead && !Compare.finished) {
         const double dt=std::min(0.0055,target-CompareTime);
         const size_t before=Compare.events.size();
         ContactCompletionTime=CompareTime+dt;
         eng_step(&Compare,in,CompareTime,dt);
         CompareTime+=dt;
+        if (RecordSubsteps) {
+            substep_sample sample; sample.time=CompareTime;
+            compare_pc_get(sample.values,sample.flags);
+            compare_pc_contact_state(sample.modes,sample.observations);
+            Substeps.push_back(sample);
+        }
         for (size_t i=before; i<Compare.events.size(); ++i) ObservedTimes.push_back(CompareTime);
     }
     return CompareTime;

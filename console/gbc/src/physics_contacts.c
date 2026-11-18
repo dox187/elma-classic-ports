@@ -150,7 +150,9 @@ static uint8_t contacts( int32_t cx, int32_t cy ) {
 			continue;
 		int16_t pos = dotq14( x, y, s->ex, s->ey );
 		contact_t* k = &Ct[found];
-		if( pos >= 0 && pos <= s->len ) {
+		if( pos >= 0 && pos <= SEG_LENGTH(s) ) {
+            /* Half-open artificial pieces avoid duplicate normalization at a join. */
+            if(pos==SEG_LENGTH(s) && ((uint16_t)s->len & SEG_INTERNAL_END))continue;
 			if( d >= 0 ) {
 				k->nx = -s->ey;
 				k->ny = s->ex;
@@ -163,7 +165,9 @@ static uint8_t contacts( int32_t cx, int32_t cy ) {
 			}
 		}
 		else {
-			// Near an end point:
+			// Near an original endpoint; subdivision joins have no radial cap.
+            if((uint16_t)s->len & (pos<0?SEG_INTERNAL_START:SEG_INTERNAL_END))
+                continue;
 			if( pos > 0 ) {
 				x -= s->dx;
 				y -= s->dy;
@@ -210,8 +214,9 @@ uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {
 		if( d >= rad || d <= -rad )
 			continue;
 		int16_t pos = dotq14( x, y, s->ex, s->ey );
-		if( pos >= 0 && pos <= s->len )
+		if( pos >= 0 && pos <= SEG_LENGTH(s) )
 			return 1;
+		if((uint16_t)s->len & (pos<0?SEG_INTERNAL_START:SEG_INTERNAL_END))continue;
 		if( pos > 0 ) {
 			x -= s->dx;
 			y -= s->dy;

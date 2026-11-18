@@ -16,6 +16,8 @@ BANK_SIZE = 16384
 DESCRIPTOR_BANK = 15
 FIRST_BANK = 44
 DENSE_THRESHOLD = 16
+SEG_INTERNAL_START = 0x4000
+SEG_INTERNAL_END = 0x8000
 
 
 def roundi(x):
@@ -67,8 +69,15 @@ def geometry(level):
                 length = math.hypot(vx,vy)
                 if length < .5:
                     continue
+                # Subdivision points are not vertices of the original polygon.
+                # Keep them out of radial endpoint contact generation.
+                encoded_length = roundi(length)
+                assert encoded_length < 0x4000
+                if k: encoded_length |= SEG_INTERNAL_START
+                if k+1 < pieces: encoded_length |= SEG_INTERNAL_END
+                if encoded_length >= 0x8000: encoded_length -= 0x10000
                 segments.append((px,py,vx,vy,roundi(vx/length*16384),
-                                 roundi(vy/length*16384),roundi(length)))
+                                 roundi(vy/length*16384),encoded_length))
     cells = [[] for _ in range(width*height)]
     for segment in segments:
         px,py,dx,dy,*_ = segment
@@ -191,7 +200,7 @@ extern uint8_t physics_level_index;
         rows = [','.join(str(v) for v in data[i:i+32]) for i in range(0,len(data),32)]
         (out/('physics_bank_%d.c'%bank)).write_text('#include <stdint.h>\n#pragma bank %d\n'%bank+
             'const uint8_t physics_bank_%d[16384]={\n'%bank+',\n'.join(rows)+'\n};\n')
-    manifest = {'descriptor_bank':DESCRIPTOR_BANK,'first_bank':packer.first,
+    manifest = {'segment_format':'length14-internal-endpoints-v1','descriptor_bank':DESCRIPTOR_BANK,'first_bank':packer.first,
                 'banks':banks,'next_free_bank':packer.bank+1,
                 'cache_max':maximum,'cache_slots':3,'cache_bytes':3*maximum*18,
                 'payload_bytes':sum(map(len,packer.banks)),
@@ -205,9 +214,11 @@ def main():
     p.add_argument('--res',type=Path,required=True)
     p.add_argument('--out',type=Path,required=True)
     p.add_argument('--hz',type=int,choices=(30,60),default=30)
-    p.add_argument('--damper',choices=('explicit','exponential'),default='explicit')
+    p.add_argument('--damper',choices=('explicit','exponential','scheduled'),default='explicit')
     p.add_argument('--bank-base',type=int,default=FIRST_BANK)
     a = p.parse_args()
+    if a.damper == 'scheduled' and a.hz != 30:
+        p.error('the scheduled profile requires --hz 30')
     a.out.mkdir(parents=True,exist_ok=True)
     levels = internal_levels(Resource(a.res))
     assert len(levels)<=255
@@ -228,6 +239,10 @@ def main():
               'wheel_mass_kg':10,'spring_N_per_m':10000,'step_game_seconds':h,
               'damper_impulse_ratio':-math.expm1(-z)/z if a.damper=='exponential' else 1.,
               'levels':reports}
+    if a.damper == 'scheduled':
+        from riding_scheduled_constants import metadata
+        report.update(metadata())
+        report['damper_integrator'] = 'explicit scheduled substeps'
     (a.out/'riding_level.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({k:v for k,v in manifest.items() if k!='levels'}))
 

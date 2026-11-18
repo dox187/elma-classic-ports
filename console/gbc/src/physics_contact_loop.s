@@ -136,7 +136,7 @@ contact_loop_record:
  push de
  call contact_loop_xy
  call _dotq14
- ; Interior includes both endpoints. A negative length cannot contain pos.
+ ; Low14 length; high bits identify synthetic endpoints.
  bit 7,b
  jp nz,contact_loop_endpoint
  ld hl,#contact_loop_seg
@@ -147,14 +147,24 @@ contact_loop_record:
  add hl,de
  ld a,(hl+)
  ld e,a
- ld d,(hl)
- bit 7,d
- jp nz,contact_loop_endpoint
+ ld a,(hl)
+ and a,#0x3f
+ ld d,a
  ld a,e
  sub a,c
  ld a,d
  sbc a,b
  jp c,contact_loop_endpoint
+ ; An artificial end belongs to the next piece, avoiding duplicate normals.
+ ld a,e
+ cp a,c
+ jr nz,contact_loop_interior
+ ld a,d
+ cp a,b
+ jr nz,contact_loop_interior
+ bit 7,(hl)
+ jp nz,contact_loop_next
+contact_loop_interior:
  ; Write nx,ny,l directly into the selected ten-byte Ct record.
  ld hl,#contact_loop_seg
  ld a,(hl+)
@@ -217,6 +227,22 @@ contact_loop_write_length:
  ld (hl),d
  jp contact_loop_accept
 contact_loop_endpoint:
+ ; BC is projected position: negative selects start, positive selects end.
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#13
+ add hl,de
+ bit 7,b
+ jr z,contact_loop_check_end
+ bit 6,(hl)
+ jp nz,contact_loop_next
+ jr contact_loop_original_endpoint
+contact_loop_check_end:
+ bit 7,(hl)
+ jp nz,contact_loop_next
+contact_loop_original_endpoint:
  bit 7,b
  jr nz,contact_loop_endpoint_ready
  ld a,b

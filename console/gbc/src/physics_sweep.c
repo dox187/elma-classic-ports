@@ -63,7 +63,7 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
     uint32_t d2,e2,r2;
     int32_t c0=cross(x,y,ex,ey),cd=0,ca=0;
     /* Stored length is nearest-integer; len+1 bounds its exact length. */
-    int32_t limit=mul16((int16_t)radius,s->len+1);
+    int32_t limit=mul16((int16_t)radius,SEG_LENGTH(s)+1);
     uint8_t have_cd=0,have_ca=0;
     if(!(c0<limit && c0>-limit)){
         cd=cross(dx,dy,ex,ey);have_cd=1;

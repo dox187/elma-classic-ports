@@ -30,7 +30,7 @@ for delta in (-103,-102,-101,-1,0,1,101,102,103):
    b=seg(2048-delta,1024,0,2048,0,16384,2048)
    ss=[a,b]if not rev else[b,a]
    group(2048,2048,[seg(1,2,3,4,5,6,7,(0,0,0,0)),*ss,ss[0]])
-# Adversarial full-width records retain exact16-bit wrap and signed len checks.
+# Adversarial full-width records retain exact16-bit wrap and flagged length checks.
 for i in range(1500):
  qx=r.randrange(4096);qy=r.randrange(4096);ss=[]
  for j in range(r.randrange(0,7)):
@@ -43,6 +43,15 @@ for i in range(1500):
 groups=g;maximum=max(len(row['segments'])for row in groups)
 source_hashes={p:hashlib.sha256((S/p).read_bytes()).hexdigest() for p in ('physics_contacts.c','physics_contact_loop.s')}
 baseline=(B/'test/fixtures/physics_contacts_loop_c.c').read_text().split('// helyigazitas:',1)[0]
+# The scalar reference retains its original arithmetic, with the current
+# packed length/endpoint protocol decoded before geometric operations.
+baseline=baseline.replace('pos <= s->len','pos <= SEG_LENGTH(s)')
+baseline=baseline.replace('if( pos >= 0 && pos <= SEG_LENGTH(s) ) {',
+    'if( pos >= 0 && pos <= SEG_LENGTH(s) ) {\n            if(pos==SEG_LENGTH(s) && ((uint16_t)s->len & SEG_INTERNAL_END))continue;')
+baseline=baseline.replace('// Near an end point:',
+    '// Near an original endpoint:\n            if((uint16_t)s->len & (pos<0?SEG_INTERNAL_START:SEG_INTERNAL_END))continue;')
+baseline=baseline.replace('\t\tif( pos > 0 ) {\n\t\t\tx -= s->dx;',
+    '\t\tif((uint16_t)s->len & (pos<0?SEG_INTERNAL_START:SEG_INTERNAL_END))continue;\n\t\tif( pos > 0 ) {\n\t\t\tx -= s->dx;')
 candidate=(S/'physics_contacts.c').read_text().split('// helyigazitas:',1)[0]
 typepart=baseline[:baseline.index('static contact_t Ct[2];')]
 candidate=typepart+'''contact_t Ct[2];

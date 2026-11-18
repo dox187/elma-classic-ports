@@ -82,9 +82,13 @@ typedef struct {
 	int16_t px, py;
 	int16_t dx, dy;
 	int16_t ex, ey;
-	int16_t len;
+	int16_t len;  // low14 length; high bits mark artificial subdivision ends
 	uint8_t x0, x1, y0, y1;
 } seg_t;
+
+#define SEG_LENGTH(s) ((int16_t)((uint16_t)(s)->len & 0x3fffU))
+#define SEG_INTERNAL_START 0x4000U
+#define SEG_INTERNAL_END 0x8000U
 
 // A coordinate from the origin of the query (u) in 64 u, plus 128:
 #define SEG_BOX( v ) ((uint8_t)(((v) >> 6) + 128))
