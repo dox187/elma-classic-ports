@@ -335,6 +335,9 @@ void riding_roll32(circle_t*,const contact_t*,int32_t,int32_t,int16_t) __sdcccal
 // beallit for a wheel: dv is the velocity change from the forces, tq the
 // torque on it.
 uint8_t riding_audio_contact[2], riding_audio_impact[2];
+/* Resolved support for the next body damper impulse; ph_init resets it. */
+int16_t riding_landing_nx[2], riding_landing_ny[2];
+uint8_t riding_landing_contact[2];
 void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED {
 	uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
 	uint8_t two = n == 2;
@@ -380,6 +383,9 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
             riding_audio_impact[wheel]=1;
     }
     riding_audio_contact[wheel]=n;
+    riding_landing_contact[wheel]=n;
+    riding_landing_nx[wheel]=n?Ct[0].nx:0;
+    riding_landing_ny[wheel]=n?Ct[0].ny:0;
 	if( n == 0 ) {
 #if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
         riding_free32(k,dvx,dvy,tq);

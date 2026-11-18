@@ -1233,3 +1233,78 @@ The gameplay observer also ignores a repeated first-instruction hook when an
 IRQ returns to the same unreturned call and stack depth. This fixes the
 spurious extra step in level 45/seeded; all 216 combined cases pass the exact
 reference comparison with this observation fix.
+
+
+## 2026-11-18 — supported-normal landing response (0.92 landing test)
+
+The excessive rebound is a model discrepancy, not lookup rounding: the old
+free-wheel exponential factor .525334 was applied to the grounded body's
+reaction. Its normal effective mass at the upright rest pose is
+`1/(1/200 + .85*.85/60.5) = 59.0293 kg`. The associated exponential impulse
+ratio is .885729. The extra relative normal response quantizes to 176/256;
+body force and torque are corrected while original wheel impulses remain.
+Support comes from the previous resolved wheel contacts, reset in `ph_init`.
+Two constraints use a full-vector correction. Air remains unchanged.
+
+Rejected research directions, retained under ignored `build/landing-solver`
+at the repository root:
+
+- Increasing normal damping without maintaining the original free-wheel
+  impulse changed release behavior; a contact-force guard reintroduced gas
+  and brake failures in the 8 m matrix.
+- Applying the same exponential scaling to spring and damper improved coast
+  but produced failures under flat acceleration.
+- An explicit body ratio of 1.0 prevented some deaths but under-rebounded:
+  roughly 3.45 cm versus PC 17.71 cm from 8 m.
+- Frozen .885729 body-only correction without a force guard best preserved
+  the horizontal 27-case behavior. It resolves two old 8 m held-gas deaths
+  without introducing a new horizontal-matrix death. The 8 m/vx8/gas PC
+  survivor still fails. No global matching claim is made.
+
+The production comparison uses per-wheel contact/release/recontact clocks,
+plus a two-second impact window so early micro-hops cannot hide later bounce.
+For stationary 4/8 m coast, peaks change from 49.44/120.05 cm to
+1.50/17.73 cm; PC gives .98/17.71 cm. At vx8, peaks become 1.38/16.69 cm.
+The original-PC 40-case corpus reduces drop body position RMSE from .26159 m
+to .02789 m; flat acceleration .09524→.08865 m and braking .36234→.19243 m.
+Air-coast RMSE remains .03536 m. Reference math is native double; contact
+substep timing is measured directly rather than rounded to render samples.
+
+Additional ±15/±30-degree slope diagnostics found limitations: h4/vx0/held
+brake at ±15 degrees now dies after about 7 seconds, although PC and baseline
+survive. Several other deaths newly observed relative to GBC also occur in
+PC. These are recorded separately from the successful horizontal regression.
+Support latency and pose-dependent effective mass remain work for a later
+physics pass; do not repeat the rejected blanket coefficient/guard sweeps.
+
+The old Warm Up feedback controller died after the physics change. The test
+retains its angle/velocity feedback and real apple/flower contact checks,
+using supported-model threshold .5 and anticipation .01 (legacy .4/.025 is
+still available). It earns apple step 298 and flower step 550; legacy still
+finishes the frozen old model at 806. Native/HOST comparison covers 1,471
+steps × 161 state bytes, including Freefall, braking and reset/gravity/turn
+transitions. There is no input delay or state injection in that route.
+
+The first bank8 C implementation incurred 450 active deadline misses across
+216 controller cases. Its first exact assembly replacement reduced this to 354. A generated
+256-byte low-product residue table then replaces two FRIC_W multiplications
+with one rounded delta product plus its exact carry (fallback for other
+exponents or signed overflow). The final result is 329 misses, 142/216 passing
+cases and 29.6974 updates/s, with all 29,410 C-candidate physics states
+unchanged. The generator verifies 131,072 residue pairs; the native helper
+passes 768 synthetic cases including INT32 boundaries. The explicit profile
+also links successfully; its correction stays disabled. ROM0 has 51 bytes
+free. All 54 starts and Freefall complete their functional checks, but timing
+gates report 2 and 3 misses. Other frontend/save/control checks pass. The
+production-physics audio fixture still reports zero creaks during flat
+acceleration, with collision sounds at the actual drop impacts. This does not satisfy stable
+30 FPS. The old audio-only 0.92 ROM remains untouched; the landing candidate
+is delivered as `build/elma-gbc-v0.92-landing-test-8m.gbc`.
+
+Evidence: `build/v092-landing-check`, `build/v092-landing-pc`,
+`build/v092-landing-slope-*`, `build/v092-landing-native-opt`,
+`build/v092-landing-gameplay-final`, `build/v092-landing-functional-final`,
+`build/v092-landing-native-final`, `build/landing-math-delta-check2` and
+`build/v092-landing-impact-final`.
+
+Final test ROM SHA-256: `fc98be152f93cdc77a171e9ed3e5e002c38c77ce6e5ecde669ea96c4643b4136`.

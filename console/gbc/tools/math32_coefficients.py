@@ -118,6 +118,24 @@ def generate(constants,out,first_bank=FIRST_BANK):
         for name in record['names']:header.append('int16_t riding_coeff16_%s(int16_t x) __sdcccall(0);'%name)
         calls += ['_riding_coeff16_%s::'%name for name in record['names']]
         calls += [' ld bc,#%d'%(packed|0x8000),' jp _riding_coefficients_narrow']
+    # Supported damping may subtract two rounded FRIC_W products. For E=8,
+    # one rounded delta product plus this low-byte residue is exactly equal.
+    # Keep it beside the bank8 caller; it costs no ROM0 entry or bank switch.
+    friction=next((record for record in records if 'C_FRIC_W' in record['names']),None)
+    friction_m=friction['m'] if friction else 0
+    friction_e=friction['e'] if friction else 0
+    calls+=['.globl _riding_landing_fric_e','_riding_landing_fric_e = %d'%friction_e,
+            '.area _CODE_8','_riding_landing_fric_residue::']
+    residues=[(x*friction_m)&255 for x in range(256)]
+    residual_checks=0
+    if friction_e==8:
+        for old in range(256):
+            for delta in range(-256,256):
+                low=residues[delta&255]
+                carry=((residues[old]^128)+low)//256-(low>=128)
+                assert (((old+delta)*friction_m+128)>>8)-((old*friction_m+128)>>8)==((delta*friction_m+128)>>8)+carry
+                residual_checks+=1
+    for start in range(0,256,32):calls.append(' .db '+','.join(map(str,residues[start:start+32])))
     header+=['#endif','']
     (out/'physics_coefficient_calls.h').write_text('\n'.join(header))
     (out/'physics_coefficient_calls.s').write_text('\n'.join(calls)+'\n')
@@ -128,7 +146,7 @@ def generate(constants,out,first_bank=FIRST_BANK):
     report={'method':'exact high quotient + small-period correction, with general residue carry fallback','constants_sha256':hashlib.sha256(constants.read_bytes()).hexdigest(),
         'unique_coefficients':len(records),'verified_inputs_per_coefficient':65536,'verified_inputs':len(records)*65536,
         'first_bank':first_bank,'last_bank':first_bank+BANK_COUNT-1,'rom_table_bytes':BANK_COUNT*16384,
-        'banks':[{'bank':first_bank+i,'sha256':hashlib.sha256(data).hexdigest()}for i,data in enumerate(banks)],'payload_bytes':sum(r['bytes']for r in records),'rom0_entry_bytes':15*len(records),'level_reservations_checked':reservations,'coefficients':records}
+        'banks':[{'bank':first_bank+i,'sha256':hashlib.sha256(data).hexdigest()}for i,data in enumerate(banks)],'payload_bytes':sum(r['bytes']for r in records),'rom0_entry_bytes':15*len(records),'landing_residue':{'verified_residue_pairs':residual_checks,'bank':8,'bytes':len(residues),'m':friction_m,'e':friction_e,'sha256':hashlib.sha256(bytes(residues)).hexdigest()},'level_reservations_checked':reservations,'coefficients':records}
     (out/'physics-coefficient-manifest.json').write_text(json.dumps(report,indent=2)+'\n')
     print('Exact KMUL coefficient tables: %d coefficients, %d checked inputs, banks %d..%d'%(len(records),len(records)*65536,first_bank,first_bank+BANK_COUNT-1))
     return report

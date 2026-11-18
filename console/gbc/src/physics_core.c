@@ -20,6 +20,8 @@
 static const int16_t Ellipse_inside_y[]={RIDING_ELLIPSE_INSIDE_Y_VALUES};
 
 bike_t Bike;
+extern int16_t riding_landing_nx[2], riding_landing_ny[2];
+extern uint8_t riding_landing_contact[2];
 #ifdef __SDCC
 #include <stddef.h>
 typedef char suspension_layout[
@@ -173,6 +175,9 @@ void ph_init( int32_t x, int32_t y ) {
 	for( uint16_t i = 0; i < sizeof( bike_t ); i++ )
 		p[i] = 0;
 	Bike.gravity = GRAV_DOWN;
+    riding_landing_nx[0]=riding_landing_nx[1]=0;
+    riding_landing_ny[0]=riding_landing_ny[1]=0;
+    riding_landing_contact[0]=riding_landing_contact[1]=0;
 	Bike.body.rx = x+F_BODY_X;
 	Bike.body.ry = y+F_BODY_Y;
 	Bike.wheel[0].rx = x;
@@ -218,6 +223,53 @@ static int16_t clamp_w( int32_t w ) {
 #define STEP_LOCAL static
 #else
 #define STEP_LOCAL
+#endif
+
+/* A supported wheel constrains normal motion. The damper then accelerates
+ * the body point, whose effective mass includes body pitch, instead of the
+ * free 10 kg wheel. Correct only the body reaction: wheel release and tangent
+ * response retain their existing impulses. The previous resolved contacts
+ * are used, so support changes have one simulation step of latency.
+ * Two retained contacts constrain both dimensions; a single contact uses its
+ * original Q14 normal (including normalization rounding at merged vertices).
+ */
+#if RIDING_EXPONENTIAL_DAMPER
+#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+void riding_landing_response32(riding_torque32_t*,int32_t*,int32_t*) __sdcccall(0);
+#define landing_response riding_landing_response32
+#else
+static void landing_response(riding_torque32_t *t,int32_t *sx,int32_t *sy) {
+    for(uint8_t k=0;k<2;++k) {
+        int32_t x,y,extra;
+        int16_t nx=riding_landing_nx[k],ny=riding_landing_ny[k];
+        if(!riding_landing_contact[k])continue;
+        x=t->relx[k];y=t->rely[k];
+        if(riding_landing_contact[k]==2) {
+            x+=KMUL32(x,C_LANDING_EXTRA);
+            y+=KMUL32(y,C_LANDING_EXTRA);
+        } else if(nx==0 && (ny==16384 || ny==-16384)) {
+            extra=KMUL32(ny>0?y:-y,C_LANDING_EXTRA);
+            y+=ny>0?extra:-extra;
+        } else if(ny==0 && (nx==16384 || nx==-16384)) {
+            extra=KMUL32(nx>0?x:-x,C_LANDING_EXTRA);
+            x+=nx>0?extra:-extra;
+        } else {
+            extra=KMUL32(riding_dotq32(x,y,nx,ny,14),C_LANDING_EXTRA);
+            x+=riding_mulq32(extra,nx,14);
+            y+=riding_mulq32(extra,ny,14);
+        }
+        /* Preserve the rounding of each original damper impulse. */
+        if(x!=t->relx[k]) {
+            *sx+=KMUL32(x,C_FRIC_W)-KMUL32(t->relx[k],C_FRIC_W);
+            t->relx[k]=x;
+        }
+        if(y!=t->rely[k]) {
+            *sy+=KMUL32(y,C_FRIC_W)-KMUL32(t->rely[k],C_FRIC_W);
+            t->rely[k]=y;
+        }
+    }
+}
+#endif
 #endif
 
 uint8_t ph_step( uint8_t input ) {
@@ -330,8 +382,12 @@ uint8_t ph_step( uint8_t input ) {
 #endif
 	// The body gets all the forces between them, of the opposite sign, with
 	// 20 times the mass of a wheel:
-	int32_t dvbx = -KMUL32(dvx[0]+dvx[1],C_TWENTIETH);
-	int32_t dvby = -KMUL32(dvy[0]+dvy[1],C_TWENTIETH);
+	int32_t sx=dvx[0]+dvx[1],sy=dvy[0]+dvy[1];
+#if RIDING_EXPONENTIAL_DAMPER
+    landing_response(&damping,&sx,&sy);
+#endif
+    int32_t dvbx = -KMUL32(sx,C_TWENTIETH);
+    int32_t dvby = -KMUL32(sy,C_TWENTIETH);
 	int32_t dwb = -(int32_t)KMUL(sat16(riding_sra8(ts)>>2),C_SPRING_T)
 	              -KMUL(riding_torque_input32(&damping),C_FRIC_T);
 

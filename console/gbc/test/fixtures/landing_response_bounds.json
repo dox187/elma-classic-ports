@@ -1,0 +1,164 @@
+{
+  "h4-vx0-coast": {
+    "candidate.dead": {
+      "equals": false
+    },
+    "candidate.wheel0.first_flight_peak_bottom_m": {
+      "min": 0,
+      "max": 0.04
+    },
+    "candidate.wheel0.first_airtime_wall_s": {
+      "min": 0.3,
+      "max": 0.6
+    },
+    "candidate.wheel1.first_flight_peak_bottom_m": {
+      "min": 0,
+      "max": 0.04
+    },
+    "candidate.wheel1.first_airtime_wall_s": {
+      "min": 0.3,
+      "max": 0.6
+    },
+    "candidate.wheel0.impact_window.peak_bottom_m": {
+      "max": 0.04
+    },
+    "candidate.wheel1.impact_window.peak_bottom_m": {
+      "max": 0.04
+    }
+  },
+  "h4-vx4-coast": {
+    "candidate.dead": {
+      "equals": false
+    },
+    "candidate.wheel0.first_flight_peak_bottom_m": {
+      "min": 0,
+      "max": 0.04
+    },
+    "candidate.wheel0.first_airtime_wall_s": {
+      "min": 0.3,
+      "max": 0.6
+    },
+    "candidate.wheel1.first_flight_peak_bottom_m": {
+      "min": 0,
+      "max": 0.04
+    },
+    "candidate.wheel1.first_airtime_wall_s": {
+      "min": 0.3,
+      "max": 0.6
+    },
+    "candidate.wheel0.impact_window.peak_bottom_m": {
+      "max": 0.04
+    },
+    "candidate.wheel1.impact_window.peak_bottom_m": {
+      "max": 0.04
+    }
+  },
+  "h4-vx8-coast": {
+    "candidate.dead": {
+      "equals": false
+    },
+    "candidate.wheel0.first_flight_peak_bottom_m": {
+      "min": 0,
+      "max": 0.04
+    },
+    "candidate.wheel0.first_airtime_wall_s": {
+      "min": 0.3,
+      "max": 0.6
+    },
+    "candidate.wheel1.first_flight_peak_bottom_m": {
+      "min": 0,
+      "max": 0.04
+    },
+    "candidate.wheel1.first_airtime_wall_s": {
+      "min": 0.3,
+      "max": 0.6
+    },
+    "candidate.wheel0.impact_window.peak_bottom_m": {
+      "max": 0.04
+    },
+    "candidate.wheel1.impact_window.peak_bottom_m": {
+      "max": 0.04
+    }
+  },
+  "h8-vx0-coast": {
+    "candidate.dead": {
+      "equals": false
+    },
+    "candidate.wheel0.first_flight_peak_bottom_m": {
+      "min": 0.12,
+      "max": 0.25
+    },
+    "candidate.wheel0.first_airtime_wall_s": {
+      "min": 0.8,
+      "max": 1.35
+    },
+    "candidate.wheel1.first_flight_peak_bottom_m": {
+      "min": 0.12,
+      "max": 0.25
+    },
+    "candidate.wheel1.first_airtime_wall_s": {
+      "min": 0.8,
+      "max": 1.35
+    },
+    "candidate.wheel0.impact_window.peak_bottom_m": {
+      "max": 0.25
+    },
+    "candidate.wheel1.impact_window.peak_bottom_m": {
+      "max": 0.25
+    }
+  },
+  "h8-vx4-coast": {
+    "candidate.dead": {
+      "equals": false
+    },
+    "candidate.wheel0.first_flight_peak_bottom_m": {
+      "min": 0.12,
+      "max": 0.25
+    },
+    "candidate.wheel0.first_airtime_wall_s": {
+      "min": 0.8,
+      "max": 1.35
+    },
+    "candidate.wheel1.first_flight_peak_bottom_m": {
+      "min": 0.12,
+      "max": 0.25
+    },
+    "candidate.wheel1.first_airtime_wall_s": {
+      "min": 0.8,
+      "max": 1.35
+    },
+    "candidate.wheel0.impact_window.peak_bottom_m": {
+      "max": 0.25
+    },
+    "candidate.wheel1.impact_window.peak_bottom_m": {
+      "max": 0.25
+    }
+  },
+  "h8-vx8-coast": {
+    "candidate.dead": {
+      "equals": false
+    },
+    "candidate.wheel0.first_flight_peak_bottom_m": {
+      "min": 0.12,
+      "max": 0.25
+    },
+    "candidate.wheel0.first_airtime_wall_s": {
+      "min": 0.8,
+      "max": 1.35
+    },
+    "candidate.wheel1.first_flight_peak_bottom_m": {
+      "min": 0.12,
+      "max": 0.25
+    },
+    "candidate.wheel1.first_airtime_wall_s": {
+      "min": 0.8,
+      "max": 1.35
+    },
+    "candidate.wheel0.impact_window.peak_bottom_m": {
+      "max": 0.25
+    },
+    "candidate.wheel1.impact_window.peak_bottom_m": {
+      "max": 0.25
+    }
+  }
+}

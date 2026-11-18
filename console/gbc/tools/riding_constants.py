@@ -31,10 +31,11 @@ WS = AN * H / 128             # angular velocity units per rad/s
 # less with longer steps, the same in a step:
 BRAKE_DAMPING = 0.7 * HZ / 60
 # Exact velocity impulse of the isolated physical wheel/body damper over H,
-# instead of forward Euler's Sr*H/m. The same impulse ratio is applied to
-# its body reaction and body torque. K, Sr and the masses are not retuned.
+# instead of forward Euler's Sr*H/m. Supported-normal body reaction receives
+# the additional effective-mass correction below. K, Sr and masses stay fixed.
 DAMPER_Z = 1000.0 * H / 10.0
-DAMPER_RATIO = -math.expm1(-DAMPER_Z) / DAMPER_Z if DAMPER == 'exponential' else 1.0
+FREE_DAMPER_RATIO = -math.expm1(-DAMPER_Z) / DAMPER_Z
+DAMPER_RATIO = FREE_DAMPER_RATIO if DAMPER == 'exponential' else 1.0
 
 # name: (value, comment)
 FACTORS = [
@@ -79,6 +80,17 @@ FACTORS = [
 ]
 FACTORS = [(name, value * DAMPER_RATIO if name in ('FRIC_W', 'FRIC_B', 'FRIC_T') else value, comment)
            for name, value, comment in FACTORS]
+# A supported upright wheel constrains the body point. Include pitch in its
+# inverse effective mass. This is a rest-pose approximation, not a retuning
+# of physical Sr, spring stiffness, body mass or inertia.
+# Also emit the coefficient for explicit builds: the shared assembly object
+# references its symbol, although that profile never calls the correction.
+supported_mass = 1.0 / (1.0 / 200.0 + 0.85**2 / 60.5)
+supported_z = 1000.0 * H / supported_mass
+supported_ratio = -math.expm1(-supported_z) / supported_z
+FACTORS.append(('LANDING_EXTRA', supported_ratio / FREE_DAMPER_RATIO - 1.0,
+                'extra supported-normal body damping; rest-pose effective mass %.9g kg' % supported_mass))
+
 
 def u(m):
     return int(round(m * 1024))

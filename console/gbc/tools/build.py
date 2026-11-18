@@ -109,6 +109,10 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     if coefficients['constants_sha256']!=hashlib.sha256((gen/'riding_constants.h').read_bytes()).hexdigest():
         raise ValueError('Coefficient tables do not match the generated riding constants')
     calls=(gen/'physics_coefficient_calls.s').read_text()
+    if '_riding_coeff32_C_LANDING_EXTRA::' not in calls:
+        raise ValueError('Missing supported damping coefficient; regenerate riding constants and coefficient tables')
+    if '_riding_landing_fric_residue::' not in calls:
+        raise ValueError('Missing landing residue table; regenerate the coefficient tables')
     for name,value in (('lo',coefficient_first&255),('hi',coefficient_first>>8)):
         if not re.search(r'^_riding_coefficient_bank_'+name+r'\s*=\s*'+str(value)+r'\s*$',calls,re.M):
             raise ValueError('Coefficient bank selection differs from its tables; regenerate the coefficients')

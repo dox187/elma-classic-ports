@@ -1,8 +1,9 @@
 # Elasto Mania for Game Boy Color
 
 Current version: **0.92 — riding audio update**, recorded in [`VERSION`](VERSION),
-adds riding audio to the preserved 0.91 performance work. Stable 30 FPS remains a target
-without changing the current physics results or adding input latency.
+adds riding audio to the preserved 0.91 performance work. The separate landing
+test below changes the suspension response. Stable 30 FPS remains a target;
+neither build adds an input queue.
 Active development now targets the **8 MiB ROM only**. Work on the 4 MiB
 compressed variant stopped on 2026-11-17; its existing releases and experiments
 are retained for reference.
@@ -25,6 +26,69 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.92 landing test
+
+Playable **[0.92 landing test — 8 MiB](build/elma-gbc-v0.92-landing-test-8m.gbc)**
+keeps the audio and save format of 0.92 and corrects excessive landing rebound.
+The previous audio-only ROM remains available below.
+
+The old exponential damper applied the free wheel's 10 kg response to the
+supported body as well. The correction uses a 59.03 kg effective body-point
+mass, including pitch, for its supported normal reaction. Spring stiffness,
+physical damping and masses remain unchanged. Wheel impulses and airborne
+motion retain their previous equations; no adhesive contact or speed clamp
+is introduced. Two retained contact constraints correct both axes.
+
+Original-PC comparison, stationary coast onto horizontal ground:
+
+| Initial wheel-center height | Previous first rebound | Landing test | Original PC |
+|---|---:|---:|---:|
+| 4 m | 49.44 cm | 1.50 cm | 0.98 cm |
+| 8 m | 120.05 cm | 17.73 cm | 17.71 cm |
+
+At initial horizontal speed 8 model m/s, the same 4/8 m tests rebound
+1.38/16.69 cm instead of 49.31/120.14 cm. The 27-case matrix covers all
+1/4/8 m heights, 0/4/8 model m/s speeds and coast/gas/brake. It introduces
+no new deaths relative to the old GBC model on horizontal ground. Two old
+8 m gas failures disappear; the 8 m / 8 m/s held-gas case still fails while
+PC survives. These are sampled HOST comparisons to the original native-double
+PC equations, not cartridge measurements or a global fidelity percentage.
+
+Remaining limitations: support is cached from the preceding step, and its
+body-point mass uses upright rest geometry. In the added ±15-degree slope
+matrix, 4 m / zero initial speed / held-brake cases fall over after roughly
+7 seconds although PC and the old GBC model survive. Inclined gas/brake motion
+needs more work. At 8 m stationary coast, first airtime is 1.005 seconds versus
+PC 1.118 seconds, despite the similar peak height. This is an experimental
+landing build, not a 99.9%-accurate physics release.
+
+Validation: 1,471 native/HOST steps match in all 161 state bytes; 768
+arithmetic boundary cases match in all 32 result bytes. The final assembly
+also preserves all 29,410 recorded physics states of the C landing candidate
+across 216 controller cases. Menus, saving, volt/finish controls and impact
+sound checks pass. All 54 course starts and Freefall run, but their strict
+timing gates still fail (2 and 3 misses respectively).
+
+The final controller corpus averages **29.70 updates/s**, with **329 active
+deadline misses and 142/216 fully passing cases**. This is slower than the
+audio-only baseline's 29.82 updates/s; stable 30 FPS remains unfinished.
+Hardware playtesting is still needed. ROM SHA-256:
+`fc98be152f93cdc77a171e9ed3e5e002c38c77ce6e5ecde669ea96c4643b4136`.
+
+Reproduce the horizontal bounds (both wheels, peak and airtime):
+
+```sh
+python3 console/gbc/test/check_landing_response.py \
+  --gen console/gbc/build/gen-8m \
+  --bounds console/gbc/test/fixtures/landing_response_bounds.json
+```
+
+The bounds allow up to 4 cm rebound at 4 m and 12–25 cm at 8 m, over all
+three initial speeds. They protect this specific correction; they are not
+an accuracy score. Optional `--baseline-source`/`--baseline-constants` compare
+against a frozen source tree; `--slope-degrees` adds inclined diagnostics.
+Full traces, contact windows and failures are written before assertions.
 
 ## 0.92 audio update
 
@@ -308,7 +372,7 @@ make 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The defaults are `ROM_MIB=8 PHYS_HZ=30 DAMPER=exponential`.
 
-The current checkout builds versioned **0.91 development ROMs**. They are not
+The current checkout builds the versioned **0.92 landing test ROM**. They are not
 accepted releases until their complete-game timing and regression checks pass.
 The retained 0.90 images below are the last completed intermediate release.
 
@@ -321,7 +385,7 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.91-test-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.92-landing-test-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. Exact physics

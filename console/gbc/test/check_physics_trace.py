@@ -74,6 +74,8 @@ def main():
     parser.add_argument('--out',type=Path,default=BASE/'build/physics-trace-check')
     parser.add_argument('--first-bank',type=int,default=252,help='first coefficient ROM bank (477 for the 8 MiB profile)')
     parser.add_argument('--reference-host',type=Path,help='also replay against a previously frozen HOST library')
+    parser.add_argument('--controller-profile',choices=('auto','legacy','supported'),default='auto',
+                        help='Warm Up feedback controller; auto selects from generated damping constants')
     parser.add_argument('--sweep-source',type=Path,default=BASE/'src/physics_sweep.c',help='isolated exact sweep candidate')
     parser.add_argument('--collision-source',type=Path,default=BASE/'src/physics_collision.c',help='isolated exact cache candidate')
     args=parser.parse_args();gen=args.gen.resolve();out=args.out.resolve();out.mkdir(parents=True,exist_ok=True)
@@ -89,6 +91,14 @@ def main():
     b=Bike.in_dll(f,'Bike');p=Public.in_dll(f,'gbc_bike')
     constants=(gen/'riding_constants.h').read_text();rate=float(re.search(r'#define PH_RATE ([\d.]+)',constants)[1]);dt=.4368/rate
     assert int(re.search(r'#define PH_HZ (\d+)',constants)[1])==30,'this controller targets the30Hz profile'
+    controller_profile=args.controller_profile
+    if controller_profile=='auto':
+        controller_profile=('supported' if '#define C_LANDING_EXTRA_M ' in constants
+                            and '#define RIDING_EXPONENTIAL_DAMPER 1' in constants else 'legacy')
+    # The supported-normal damper changes the landing pitch response. Keep the
+    # same angle/velocity feedback and original object-contact completion, with
+    # less angular anticipation for the less bouncy model. No state is injected.
+    threshold,anticipation=(.5,.01) if controller_profile=='supported' else (.4,.025)
     levels=internal_levels(Resource(args.res));objects=levels[0].objects
     obj=lambda kind:tuple(math.floor(v*65536+.5)for v in next(o[1:3]for o in objects if o[0]==kind))
     apple,flower=obj(2),obj(1)
@@ -98,10 +108,10 @@ def main():
     metrics=[{'max_axle_m':0,'max_rider_m':0,'max_linear_units':0,'max_body_vertical_units':0}for _ in range(4)]
     for i in range(1600):
         a=angle();omega=((a-previous+math.pi)%(2*math.pi)-math.pi)/dt;previous=a
-        k=1;score=a+(.025*omega if apple_step is None else 0)
+        k=1;score=a+(anticipation*omega if apple_step is None else 0)
         if i-last_volt>=28:
-            if score>(.4 if apple_step is None else 0):k|=8;last_volt=i
-            elif score<(-.4 if apple_step is None else 0):k|=4;last_volt=i
+            if score>(threshold if apple_step is None else 0):k|=8;last_volt=i
+            elif score<(-threshold if apple_step is None else 0):k|=4;last_volt=i
         if apple_step is not None and turn_step is None and i-apple_step>=60:f.physics_turn();turn_step=i
         f.physics_step(k);inputs.append(k);expected[0].append(snapshot(b,p));state_metrics(b,p,metrics[0])
         assert p.alive,'HOST Warm Up controller died at step%d'%i
@@ -146,7 +156,8 @@ def main():
                     if i%20==0:reference.physics_set_gravity((i//20)%4+1)
                 reference.physics_step(inputs[i] if case==0 else 0 if case==1 else brake_inputs[i] if case==2 else 1 if i%3==0 else 2)
                 assert snapshot(rb,rp)==want,('reference model changed',case,i)
-    (out/'inputs.json').write_text(json.dumps({'input_encoding':'runtime left4 right8','inputs':inputs,
+    (out/'inputs.json').write_text(json.dumps({'input_encoding':'runtime left4 right8','controller_profile':controller_profile,
+        'angle_threshold':threshold,'angular_anticipation':anticipation,'inputs':inputs,
         'return_turn_step':turn_step,'apple_step':apple_step,'finish_step':len(inputs)-1})+'\n')
     (out/'native.c').write_text('''#include <gb/gb.h>
 #include <gb/cgb.h>
@@ -224,7 +235,8 @@ void main(void){uint16_t i;uint8_t k;cpu_fast();fixture_ready=1;
         assert seen==list(map(len,expected)),seen
     finally:emu.stop(save=False)
     report={'state_bytes_per_step':161,'native_host_steps':seen,'observer_reentries':duplicate_observations[0],'differences':differences,
-            'warmup':dict(metrics[0],apple_step=apple_step,finish_step=len(inputs)-1),
+            'warmup':dict(metrics[0],controller_profile=controller_profile,angle_threshold=threshold,
+                          angular_anticipation=anticipation,apple_step=apple_step,finish_step=len(inputs)-1),
             'freefall':dict(metrics[1],first_death=freefall_death),
             'braking':dict(metrics[2],first_death=brake_death),
             'api_transitions':dict(metrics[3],steps=160,resets=4,gravity_changes=8),
