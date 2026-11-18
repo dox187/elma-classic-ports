@@ -91,6 +91,24 @@ supported_ratio = -math.expm1(-supported_z) / supported_z
 FACTORS.append(('LANDING_EXTRA', supported_ratio / FREE_DAMPER_RATIO - 1.0,
                 'extra supported-normal body damping; rest-pose effective mass %.9g kg' % supported_mass))
 
+# Rolling contact increases the wheel's angular inertia. Apply the original
+# 100 Nms/rad damper over this frame using that inertia, rather than the
+# free-wheel stability reduction. The original 1000 Nm/rad spring stays fixed.
+BRAKE_ROLL_INERTIA = 0.32 + 10 * 0.3975 ** 2
+# Match the original PC's capped .0055 game-second damping substeps.
+# The slope/held-brake regression is sensitive to this numerical response;
+# replacing it with the continuous exponential leaves a high-drop failure.
+brake_remaining = H
+brake_decay = 1.0
+while brake_remaining > 0.000001:
+    brake_dt = min(0.0055, brake_remaining)
+    brake_decay *= 1.0 - 100.0 * brake_dt / BRAKE_ROLL_INERTIA
+    brake_remaining -= brake_dt
+BRAKE_ROLL_DAMPING = (BRAKE_ROLL_INERTIA * (1.0 - brake_decay) / (100.0 * H)
+                      if DAMPER == 'exponential' else BRAKE_DAMPING)
+FACTORS.append(('BRAKE_GW', 400 * BRAKE_ROLL_DAMPING / WS,
+                'supported brake damping, rolling inertia %.9g kg m^2' % BRAKE_ROLL_INERTIA))
+
 
 def u(m):
     return int(round(m * 1024))

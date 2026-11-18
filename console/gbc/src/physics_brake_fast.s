@@ -5,6 +5,7 @@
 .module physics_brake_fast
 .area _CODE_8
 _riding_brake32::
+ ld a,(#_riding_landing_contact)
  ld hl,#_Bike+38
  ld de,#_Bike+95
  call brake_one
@@ -15,6 +16,7 @@ _riding_brake32::
  ld (hl),c
  inc hl
  ld (hl),b
+ ld a,(#_riding_landing_contact+1)
  ld hl,#_Bike+60
  ld de,#_Bike+99
  call brake_one
@@ -30,6 +32,7 @@ _riding_brake32::
  ret
 ; HL wheel.alfa, DE dbrake; signed16 result BC.
 brake_one:
+ push af
  push hl
  ld h,d
  ld l,e
@@ -121,8 +124,18 @@ brake_negative:
 brake_low:
  ld de,#0xc001
 brake_clamped:
+ ; Saved contact count is above the spring result and wheel pointer.
+ ldhl sp,#7
+ ld a,(hl)
+ or a,a
+ jr z,brake_free_damping
+ push de
+ call _riding_coeff16_C_BRAKE_GW
+ jr brake_damping_done
+brake_free_damping:
  push de
  call _riding_coeff16_C_BRAKE_W
+brake_damping_done:
  add sp,#2
  ld a,d
  add a,a
@@ -157,5 +170,5 @@ brake_clamped:
  ld d,a
  ld b,h
  ld c,l
- add sp,#6
+ add sp,#8
  jp _sat16

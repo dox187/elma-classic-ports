@@ -1,9 +1,10 @@
 # Elasto Mania for Game Boy Color
 
-Current version: **0.92 — riding audio update**, recorded in [`VERSION`](VERSION),
-adds riding audio to the preserved 0.91 performance work. The separate landing
-test below changes the suspension response. Stable 30 FPS remains a target;
-neither build adds an input queue.
+Current development version: **0.93 — suspension and braking accuracy**,
+recorded in [`VERSION`](VERSION). It is not a finished release yet. The development
+ROM is `build/elma-gbc-v0.93-test1-8m.gbc`; existing 0.92 images below are
+previous test builds. Stable 30 FPS and improved original-PC fidelity remain
+requirements; neither input buffering nor a relaxed accuracy target is added.
 Active development now targets the **8 MiB ROM only**. Work on the 4 MiB
 compressed variant stopped on 2026-11-17; its existing releases and experiments
 are retained for reference.
@@ -26,6 +27,38 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.93 acceptance work
+
+Development ROM: **[0.93 test1 — 8 MiB](build/elma-gbc-v0.93-test1-8m.gbc)**.
+The menu and splash both show 0.93. Grounded braking now follows the original
+PC damping substeps with rolling inertia; free-wheel braking is unchanged.
+All 27 controlled braking cases (flat/±15°, heights 1/4/8 m, speeds 0/4/8 model m/s)
+match PC survival/death. Flat-braking position RMSE improves .19243→.10723 m,
+velocity RMSE .39059→.20532 model m/s. These are remaining errors, not full
+fidelity. All 1,471 native/HOST trajectory states match in 161 bytes.
+
+
+The full 216-case controller corpus records 29,866 physics steps without
+runtime correctness failures, averaging **29.70 updates/s**. There are 341
+active deadline misses and 140/216 fully passing cases; stable 30 FPS remains
+unfinished. Menu/save/control checks pass; all 54 starts and Freefall run,
+but their strict timing gates fail with 2/3 misses. Test ROM SHA-256:
+`50b02679e014668a032f34df0e1ee672ac0ab3e79dbe6956f1013e64ec294fe9`.
+
+The 0.92 landing test is an improvement, not the required original-PC match.
+Its stationary 4 m first rebound differs by **52.22%** (5.13 mm); first
+airtime differs by **5.90%**. At 8 m the corresponding errors are **0.105%**
+and **10.12%**. A matching peak alone therefore does not establish fidelity.
+
+`test/fixtures/landing_pc_accuracy_bounds.json` records a strict 0.1%
+relative diagnostic bound for both wheels' first rebound height and airtime in all
+4/8 m, vx0/4/8 coast cases. Use it with `check_landing_response.py --bounds`.
+The current implementation fails all 24 checks. The earlier broad landing
+bounds remain a historical regression guard, not proof of 99.9% fidelity. Contact-time quantization must be distinguished
+from trajectory error when interpreting the airtime diagnostic.
+Braking must also retain the PC survivors on the ±15-degree drop fixtures.
+Development test ROMs do not certify these unresolved accuracy requirements.
 
 ## 0.92 landing test
 
@@ -372,7 +405,7 @@ make 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The defaults are `ROM_MIB=8 PHYS_HZ=30 DAMPER=exponential`.
 
-The current checkout builds the versioned **0.92 landing test ROM**. They are not
+The current checkout builds versioned **0.93 development ROMs**. They are not
 accepted releases until their complete-game timing and regression checks pass.
 The retained 0.90 images below are the last completed intermediate release.
 
@@ -385,7 +418,7 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 
 `make 4m` and `make 8m` keep generated files separate in `build/gen` and
 `build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.92-landing-test-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.93-test1-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. Exact physics

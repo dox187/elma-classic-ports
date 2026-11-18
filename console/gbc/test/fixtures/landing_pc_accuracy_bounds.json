@@ -1,0 +1,86 @@
+{
+  "h4-vx0-coast": {
+    "rebound_error.wheel0.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel0.first_airtime_wall_s.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_airtime_wall_s.percent": {
+      "max": 0.1
+    }
+  },
+  "h4-vx4-coast": {
+    "rebound_error.wheel0.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel0.first_airtime_wall_s.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_airtime_wall_s.percent": {
+      "max": 0.1
+    }
+  },
+  "h4-vx8-coast": {
+    "rebound_error.wheel0.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel0.first_airtime_wall_s.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_airtime_wall_s.percent": {
+      "max": 0.1
+    }
+  },
+  "h8-vx0-coast": {
+    "rebound_error.wheel0.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel0.first_airtime_wall_s.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_airtime_wall_s.percent": {
+      "max": 0.1
+    }
+  },
+  "h8-vx4-coast": {
+    "rebound_error.wheel0.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel0.first_airtime_wall_s.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_airtime_wall_s.percent": {
+      "max": 0.1
+    }
+  },
+  "h8-vx8-coast": {
+    "rebound_error.wheel0.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel0.first_airtime_wall_s.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_flight_peak_bottom_m.percent": {
+      "max": 0.1
+    },
+    "rebound_error.wheel1.first_airtime_wall_s.percent": {
+      "max": 0.1
+    }
+  }
+}

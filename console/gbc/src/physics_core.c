@@ -311,7 +311,7 @@ uint8_t ph_step( uint8_t input ) {
              * fit signed32, so this is exact and avoids generic long multiply. */
             int32_t spring = KMUL32(da,C_BRAKE_A);
 			int16_t dw = clamp_w((int32_t)Bike.wheel[k].omega-Bike.body.omega);
-			tq[k] = sat16( -spring-KMUL( dw, C_BRAKE_W ) );
+			tq[k] = sat16( -spring-(riding_landing_contact[k]?KMUL(dw,C_BRAKE_GW):KMUL(dw,C_BRAKE_W)) );
 		}
 #endif
 	}

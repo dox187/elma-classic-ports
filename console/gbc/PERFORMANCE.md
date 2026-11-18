@@ -1308,3 +1308,63 @@ Evidence: `build/v092-landing-check`, `build/v092-landing-pc`,
 `build/v092-landing-impact-final`.
 
 Final test ROM SHA-256: `fc98be152f93cdc77a171e9ed3e5e002c38c77ce6e5ecde669ea96c4643b4136`.
+
+
+## 2026-11-18 — 0.93 braking and accuracy work
+
+The 0.92 landing test does not meet the requested accuracy: stationary 4 m
+peak error is 52.2248% (5.133 mm), despite its improvement over the earlier
+49 cm bounce. Its first airtime error is 5.8976%; at 8 m the peak error is
+.1049% and airtime error 10.1151%. The new relative-error report and strict
+0.1% diagnostic bounds expose all 24 mismatches. Airtime is observed at
+different contact time resolutions, so this diagnostic is not a global
+trajectory fidelity score.
+
+Braking uses the original 1000 Nm/rad spring. The old 30 Hz code reduced the
+100 Nms/rad angular damper to 35 for free-wheel stability, even while rolling.
+The supported wheel's inertia is .32 + 10*.3975^2 = 1.9000625 kg m^2. Its new
+equivalent damper follows the PC scheduler's .0055+.0055+remainder decay
+product over a frame, giving 76.8389 Nms/rad before fixed-point quantization.
+Free-wheel damping remains unchanged. One new table coefficient is required.
+
+All 27 brake fixtures across 0/±15-degree surfaces, 1/4/8 m heights and
+0/4/8 model m/s initial speeds now match PC survival/death. This includes the
+previous h4/vx0 incline regressions. In the 40-case original-PC corpus, flat
+braking body position RMSE drops .192430→.107225 m and velocity RMSE
+.390585→.205318 model m/s. This is improvement, not exact braking equivalence.
+Gas, coast drop and air-coast trajectories remain unchanged. Native/HOST
+comparison passes 1,471 states × 161 bytes.
+
+Rejected bounded experiments (do not repeat without a new hypothesis):
+- Pose-dependent supported effective mass worsens 4/8 m peaks to 1.530/17.855 cm
+  and makes the incline braking failures earlier.
+- A common-mode mass substitution suppresses the 4 m bounce and gives 10.372 cm
+  at 8 m. This is not a complete coupled-mode integrator.
+- Unquantized physical coefficient products worsen peaks to 1.638/18.118 cm;
+  coefficient precision is not the remaining root cause.
+- Continuous exponential rolling brake damping fixes the 4 m incline cases
+  but introduces an 8 m downhill survivor failure; the PC discrete decay fixes it.
+- Three equal 90 Hz explicit substeps improve 4 m peak to 1.060 cm (7.83% error)
+  but give 16.740 cm at 8 m (5.49% error) and retain an 8 m uphill brake failure.
+  This is HOST research, not a stable 30 FPS native implementation.
+
+Evidence: repository-root `build/brake-pc-damp/report.json`,
+`build/contact-substeps/report.json`; GBC `build/v093-brake-native`,
+`build/v093-brake-pc`, `build/rebound-precision/RESULTS.md` and
+`build/landing-accuracy-baseline`. The rebound discrepancy remains open;
+0.93 test builds must not be described as a completed 99.9%-fidelity release.
+
+0.93 test1 final controller validation: 216 cases / 29,866 steps; no runtime
+correctness errors. Average 29.6955 updates/s, 341 active misses, 140 fully
+passing cases. Frontend/save/volt/finish checks pass. All 54 starts and Freefall
+reach their functional checks, but timing gates record 2/3 misses. ROM:
+`build/elma-gbc-v0.93-test1-8m.gbc`, SHA-256 `50b02679e014668a032f34df0e1ee672ac0ab3e79dbe6956f1013e64ec294fe9`.
+Evidence: `build/v093-gameplay`, `build/v093-functional`.
+
+The PC self-comparison confirms that three equal substeps also change the
+reference engine itself: 4 m rebound .879 cm instead of .983 cm, 8 m 16.796 cm
+instead of 17.713 cm. Next integration research must preserve the actual
+.0055+.0055+remainder schedule, not merely triple PHYS_HZ. The private 90 Hz
+native cost probe fails HOST state equivalence, so its timings cannot prove
+feasibility or infeasibility of a correct port. Evidence:
+repository-root `build/contact-substeps/pc-schedule-report.json`.

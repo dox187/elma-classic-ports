@@ -304,6 +304,19 @@ def main():
                         if not args.slope_degrees:
                             report['failures'].append(note)
         case['candidate_minus_pc'] = differences(case['candidate'], case['pc'])
+        case['rebound_error'] = {}
+        for wheel in WHEELS:
+            measured = case['candidate'][wheel]
+            reference = case['pc'][wheel]
+            metrics = {}
+            for field in ('first_flight_peak_bottom_m', 'first_airtime_wall_s'):
+                actual, target = measured.get(field), reference.get(field)
+                metrics[field] = {
+                    'absolute': abs(actual - target) if actual is not None and target is not None else None,
+                    'percent': abs(actual - target) / abs(target) * 100.
+                               if actual is not None and target is not None and target != 0 else None,
+                }
+            case['rebound_error'][wheel] = metrics
         if 'baseline' in case:
             if case['candidate']['dead'] and not case['baseline']['dead']:
                 report['failures'].append(f'{name}: candidate dies but baseline survives')
