@@ -312,14 +312,21 @@ uint8_t riding_audio_contact[2], riding_audio_impact[2];
 /* Resolved support for the next body damper impulse; ph_init resets it. */
 int16_t riding_landing_nx[2], riding_landing_ny[2];
 uint8_t riding_landing_contact[2];
+#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
+uint8_t riding_contact_filter(circle_t*,uint8_t);
+#endif
 void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED {
 	uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
+#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
+    n=riding_contact_filter(k,n);
+#else
     uint8_t valid=0;
     for(uint8_t j=0;j<n;++j) {
         int32_t distance=(int32_t)Ct[j].l*256+riding_dotq32(k->rx&255,k->ry&255,Ct[j].nx,Ct[j].ny,14);
         if(distance<104858)Ct[valid++]=Ct[j];
     }
     n=valid;
+#endif
     uint8_t two = n == 2;
 	uint8_t wheel = k==&Bike.wheel[1];
 	if( n > 0 )

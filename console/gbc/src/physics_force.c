@@ -17,6 +17,9 @@ typedef struct {
 /* Native assembly uses the packed SDCC layout: fraction[4], units[4],
  * upper[1]. The persistent residual retains its original signed Q24 format. */
 static force_sum_t forces[2];
+#ifdef __SDCC
+typedef char force_sum_layout[sizeof(force_sum_t)==9 ? 1 : -1];
+#endif
 
 #ifndef __SDCC
 void riding_force_begin(void) {

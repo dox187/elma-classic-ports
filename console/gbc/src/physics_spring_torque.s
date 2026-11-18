@@ -6,6 +6,67 @@
 .module riding_spring_torque
 .area _CODE
 _riding_spring_torque32::
+ ; Both displacements must be the exact sign extension of signed16.
+ ldhl sp,#11
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ ld b,a
+ ld a,(hl+)
+ xor a,b
+ jp nz,spring_fullwidth
+ ld a,(hl)
+ xor a,b
+ jp nz,spring_fullwidth
+ ldhl sp,#15
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ ld b,a
+ ld a,(hl+)
+ xor a,b
+ jp nz,spring_fullwidth
+ ld a,(hl)
+ xor a,b
+ jp nz,spring_fullwidth
+ ldhl sp,#14
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#2
+ call _riding_product32x16_regs
+ push bc
+ push hl
+ push de
+ ldhl sp,#16
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#12
+ call _riding_product32x16_regs
+ push hl
+ ldhl sp,#2
+ ld a,(hl)
+ sub a,e
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,d
+ ld (hl+),a
+ pop de
+ ld a,(hl)
+ sbc a,e
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,d
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,c
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,b
+ ld (hl),a
+ jp both_b
+spring_fullwidth:
  add sp,#-6
  ldhl sp,#0
  xor a

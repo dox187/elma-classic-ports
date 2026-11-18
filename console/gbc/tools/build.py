@@ -176,6 +176,8 @@ def main():
     a.gen=(a.gen or BASE/('build/gen' if a.rom_mib==4 else 'build/gen-8m')).resolve()
     rom_mib=validate_profile(a.gen,a.rom_mib)
     scheduled=scheduled_profile(a.gen)
+    if not scheduled:
+        raise ValueError('Current riding sources require scheduled physics; regenerate assets with --hz 30 --damper scheduled')
     version=(BASE/'VERSION').read_text().strip()
     if not re.fullmatch(r'\d+(?:\.\d+)+',version):raise ValueError('Invalid VERSION for the ROM filename')
     a.out=(a.out or BASE/'build'/('elma-gbc-v%s-%dm.gbc'%(version,rom_mib))).resolve()
@@ -201,10 +203,10 @@ def main():
             'physics_normal_fast.s','physics_shift_fast.s','physics_sqrt_fast.s',
             'physics_div_fast.s','physics_sin_fast.s','physics_spring_torque.s',
             'physics_div20.s','physics_export_fast.s','physics_bounds.s',
-            'physics_rider_fast.s','physics_rider_response.s','physics_phase.s',
+            'physics_rider_fast.s','physics_rider_response.s','physics_phase.s','physics_circle_scheduled.s',
             'physics_supports_fast.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
             'physics_head_pose.s','physics_brake_fast.s',
-            'physics_suspension_scheduled.s','physics_recip_fast.s')]
+            'physics_suspension_scheduled.s','physics_recip_fast.s','physics_contact_filter.s')]
         sources.append(a.gen/'physics_q24_dispatch.c')
     else:
         sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name!='physics_mul16.s' and not x.name.startswith('physics_q24'))

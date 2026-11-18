@@ -29,6 +29,10 @@ exact_mulq_general:
  add sp,#7
  ret
 _riding_mulshift32::
+ ldhl sp,#8
+ ld a,(hl)
+ cp a,#8
+ jp z,math32_mulshift8
  add sp,#-7
  ldhl sp,#0
  xor a
@@ -168,6 +172,7 @@ _riding_torque_input32::
  add sp,#7
  ret
 ; HL -> signed32 x, BC = signed16 y. Return BC:HL:DE signed48.
+_riding_product32x16_regs::
 exact_product:
  ld a,b
  or a,c
@@ -373,6 +378,12 @@ exact_finish:
 exact_finish_shift:
  ldhl sp,#1
  ld a,(hl)
+ cp a,#10
+ jr z,exact_finish_physical
+ cp a,#14
+ jr z,exact_finish_physical
+ ldhl sp,#1
+ ld a,(hl)
  and a,#7
  ld b,a
  jr z,exact_finish_check
@@ -441,6 +452,134 @@ exact_finish_saturate:
 exact_finish_return:
  add sp,#2
  ret
+ ; Q10/Q14: validate the seventh accumulator byte before register reduction.
+exact_finish_physical:
+ ldhl sp,#9
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jp nz,exact_finish_saturate
+ ldhl sp,#1
+ ld a,(hl)
+ push af
+ ldhl sp,#6
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ push bc
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ pop hl
+ pop af
+ add sp,#2
+ jp exact_reduce48
+; A=10/14, BC:HL:DE signed48. Discarded product bits never affect rounding.
+exact_reduce48:
+ cp a,#14
+ jr z,exact_reduce14
+ ld a,b
+ sra a
+ jr z,exact_reduce10_ok
+ inc a
+ jr nz,exact_reduce_saturate
+exact_reduce10_ok:
+ sra b
+ rr c
+ rr h
+ rr l
+ rr d
+ sra b
+ rr c
+ rr h
+ rr l
+ rr d
+ ld e,d
+ ld d,l
+ ld l,h
+ ld h,c
+ ret
+exact_reduce14:
+ ld a,b
+ sra a
+ sra a
+ sra a
+ sra a
+ sra a
+ jr z,exact_reduce14_ok
+ inc a
+ jr nz,exact_reduce_saturate
+exact_reduce14_ok:
+ sla d
+ rl l
+ rl h
+ rl c
+ rl b
+ sla d
+ rl l
+ rl h
+ rl c
+ rl b
+ ld e,l
+ ld d,h
+ ld l,c
+ ld h,b
+ ret
+exact_reduce_saturate:
+ bit 7,b
+ ld hl,#0x7fff
+ ld de,#0xffff
+ ret z
+ ld hl,#0x8000
+ ld de,#0
+ ret
+; Signed32 operands outside signed16 take the complete signed48 product,
+; round in registers, and share the exact saturated physical reductions.
+math32_mulq_physical:
+ ldhl sp,#6
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#2
+ call exact_product
+ push hl
+ ldhl sp,#10
+ ld a,(hl)
+ pop hl
+ cp a,#14
+ jr z,math32_mulq_physical14
+ ld a,d
+ add a,#2
+ ld d,a
+ jr nc,math32_mulq_reduce10
+ inc hl
+ ld a,h
+ or a,l
+ jr nz,math32_mulq_reduce10
+ inc bc
+math32_mulq_reduce10:
+ ld a,#10
+ jp exact_reduce48
+math32_mulq_physical14:
+ ld a,d
+ add a,#32
+ ld d,a
+ jr nc,math32_mulq_reduce14
+ inc hl
+ ld a,h
+ or a,l
+ jr nz,math32_mulq_reduce14
+ inc bc
+math32_mulq_reduce14:
+ ld a,#14
+ jp exact_reduce48
+
 exact_halves:
  .dw 1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768
 
@@ -450,9 +589,33 @@ _riding_mulq32::
  ldhl sp,#8
  ld a,(hl)
  cp a,#10
- jr z,math32_mulq_check_x
+ jr z,math32_mulq_axis10
  cp a,#14
  jr nz,math32_mulq_wide
+ ld d,#64
+ jr math32_mulq_axis
+math32_mulq_axis10:
+ ld d,#4
+math32_mulq_axis:
+ ldhl sp,#6
+ ld a,(hl+)
+ or a
+ jr nz,math32_mulq_check_x
+ ld a,(hl)
+ or a
+ jr z,math32_axis_zero
+ cp a,d
+ jr z,math32_mulq_axis_return
+ add a,d
+ jr nz,math32_mulq_check_x
+ ld a,#128
+math32_mulq_axis_return:
+ ldhl sp,#2
+ jp math32_axis_return
+math32_axis_zero:
+ ld hl,#0
+ ld de,#0
+ ret
 math32_mulq_check_x:
  ldhl sp,#3
  bit 7,(hl)
@@ -460,14 +623,14 @@ math32_mulq_check_x:
  inc hl
  ld a,(hl+)
  or a,(hl)
- jr nz,math32_mulq_wide
+ jr nz,math32_mulq_physical_jump
  jr math32_mulq_product
 math32_mulq_negative:
  inc hl
  ld a,(hl+)
  and a,(hl)
  inc a
- jr nz,math32_mulq_wide
+ jr nz,math32_mulq_physical_jump
 math32_mulq_product:
  ldhl sp,#6
  ld c,(hl)
@@ -485,15 +648,57 @@ math32_mulq_product:
  cp a,#10
  jp z,math32_round10
  jp math32_round14
+math32_mulq_physical_jump:
+ jp math32_mulq_physical
 math32_mulq_wide:
  jp exact_mulq_general
 _riding_dotq32::
  ldhl sp,#14
  ld a,(hl)
  cp a,#10
- jr z,math32_dot_check_a
+ jr z,math32_dot_axis10
  cp a,#14
  jp nz,exact_dot_general
+ ld d,#64
+ jr math32_dot_axis
+math32_dot_axis10:
+ ld d,#4
+math32_dot_axis:
+ ldhl sp,#10
+ ld a,(hl+)
+ or a
+ jr nz,math32_dot_check_a
+ ld c,(hl)
+ inc hl
+ ld a,(hl+)
+ or a
+ jr nz,math32_dot_check_a
+ ld b,(hl)
+ ld a,c
+ or a
+ jr nz,math32_dot_axis_a
+ ld a,b
+ cp a,d
+ jr z,math32_dot_axis_b_return
+ add a,d
+ jr nz,math32_dot_check_a
+ ld a,#128
+math32_dot_axis_b_return:
+ ldhl sp,#6
+ jp math32_axis_return
+math32_dot_axis_a:
+ ld a,b
+ or a
+ jr nz,math32_dot_check_a
+ ld a,c
+ cp a,d
+ jr z,math32_dot_axis_a_return
+ add a,d
+ jr nz,math32_dot_check_a
+ ld a,#128
+math32_dot_axis_a_return:
+ ldhl sp,#2
+ jp math32_axis_return
 math32_dot_check_a:
  ldhl sp,#3
  bit 7,(hl)
@@ -653,4 +858,59 @@ math32_shift14:
  add a,a
  sbc a,a
  ld h,a
+ ret
+
+
+; The unrounded Q8 case is an exact byte extraction after signed48 multiply.
+math32_mulshift8:
+ ldhl sp,#6
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#2
+ call exact_product
+ ld a,c
+ add a,a
+ sbc a,a
+ cp a,b
+ jp nz,exact_reduce_saturate
+ ld e,d
+ ld d,l
+ ld l,h
+ ld h,c
+ ret
+
+; Exact +/- unit coefficient: load signed32, negate with INT32_MIN saturation.
+; HL points to x; bit7 of A selects negation.
+math32_axis_return:
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld h,(hl)
+ ld l,c
+ bit 7,a
+ ret z
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,l
+ ld l,a
+ ld a,#0
+ sbc a,h
+ ld h,a
+ cp a,#128
+ ret nz
+ ld a,l
+ or a,d
+ or a,e
+ ret nz
+ ld hl,#0x7fff
+ ld de,#0xffff
  ret

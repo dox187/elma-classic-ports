@@ -8,6 +8,7 @@ import argparse
 import json
 from pathlib import Path
 import struct
+import re
 
 from all_levels import HeadVerifier,menu_check
 from play import Driver,RIDING,DEAD,BASE
@@ -54,7 +55,9 @@ def main():
         assert samples and max(abs(value)for value in samples)>32767,'descent did not exercise 32-bit velocity'
         assert max_camera>1536,'descent did not exercise the tall-course camera range'
         max_raw=max(abs(value)for value in samples)
-        velocity_unit=65536*.4368/(59.727500569606/d.frame_interval)
+        constants=(args.gen/'riding_constants.h').read_text()
+        unit=re.search(r'^#define PH_VELOCITY_UNIT_TIME ([\d.eE+-]+)$',constants,re.M)
+        velocity_unit=65536*(float(unit[1]) if unit else .4368/(59.727500569606/d.frame_interval))
         overruns=d.word('game_overruns')
         report.update({'status':'passed','functional_checks_passed':True,
             'controller':'menu selection and no-input fall; no guest-memory writes',

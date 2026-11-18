@@ -1481,3 +1481,78 @@ mantissa passed the sampled peak gates; 12/16/20-bit mantissas and fixed Q16
 failed at least one gate. Native speed benefit is unmeasured, so this does not
 justify replacing the current exact Q24 implementation. Evidence:
 repository-root `build/scheduled-precision-budget/experiment-report.json`.
+
+### Further exact kernels and rejected velocity-unit reduction
+
+Exact Q10/Q14 wide reductions and zero/unit-axis paths, plus the shared packed
+circle integrator, reduce the 46-case mean to 528,884 T (maximum 991,888), with
+all 9,213 states unchanged. The wide-math oracle passes 115,025 cases per
+implementation and 4,112 IRQ-enabled vectors; circle motion passes 3,970
+independent packed-state cases. Evidence: root
+`build/scheduled-native-validation/q24-axis-circle`,
+`build/scheduled-wide-physical-fastpaths`, `build/scheduled-circle-integration`.
+
+A narrow-displacement spring-torque path retains the complete 48-bit products
+and keeps the full-width fallback. It saves 10,362 T/outer on the full corpus;
+92,206 independent vectors pass. The mean is 518,521 T, but the worst sampled
+step grows by 840 T due to dispatch overhead. Evidence:
+`build/scheduled-spring-fastpaths`. Q24 narrow dispatch retains v2 tables and
+all quotient/fraction/saturation side effects; its 61,787-case oracle passes,
+and it saves 17,093 T/outer on its paired full-state corpus. These independent
+savings require a combined integration run before reporting a combined cost.
+
+Linear velocity-unit alternatives .176/.088/.044 were tested against the
+unchanged .352 reference, preserving .022 angular units and original intervals.
+The two smallest fail rebound gates. .176 passes the 90 PC cases but improves
+native mean cost only 1.03%; one braking case's velocity RMSE grows 39.4%
+(.005086 to .007090 m/model-second), and two gas deaths shift one frame earlier.
+Rejected: keep .352, with no accuracy trade for that small speed gain. Evidence:
+root `build/scheduled-velocity-precision-feasibility/experiment-report.json`.
+
+The acceptance harness now records complete trajectory error as well as peaks
+and explicitly gates first airtime at 0.1%. All 45 cases pass the existing peak
+and new airtime gates; coast 4/8 m at vx0/4/8 retains PC contact release and
+recontact times (floating-point timestamp noise only). Body trajectory RMSE
+for the nine flat held-brake cases improves from .193283 to .019711 m, velocity
+.397715 to .029972 m/model-second against baseline b2c314b. The ±15-degree
+braking position errors remain .133864/.053708 m respectively; this is not a
+global 99.9% trajectory match. Values pool squared errors over common live
+samples, with each model seeded into its matching PC reference. Evidence: GBC
+`build/v093-rebound-airtime-acceptance/report.json` and
+`build/v093-scheduled-pc-acceptance/braking-trajectory-errors.json`.
+
+Full-game spring probe SHA256
+`2e4fdd6f7f6f936cfa95d4a684e3efbd04d94b8ff7e9919e1d88c957d0e39224`
+passes functional checks for all 54 starts and Freefall (435 updates, maximum
+speed component 51.780 model m/s). No observer errors or graphical invariants
+fail. Timing gates correctly FAIL: 1,596/439 overruns in the respective runs.
+Freefall advances every 4–7 display frames instead of two. This probe is not
+a completed release. Evidence: GBC `build/v093-scheduled-all-starts/run.json`
+and `build/v093-scheduled-freefall/run.json`. The Freefall speed report now
+uses stored velocity units, independently of the outer frame interval.
+
+### Combined diagnostic checkpoint
+
+Bank9 contact filtering proves unambiguous far/near distances without a full
+fine projection, retains exact arithmetic in the boundary band and compacts
+the packed contact list. 29,040 native/C/Python cases and an exhaustive
+65,536-length shortcut proof pass; every full-corpus case improves. Evidence:
+root `build/scheduled-contact-staging`.
+
+The final combined narrow Q24, spring and contact-filter run passes all 46
+cases / 9,213 states against the frozen canonical HOST. Mean cost is
+**491,599 T/outer**, maximum **942,896**; the complete frame budget remains
+280,896. Evidence: root
+`build/scheduled-native-validation/q24-final-integrated/report.json`.
+
+Latest diagnostic: GBC `build/elma-gbc-v0.93-rebound-test-8m.gbc`, SHA256
+`d4838a7e747c246c38a931e28ce1197329b51218bdceb52056837dd09d2a8561`.
+8,388,608 bytes, MBC5+RAM+battery, 32 KiB RAM, banks 508–511 all FF.
+All 54 starts and Freefall retain their functional/graphics checks with zero
+observer errors; held/released volt controls pass. Timing gates fail with
+1,605 and 439 overruns respectively. Freefall's 434 measured entry intervals
+average **13.43 updates/s**, range 4–7 display frames per update. The all-start
+interval stream includes level loading and is not a gameplay FPS statistic.
+Evidence: GBC `build/v093-rebound-{all-starts,freefall,volts}`.
+This is a slow rebound-corrected diagnostic, not a completed 0.93 release or
+a stable-30-FPS build. Do not confuse it with the old test1 ROM.

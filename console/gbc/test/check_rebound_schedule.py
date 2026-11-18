@@ -82,7 +82,9 @@ def compare_case(pc, control, host, path, height, speed, keys, steps, slope):
         got=candidate.get('first_flight_peak_bottom_m'); duration=frame.get('first_airtime_wall_s')
         nearest=round(duration/period)*period if duration else None
         candidate_fine=metrics.get('candidate_substeps',{}).get(wheel,{}).get('first_flight_peak_bottom_m')
+        candidate_airtime=candidate.get('first_airtime_wall_s')
         diagnostics[wheel]={
+            'candidate_airtime_error_percent':None if duration in (None,0) or candidate_airtime is None else 100*abs(candidate_airtime-duration)/duration,
             'candidate_substep_peak_m':candidate_fine,
             'candidate_substep_peak_error_percent':None if subpeak in (None,0) or candidate_fine is None else 100*abs(candidate_fine-subpeak)/abs(subpeak),
             'pc_frame_peak_m':peak,'pc_substep_peak_m':subpeak,'candidate_peak_m':got,
@@ -94,6 +96,7 @@ def compare_case(pc, control, host, path, height, speed, keys, steps, slope):
                 'unavoidable_airtime_error_percent':None if nearest is None else 100*abs(nearest-duration)/duration,
                 'note':'Diagnostic lower bound for frame-boundary contact timestamps only, not an allowance for trajectory error.'}}
     return {'initial_state':seed,'traces':traces,'contact_events':events,'metrics':metrics,
+            'trajectory_errors':comparison.describe_errors(traces['pc'],traces['candidate']),
             'diagnostics':diagnostics,'pc_step_intervals_game_s':observed_intervals,
             'observer_identity_samples':len(traces['pc'])-1,'pc_schedule_checks':schedule_checks}
 
@@ -107,12 +110,14 @@ def main():
     p.add_argument('--driver',type=Path)
     p.add_argument('--steps',type=int,default=240)
     p.add_argument('--max-rebound-error-percent',type=float)
+    p.add_argument('--max-airtime-error-percent',type=float)
     p.add_argument('--slopes',default='0,-15,15')
     args=p.parse_args();out=args.out.resolve();out.mkdir(parents=True,exist_ok=True)
     if args.steps<=0:p.error('--steps must be positive')
     slopes=[float(x) for x in args.slopes.split(',')]
     if any(abs(x)>45 for x in slopes):p.error('slopes must be in [-45,45]')
     if args.max_rebound_error_percent is not None and args.max_rebound_error_percent<0:p.error('negative error bound')
+    if args.max_airtime_error_percent is not None and args.max_airtime_error_percent<0:p.error('negative airtime error bound')
     settings=comparison.constants(args.gen/'riding_constants.h')
     baseline_library=comparison.freeze_baseline(out/'frozen-baseline',args.baseline_ref,args.gen,contacts=True)
     frozen=baseline_library.parent
@@ -131,6 +136,7 @@ def main():
             'requested_source':str(args.source.resolve()),
             'libraries':{'pc':{'path':str(pc.library),'sha256':comparison.sha256(pc.library)}},
             'baseline_metadata':str(frozen/'baseline-revision.json'),'max_rebound_error_percent':args.max_rebound_error_percent,
+            'max_airtime_error_percent':args.max_airtime_error_percent,
             'metric_note':'Candidate vs same-time frame peaks; actual PC substep peaks reported separately. No invented continuous-time peak.',
             'observer_identity':'All PC internal numeric state/object activations compared each frame against observer-disabled build.'}
     for slope in slopes:
@@ -159,17 +165,23 @@ def main():
                         run=compare_case(pc,control,host,path,height,speed,keys,args.steps,slope)
                         landing.write_json(folder/f'{name}-{label}.json',run)
                         case[label]=run['metrics']['candidate']
+                        case.setdefault('trajectory_errors',{})[label]=run['trajectory_errors']
                         if label=='candidate':
                             case['pc']=run['metrics']['pc'];case['pc_substeps']=run['metrics']['pc_substeps'];case['diagnostics']=run['diagnostics']
                         else:
                             case['baseline_pc']=run['metrics']['pc']
-                    if case['candidate']['dead'] and not case['baseline']['dead'] and not case['pc']['dead']:
-                        report['failures'].append(f'{name}: new candidate death, PC and baseline survive')
+                    if case['candidate']['dead'] != case['pc']['dead']:
+                        report['failures'].append(f'{name}: survival/death differs from original PC')
                     if slope==0 and keys==0 and height in (4,8) and args.max_rebound_error_percent is not None:
                         for wheel in landing.WHEELS:
                             error=case['diagnostics'][wheel]['candidate_frame_peak_error_percent']
                             if error is None or error>args.max_rebound_error_percent:
                                 report['failures'].append(f'{name}/{wheel}: rebound error {error}%, bound {args.max_rebound_error_percent}%')
+                    if slope==0 and keys==0 and height in (4,8) and args.max_airtime_error_percent is not None:
+                        for wheel in landing.WHEELS:
+                            error=case['diagnostics'][wheel]['candidate_airtime_error_percent']
+                            if error is None or error>args.max_airtime_error_percent:
+                                report['failures'].append(f'{name}/{wheel}: airtime error {error}%, bound {args.max_airtime_error_percent}%')
                     case['survival_matches_pc']=case['candidate']['dead']==case['pc']['dead']
                     report['cases'][name]=case
         landing.write_json(out/'report.json',report)

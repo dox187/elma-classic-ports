@@ -6,8 +6,14 @@ ELMA_LGR ?= ../../lgr/default.lgr
 PHYS_HZ ?= 30
 DAMPER ?= scheduled
 ROM_MIB ?= 8
-ifeq ($(filter $(ROM_MIB),4 8),)
-$(error ROM_MIB must be 4 or 8)
+ifneq ($(ROM_MIB),8)
+$(error The scheduled 0.93 source requires ROM_MIB=8; earlier 4 MiB sources remain in Git history)
+endif
+ifneq ($(DAMPER),scheduled)
+$(error The current riding kernel requires DAMPER=scheduled)
+endif
+ifneq ($(PHYS_HZ),30)
+$(error The current scheduled riding kernel requires PHYS_HZ=30)
 endif
 VERSION := $(shell cat VERSION)
 GAME_ROM ?= build/elma-gbc-v$(VERSION)-$(ROM_MIB)m.gbc
@@ -19,7 +25,7 @@ COEFFICIENT_TOOL := $(if $(filter scheduled,$(DAMPER)),math_q24_coefficients.py,
 FLAGS := -msm83:gb -Wf--opt-code-size -Wf--max-allocs-per-node -Wf100000 -Wm-yC -Wm-yt0x1B -Wm-ya4 -Wm-yoA -Wm-ynELMA-GBC -Wl-m -Wl-j -I$(GEN) -Isrc
 PHYS_ASM := $(filter-out src/physics_mul16.s,$(wildcard src/physics_*.s))
 
-.PHONY: all game 4m 8m bootstrap assets check clean
+.PHONY: all game 4m 8m bootstrap assets check check-scheduled clean
 all: $(GAME_ROM) build/elma-gbc-viewer.gbc build/physics-probe.gbc
 game: $(GAME_ROM)
 
@@ -62,6 +68,22 @@ build/elma-gbc-viewer.gbc: assets src/main.c
 
 build/physics-probe.gbc: assets src/physics_probe.c src/suspension.c src/suspension.h src/mul16.s
 	$(LCC) $(filter-out -Wm-yt0x1B -Wm-ya4,$(FLAGS)) -Wm-yt0x19 -o $@ src/physics_probe.c src/suspension.c src/mul16.s
+
+# Preserve each native source snapshot; repeating this target creates a new run.
+ifndef SCHEDULE_CHECK_DIR
+SCHEDULE_CHECK_DIR := build/scheduled-check-$(shell date +%Y%m%d-%H%M%S)
+endif
+check-scheduled: $(GAME_ROM)
+	$(PYTHON) test/check_force_accumulator.py --out $(SCHEDULE_CHECK_DIR)/force
+	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/native
+	$(PYTHON) test/check_rebound_schedule.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/pc --max-rebound-error-percent 0.1 --max-airtime-error-percent 0.1
+	$(PYTHON) test/check_audio.py --gen $(GEN)
+	$(PYTHON) test/check_riding_audio.py --gen $(GEN)
+	$(PYTHON) test/check_volt_input.py --rom $(GAME_ROM) --gen $(GEN)
+	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN)
+	$(PYTHON) test/check_players.py --rom $(GAME_ROM) --gen $(GEN)
+	$(PYTHON) test/all_levels.py --rom $(GAME_ROM) --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/all-levels --idle-updates 12
+	$(PYTHON) test/freefall.py --rom $(GAME_ROM) --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/freefall
 
 check: all
 	$(PYTHON) test/check_build_layout.py

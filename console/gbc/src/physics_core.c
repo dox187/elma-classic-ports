@@ -22,11 +22,15 @@
 static const int16_t Ellipse_inside_y[]={RIDING_ELLIPSE_INSIDE_Y_VALUES};
 
 #ifdef __SDCC
+#include <stddef.h>
 /* Private scheduled suspension workspace; ph_step is non-reentrant. */
 typedef struct {
  int16_t cs,sn; int32_t oms; int16_t tq[2];
  int32_t dvx[2],dvy[2],dvbx,dvby,dwb;
 } riding_suspension_state_t;
+typedef char suspension_layout[sizeof(riding_suspension_state_t)==40 &&
+    offsetof(riding_suspension_state_t,dvx)==12 &&
+    offsetof(riding_suspension_state_t,dwb)==36 ? 1 : -1];
 riding_suspension_state_t riding_suspension_state;
 const uint8_t riding_suspension_anchor_x=Q24_ANCHOR_X;
 const uint8_t riding_suspension_anchor_y=Q24_ANCHOR_Y;
@@ -67,11 +71,16 @@ static void head_position(void) {
 #endif
 
 
+#ifdef __SDCC
+void riding_circle_scheduled(circle_t *k,uint8_t slot) __sdcccall(0);
+static void move(circle_t *k) {riding_circle_scheduled(k,0);}
+#else
 static void move(circle_t *k) {
  k->alfa += (uint32_t)(phase_move(k->omega,7));
  k->rx += phase_advance(k->vx,2,k==&Bike.body?0:k==&Bike.wheel[0]?2:4);
  k->ry += phase_advance(k->vy,2,k==&Bike.body?1:k==&Bike.wheel[0]?3:5);
 }
+#endif
 
 // vezeto_hatarolas: keeps the rider over the seat.
 static void rider_limit( void ) {

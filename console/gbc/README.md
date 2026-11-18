@@ -2,9 +2,11 @@
 
 Current development version: **0.93 — suspension and braking accuracy**,
 recorded in [`VERSION`](VERSION). It is not a finished release yet. The development
-ROM is `build/elma-gbc-v0.93-test1-8m.gbc`; it still has the measured 52.22%
-4 m rebound error. The corrected scheduled physics is under native optimization
-and has not replaced that playable test ROM. Existing 0.92 images below are
+diagnostic ROM is **[0.93 rebound test — 8 MiB](build/elma-gbc-v0.93-rebound-test-8m.gbc)**.
+It fixes the measured rebound, but is too slow for release: Freefall averages
+**13.43 physics updates/s** in the emulator. The older
+`build/elma-gbc-v0.93-test1-8m.gbc` still has the measured 52.22% 4 m rebound
+error. Existing 0.92 images below are
 previous test builds. Stable 30 FPS and improved original-PC fidelity remain
 requirements; neither input buffering nor a relaxed accuracy target is added.
 Active development now targets the **8 MiB ROM only**. Work on the 4 MiB
@@ -40,11 +42,15 @@ match PC. These results describe those measured cases, not global 99.9% fidelity
 The native SM83 port matches the frozen HOST model in **9,213 complete states**
 across 46 cases, including fractional accumulators, controls and audio events.
 
-Performance is still blocking release: the latest measured native suspension
-combination costs **579,802 T-cycles per outer update on average**, before game
+Performance is still blocking release: the latest combined native kernels
+cost **491,599 T-cycles per outer update on average**, before game
 rendering, versus **280,896 T-cycles for the entire two-display-frame budget**.
 Further optimizations are in progress. Internal `*-probe-*` ROMs are diagnostic
-artifacts, not playable replacements. See [`PERFORMANCE.md`](PERFORMANCE.md)
+artifacts, not playable replacements. The named rebound test contains the
+latest combined correction (SHA256
+`d4838a7e747c246c38a931e28ce1197329b51218bdceb52056837dd09d2a8561`).
+All 54 starts, Freefall and volt controls pass their functional checks; the
+zero-overrun timing gates still fail. See [`PERFORMANCE.md`](PERFORMANCE.md)
 for the experiment sequence and evidence.
 
 Development ROM: **[0.93 test1 — 8 MiB](build/elma-gbc-v0.93-test1-8m.gbc)**.
@@ -71,7 +77,11 @@ and **10.12%**. A matching peak alone therefore does not establish fidelity.
 `test/fixtures/landing_pc_accuracy_bounds.json` records a strict 0.1%
 relative diagnostic bound for both wheels' first rebound height and airtime in all
 4/8 m, vx0/4/8 coast cases. Use it with `check_landing_response.py --bounds`.
-The released test1 implementation fails all 24 checks. The earlier broad landing
+The released test1 implementation fails all 24 checks. The scheduled rebound
+test passes the 0.1% peak and actual-substep airtime gates in
+`check_rebound_schedule.py` for both wheels at all six 4/8 m, vx0/4/8 coast
+conditions. Its maximum airtime difference is floating-point timestamp noise.
+The earlier broad landing
 bounds remain a historical regression guard, not proof of 99.9% fidelity. Contact-time quantization must be distinguished
 from trajectory error when interpreting the airtime diagnostic.
 Braking must also retain the PC survivors on the ±15-degree drop fixtures.
@@ -420,22 +430,24 @@ make bootstrap
 make 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 ```
 
-The defaults are `ROM_MIB=8 PHYS_HZ=30 DAMPER=exponential`.
+The current kernel requires `ROM_MIB=8 PHYS_HZ=30 DAMPER=scheduled`.
 
 The current checkout builds versioned **0.93 development ROMs**. They are not
 accepted releases until their complete-game timing and regression checks pass.
 The retained 0.90 images below are the last completed intermediate release.
 
-Open **`build/elma-gbc-v0.90-4m.gbc`** (4 MiB) or
-**`build/elma-gbc-v0.90-8m.gbc`** (8 MiB) in a Game Boy Color emulator.
+The current default output is **`build/elma-gbc-v0.93-8m.gbc`**. The corrected
+scheduled kernel is still too slow; use this development output for diagnostics.
+The older versioned ROMs listed above retain their original behavior.
 These are CGB-only MBC5 cartridges, not Game Boy
 Advance programs; monochrome Game Boy hardware is unsupported. Both use header
 type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 (4 MiB) or `0x08` (8 MiB).
 
-`make 4m` and `make 8m` keep generated files separate in `build/gen` and
-`build/gen-8m`. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.93-test1-8m.gbc game` with your resource
+`make 8m` generates assets in `build/gen-8m`. The earlier 4 MiB and alternative
+integration kernels remain in Git history; the current source rejects those
+profiles. For an explicit output name, use e.g.
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.93-dev-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. Exact physics
@@ -699,18 +711,25 @@ final step**, not a fixed 182 Hz physics rate. The GBC profile advances the same
 game-time scale at nominal 30 updates per second, synchronized to every other
 display frame (about 29.86 Hz on the GBC clock).
 
-`PHYS_HZ=60 DAMPER=explicit` remains available as a comparison profile. Selecting
-it is not a claim that the complete game meets a 60 FPS budget. The standalone
+Historical `PHYS_HZ=60 DAMPER=explicit` comparisons do not establish a complete
+60 FPS game and require the corresponding historical sources. The standalone
 `physics-probe.gbc` is an older suspension diagnostic, not the riding solver or
 a measure of full-game performance.
 
 ## Verification
 
 ```sh
-make check ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
+make check-scheduled ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 ```
 
-`make check` builds the playable and diagnostic ROMs, checks conversion, ROM
+`make check-scheduled` runs exact native/HOST state comparison, original-PC
+rebound and braking trajectories, audio/control tests and complete-game checks.
+It retains zero allowed deadline misses; current timing/cadence failures block
+release. Each native run keeps an immutable source snapshot. The older
+`make check` sequence below targets the historical one-step kernel and has not
+been fully migrated to scheduled units.
+
+The historical `make check` builds the playable and diagnostic ROMs, checks conversion, ROM
 metadata, actual scrolling VRAM, protected object colors and the diagnostic
 arithmetic. Native SM83 tests check the production multiplication, coefficient,
 division, square-root, coordinate-bound and video helpers against independent

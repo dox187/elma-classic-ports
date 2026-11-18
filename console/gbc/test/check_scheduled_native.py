@@ -27,10 +27,10 @@ NATIVE_EXTRA = ('physics_q24.c', 'physics_force.c', 'physics_math.s', 'physics_m
                 'physics_segment_scan.s', 'physics_normal_fast.s', 'physics_shift_fast.s',
                 'physics_sqrt_fast.s', 'physics_div_fast.s', 'physics_sin_fast.s',
                 'physics_spring_torque.s', 'physics_q24.s', 'physics_div20.s',
-                'physics_export_fast.s','physics_rider_fast.s','physics_rider_response.s','physics_phase.s',
+                'physics_export_fast.s','physics_rider_fast.s','physics_rider_response.s','physics_phase.s','physics_circle_scheduled.s',
                 'physics_supports_fast.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
                 'physics_head_pose.s','physics_brake_fast.s',
-                'physics_suspension_scheduled.s','physics_recip_fast.s')
+                'physics_suspension_scheduled.s','physics_recip_fast.s','physics_contact_filter.s')
 TABLES = ('physics_quarter_*.c', 'physics_scale_*.c', 'physics_sine_*.c',
           'physics_q24_table_*.c')
 

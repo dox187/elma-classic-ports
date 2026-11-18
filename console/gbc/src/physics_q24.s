@@ -28,6 +28,117 @@ _q24_apply::
  inc sp
  jp (hl)
 q_nonzero:
+; Dispatch before spilling wide-input scratch; both narrow classes cannot saturate.
+ ld a,d
+ or a,e
+ jr z,q_narrow_positive
+ ld a,d
+ and a,e
+ inc a
+ jr z,q_narrow_negative
+ jp q_wide
+q_narrow_positive:
+ ld d,#7
+ ld a,b
+ or a,a
+ jr nz,q_narrow_map
+ ld d,#0
+ jr q_narrow_map
+q_narrow_negative:
+ ld d,#13
+q_narrow_map:
+ ld e,b
+ xor a
+ ld (#_q24_saturated),a
+ ldhl sp,#2
+ ld a,(hl)
+ srl a
+ ld h,#0x40
+ jr nc,q_narrow_page
+ ld h,#0x5d
+q_narrow_page:
+ ld b,a
+ ld a,(#_q24_first_bank_low)
+ add a,b
+ ld (#0x2000),a
+ ld a,#1
+ ld (#0x3000),a
+ ld l,c
+ ld a,d
+ or a,a
+ jr z,q_narrow8
+ add a,h
+ ld d,a
+ push de
+ ld a,(hl)
+ ld (#_q24_fraction+0),a
+ inc h
+ ld a,(hl)
+ ld (#_q24_fraction+1),a
+ inc h
+ ld a,(hl)
+ ld (#_q24_fraction+2),a
+ inc h
+ ld a,(hl)
+ ld c,a
+ inc h
+ ld a,(hl)
+ ld b,a
+ inc h
+ ld a,(hl)
+ ld e,a
+ inc h
+ ld a,(hl)
+ ld d,a
+ pop hl
+ or a,a
+ ld a,(#_q24_fraction+1)
+ adc a,(hl)
+ ld (#_q24_fraction+1),a
+ inc h
+ ld a,(#_q24_fraction+2)
+ adc a,(hl)
+ ld (#_q24_fraction+2),a
+ inc h
+ ld a,(hl)
+ adc a,c
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc a,b
+ ld b,a
+ inc h
+ ld a,(hl)
+ adc a,e
+ ld e,a
+ inc h
+ ld a,(hl)
+ adc a,d
+ ld d,a
+ jp q_return
+q_narrow8:
+ ld a,(hl)
+ ld (#_q24_fraction+0),a
+ inc h
+ ld a,(hl)
+ ld (#_q24_fraction+1),a
+ inc h
+ ld a,(hl)
+ ld (#_q24_fraction+2),a
+ inc h
+ ld a,(hl)
+ ld c,a
+ inc h
+ ld a,(hl)
+ ld b,a
+ inc h
+ ld a,(hl)
+ ld e,a
+ inc h
+ ld a,(hl)
+ ld d,a
+ jp q_return
+q_wide:
  ld a,c
  ld (#q_input),a
  ld a,b
