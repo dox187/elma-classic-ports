@@ -1,8 +1,11 @@
 # Elasto Mania for Game Boy Color
 
-Current development version: **0.93 — suspension and braking accuracy**,
-recorded in [`VERSION`](VERSION). It is not a finished release yet. The development
-diagnostic ROM is **[0.93 rebound test — 8 MiB](build/elma-gbc-v0.93-rebound-test-8m.gbc)**.
+Current development version: **0.94 — high-speed and numeric-limit validation**,
+recorded in [`VERSION`](VERSION). Latest diagnostic:
+**[0.94 speed test — 8 MiB](build/elma-gbc-v0.94-speed-test-8m.gbc)**.
+It corrects the drive-torque cutoff; the remaining numeric limits and timing
+failures are documented below. The retained 0.93 checkpoint is
+**[0.93 rebound test — 8 MiB](build/elma-gbc-v0.93-rebound-test-8m.gbc)**.
 It fixes the measured rebound, but is too slow for release: Freefall averages
 **13.43 physics updates/s** in the emulator. The older
 `build/elma-gbc-v0.93-test1-8m.gbc` still has the measured 52.22% 4 m rebound
@@ -14,6 +17,20 @@ compressed variant stopped on 2026-11-17; its existing releases and experiments
 are retained for reference.
 See the [performance experiment log](PERFORMANCE.md) for measured candidates
 and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
+
+## Version milestones
+
+| Version | Scope | Status |
+|---|---|---|
+| 0.93 | Measured rebound correction and existing braking improvements | Retained diagnostic checkpoint; 13.43 updates/s in Freefall |
+| 0.94 | High-speed rolling, impacts, rotation and braking against PC; numeric saturation and overflow audit | 122-case audit complete; cutoff corrected, other limits remain |
+| 0.95 | Reduce the corrected model's runtime cost toward stable 30 FPS | Next |
+| 0.96 | Joint original-PC accuracy and full-game stable-30-FPS acceptance | Final combined validation |
+
+The retained 0.93 and current 0.94 diagnostics share the known runtime-cost
+limitation; the final joint acceptance target is 0.96. Version numbers do not imply that unpassed
+accuracy or timing requirements have been waived. All new ROM filenames remain
+versioned and directly inside `build/`.
 
 Playable test: **[0.91 test1 — 8 MiB](build/elma-gbc-v0.91-test1-8m.gbc)**,
 for MBC5 with 32 KiB cartridge RAM. Its SHA-256 is
@@ -31,6 +48,59 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.94 high-speed audit
+
+The scheduled profile previously stopped applying drive torque one raw angular
+unit too early. Its threshold now rounds upward, preserving the original PC
+`omega < 110` / `omega > -110` comparisons. At raw omega ±25241, the driven-wheel
+peak now reaches **120.308544 rad/s**, versus PC **120.310253**, instead of
+remaining at **109.997753**. Maximum peak error over the six cutoff fixtures is
+**0.001421%**; the old threshold fails the same 0.1% regression gate.
+This is a torque cutoff, not a hard limit on downhill or externally induced speed.
+
+The audit covers **122 synthetic initial conditions**: ±40/44/55/57.12/60/80
+model m/s with both facing directions and coast/gas/brake, fast impacts on
+flat/±15° ground, and angular/brake/volt boundaries. Flat cases begin with zero
+wheel spin and establish contact; they are not pre-settled rolling or completed
+controller routes. Original PC equations run as native double, not Windows x87.
+All **3,187 instrumented HOST states** match the untouched HOST. Separately,
+the native core matches all **3,186 packed states × 214 bytes**. Native tests
+cover the core only; the PC comparison also applies GBC's production 3 m
+stretch guard, so these state counts describe different termination rules.
+
+Remaining limitations are measured, not declared fixed:
+
+| Path | Current limit | Measured consequence |
+|---|---|---|
+| Stored angular velocity | About ±142.8 rad/model-second | Rolling omega clips near 57.12 model m/s; translation continues |
+| Brake relative angular velocity | ±71.3955 rad/model-second | Damping is weaker than PC beyond this range |
+| Brake torque | −8192 to +8191.75 Nm | Further clipping under strong braking |
+| Volt impulse | 16-bit addition can wrap | Extreme initial rotation can reverse the stored sign |
+| Spring moment input | About ±2 m² | Large deformation clips the spring's body torque |
+
+**74/122 cases** exercise at least one recorded clamp or wrap. Five survival
+outcomes differ: one +60 m/s flat braking impact dies in the GBC core while PC
+survives; four ±120/±140 rad/s body-spin fixtures trigger GBC's 3 m stretch guard
+while PC survives. These counts do not establish how often normal gameplay
+reaches those states. The 32-bit linear range itself is approximately
+±93,091 model m/s; the lower angular and torque limits are the practical concern.
+No artificial linear speed cap was added.
+
+The 45 existing PC landing/braking fixtures still pass their rebound/airtime
+and survival gates; the 46-case native regression retains **9,213 exact states**.
+The new ROM passes menu/volt and all 54 start/Freefall functional checks.
+Strict timing checks still fail (1,605/439 deadline misses); Freefall remains
+**13.43 updates/s**. The player/save suite stops at its timer-cadence assertion,
+so this build does not claim a new full save-suite pass. Hardware testing is
+still required. This is a diagnostic checkpoint, not final 0.96 acceptance.
+
+SHA-256: `b3727b3e8b31c03b1ae327c60e33a9d0b4370e208801b32d3b5986b4acbcb240`.
+Size **8,388,608 bytes**, MBC5 + 32 KiB RAM; banks 508–511 remain all FF.
+Both menu and splash show **0.94**. Run `make check-speed-limits` with the
+resource paths from the build instructions to reproduce the PC audit and native seeded cases;
+its gas-cutoff and native-equivalence gates do not waive the other findings.
+See [`PERFORMANCE.md`](PERFORMANCE.md) for evidence paths and next work.
 
 ## 0.93 acceptance work
 
@@ -432,11 +502,11 @@ make 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The current kernel requires `ROM_MIB=8 PHYS_HZ=30 DAMPER=scheduled`.
 
-The current checkout builds versioned **0.93 development ROMs**. They are not
+The current checkout builds versioned **0.94 development ROMs**. They are not
 accepted releases until their complete-game timing and regression checks pass.
 The retained 0.90 images below are the last completed intermediate release.
 
-The current default output is **`build/elma-gbc-v0.93-8m.gbc`**. The corrected
+The current default output is **`build/elma-gbc-v0.94-8m.gbc`**. The corrected
 scheduled kernel is still too slow; use this development output for diagnostics.
 The older versioned ROMs listed above retain their original behavior.
 These are CGB-only MBC5 cartridges, not Game Boy
@@ -447,11 +517,11 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 `make 8m` generates assets in `build/gen-8m`. The earlier 4 MiB and alternative
 integration kernels remain in Git history; the current source rejects those
 profiles. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.93-dev-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.94-dev-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
-match; codec and bank-layout mismatches are rejected before linking. Exact physics
-tables live at ROM banks 252–255 or 477–480, respectively. The 8 MiB builder
+match; codec and bank-layout mismatches are rejected before linking. The current scheduled Q24
+physics tables occupy banks **481–501**. The 8 MiB builder
 rejects data in banks 508–511 and verifies that this tail remains unused.
 
 On FlashMaster, select **MBC5**, **32K RAM**, the file's matching **4M or 8M ROM

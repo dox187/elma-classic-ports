@@ -130,7 +130,10 @@ def parameters(hz=30, damper='explicit', *, step_time=None,
         ('LOKET', int(12 * WS + 0.5), 'a volt (Loket) and what is left of it (Omegavalt)'),
         ('OMEGAVALT', int(3 * WS + 0.5), ''),
         ('VOLT_STEPS', int(0.1 / H + 1), 'a volt lasts 0.1 s (Ugroturelem*0.25)'),
-        ('WHEEL_MAXW', int(110 * WS), 'highest angular velocity of the driven wheel'),
+        # omega < 110 (or > -110) must retain torque at every representable
+        # value below the PC cutoff. Truncating the threshold cuts one early.
+        ('WHEEL_MAXW', math.ceil(110 * WS) if scheduled else int(110 * WS),
+         'drive torque cutoff; external motion can exceed this speed'),
         ('ELSZ', int(0.01 * VS + 0.5), 'separation speed limit, 0.01 m/s'),
         ('VEL_1MS', int(VS + 0.5), '1 m/s'),
         ('GAS_TQ', 600 * 4, 'gas: 600 Nm, in 1/4 Nm'),

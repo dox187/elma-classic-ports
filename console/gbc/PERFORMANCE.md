@@ -1556,3 +1556,97 @@ interval stream includes level loading and is not a gameplay FPS statistic.
 Evidence: GBC `build/v093-rebound-{all-starts,freefall,volts}`.
 This is a slow rebound-corrected diagnostic, not a completed 0.93 release or
 a stable-30-FPS build. Do not confuse it with the old test1 ROM.
+
+## 2026-11-18 — 0.94 speed and numeric-limit audit
+
+Version milestones are separated: 0.93 retains rebound correction, 0.94 covers
+high-speed PC comparison and numeric-limit diagnosis, 0.95 addresses runtime
+cost, and 0.96 is joint fidelity/full-game stable-30 acceptance. This experiment
+changes no integration interval or velocity unit and adds no input buffering.
+
+**Accepted correction:** use `ceil(110*WS)` for the scheduled torque cutoff,
+25242 instead of 25241. A strict integer comparison then retains the last
+representable value below the original PC 110 rad/s threshold. Both facing
+signs are tested. At raw ±25241, the old GBC wheel peak was 109.997753 rad/s
+against PC 120.310253; corrected GBC reaches 120.308544. Six boundary cases
+have at most 0.001421% peak error and pass a 0.1% gate. The retained old report
+fails precisely the two ±25241 unbraked cases (negative control). Brake still
+overrides gas. Legacy profiles retain their original integer constant.
+
+**Audit:** `test/check_speed_limits.py` freezes the sources, builds unchanged
+and instrumented HOST copies, and uses the original PC integrator with equal
+quantized initial states. It observes eleven clipping/wrapping sites and
+checks every packed field against the unchanged HOST. The first 86-case run
+included only opposing-throttle flat fixtures; review caught this coverage gap.
+The final 122-case matrix tests both facing directions at signed 40/44/55/
+57.12/60/80 model m/s, coast/gas/brake, flat/±15° high-speed impacts and angular,
+brake and volt boundaries. These are synthetic seeds with initially zero wheel
+spin/contact history, not completed routes. PC runs native double, not x87.
+
+Final evidence under `console/gbc/build/`:
+
+- `v094-speed-audit-baseline`: retained old-cutoff negative control (86 cases).
+- `v094-speed-audit-final`: 122 PC comparisons, 3,187 exact instrumented/control
+  states; all six gas-cutoff gates pass. Sources/constants/library hashes and
+  complete traces are retained. 74 cases encounter a clamp/wrap.
+- `v094-native-speed-final`: the exported 122 cases, 3,186 exact 214-byte states,
+  3,064 raw core steps, zero differences; mean 492,324.72 T, max 997,540 T.
+- `v094-native-regression`: original 46 cases, 9,213 exact states; unchanged mean
+  491,599.008 T and max 942,896 T. The corpus-specific means are not directly
+  comparable performance improvements.
+- `v094-rebound-gates`: all 45 existing PC cases pass; first rebound and actual
+  contact-airtime retain their strict 0.1% limits.
+
+Measured events in the final synthetic matrix:
+
+| Instrumented operation | Cases with a limit | Clipped/wrapped operations |
+|---|---:|---:|
+| Body omega | 5 | 19 |
+| Free-wheel omega | 1 | 20 |
+| Rolling omega | 40 | 4,465 |
+| Brake relative omega | 38 | 454 |
+| Brake torque | 28 | 402 |
+| Spring moment input | 10 | 178 |
+| Volt start addition | 5 | 5 |
+| Volt release / residual addition | 0 | 0 |
+| Q24 / wide signed32 result | 0 | 0 |
+
+These are events within this matrix, not normal-play incidence rates. Release
+and residual volt arithmetic remain vulnerable even though this matrix did not
+trigger their wrap. Ordinary signed32 additions are not all covered by the two
+result-saturation counters; zero counters do not prove general overflow safety.
+
+**Unresolved behavior:** int16 omega spans approximately −142.799666 to
++142.795308 rad/model-second. Rolling first clips at about 57.119023 model m/s,
+without clamping translation. Relative brake omega clips at ±71.395475 rad/s;
+final torque at −8192/+8191.75 Nm. Spring moment clips at about ±2 m²; volt
+addition can wrap at initial positive omega raw 30014 (negative −30015).
+The 32-bit linear endpoints near ±93,091 model m/s do not solve these earlier
+limits. Widening angular storage alone would leave brake/spring clamps intact.
+No lowering of precision or extra saturation was accepted to conceal them.
+
+There are five survival mismatches: +60 m/s flat braking impact is a GBC core
+death with PC survival; four ±120/±140 rad/s body-spin fixtures hit the separate
+GBC 3 m stretch guard with PC survival. This guard exists in production
+`play.c`; original PC has no matching stretch death. The audit labels the cause
+explicitly. Native verification invokes raw `physics_step`, without that runtime
+guard or normal input cooldown, and therefore establishes core equality only.
+It must not be cited as native gameplay-termination parity. The audited volt
+inputs are single pulses, so cooldown does not change these fixture inputs.
+
+**Built diagnostic:** `build/elma-gbc-v0.94-speed-test-8m.gbc`, SHA-256
+`b3727b3e8b31c03b1ae327c60e33a9d0b4370e208801b32d3b5986b4acbcb240`.
+8,388,608 bytes, header 1B/08/03, forbidden tail banks 508–511 all FF, splash
+and menu 0.94. `v094-frontend` and `v094-volts` pass. `v094-all-starts` and
+`v094-freefall` pass functional/graphics checks with no observer errors, but
+strict timing still fails with 1,605/439 overruns. Freefall remains 13.43
+updates/s (4–7 display frames/update), maximum component 51.78005 model m/s.
+`v094-players.log` records the timer-cadence assertion failure; later save-suite
+checks did not execute. No full save-suite or hardware acceptance is claimed.
+
+Reproduce with `make check-speed-limits` and the usual resource paths. This
+creates a fresh evidence directory, enforces the repaired gas cutoff, then
+checks the exported seed matrix against native code. Numeric-limit findings
+remain findings even when these two gates pass. Next fidelity work must address
+angular/torque range and the distinct impact failure; 0.95 optimizations must
+preserve exact state regressions and 0.96 must still meet both final requirements.

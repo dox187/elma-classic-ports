@@ -7,7 +7,7 @@ PHYS_HZ ?= 30
 DAMPER ?= scheduled
 ROM_MIB ?= 8
 ifneq ($(ROM_MIB),8)
-$(error The scheduled 0.93 source requires ROM_MIB=8; earlier 4 MiB sources remain in Git history)
+$(error The scheduled source requires ROM_MIB=8; earlier 4 MiB sources remain in Git history)
 endif
 ifneq ($(DAMPER),scheduled)
 $(error The current riding kernel requires DAMPER=scheduled)
@@ -25,7 +25,7 @@ COEFFICIENT_TOOL := $(if $(filter scheduled,$(DAMPER)),math_q24_coefficients.py,
 FLAGS := -msm83:gb -Wf--opt-code-size -Wf--max-allocs-per-node -Wf100000 -Wm-yC -Wm-yt0x1B -Wm-ya4 -Wm-yoA -Wm-ynELMA-GBC -Wl-m -Wl-j -I$(GEN) -Isrc
 PHYS_ASM := $(filter-out src/physics_mul16.s,$(wildcard src/physics_*.s))
 
-.PHONY: all game 4m 8m bootstrap assets check check-scheduled clean
+.PHONY: all game 4m 8m bootstrap assets check check-scheduled check-speed-limits clean
 all: $(GAME_ROM) build/elma-gbc-viewer.gbc build/physics-probe.gbc
 game: $(GAME_ROM)
 
@@ -84,6 +84,15 @@ check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/check_players.py --rom $(GAME_ROM) --gen $(GEN)
 	$(PYTHON) test/all_levels.py --rom $(GAME_ROM) --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/all-levels --idle-updates 12
 	$(PYTHON) test/freefall.py --rom $(GAME_ROM) --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/freefall
+
+# Numeric-limit findings are reported, not treated as passing PC fidelity.
+# The repaired torque cutoff and raw native/HOST equivalence are strict gates.
+ifndef SPEED_CHECK_DIR
+SPEED_CHECK_DIR := build/speed-check-$(shell date +%Y%m%d-%H%M%S)
+endif
+check-speed-limits: $(GAME_ROM)
+	$(PYTHON) test/check_speed_limits.py --gen $(GEN) --out $(SPEED_CHECK_DIR)/pc --require-gas-cutoff
+	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --case-file $(SPEED_CHECK_DIR)/pc/cases.json --out $(SPEED_CHECK_DIR)/native
 
 check: all
 	$(PYTHON) test/check_build_layout.py

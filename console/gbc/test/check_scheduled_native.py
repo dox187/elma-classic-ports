@@ -5,6 +5,12 @@ Builds a standalone ROM using the production collision packer and synthetic
 flat/rotated surfaces. No original game assets are required. Every outer step
 compares explicitly serialized fields, never the padded HOST structure bytes.
 Run with the GBC virtualenv Python (PyBoy), --gen containing scheduled tables.
+An optional --case-file replaces the built-in suite with a JSON list. Each case
+requires name, level (0 flat, 1 -15 degrees, 2 +15 degrees, 3 air), height,
+speed, keys and steps. Optional turned defaults to true; controls supplies
+per-step key masks (then keys resumes), and turns lists outer-step indexes.
+Optional seed maps whitelisted bike fields to raw integers at fixture_ready;
+these are synthetic initial states, not controller-generated gameplay.
 """
 import argparse
 import ctypes as C
@@ -33,6 +39,95 @@ NATIVE_EXTRA = ('physics_q24.c', 'physics_force.c', 'physics_math.s', 'physics_m
                 'physics_suspension_scheduled.s','physics_recip_fast.s','physics_contact_filter.s')
 TABLES = ('physics_quarter_*.c', 'physics_scale_*.c', 'physics_sine_*.c',
           'physics_q24_table_*.c')
+
+# Explicit offsets in packed SM83 bike_t, not padded ctypes offsets. Angles
+# are deliberately excluded: changing them would invalidate cached sin/cos.
+SEED_FIELDS = {}
+for _index, _part in enumerate(('body', 'wheel0', 'wheel1')):
+    for _field, _offset, _fmt, _ctype in (('vx', 8, 'i', C.c_int32),
+                                        ('vy', 12, 'i', C.c_int32),
+                                        ('omega', 20, 'h', C.c_int16)):
+        SEED_FIELDS[f'{_part}.{_field}'] = (_index * 22 + _offset, _fmt, _ctype)
+SEED_FIELDS.update(rider_vx=(74, 'i', C.c_int32), rider_vy=(78, 'i', C.c_int32))
+for _index in range(2):
+    SEED_FIELDS[f'volt[{_index}]'] = (103 + _index, 'B', C.c_uint8)
+    SEED_FIELDS[f'volt_omega[{_index}]'] = (105 + 2 * _index, 'h', C.c_int16)
+
+
+def integer(value, low, high, label):
+    if type(value) is not int or not low <= value <= high:
+        raise ValueError(f'{label} must be an integer in [{low}, {high}]')
+
+
+def load_cases(path, settings):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f'Duplicate JSON key: {key}')
+            result[key] = value
+        return result
+
+    suite = json.loads(path.read_text(), object_pairs_hook=unique_object)
+    if not isinstance(suite, list) or not 1 <= len(suite) <= 65535:
+        raise ValueError('Case file must contain 1..65535 cases')
+    required = {'name', 'level', 'height', 'speed', 'keys', 'steps'}
+    optional = {'seed', 'controls', 'turns', 'turned'}
+    names = set()
+    for index, case in enumerate(suite):
+        label = f'case[{index}]'
+        if not isinstance(case, dict) or not required <= case.keys() or case.keys() - required - optional:
+            raise ValueError(f'{label} requires {sorted(required)}; optional fields: {sorted(optional)}')
+        name = case['name']
+        if not isinstance(name, str) or not name.strip() or name in names:
+            raise ValueError(f'{label}.name must be a nonempty, unique string')
+        names.add(name)
+        if 'turned' in case and type(case['turned']) is not bool:
+            raise ValueError(f'{label}.turned must be a boolean')
+        integer(case['level'], 0, 3, f'{label}.level')
+        integer(case['keys'], 0, 15, f'{label}.keys')
+        integer(case['steps'], 1, 65535, f'{label}.steps')
+        for field, scale in (('height', 65536), ('speed', settings['velocity_scale'])):
+            value = case[field]
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f'{label}.{field} must be finite numeric data')
+            raw = math.floor(value * scale + .5) if field == 'height' else round(value * scale)
+            integer(raw, -(1 << 31), (1 << 31) - 1, f'{label}.{field} scaled to int32')
+        for field in ('controls', 'turns'):
+            if field not in case:
+                continue
+            values = case[field]
+            if not isinstance(values, list) or len(values) > case['steps']:
+                raise ValueError(f'{label}.{field} must be a list no longer than steps')
+            for value in values:
+                integer(value, 0, 15 if field == 'controls' else case['steps'] - 1,
+                        f'{label}.{field} entry')
+            if field == 'turns' and len(set(values)) != len(values):
+                raise ValueError(f'{label}.turns must contain unique step indexes')
+        seed = case.get('seed', {})
+        if not isinstance(seed, dict):
+            raise ValueError(f'{label}.seed must be a field-to-integer object')
+        for field, value in seed.items():
+            if field not in SEED_FIELDS:
+                raise ValueError(f'{label}.seed: unsupported field {field!r}; allowed: {sorted(SEED_FIELDS)}')
+            _, _, ctype = SEED_FIELDS[field]
+            bits = 8 * C.sizeof(ctype)
+            signed = ctype(-1).value < 0
+            integer(value, -(1 << (bits - 1)) if signed else 0,
+                    (1 << (bits - int(signed))) - 1, f'{label}.seed.{field}')
+    return suite
+
+
+def seed_host(host, field, value):
+    if '.' in field:
+        part, member = field.split('.')
+        target = host.b.body if part == 'body' else host.b.wheel[int(part[-1])]
+        setattr(target, member, value)
+    elif '[' in field:
+        member, index = field[:-1].split('[')
+        getattr(host.b, member)[int(index)] = value
+    else:
+        setattr(host.b, field, value)
 
 
 def packed_host(host):
@@ -70,9 +165,11 @@ def cases(steps):
     return result
 
 
-def controls(case, index):
-    if case['level'] != 3:
-        return case['keys'], False
+def controls(case, index, legacy_air=True):
+    if not legacy_air or case['level'] != 3 or 'controls' in case or 'turns' in case:
+        sequence = case.get('controls', [])
+        return (sequence[index] if index < len(sequence) else case['keys'],
+                index in case.get('turns', []))
     # Accepted impulses are deliberately separated; turn is a separate API.
     keys = 1 if index < 20 else 2 if 60 <= index < 80 else 0
     if index in (3, 35, 91):
@@ -87,14 +184,15 @@ DRIVER = '''#include <gb/gb.h>
 #include "runtime.h"
 #include "physics_core.h"
 volatile uint16_t fixture_case,fixture_step,fixture_limit;
-volatile uint8_t fixture_done,fixture_level,fixture_input,fixture_turn;
+volatile uint8_t fixture_done,fixture_level,fixture_input,fixture_turn,fixture_turned;
 volatile int32_t fixture_y,fixture_velocity;
 void fixture_config(void){} void fixture_ready(void){}
 void fixture_input_hook(void){} void fixture_before(void){} void fixture_after(void){}
 void main(void){
  cpu_fast();
  for(fixture_case=0;fixture_case<CASE_COUNT;++fixture_case){
-  fixture_config();physics_select_level(fixture_level);physics_reset(-55706L,fixture_y);physics_turn();
+  fixture_config();physics_select_level(fixture_level);physics_reset(-55706L,fixture_y);
+  if(fixture_turned)physics_turn();
   Bike.body.vx=Bike.wheel[0].vx=Bike.wheel[1].vx=Bike.rider_vx=fixture_velocity;
   fixture_ready();
   for(fixture_step=0;fixture_step<fixture_limit && gbc_bike.alive;++fixture_step){
@@ -114,7 +212,7 @@ def run(command, log):
         raise RuntimeError(f'Build failed ({result.returncode}); see {log.name}')
 
 
-def prepare(args):
+def prepare(args, suite=None):
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     source, gen = out / 'source/gbc/src', out / 'gen'
@@ -168,7 +266,7 @@ def prepare(args):
     if (gen / 'physics_q24_dispatch.c').exists():
         generated.append(gen / 'physics_q24_dispatch.c')
     driver = out / 'driver.c'
-    driver.write_text('#define CASE_COUNT 46\n' + DRIVER)
+    driver.write_text(f'#define CASE_COUNT {len(cases(args.steps) if suite is None else suite)}\n' + DRIVER)
     sources = [driver, *native_sources, *generated]
     flags = [args.lcc.resolve(), '-msm83:gb', '-Wf--opt-code-size',
              '-Wf--max-allocs-per-node', '-Wf100000', '-Wm-yC', '-Wm-yt0x19',
@@ -189,6 +287,8 @@ def prepare(args):
         inputs.add(host_source / 'physics_q24.c')
     inputs.add(BASE / 'tools/physics_level.py')
     inputs.add(Path(__file__).resolve())
+    if getattr(args, 'case_file', None):
+        inputs.add(args.case_file.resolve())
     hashes = {str(p): comparison.sha256(p) for p in sorted(inputs)}
     digest = hashlib.sha256(json.dumps([(str(Path(p).relative_to(out)) if Path(p).is_relative_to(out)
                                         else p, h) for p, h in hashes.items()], sort_keys=True).encode()).hexdigest()
@@ -199,19 +299,24 @@ def prepare(args):
     return out, rom, library, settings, metadata
 
 
-def verify(out, rom, library, settings, metadata, steps, timeout):
+def verify(out, rom, library, settings, metadata, steps, timeout, suite=None):
     from pyboy import PyBoy
     import re
     symbols = {name: int(value, 16) for name, value in
                re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)', rom.with_suffix('.noi').read_text())}
     host = comparison.Gbc(library, settings)
-    suite = cases(steps)
+    legacy_air = suite is None
+    suite = cases(steps) if suite is None else suite
     emulator = PyBoy(str(rom), window='null', sound_emulated=False, cgb=True)
     emulator.set_emulation_speed(0)
     state = dict(case=0, step=0, start=0, initialized=0, states=0,
                  ready_case=-1, duplicate_hooks=0)
     failures, costs = [], []
     results = [{**case, 'compared_steps': 0, 'death_step': None, 'costs': []} for case in suite]
+    for case, result in zip(suite, results):
+        if case.get('seed'):
+            result['fixture_kind'] = 'seeded synthetic fixture; not controller gameplay'
+            result['seed_stage'] = 'fixture_ready before first comparison'
 
     def read(name, size):
         address = symbols['_' + name]
@@ -234,10 +339,11 @@ def verify(out, rom, library, settings, metadata, steps, timeout):
         state['case'] = struct.unpack('<H', read('fixture_case', 2))[0]
         case = suite[state['case']]
         write('fixture_level', '<B', case['level'])
-        write('fixture_y', '<i', case['height'] * 65536)
+        write('fixture_turned', '<B', case.get('turned', True))
+        write('fixture_y', '<i', math.floor(case['height'] * 65536 + .5))
         write('fixture_velocity', '<i', round(case['speed'] * settings['velocity_scale']))
         write('fixture_limit', '<H', case['steps'])
-        host.reset(case['level'], True, (-.85, case['height']))
+        host.reset(case['level'], case.get('turned', True), (-.85, case['height']))
         velocity = round(case['speed'] * settings['velocity_scale'])
         for part in (host.b.body, *host.b.wheel):
             part.vx = velocity
@@ -249,12 +355,18 @@ def verify(out, rom, library, settings, metadata, steps, timeout):
             state['duplicate_hooks']+=1
             return
         state['ready_case']=state['case']
+        for field, value in suite[state['case']].get('seed', {}).items():
+            offset, fmt, _ = SEED_FIELDS[field]
+            seed_host(host, field, value)
+            data = struct.pack('<' + fmt, value)
+            address = symbols['_Bike'] + offset
+            emulator.memory[address:address + len(data)] = data
         state['initialized'] += 1
         compare('reset')
 
     def input_hook(_):
         state['step'] = struct.unpack('<H', read('fixture_step', 2))[0]
-        keys, turn = controls(suite[state['case']], state['step'])
+        keys, turn = controls(suite[state['case']], state['step'], legacy_air)
         write('fixture_input', '<B', keys)
         write('fixture_turn', '<B', turn)
 
@@ -273,7 +385,7 @@ def verify(out, rom, library, settings, metadata, steps, timeout):
         costs.append(cost)
         result['costs'].append(cost)
         result['compared_steps'] += 1
-        keys, turn = controls(suite[state['case']], state['step'])
+        keys, turn = controls(suite[state['case']], state['step'], legacy_air)
         if turn:
             host.f.physics_turn()
         host.f.physics_step(keys)
@@ -323,6 +435,8 @@ def main():
     parser.add_argument('--host-source', type=Path)
     parser.add_argument('--gen', type=Path, required=True)
     parser.add_argument('--native-sources', type=Path, help='JSON array of source-relative filenames')
+    parser.add_argument('--case-file', type=Path,
+                        help='JSON case list replacing the default suite; optional raw seed, controls, turns')
     parser.add_argument('--out', type=Path, default=BASE / 'build/scheduled-native-validation')
     parser.add_argument('--lcc', type=Path, default=BASE / '.toolchain/gbdk/bin/lcc')
     parser.add_argument('--steps', type=int, default=240)
@@ -330,7 +444,11 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.steps <= 65535:
         parser.error('--steps must fit a nonzero uint16')
-    return 0 if verify(*prepare(args), args.steps, args.timeout) else 1
+    try:
+        suite = load_cases(args.case_file, comparison.constants(args.gen / 'riding_constants.h')) if args.case_file else None
+    except (OSError, ValueError, OverflowError) as error:
+        parser.error(str(error))
+    return 0 if verify(*prepare(args, suite), args.steps, args.timeout, suite) else 1
 
 
 if __name__ == '__main__':
