@@ -114,7 +114,7 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     coefficient_last=coefficients['last_bank'] if scheduled else coefficient_first+3
     if scheduled and (rom_mib!=8 or not coefficient_first<=coefficient_last<508):
         raise ValueError('Scheduled Q24 physics requires the 8 MiB profile, below bank 508')
-    if scheduled and coefficients.get('kind')!='q24-table-v2':
+    if scheduled and coefficients.get('kind')!='q24-table-v3':
         raise ValueError('Unsupported scheduled coefficient table format')
     if (coefficients['first_bank'],coefficients['last_bank'])!=(coefficient_first,coefficient_last):
         raise ValueError('%d MiB profile reserves coefficient banks %d..%d'%

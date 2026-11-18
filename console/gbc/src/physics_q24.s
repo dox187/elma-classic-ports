@@ -1,8 +1,9 @@
 ; Exact signed32 x Q24 multiply, round-to-nearest with ties toward +infinity.
 ; SDCC register ABI: x=DEBC, index=(SP+2), return=DEBC; callee drops index.
-; Table rows: rounded low byte [0..6], unsigned byte1 [7..12],
-; negative narrow byte1 [13..18], unsigned byte2 [19..23],
-; signed byte3 [24..27], saturation metadata [28].
+; Table rows: rounded low byte [0..4], unsigned byte1 [5..10],
+; negative narrow byte1 [11..16], unsigned byte2 [17..21],
+; signed byte3 [22..25], saturation metadata [26], negative byte [27..31].
+; Low-byte quotients fit signed16. Their two upper sign bytes are implicit.
 .module q24_coeff
 .globl _q24_first_bank_low
 .area _DATA
@@ -38,14 +39,22 @@ q_nonzero:
  jr z,q_narrow_negative
  jp q_wide
 q_narrow_positive:
- ld d,#7
+ ld d,#5
  ld a,b
  or a,a
  jr nz,q_narrow_map
  ld d,#0
  jr q_narrow_map
 q_narrow_negative:
- ld d,#13
+ ld a,b
+ inc a
+ jr nz,q_narrow_negative16
+ ld a,c
+ or a,a
+ jr z,q_narrow_negative16
+ jp q_negative8_map
+q_narrow_negative16:
+ ld d,#11
 q_narrow_map:
  ld e,b
  xor a
@@ -55,7 +64,7 @@ q_narrow_map:
  srl a
  ld h,#0x40
  jr nc,q_narrow_page
- ld h,#0x5d
+ ld h,#0x60
 q_narrow_page:
  ld b,a
  ld a,(#_q24_first_bank_low)
@@ -84,11 +93,11 @@ q_narrow_page:
  inc h
  ld a,(hl)
  ld b,a
- inc h
- ld a,(hl)
+ ; A rounded unsigned-byte product always fits signed16.
+ ld a,b
+ add a,a
+ sbc a,a
  ld e,a
- inc h
- ld a,(hl)
  ld d,a
  pop hl
  or a,a
@@ -131,13 +140,31 @@ q_narrow8:
  inc h
  ld a,(hl)
  ld b,a
- inc h
- ld a,(hl)
+ ; A rounded unsigned-byte product always fits signed16.
+ ld a,b
+ add a,a
+ sbc a,a
  ld e,a
- inc h
- ld a,(hl)
  ld d,a
  jp q_return
+q_negative8_map:
+ xor a
+ ld (#_q24_saturated),a
+ ldhl sp,#2
+ ld a,(hl)
+ srl a
+ ld h,#0x5b
+ jr nc,q_negative8_page
+ ld h,#0x7b
+q_negative8_page:
+ ld b,a
+ ld a,(#_q24_first_bank_low)
+ add a,b
+ ld (#0x2000),a
+ ld a,#1
+ ld (#0x3000),a
+ ld l,c
+ jp q_narrow8
 q_wide:
  ld a,c
  ld (#q_input),a
@@ -154,7 +181,7 @@ q_wide:
  srl a
  ld h,#0x40
  jr nc,q_page_set
- ld h,#0x5d
+ ld h,#0x60
 q_page_set:
  ld b,a
  ld a,(#_q24_first_bank_low)
@@ -192,7 +219,7 @@ q_positive:
 q_classified:
  push bc
  ld a,h
- add a,#28
+ add a,#26
  ld h,a
  ld l,#14
  ld a,(hl)
@@ -238,11 +265,11 @@ q_seed:
  inc h
  ld a,(hl)
  ld b,a
- inc h
- ld a,(hl)
+ ; A rounded unsigned-byte product always fits signed16.
+ ld a,b
+ add a,a
+ sbc a,a
  ld e,a
- inc h
- ld a,(hl)
  ld d,a
  ld a,(#q_count)
  cp a,#1
@@ -292,7 +319,7 @@ q_done1:
  cp a,#3
  jp c,q_return
  ld a,(#q_page)
- add a,#19
+ add a,#17
  ld h,a
  ld a,(#q_input+2)
  ld l,a
@@ -322,7 +349,7 @@ q_done2:
  cp a,#3
  jr z,q_return
  ld a,(#q_page)
- add a,#24
+ add a,#22
  ld h,a
  ld a,(#q_input+3)
  ld l,a

@@ -1650,3 +1650,108 @@ checks the exported seed matrix against native code. Numeric-limit findings
 remain findings even when these two gates pass. Next fidelity work must address
 angular/torque range and the distinct impact failure; 0.95 optimizations must
 preserve exact state regressions and 0.96 must still meet both final requirements.
+
+## 2026-11-18 — 0.96 exact native checkpoint and wider-physics research
+
+User moved ongoing work to 0.96. Both original-PC fidelity and full-game stable
+30 FPS remain required; no completed release is claimed. 0.95 performance work
+continues here rather than being packaged as a separate release.
+
+### Integrated exact changes
+
+1. Suspension submits signed40 force units and the complete Q24 fraction using
+   bank8 register entries. This removes stack packing/reloads without changing
+   sums or residuals. Alone: 491,599.008→480,467.366 T on the default corpus;
+   every case improves, bank8 shrinks 245 bytes, bank0/RAM unchanged.
+2. Q24 v3 omits redundant sign bytes of short quotients and uses the available
+   pages for direct −255..−1 products. Alone: 489,573.935 T; bank0 kernel grows
+   40 bytes, table payload grows 31,488 bytes within the same banks481–501.
+   Builder requires v3; table and assembly must migrate together.
+3. Wide dot products initialize the signed56 accumulator with the first full
+   signed48 product instead of zero-filling then adding. Alone: 491,452.456 T,
+   maximum 936,848 T. Small mean saving, useful on wide projections; no narrowing.
+
+Combined default46: **478,294.9296 T mean**, **920,384 T max**, all **9,213 states**
+exact against frozen 0.94 HOST. This is **2.706%** mean cost reduction, still far
+above the 280,896 T entire-frame budget. Combined speed122: **480,030.0601 T mean**,
+**973,196 T max**, all **3,186 states** exact. Individual savings are not summed
+as a substitute for these integrated measurements.
+
+Evidence in repository-root `build/`:
+`v096-suspension-speed`, `v096-q24-speed`, `v096-accumulator-seed`, and
+`v096-integrated/{native,speed}`. Full-width mathematical oracles pass:
+11,572 signed32 dot cases, 8,192 force accumulator vectors, 48,958 production
+Q24 cases, and 48,964 synthetic signed Q24 cases. The signed generator explicitly
+asserts INT32_MIN, zero and INT32_MAX coefficients are included. An initial
+signed test changed only unused coefficients at those three special positions;
+that inadequate coverage was corrected before acceptance. Evidence:
+`v096-accumulator-seed/oracle`, GBC `build/v096-force-registers`, root
+`v096-q24-integrated-oracle` and `v096-q24-integrated-signed-final`.
+Durable tests `check_physics_dot32.py`, `check_force_registers.py` and
+`check_q24.py` are included in `make check-scheduled`.
+
+Full ROM: GBC `build/elma-gbc-v0.96-test1-8m.gbc`, SHA-256
+`0c81315309db968e42842319c095f94dd64e3d5c57ac0823441c1cc78f5163d6`.
+8,388,608 bytes, MBC5/8MiB/32KiB header1B/08/03, banks508–511 all FF.
+Menu/splash show0.96. Menu and volt checks pass; all54 starts and Freefall pass
+functional/graphics checks, with no observer errors. Timing correctly fails:
+1,609/438 deadline misses (all starts/Freefall). Freefall intervals are
+4frames×285, 5frames×126, 6frames×23 → **13.5858 updates/s**, versus13.43 before.
+The all-start stream includes loading and is not an FPS statistic; its deadline
+count does not improve in this run. Player/save timer-cadence remains unresolved;
+these runs do not claim a complete save-suite or physical-cartridge pass.
+Evidence: GBC `build/v096-test1-{frontend,volts,all-starts,freefall}`.
+
+### HOST-only widening and impact diagnosis
+
+`build/v096-wide-physics` freezes the old and proposed source, ctypes ABI,
+constants, patch and full PC traces. Int32 omega/saved volt omega, wheel torque,
+brake delta and spring input preserve old physical precision and schedule.
+All122 frozen baseline traces exactly reproduce 0.94. Of122 cases,74 change;
+all six gas-cutoff gates and all45 strict rebound cases pass. +80m/s coast wheel
+peak improves from clipped142.799666 to200.001461rad/s (PC200.000058).
+All11 observed intermediate ranges fit int32 in this matrix, with3,074 exact
+probe/control states. Raw wheel omega reaches−47,387/+47,420, torque
+−94,312/+94,206 and spring input−51,053/+51,045. Separate volt release/residual
+checks retain both signs of35,514/34,826 without int16 wrapping.
+
+**Do not integrate widening alone:** survival mismatches worsen5→6; −60m/s flat
+braking impact newly dies, while the old +60 impact and four extreme-spin
+stretch-guard mismatches remain. Native migration is substantial: circle22→24
+bytes, Bike109→119, suspension40→44, packed verification214→224. All assembly
+loads/stores, offsets, coefficient return widths, torque ABIs and observers must
+change together. The prototype deliberately rejects native compilation.
+
+`build/v096-impact-cause` identifies the additional error: reaction table clamps
+wheel/body distance to about0.359m; original PC uses actual1/d². At frame15,
+substep42, front separation is0.278m (+60) /0.281m (−60), and the old reaction
+is low by40.0%/38.7%. HOST fallback for table index<16 computes
+`trunc(tq * 2^22 / (kx*kx + ky*ky))` before the unchanged C_REACT coefficient.
+With the wide model, both impact signs now survive; survival mismatches6→4.
+Only four of122 trajectories change. All45 strict rebound result JSONs are
+identical to prior wide results. Common-live-prefix body position RMSE improves
++60: .038743→.001236m; −60: .125231→.009357m. This is a local measured improvement,
+not global99.9% fidelity. Full-reciprocal-everywhere also leaves4 mismatches but
+changes73 cases; retain the smaller localized candidate for further validation.
+
+Root `build/v096-narrow-recip` tests the fallback without widening: it retains
+all five old survival mismatches, including +60impact. That partial change is
+not integrated. Four extreme-spin mismatches are the separate production3m
+stretch guard, absent in original PC; removing it requires checking rendering,
+geometry and numerical bounds, not merely changing the expected test result.
+Native reciprocal calculation and its near-zero/saturation contract remain
+research prerequisites; neither HOST correction is in the test1 ROM.
+
+A standalone native close-reaction helper is now implemented and retained as
+`test/fixtures/reaction_division.s`, with `test/check_close_reaction.py`. It is
+**not linked into test1**. ABI0 takes signed32 torque and unsigned32 distance²,
+computes the complete54-bit numerator divided with truncation toward zero,
+and saturates only the final signed32 result. The mathematical kernel defines
+zero divisor→0; eventual gameplay integration must preserve the previous
+zero-distance fallback instead of calling it for zero separation.
+The14,114-case independent oracle passes arithmetic, stack/argument preservation
+and mapper checks. Size243bytes in bank8, zero ROM0/static RAM, eight extra peak
+stack bytes. Captured impact inputs cost18,244/18,260 T-cycles; range344–20,932 T.
+Evidence: root `build/v096-reaction-division` (proof, ABI and original results),
+`build/v096-close-reaction-retained` (relocated durable fixture). This establishes
+the primitive only, not native widened-physics or full-game correctness.

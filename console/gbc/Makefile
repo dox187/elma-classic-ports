@@ -75,6 +75,10 @@ SCHEDULE_CHECK_DIR := build/scheduled-check-$(shell date +%Y%m%d-%H%M%S)
 endif
 check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/check_force_accumulator.py --out $(SCHEDULE_CHECK_DIR)/force
+	$(PYTHON) test/check_force_registers.py --out $(SCHEDULE_CHECK_DIR)/force-registers
+	$(PYTHON) test/check_physics_dot32.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/dot32
+	$(PYTHON) test/check_q24.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/q24
+	$(PYTHON) test/check_q24.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/q24-signed --signed-edges
 	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/native
 	$(PYTHON) test/check_rebound_schedule.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/pc --max-rebound-error-percent 0.1 --max-airtime-error-percent 0.1
 	$(PYTHON) test/check_audio.py --gen $(GEN)

@@ -57,23 +57,22 @@ _riding_mulshift32::
  add sp,#7
  ret
 exact_dot_general:
- add sp,#-7
- ldhl sp,#0
- xor a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl),a
- ldhl sp,#17
+; Seed the signed56 accumulator from the first full signed48 product.
+; This is identical to adding it to zero, without the zero fill/add pass.
+ ldhl sp,#10
  ld c,(hl)
  inc hl
  ld b,(hl)
- ldhl sp,#9
+ ldhl sp,#2
  call exact_product
- call exact_add
+ ld a,b
+ add a,a
+ sbc a,a
+ push af
+ inc sp
+ push bc
+ push hl
+ push de
  ldhl sp,#19
  ld c,(hl)
  inc hl

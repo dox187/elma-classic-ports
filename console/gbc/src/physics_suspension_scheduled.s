@@ -332,31 +332,8 @@ ss_index_318:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#_q24_fraction
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#_riding_suspension_state+12
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#0
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_q24_regs
  ld hl,#_Bike+4
  ld e,(hl)
  inc hl
@@ -421,31 +398,8 @@ ss_index_407:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#_q24_fraction
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#_riding_suspension_state+20
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#1
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_q24_regs
  ld hl,#ss_g+4
  ld e,(hl)
  inc hl
@@ -705,31 +659,8 @@ ss_index_691:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#_q24_fraction
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#0
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_q24_regs
  ld hl,#ss_temp
  ld e,(hl)
  inc hl
@@ -856,31 +787,8 @@ ss_index_842:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#_q24_fraction
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#1
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_q24_regs
  ld hl,#ss_temp
  ld e,(hl)
  inc hl
@@ -1003,24 +911,8 @@ ss_index_959:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#0
- push hl
- push hl
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#0
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_integer_regs
  ld hl,#ss_temp
  ld e,(hl)
  inc hl
@@ -1095,24 +987,8 @@ ss_index_959:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#0
- push hl
- push hl
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#1
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_integer_regs
  ld hl,#ss_temp
  ld e,(hl)
  inc hl
@@ -1211,31 +1087,8 @@ ss_index_1197:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#_q24_fraction
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#_riding_suspension_state+16
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#0
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_q24_regs
  ld hl,#_Bike+4
  ld e,(hl)
  inc hl
@@ -1300,31 +1153,8 @@ ss_index_1286:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#_q24_fraction
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#_riding_suspension_state+24
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#1
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_q24_regs
  ld hl,#ss_g+4
  ld e,(hl)
  inc hl
@@ -1584,31 +1414,8 @@ ss_index_1570:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#_q24_fraction
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#0
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_q24_regs
  ld hl,#ss_temp
  ld e,(hl)
  inc hl
@@ -1735,31 +1542,8 @@ ss_index_1721:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#_q24_fraction
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#1
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_q24_regs
  ld hl,#ss_temp
  ld e,(hl)
  inc hl
@@ -1882,24 +1666,8 @@ ss_index_1838:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#0
- push hl
- push hl
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#0
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_integer_regs
  ld hl,#ss_temp
  ld e,(hl)
  inc hl
@@ -1974,24 +1742,8 @@ ss_index_1838:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#0
- push hl
- push hl
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
  ld a,#1
- push af
- inc sp
- call _riding_force_sub
- add sp,#9
+ call _riding_force_sub_integer_regs
  ld hl,#ss_temp
  ld e,(hl)
  inc hl

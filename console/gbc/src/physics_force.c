@@ -218,6 +218,70 @@ force_sub_axis:
  __endasm;
 }
 
+/* Scheduled suspension register entry: A=axis, BCDE=signed units.
+ * The Q24 entry consumes the complete fraction from the preceding product.
+ * Both entries preserve the same signed40 accumulator arithmetic as ABI0. */
+void riding_force_sub_q24_regs(void) __sdcccall(0) __naked {
+ __asm
+ call _riding_force_sub_integer_regs
+ ld de,#-8
+ add hl,de
+ ld d,h
+ ld e,l
+ ld hl,#_q24_fraction
+ ld a,(de)
+ sub a,(hl)
+ ld (de),a
+ inc hl
+ inc de
+ ld a,(de)
+ sbc a,(hl)
+ ld (de),a
+ inc hl
+ inc de
+ ld a,(de)
+ sbc a,(hl)
+ ld (de),a
+ inc hl
+ inc de
+ ld a,(de)
+ sbc a,(hl)
+ ld (de),a
+ ret
+ __endasm;
+}
+
+void riding_force_sub_integer_regs(void) __sdcccall(0) __naked {
+ __asm
+ or a,a
+ ld hl,#(_forces+4)
+ jr z,force_sub_regs_axis
+ ld hl,#(_forces+13)
+force_sub_regs_axis:
+ ld a,(hl)
+ sub a,e
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,d
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,c
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,b
+ ld (hl+),a
+ ld c,#0
+ bit 7,b
+ jr z,force_sub_regs_sign
+ dec c
+force_sub_regs_sign:
+ ld a,(hl)
+ sbc a,c
+ ld (hl),a
+ ret
+ __endasm;
+}
+
 /* Four fractions in [-2^23,2^23), plus the residual's nonnegative low
  * 24 bits, give a normalization carry in [-2,2]. Adding the half-divisor
  * makes that carry positive (8..12). The resulting integer is signed40.

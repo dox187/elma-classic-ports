@@ -9,15 +9,16 @@ import re
 
 def table(m):
  pages=[]
- # Keep each coefficient at 29 pages, with the second starting at $5d00.
+ # Keep each coefficient at 32 pages, with the second starting at $6000.
+ # The low-byte quotient fits signed16, so its two sign bytes are implicit.
  # The rounded low byte initializes the complete 56-bit accumulator.
  # Higher nodes omit their identically zero low product bytes.
  for node,bias in ((0,1<<23),(1,0),(1,-65536*m),(2,0),(3,0)):
-  rows=[[]for _ in range(7-node)]
+  rows=[[]for _ in range((5 if node==0 else 7)-node)]
   for byte in range(256):
    value=(byte-256 if node==3 and byte>=128 else byte)<<(8*node)
    raw=((value*m+bias)&((1<<56)-1)).to_bytes(7,'little')
-   for j in range(node,7):rows[j-node].append(raw[j])
+   for j in range(node,5 if node==0 else 7):rows[j-node].append(raw[j])
   pages.extend(bytes(row)for row in rows)
  metadata=bytearray(256)
  for index,value in enumerate((-65536,-16777216)):
@@ -34,7 +35,13 @@ def table(m):
  metadata[15:19]=lo.to_bytes(4,'little',signed=True)
  metadata[19:23]=hi.to_bytes(4,'little',signed=True)
  metadata[23]=int(m<0)
- return b''.join(pages)+metadata
+ # Direct negative-byte results (-255..-1) also fit signed16.
+ # Slot zero is unused: -256 takes the complete narrow path.
+ negative=[bytearray() for _ in range(5)]
+ for byte in range(256):
+  raw=(((byte-256)*m+(1<<23))&((1<<40)-1)).to_bytes(5,'little')
+  for j in range(5):negative[j].append(raw[j])
+ return b''.join(pages)+metadata+b''.join(negative)
 
 USED = ('C_ELLIPSE','C_NEW','C_BRAKE_GW','C_OMS','C_FRIC_W','C_OLD',
         'C_RREST','C_ROLL_W','C_LANDING_EXTRA','C_RIDER_F','C_FREE',
@@ -87,7 +94,7 @@ def generate(constants,out,first_bank):
     (out/'physics_q24_dispatch.c').write_text('#ifdef __SDCC\n#include "physics_q24.h"\n'
         'const uint8_t q24_first_bank_low='+str(first_bank&255)+';\n'
         +'\n'.join(definitions)+'\n#endif\n')
-    manifest={'kind':'q24-table-v2','first_bank':first_bank,'last_bank':first_bank+count-1,
+    manifest={'kind':'q24-table-v3','first_bank':first_bank,'last_bank':first_bank+count-1,
         'constants_sha256':hashlib.sha256(raw).hexdigest(),'coefficient_values':values,
         'coefficient_count':len(values),'tables':tables,
         'dispatch':'physics_q24_dispatch.c','header':'physics_q24_coefficients.h'}

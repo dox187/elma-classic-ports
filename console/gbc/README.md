@@ -1,8 +1,13 @@
 # Elasto Mania for Game Boy Color
 
-Current development version: **0.94 — high-speed and numeric-limit validation**,
-recorded in [`VERSION`](VERSION). Latest diagnostic:
-**[0.94 speed test — 8 MiB](build/elma-gbc-v0.94-speed-test-8m.gbc)**.
+Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
+recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
+ROM exists yet. Latest diagnostic:
+**[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**.
+It preserves the 0.94 physics with exact native optimizations. Freefall averages
+**13.59 updates/s**; stable 30 FPS remains unmet. The retained
+**[0.94 speed test — 8 MiB](build/elma-gbc-v0.94-speed-test-8m.gbc)**
+is the previous comparison checkpoint.
 It corrects the drive-torque cutoff; the remaining numeric limits and timing
 failures are documented below. The retained 0.93 checkpoint is
 **[0.93 rebound test — 8 MiB](build/elma-gbc-v0.93-rebound-test-8m.gbc)**.
@@ -24,10 +29,10 @@ and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
 |---|---|---|
 | 0.93 | Measured rebound correction and existing braking improvements | Retained diagnostic checkpoint; 13.43 updates/s in Freefall |
 | 0.94 | High-speed rolling, impacts, rotation and braking against PC; numeric saturation and overflow audit | 122-case audit complete; cutoff corrected, other limits remain |
-| 0.95 | Reduce the corrected model's runtime cost toward stable 30 FPS | Next |
-| 0.96 | Joint original-PC accuracy and full-game stable-30-FPS acceptance | Final combined validation |
+| 0.95 | Reduce the corrected model's runtime cost toward stable 30 FPS | Work continues within 0.96; no separate release |
+| 0.96 | Joint original-PC accuracy and full-game stable-30-FPS acceptance | In progress; both requirements remain mandatory |
 
-The retained 0.93 and current 0.94 diagnostics share the known runtime-cost
+The retained 0.93/0.94 and current 0.96 diagnostics still have a runtime-cost
 limitation; the final joint acceptance target is 0.96. Version numbers do not imply that unpassed
 accuracy or timing requirements have been waived. All new ROM filenames remain
 versioned and directly inside `build/`.
@@ -48,6 +53,47 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 development checkpoint
+
+Test1 combines three exact native optimizations: suspension force submissions
+use bank8 register entries, Q24 v3 tables store short negative products directly,
+and wide dot products seed their accumulator from the first product. No physical
+coefficient, integration interval or input latency changes. The default 46-case
+mean falls **491,599 → 478,295 T-cycles (2.706%)**; maximum **920,384 T** still
+exceeds the **280,896 T whole-frame budget**. All **9,213** default and **3,186**
+high-speed states match the frozen 0.94 HOST exactly, including residuals/audio.
+Even the mean needs at least another **41.3% cost reduction before rendering**;
+this checkpoint is still far from the final timing requirement.
+
+Independent arithmetic tests pass **11,572 dot products**, **8,192 force
+accumulations**, **48,958 production Q24 cases**, and **48,964 signed/extreme Q24
+cases**, including fractions, saturation and physical bank restoration. Q24 v3
+keeps banks 481–501; the builder rejects the old v2 format with this kernel.
+
+The ROM passes menu/volt and all 54 start/Freefall functional checks, with no
+observer errors. Strict timing gates still fail: **1,609 / 438 deadline misses**.
+Freefall averages **13.59 updates/s**, versus **13.43** in 0.94, with 4–6 display
+frames per update. These improvements do not establish stable 30 FPS. The
+player/save cadence gate remains unresolved; no new hardware acceptance is claimed.
+
+SHA-256: `0c81315309db968e42842319c095f94dd64e3d5c57ac0823441c1cc78f5163d6`.
+Size **8,388,608 bytes**, header **1B/08/03**, unused banks **508–511 all FF**.
+The menu and splash show **0.96**. This file is directly in `build/`.
+
+Separate HOST research widens angular velocity, brake torque and spring input
+without reducing precision. It removes the 80 m/s wheel-spin clipping but alone
+increases survival mismatches from five to six. The additional cause is the
+reaction lookup's minimum wheel/body distance: around 0.28 m it underestimates
+torque reaction by **39–40%**. A localized direct reciprocal below the table floor
+fixes both ±60 m/s flat braking impacts, retains all 45 strict rebound results,
+and leaves four synthetic extreme-spin/stretch-guard mismatches. **Neither HOST
+prototype is included in test1.** Their native ABI, near-zero arithmetic bounds
+and runtime cost still require implementation and validation. Applying only the
+reciprocal correction to the old narrow model does not resolve its impact death.
+
+See [`PERFORMANCE.md`](PERFORMANCE.md) for the measured experiments, rejected
+partial changes, evidence paths and the remaining joint acceptance work.
 
 ## 0.94 high-speed audit
 
@@ -502,11 +548,11 @@ make 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The current kernel requires `ROM_MIB=8 PHYS_HZ=30 DAMPER=scheduled`.
 
-The current checkout builds versioned **0.94 development ROMs**. They are not
+The current checkout builds versioned **0.96 development ROMs**. They are not
 accepted releases until their complete-game timing and regression checks pass.
 The retained 0.90 images below are the last completed intermediate release.
 
-The current default output is **`build/elma-gbc-v0.94-8m.gbc`**. The corrected
+The current default output is **`build/elma-gbc-v0.96-8m.gbc`**. The corrected
 scheduled kernel is still too slow; use this development output for diagnostics.
 The older versioned ROMs listed above retain their original behavior.
 These are CGB-only MBC5 cartridges, not Game Boy
@@ -517,7 +563,7 @@ type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
 `make 8m` generates assets in `build/gen-8m`. The earlier 4 MiB and alternative
 integration kernels remain in Git history; the current source rejects those
 profiles. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.94-dev-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.96-dev-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. The current scheduled Q24
