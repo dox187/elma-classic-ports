@@ -83,7 +83,7 @@ _riding_rider_response32::
  ld b,a
  push bc
  push de
- call _riding_coeff32_C_RIDER_F
+ call _riding_rider_f
  add sp,#4
  ld b,h
  ld c,l
@@ -106,7 +106,7 @@ _riding_rider_response32::
  ld l,a
  push hl
  push de
- call _riding_coeff32_C_RIDER_S
+ call _riding_rider_s
  add sp,#4
  ld b,h
  ld c,l
@@ -207,7 +207,7 @@ _riding_rider_response32::
  ld b,a
  push bc
  push de
- call _riding_coeff32_C_RIDER_F
+ call _riding_rider_f
  add sp,#4
  ld b,h
  ld c,l
@@ -230,7 +230,7 @@ _riding_rider_response32::
  ld l,a
  push hl
  push de
- call _riding_coeff32_C_RIDER_S
+ call _riding_rider_s
  add sp,#4
  ld b,h
  ld c,l

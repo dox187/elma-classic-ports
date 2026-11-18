@@ -130,7 +130,7 @@ _riding_roll32::
  add sp,#13
  push hl
  push de
- call _riding_coeff32_C_ROLL_T
+ call _riding_wheel_roll_t
  add sp,#4
 ; t = signextend(tq) + coefficient(dvn), wrapping32.
  ld b,h
@@ -162,29 +162,7 @@ _riding_roll32::
  ld (hl),c
  inc hl
  ld (hl),b
-; w = coefficient(vn) + coefficient(t), keeping original call order.
- ldhl sp,#6
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#6
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_coeff32_C_ROLL_W
- add sp,#4
- ld b,h
- ld c,l
- ldhl sp,#4
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
+; sp = vn + Q24(t,C_ROLL_DV), before angular quantization.
  ldhl sp,#10
  ld e,(hl)
  inc hl
@@ -195,7 +173,7 @@ _riding_roll32::
  inc hl
  ld d,(hl)
  push de
- call _riding_coeff32_C_ROLL_DW
+ call _riding_wheel_roll_dv
  add sp,#4
  ld b,h
  ld c,l
@@ -212,12 +190,23 @@ _riding_roll32::
  ld a,(hl)
  adc a,b
  ld b,a
- ld l,e
- ld h,d
- ld e,c
- ld d,b
- ld b,h
- ld c,l
+ ldhl sp,#8
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
+ ld (hl),c
+ inc hl
+ ld (hl),b
+; omega = sat16(Q24(sp,C_ROLL_W)); sp remains full precision.
+ push bc
+ push de
+ call _riding_wheel_roll_w
+ add sp,#4
+ ld b,d
+ ld c,e
+ ld e,l
+ ld d,h
  call _sat16
  ldhl sp,#14
  ld a,(hl+)
@@ -225,26 +214,6 @@ _riding_roll32::
  ld l,a
  ld de,#20
  add hl,de
- ld (hl),c
- inc hl
- ld (hl),b
-; sp = coefficient(signextend(omega)).
- ld a,b
- add a,a
- sbc a,a
- ld h,a
- ld l,a
- push hl
- push bc
- call _riding_coeff32_C_ROLL_V
- add sp,#4
- ld b,h
- ld c,l
- ldhl sp,#8
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
  ld (hl),c
  inc hl
  ld (hl),b
@@ -329,6 +298,6 @@ _riding_roll32::
  inc hl
  ld d,(hl)
  push de
- call _riding_move32
+ call _riding_wheel_move
  add sp,#14
  ret

@@ -42,6 +42,9 @@ void physics_reset(int32_t x,int32_t y) GBC_BANKED {
     physics_collision_reset();
     riding_audio_contact[0]=riding_audio_contact[1]=0;
     riding_audio_impact[0]=riding_audio_impact[1]=0;
+#if defined(RIDING_PC_SCHEDULE)
+    riding_subphase=0;
+#endif
     ph_init((x-physics_level_origin_x)*4L,(y-physics_level_origin_y)*4L);
     gbc_bike.alive=1;export_state();
 }
@@ -53,7 +56,24 @@ void physics_step(uint8_t input) GBC_BANKED {
     if(input&GBC_BRAKE)in|=IN_BRAKE;
     if(input&GBC_ROTATE_LEFT)in|=IN_VOLT_LEFT;
     if(input&GBC_ROTATE_RIGHT)in|=IN_VOLT_RIGHT;
-    gbc_bike.alive=ph_step(in);export_state();
+#if defined(RIDING_PC_SCHEDULE)
+    /* LEJATSZO caps each integration interval at .0055 model seconds.
+     * Gas/brake stay held; the accepted volt is a single impulse. Keep
+     * impacts from every interval for the once-per-frame audio observer. */
+    uint8_t impact0=0,impact1=0;
+    for(uint8_t sub=0;sub<3;++sub) {
+        riding_subphase=(sub==2);
+        gbc_bike.alive=ph_step(in);
+        impact0|=riding_audio_impact[0];
+        impact1|=riding_audio_impact[1];
+        if(!gbc_bike.alive)break;
+        in&=IN_GAS|IN_BRAKE;
+    }
+    riding_audio_impact[0]=impact0;riding_audio_impact[1]=impact1;
+#else
+    gbc_bike.alive=ph_step(in);
+#endif
+    export_state();
 }
 
 void physics_turn(void) GBC_BANKED {

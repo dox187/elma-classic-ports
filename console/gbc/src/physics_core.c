@@ -6,6 +6,8 @@
 #include "physics_core.h"
 #include "physics_math.h"
 #include "physics_math32.h"
+#include "physics_force.h"
+#include "physics_spring_torque.h"
 #include "riding_constants.h"
 
 // rider_limit clamps x/y before its ellipse projection. Keep the narrow
@@ -19,54 +21,41 @@
  * use this kernel's exact rounded coefficients; every other pose falls back. */
 static const int16_t Ellipse_inside_y[]={RIDING_ELLIPSE_INSIDE_Y_VALUES};
 
+#ifdef __SDCC
+/* Private scheduled suspension workspace; ph_step is non-reentrant. */
+typedef struct {
+ int16_t cs,sn; int32_t oms; int16_t tq[2];
+ int32_t dvx[2],dvy[2],dvbx,dvby,dwb;
+} riding_suspension_state_t;
+riding_suspension_state_t riding_suspension_state;
+const uint8_t riding_suspension_anchor_x=Q24_ANCHOR_X;
+const uint8_t riding_suspension_anchor_y=Q24_ANCHOR_Y;
+void riding_suspension_scheduled(void) __sdcccall(0);
+#endif
+
 bike_t Bike;
+uint8_t riding_subphase;int32_t move_residual[8];
+int64_t force_residual[2];
 extern int16_t riding_landing_nx[2], riding_landing_ny[2];
 extern uint8_t riding_landing_contact[2];
-#ifdef __SDCC
-#include <stddef.h>
-typedef char suspension_layout[
-    sizeof(circle_t)==22 && offsetof(circle_t,vx)==8 && offsetof(circle_t,vy)==12 &&
-    offsetof(circle_t,alfa)==16 && offsetof(circle_t,omega)==20 &&
-    offsetof(bike_t,dbrake)==95 &&
-    offsetof(bike_t,body)==0 && offsetof(bike_t,wheel)==22 &&
-    sizeof(riding_torque32_t)==24 && offsetof(riding_torque32_t,relx)==0 &&
-    offsetof(riding_torque32_t,rely)==8 && offsetof(riding_torque32_t,kx)==16 &&
-    offsetof(riding_torque32_t,ky)==20 ? 1 : -1];
-void riding_anchor32(circle_t*,int16_t,int16_t,int16_t*) __sdcccall(0);
-int32_t riding_suspension32(const int16_t*,const int16_t*,int32_t,int32_t*,int32_t*,riding_torque32_t*) __sdcccall(0);
-void riding_brake32(int16_t*) __sdcccall(0);
-void riding_torque_reaction32(const int16_t*,const riding_torque32_t*,int32_t*,int32_t*) __sdcccall(0);
-uint8_t riding_recip_index(int16_t,int16_t) __sdcccall(0);
-void riding_rider_vectors32(int16_t,int16_t,int16_t*) __sdcccall(0);
-void riding_rider_move32(int32_t,int32_t) __sdcccall(0);
-#if defined(RIDING_COEFFICIENT_LOOKUP)
-typedef char rider_response_layout[
-    sizeof(bike_t)==109 &&
-    offsetof(bike_t,rider_x)==66 && offsetof(bike_t,rider_y)==70 &&
-    offsetof(bike_t,rider_vx)==74 && offsetof(bike_t,rider_vy)==78 ? 1 : -1];
-void riding_rider_response32(int16_t,int16_t,int32_t,int32_t,int32_t) __sdcccall(0);
-#endif
-#endif
 
 static int16_t Cs, Sn;   // cos and sin of the body's angle
 static int32_t Oms;      // body angular velocity, see C_OMS
 
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP) && RIDING_ANGLE_SHIFT == 7
-typedef char head_pose_layout[
-    offsetof(bike_t,body.alfa)==16 && offsetof(bike_t,rider_x)==66 &&
-    offsetof(bike_t,rider_y)==70 && offsetof(bike_t,head_x)==82 &&
-    offsetof(bike_t,head_y)==86 && offsetof(bike_t,turned)==90 ? 1 : -1];
-void riding_head_pose32(int16_t*,int16_t*) __sdcccall(0);
-/* Refresh Cs/Sn as well as the head, for the following native step. */
-static void head_position(void) { riding_head_pose32(&Cs,&Sn); }
-#else
+#ifndef __SDCC
 static void angle( void ) {
 	uint16_t a = (uint16_t)(Bike.body.alfa >> RIDING_ANGLE_SHIFT);
 	Cs = fcos( a );
 	Sn = fsin( a );
 }
+#endif
 
 /* Rider, renderer and head collision all observe the same completed step. */
+#ifdef __SDCC
+void riding_head_pose32(int16_t*,int16_t*) __sdcccall(0);
+void riding_brake32(int16_t*) __sdcccall(0);
+static void head_position(void) {riding_head_pose32(&Cs,&Sn);}
+#else
 static void head_position(void) {
  int32_t x=Bike.rider_x,y=Bike.rider_y;
  int16_t hc,hs;
@@ -75,18 +64,14 @@ static void head_position(void) {
  Bike.head_x=x+(int32_t)(hc-KMUL(Sn,C_H_Y))*256L;
  Bike.head_y=y+(int32_t)(hs+KMUL(Cs,C_H_Y))*256L;
 }
-
 #endif
 
-#ifdef __SDCC
-#define move riding_move32
-#else
+
 static void move(circle_t *k) {
- k->alfa += (uint32_t)((int32_t)k->omega * 128L);
- k->rx += (int32_t)k->vx * 4L;
- k->ry += (int32_t)k->vy * 4L;
+ k->alfa += (uint32_t)(phase_move(k->omega,7));
+ k->rx += phase_advance(k->vx,2,k==&Bike.body?0:k==&Bike.wheel[0]?2:4);
+ k->ry += phase_advance(k->vy,2,k==&Bike.body?1:k==&Bike.wheel[0]?3:5);
 }
-#endif
 
 // vezeto_hatarolas: keeps the rider over the seat.
 static void rider_limit( void ) {
@@ -139,34 +124,27 @@ static void rider_limit( void ) {
 }
 
 // beallitvezeto, at the same rate as the body and wheels:
+#ifdef __SDCC
+void riding_rider_response32(int16_t,int16_t,int32_t,int32_t,int32_t) __sdcccall(0);
+#endif
 static void rider( int32_t gx, int32_t gy ) {
 	rider_limit();
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
-	riding_rider_response32(-KMUL(Sn,C_RREST),KMUL(Cs,C_RREST),Oms,gx,gy);
-#else
 #ifdef __SDCC
-	int16_t v[4];
-	riding_rider_vectors32(-KMUL(Sn,C_RREST),KMUL(Cs,C_RREST),v);
-	int16_t dirx=v[0],diry=v[1],dx=v[2],dy=v[3];
+ riding_rider_response32(-KMUL(Sn,C_RREST),KMUL(Cs,C_RREST),Oms,gx,gy);
 #else
 	int16_t dirx = sat16( ((Bike.body.rx-Bike.rider_x) >> 4)-KMUL( Sn, C_RREST ) );
 	int16_t diry = sat16( ((Bike.body.ry-Bike.rider_y) >> 4)+KMUL( Cs, C_RREST ) );
 	int16_t dx = sat16( (Bike.rider_x-Bike.body.rx) >> 4 );
 	int16_t dy = sat16( (Bike.rider_y-Bike.body.ry) >> 4 );
-#endif
 	// The velocity of the body there:
 	int32_t relx = Bike.rider_vx-(Bike.body.vx+riding_mulq32(Oms,-dy,14));
 	int32_t rely = Bike.rider_vy-(Bike.body.vy+riding_mulq32(Oms,dx,14));
 	int32_t ax = KMUL32(dirx,C_RIDER_S)-KMUL32(relx,C_RIDER_F)+gx;
 	int32_t ay = KMUL32(diry,C_RIDER_S)-KMUL32(rely,C_RIDER_F)+gy;
-#ifdef __SDCC
-	riding_rider_move32(ax,ay);
-#else
 	Bike.rider_vx += ax;
 	Bike.rider_vy += ay;
-	Bike.rider_x += Bike.rider_vx * 4L;
-	Bike.rider_y += Bike.rider_vy * 4L;
-#endif
+	Bike.rider_x += phase_advance(Bike.rider_vx,2,6);
+	Bike.rider_y += phase_advance(Bike.rider_vy,2,7);
 #endif
 }
 
@@ -174,7 +152,7 @@ void ph_init( int32_t x, int32_t y ) {
 	uint8_t* p = (uint8_t*)&Bike;
 	for( uint16_t i = 0; i < sizeof( bike_t ); i++ )
 		p[i] = 0;
-	Bike.gravity = GRAV_DOWN;
+	Bike.gravity = GRAV_DOWN;for(uint8_t j=0;j<8;++j)move_residual[j]=0;force_residual[0]=force_residual[1]=0;
     riding_landing_nx[0]=riding_landing_nx[1]=0;
     riding_landing_ny[0]=riding_landing_ny[1]=0;
     riding_landing_contact[0]=riding_landing_contact[1]=0;
@@ -198,24 +176,15 @@ void ph_turn( void ) {
 
 // 2^30/d^2 for d^2 in steps of 2^13 u^2 (distances below 0.36 m count as
 // 0.36 m):
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
 const int16_t Recip_d2[] = {
-#else
-static const int16_t Recip_d2[] = {
-#endif
 #include "../../nes/src/recip.inc"
 };
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
-typedef char torque_recip_layout[sizeof(Recip_d2)==512 ? 1 : -1];
-#endif
 
-#if !defined(__SDCC) || !defined(RIDING_COEFFICIENT_LOOKUP)
 static int16_t clamp_w( int32_t w ) {
 	if( w > 16383 ) return 16383;
 	if( w < -16383 ) return -16383;
 	return (int16_t)w;
 }
-#endif
 
 /* ph_step follows the single global Bike and is never called by interrupts.
  * Give its arrays fixed SM83 addresses; HOST keeps automatic storage. */
@@ -234,10 +203,6 @@ static int16_t clamp_w( int32_t w ) {
  * original Q14 normal (including normalization rounding at merged vertices).
  */
 #if RIDING_EXPONENTIAL_DAMPER
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
-void riding_landing_response32(riding_torque32_t*,int32_t*,int32_t*) __sdcccall(0);
-#define landing_response riding_landing_response32
-#else
 static void landing_response(riding_torque32_t *t,int32_t *sx,int32_t *sy) {
     for(uint8_t k=0;k<2;++k) {
         int32_t x,y,extra;
@@ -270,15 +235,11 @@ static void landing_response(riding_torque32_t *t,int32_t *sx,int32_t *sy) {
     }
 }
 #endif
-#endif
 
 uint8_t ph_step( uint8_t input ) {
 	int32_t previous_head_x=Bike.head_x,previous_head_y=Bike.head_y;
 #ifndef __SDCC
     angle();
-#else
-    /* Reset/turn and the preceding step end with head_position(), which
-     * refreshes Cs/Sn after the only runtime writes to body.alfa. */
 #endif
 	Oms = KMUL32((int32_t)Bike.body.omega,C_OMS);
 
@@ -300,7 +261,7 @@ uint8_t ph_step( uint8_t input ) {
 			tq[1] = GAS_TQ;
 	}
 	if( brake ) {
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+#ifdef __SDCC
         riding_brake32(tq);
 #else
 		for( uint8_t k = 0; k < 2; k++ ) {
@@ -316,11 +277,20 @@ uint8_t ph_step( uint8_t input ) {
 #endif
 	}
 
+#ifdef __SDCC
+ riding_suspension_state.cs=Cs;riding_suspension_state.sn=Sn;
+ riding_suspension_state.oms=Oms;
+ riding_suspension_state.tq[0]=tq[0];riding_suspension_state.tq[1]=tq[1];
+ riding_suspension_scheduled();
+ int32_t *dvx=riding_suspension_state.dvx,*dvy=riding_suspension_state.dvy;
+ int32_t dvbx=riding_suspension_state.dvbx,dvby=riding_suspension_state.dvby;
+ int32_t dwb=riding_suspension_state.dwb;
+#else
 	// Forces between the wheels and the body (erokszamitasa). The anchors
 	// of the springs, from the rotation of (K_X, -K_Y):
-	int16_t a = KMUL( Cs, C_K_X ), b = KMUL( Sn, C_K_Y );
-	int16_t c = KMUL( Sn, C_K_X ), d = KMUL( Cs, C_K_Y );
-	STEP_LOCAL int16_t gsx[2], gsy[2];
+	int32_t a = q24_apply(Cs,Q24_ANCHOR_X), b = q24_apply(Sn,Q24_ANCHOR_Y);
+	int32_t c = q24_apply(Sn,Q24_ANCHOR_X), d = q24_apply(Cs,Q24_ANCHOR_Y);
+	STEP_LOCAL int32_t gsx[2], gsy[2];
 	gsx[1] = a+b;
 	gsy[1] = c-d;
 	gsx[0] = b-a;
@@ -328,68 +298,50 @@ uint8_t ph_step( uint8_t input ) {
 
 	STEP_LOCAL int32_t dvx[2], dvy[2];
 	int32_t ts = 0;
+    riding_force_begin();
 	STEP_LOCAL riding_torque32_t damping;
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
-    ts = riding_suspension32(gsx,gsy,Oms,dvx,dvy,&damping);
-    riding_torque_reaction32(tq,&damping,dvx,dvy);
-#else
 	for( uint8_t k = 0; k < 2; k++ ) {
 		circle_t* w = &Bike.wheel[k];
-		#ifdef __SDCC
-        STEP_LOCAL int16_t anchor[4];
-        riding_anchor32(w,gsx[k],gsy[k],anchor);
-        int16_t gx=anchor[0],gy=anchor[1];
-#else
-        int16_t gx = sat16( ((Bike.body.rx-w->rx) >> 4)+((int32_t)gsx[k] << 4) );
-        int16_t gy = sat16( ((Bike.body.ry-w->ry) >> 4)+((int32_t)gsy[k] << 4) );
-#endif
-		dvx[k] = KMUL32(gx,C_SPRING_W);
-		dvy[k] = KMUL32(gy,C_SPRING_W);
-		ts += mul16( gsx[k], gy )-mul16( gsy[k], gx );
+        int32_t gx = Bike.body.rx-w->rx+gsx[k];
+        int32_t gy = Bike.body.ry-w->ry+gsy[k];
+		dvx[k] = Q24_MUL(gx,C_SPRING_FW);riding_force_sub(0,dvx[k],q24_fraction);
+		dvy[k] = Q24_MUL(gy,C_SPRING_FW);riding_force_sub(1,dvy[k],q24_fraction);
+		ts += riding_spring_torque32(gsx[k],gsy[k],gx,gy);
 
-		#ifdef __SDCC
-        int16_t kx=anchor[2],ky=anchor[3];
-#else
-        int16_t kx = sat16( riding_sra8(w->rx-Bike.body.rx) );
-        int16_t ky = sat16( riding_sra8(w->ry-Bike.body.ry) );
-#endif
+        int16_t kx = sat16( riding_sra8(w->rx-Bike.body.rx+128) );
+        int16_t ky = sat16( riding_sra8(w->ry-Bike.body.ry+128) );
 		// The velocity of the body at the wheel against the wheel's:
 		int32_t relx = Bike.body.vx-w->vx-riding_mulq32(Oms,ky,10);
 		int32_t rely = Bike.body.vy-w->vy+riding_mulq32(Oms,kx,10);
-		dvx[k] += KMUL32(relx,C_FRIC_W);
-		dvy[k] += KMUL32(rely,C_FRIC_W);
+		int32_t dfx=KMUL32(relx,C_FRIC_W);riding_force_sub(0,dfx,q24_fraction);dvx[k]+=dfx;
+		int32_t dfy=KMUL32(rely,C_FRIC_W);riding_force_sub(1,dfy,q24_fraction);dvy[k]+=dfy;
 		damping.kx[k]=kx;damping.ky[k]=ky;
-		damping.relx[k]=relx;damping.rely[k]=rely;
+        damping.relx[k]=relx;damping.rely[k]=rely;
+        int32_t olddvx=dvx[k],olddvy=dvy[k];
 
 		if( tq[k] ) {
 			// 1/d^2 from a table, with d^2 from the high bits of k:
-			#ifdef __SDCC
-            uint8_t d2=riding_recip_index(kx,ky);
-#else
             int16_t kx8 = kx >> 4, ky8 = ky >> 4;
 			if( kx8 > 127 ) kx8 = 127;
 			if( kx8 < -127 ) kx8 = -127;
 			if( ky8 > 127 ) ky8 = 127;
 			if( ky8 < -127 ) ky8 = -127;
 			uint16_t d2 = (uint16_t)((kx8*kx8 + ky8*ky8) >> 5);
-			#endif
             int16_t rec = Recip_d2[d2 > 255 ? 255 : d2];
 			int32_t tr = KMUL32(riding_mulshift32((int32_t)tq[k],rec,8),C_REACT);
 			dvx[k] += riding_mulq32(tr,ky,14);
 			dvy[k] -= riding_mulq32(tr,kx,14);
+ riding_force_sub(0,dvx[k]-olddvx,0);riding_force_sub(1,dvy[k]-olddvy,0);
 		}
 	}
-#endif
 	// The body gets all the forces between them, of the opposite sign, with
 	// 20 times the mass of a wheel:
-	int32_t sx=dvx[0]+dvx[1],sy=dvy[0]+dvy[1];
-#if RIDING_EXPONENTIAL_DAMPER
-    landing_response(&damping,&sx,&sy);
-#endif
-    int32_t dvbx = -KMUL32(sx,C_TWENTIETH);
-    int32_t dvby = -KMUL32(sy,C_TWENTIETH);
+    int32_t dvbx=riding_force_finish(0);
+    int32_t dvby=riding_force_finish(1);
 	int32_t dwb = -(int32_t)KMUL(sat16(riding_sra8(ts)>>2),C_SPRING_T)
-	              -KMUL(riding_torque_input32(&damping),C_FRIC_T);
+	              -KMUL32(riding_torque_input32(&damping),C_FRIC_T);
+
+#endif
 
 	// Volts:
 	int16_t oldomega = Bike.body.omega;

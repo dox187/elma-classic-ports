@@ -1430,3 +1430,54 @@ impact audio observations. Volts expire at the first microstep strictly after
 The audio pitch table uses the angular unit time rather than the outer frame
 time. The native APU fixture passes with a maximum physical-range pitch error
 of 0.410 Hz; evidence: GBC `build/v093-scheduled-audio`.
+
+### Exact native scheduled integration and optimization checkpoints
+
+The native port now matches the frozen canonical HOST model in 9,213 states
+over 46 cases / 9,167 outer steps. Each comparison includes the packed 109-byte
+bike, exported pose, all 48 residual bytes, schedule phase and wheel audio
+observations (214 bytes total). HOST structure padding is never compared.
+The fixture ignores duplicate PyBoy return hooks caused by IRQ re-entry only
+after verifying the step identifier; skipped step identifiers still fail.
+
+Mean isolated outer-step SM83 T-cycles on this same corpus:
+
+| Exact implementation | Mean T-cycles | Maximum T-cycles |
+|---|---:|---:|
+| First faithful native kernel | 1,276,345 | 2,151,216 |
+| Split whole/fraction body-force sums | 1,184,110 | 2,122,564 |
+| Exact wide-vector assembly | 938,516 | 1,581,548 |
+| Static local arrays / cached angle | 933,221 | 1,576,100 |
+| Q24 v2 table kernel | 804,817 | 1,344,344 |
+| Native rider/motion and body-force orchestration | 646,466 | 1,178,936 |
+| Native wheel response and narrow exact division | 631,541 | 1,169,012 |
+| Native head/brake and suspension orchestration | 579,802 | 1,100,700 |
+
+All listed stages preserve every compared state. These are physics costs,
+not full-game FPS; the entire 30-Hz update/render budget is 280,896 T-cycles.
+The port remains too slow for release. The old test1 ROM is not fixed by
+these source changes and no new playable ROM has been released.
+
+Evidence: repository-root `build/scheduled-native-validation/` subdirectories
+`split-force`, `split-force-wide`, `static-locals`, `q24-v2`, `q24-rider-force`,
+`q24-rider-force-wheel`, `q24-suspension-integrated`.
+Current production HOST PC acceptance: GBC
+`build/v093-scheduled-pc-acceptance/report.json` (all 45 cases pass).
+The native full-game held-volt fixture passes (`build/v093-scheduled-volts`).
+Frontend audio cadence and player timer cadence checks currently fail in the
+slow full-game probe; standalone APU/motion tests pass. These gameplay failures
+must be retested after the runtime cost is reduced, not waived.
+
+Arithmetic-specific evidence: 41,410 Q24 quotient/fraction/mapper vectors;
+52,954 wide-product/dot/torque oracle cases plus 4,112 static edge cases;
+8,564 rider/motion vectors; 8,192 full-width and 8,192 interleaved native body
+force cases plus 100,000 HOST interleaved cases. Q24 v2 occupies banks 481–501;
+508–511 remain unused because of the verified FlashMaster read failure.
+The table format and constants hash are checked by the builder.
+
+Precision study, not integrated: nine variants across 45 independent and 45
+holdout cases retained all 810 survival outcomes. A 14-bit normalized coefficient
+mantissa passed the sampled peak gates; 12/16/20-bit mantissas and fixed Q16
+failed at least one gate. Native speed benefit is unmeasured, so this does not
+justify replacing the current exact Q24 implementation. Evidence:
+repository-root `build/scheduled-precision-budget/experiment-report.json`.

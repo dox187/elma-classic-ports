@@ -5,7 +5,7 @@
 ; delta = sat16(wrap32(rider-body) >> 4).
 ; Keep the unshifted difference on the stack: negation must precede the
 ; arithmetic shift, including negative low nibbles and INT32_MIN.
-; Move(ax,ay) adds accelerations, then advances with the new velocity*4.
+; Move(ax,ay) adds accelerations, then advances scheduled motion and residuals.
 ; All motion arithmetic wraps modulo2^32. No mutable global scratch.
 .module physics_rider_fast
 .area _CODE_8
@@ -289,14 +289,25 @@ _riding_rider_move32::
  adc a,b
  ld b,a
  ld (hl),a
- sla e
- rl d
- rl c
- rl b
- sla e
- rl d
- rl c
- rl b
+ ld a,#6
+ push af
+ inc sp
+ ld a,#2
+ push af
+ inc sp
+ ld h,b
+ ld l,c
+ ld b,d
+ ld c,e
+ ld d,h
+ ld e,l
+ call _phase_advance
+ ld h,d
+ ld l,e
+ ld d,b
+ ld e,c
+ ld b,h
+ ld c,l
  ld hl,#_Bike+66
  ld a,(hl)
  add a,e
@@ -336,14 +347,25 @@ _riding_rider_move32::
  adc a,b
  ld b,a
  ld (hl),a
- sla e
- rl d
- rl c
- rl b
- sla e
- rl d
- rl c
- rl b
+ ld a,#7
+ push af
+ inc sp
+ ld a,#2
+ push af
+ inc sp
+ ld h,b
+ ld l,c
+ ld b,d
+ ld c,e
+ ld d,h
+ ld e,l
+ call _phase_advance
+ ld h,d
+ ld l,e
+ ld d,b
+ ld e,c
+ ld b,h
+ ld c,l
  ld hl,#_Bike+70
  ld a,(hl)
  add a,e

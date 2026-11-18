@@ -84,7 +84,7 @@ _riding_supports32::
  ld (hl),c
  inc hl
  ld (hl),b
-; nv > -10 exactly, including all signed32 values.
+; nv > -ELSZ exactly; the checked C threshold handles ELSZ in 1..256.
  bit 7,b
  jr z,supports_dv
  ld a,b
@@ -92,8 +92,12 @@ _riding_supports32::
  and a,d
  inc a
  jr nz,supports_accept
+ ld a,(#_riding_supports_threshold)
+ or a
+ jr z,supports_accept
+ ld c,a
  ld a,e
- cp #247
+ cp c
  jr c,supports_accept
 supports_dv:
  ld a,#14

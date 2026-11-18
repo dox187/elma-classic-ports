@@ -59,6 +59,7 @@ int16_t fcos( uint16_t a ) {
 
 #endif
 
+#if !defined(__SDCC) || !defined(RIDING_PC_SCHEDULE) || defined(PHYSICS_SWEEP_TEST)
 uint16_t isqrt32( uint32_t a ) {
 	uint32_t res = 0, bit = 1ul << 30;
 	while( bit > a )
@@ -83,13 +84,16 @@ int16_t div14( int16_t x, int16_t l ) {
 int16_t muldiv( int16_t x, int16_t m, int16_t d ) {
 	return (int16_t)(mul16( x, m )/d);
 }
+#endif
 
 #ifndef __SDCC
 int16_t sat16(int32_t a) {if(a>32767)return 32767;if(a< -32768L)return -32768;return (int16_t)a;}
 uint16_t riding_div_u32_u16(uint32_t n,uint16_t d) {return (uint16_t)(n/d);}
 uint16_t riding_isqrt20(uint32_t a) {return isqrt32(a);}
 #endif
+#if !defined(__SDCC) || !defined(RIDING_PC_SCHEDULE)
 int16_t mulhi(int16_t a,int16_t b) {return (int16_t)((mul16(a,b)+32768L)>>16);}
+#endif
 #ifndef __SDCC
 int16_t mulq14(int16_t a,int16_t b) {return sat16((mul16(a,b)+8192L)>>14);}
 int16_t mulq10(int16_t a,int16_t b) {return sat16((mul16(a,b)+512L)>>10);}

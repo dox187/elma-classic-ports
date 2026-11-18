@@ -188,8 +188,10 @@ def engine_pitches(constants, base_hz):
             raise ValueError('Missing physics constant: '+name)
         return float(match[1])
     rate, angle_units = value('PH_RATE'), value('RIDING_ANGLE_UNITS')
-    # physics_core.h: PH_WS = PH_AN * PH_H / 128, PH_H=.4368/PH_RATE.
-    omega_scale = angle_units / (2 * math.pi) * (.4368 / rate) / 128
+    # Scheduled integration keeps angular units independent of frame length.
+    unit_time = (value('PH_ANGULAR_UNIT_TIME') if 'PH_ANGULAR_UNIT_TIME' in data
+                 else .4368 / rate)
+    omega_scale = angle_units / (2 * math.pi) * unit_time / 128
     # At most 64 native omega units per bin. Center interior bins; preserve
     # exactly zero wheel speed. Values above the signed physics range clamp.
     speed = np.arange(512) * 64 + 32
@@ -197,13 +199,16 @@ def engine_pitches(constants, base_hz):
     multiplier = 2 - np.exp(-np.minimum(speed / omega_scale * .025, 30))
     target = base_hz * multiplier
     periods = np.rint(2048 - 65536 / target).astype(int)
-    all_speed = np.arange(65536)
+    # The mixer receives abs(int16 wheel.omega); 32768 is the maximum
+    # reachable magnitude. Its uint16 API saturates larger inputs as well.
+    all_speed = np.minimum(np.arange(65536), 32768)
     exact = base_hz * (2 - np.exp(-np.minimum(all_speed / omega_scale * .025, 30)))
     actual = 65536 / (2048 - periods[np.minimum(all_speed >> 6, 511)])
     return periods.tolist(), {
         'original_curve': '2 - exp(-min(abs(omega) * 0.025, 30))',
         'physics_constants_sha256': hashlib.sha256(constants.read_bytes()).hexdigest(),
         'physics_hz': int(value('PH_HZ')), 'physics_rate_hz': rate,
+        'pc_schedule': bool(re.search(r'^#define RIDING_PC_SCHEDULE 1$', data, re.M)),
         'angle_units_per_turn': int(angle_units), 'omega_units_per_rad_model_second': omega_scale,
         'lookup_shift': 6, 'lookup_entries': 512, 'lookup_speed_units': speed.tolist(),
         'target_hz': target.tolist(), 'periods': periods.tolist(),
@@ -234,6 +239,8 @@ def generate(res_path, out, constants=None):
               '#if PH_HZ != %d || RIDING_ANGLE_UNITS != %dL' %
               (curve['physics_hz'], curve['angle_units_per_turn']),
               '#error Regenerate audio assets for this physics profile', '#endif',
+              '#if defined(RIDING_PC_SCHEDULE) != %d' % curve['pc_schedule'],
+              '#error Regenerate audio assets for this physics integration schedule', '#endif',
               '#define AUDIO_IDLE_PERIOD %d' % idle_period,
               'static const uint8_t engine_wave[2][16] = {',
               '    {' + ','.join('0x%02X' % value for value in waves['harl.wav']) + '},',

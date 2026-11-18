@@ -5,6 +5,9 @@
 
 #include <stdint.h>
 
+#include "riding_constants.h"
+#include "physics_q24.h"
+
 // Arithmetic byte drop; native code moves register bytes instead of8 shifts.
 #ifdef __SDCC
 int32_t riding_sra8(int32_t x);
@@ -30,7 +33,7 @@ int16_t dotq14(int16_t a,int16_t b,int16_t c,int16_t d);
 #include "physics_coefficient_calls.h"
 #define KMUL(x,c) riding_coeff16_##c((x))
 #else
-#define KMUL(x,c) kmul((x),c##_M,c##_E)
+#define KMUL(x,c) sat16(Q24_MUL((x),c))
 #endif
 #ifdef __SDCC
 int16_t kmul(int16_t x,uint8_t m,uint8_t e) __sdcccall(0);

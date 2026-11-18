@@ -1,6 +1,9 @@
 #ifndef GBC_PHYSICS_MATH32_H
 #define GBC_PHYSICS_MATH32_H
 #include <stdint.h>
+
+#include "riding_constants.h"
+#include "physics_q24.h"
 #ifdef __SDCC
 #define MATH32_ABI __sdcccall(0)
 #else
@@ -20,15 +23,16 @@ int32_t riding_dotq32(int32_t a,int32_t b,int16_t c,int16_t d,uint8_t shift) MAT
 #include "physics_coefficient_calls.h"
 #define KMUL32(x,c) riding_coeff32_##c((x))
 #else
-#define KMUL32(x,c) riding_kmul32((x),c##_M,c##_E)
+#define KMUL32(x,c) Q24_MUL((x),c)
 #endif
 
 typedef struct {
     int32_t relx[2],rely[2];
     int16_t kx[2],ky[2];
 } riding_torque32_t;
-/* Four complete products are summed before >>10 and intentional angular16
- * clamping. The 24-byte input layout is identical on host and SM83.
+/* Four complete products are summed before >>10 and final signed32
+ * saturation. Angular16 clamping belongs to the caller. The 24-byte input
+ * layout is identical on host and SM83.
  */
-int16_t riding_torque_input32(const riding_torque32_t *t) MATH32_ABI;
+int32_t riding_torque_input32(const riding_torque32_t *t) MATH32_ABI;
 #endif

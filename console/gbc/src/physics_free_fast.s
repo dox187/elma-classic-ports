@@ -8,7 +8,7 @@ _riding_free32::
  inc hl
  ld d,(hl)
  push de
- call _riding_coeff16_C_FREE
+ call _riding_wheel_free_coeff
  add sp,#2
  ld a,d
  add a,a
@@ -108,6 +108,6 @@ _riding_free32::
  ld a,(hl)
  adc a,b
  ld (hl),a
- call _riding_move32
+ call _riding_wheel_move
  add sp,#2
  ret

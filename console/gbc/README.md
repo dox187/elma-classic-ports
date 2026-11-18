@@ -2,7 +2,9 @@
 
 Current development version: **0.93 — suspension and braking accuracy**,
 recorded in [`VERSION`](VERSION). It is not a finished release yet. The development
-ROM is `build/elma-gbc-v0.93-test1-8m.gbc`; existing 0.92 images below are
+ROM is `build/elma-gbc-v0.93-test1-8m.gbc`; it still has the measured 52.22%
+4 m rebound error. The corrected scheduled physics is under native optimization
+and has not replaced that playable test ROM. Existing 0.92 images below are
 previous test builds. Stable 30 FPS and improved original-PC fidelity remain
 requirements; neither input buffering nor a relaxed accuracy target is added.
 Active development now targets the **8 MiB ROM only**. Work on the 4 MiB
@@ -30,6 +32,21 @@ remain; these short routes do not establish full-course or cartridge timing.
 
 ## 0.93 acceptance work
 
+The current source reproduces the original PC integration schedule with three
+unequal substeps per outer frame, Q24 coefficients and retained fractional
+movement/force impulses. Controlled first-rebound peak errors are **0.089867% at
+4 m** and **0.007095% at 8 m**; all 45 coast/gas/brake and slope survival outcomes
+match PC. These results describe those measured cases, not global 99.9% fidelity.
+The native SM83 port matches the frozen HOST model in **9,213 complete states**
+across 46 cases, including fractional accumulators, controls and audio events.
+
+Performance is still blocking release: the latest measured native suspension
+combination costs **579,802 T-cycles per outer update on average**, before game
+rendering, versus **280,896 T-cycles for the entire two-display-frame budget**.
+Further optimizations are in progress. Internal `*-probe-*` ROMs are diagnostic
+artifacts, not playable replacements. See [`PERFORMANCE.md`](PERFORMANCE.md)
+for the experiment sequence and evidence.
+
 Development ROM: **[0.93 test1 — 8 MiB](build/elma-gbc-v0.93-test1-8m.gbc)**.
 The menu and splash both show 0.93. Grounded braking now follows the original
 PC damping substeps with rolling inertia; free-wheel braking is unchanged.
@@ -54,7 +71,7 @@ and **10.12%**. A matching peak alone therefore does not establish fidelity.
 `test/fixtures/landing_pc_accuracy_bounds.json` records a strict 0.1%
 relative diagnostic bound for both wheels' first rebound height and airtime in all
 4/8 m, vx0/4/8 coast cases. Use it with `check_landing_response.py --bounds`.
-The current implementation fails all 24 checks. The earlier broad landing
+The released test1 implementation fails all 24 checks. The earlier broad landing
 bounds remain a historical regression guard, not proof of 99.9% fidelity. Contact-time quantization must be distinguished
 from trajectory error when interpreting the airtime diagnostic.
 Braking must also retain the PC survivors on the ±15-degree drop fixtures.

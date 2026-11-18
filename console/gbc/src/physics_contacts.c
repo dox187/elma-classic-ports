@@ -229,32 +229,26 @@ uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {
 
 // helyigazitas: does not let the wheel into the ground deeper than the band.
 // The other contact point gets farther by the push along its direction.
-#if defined(__SDCC) && !defined(PHYSICS_PUSHOUT_C)
-#include <stddef.h>
-typedef char pushout_layout[sizeof(circle_t)==22 && offsetof(circle_t,rx)==0 &&
- offsetof(circle_t,ry)==4 && sizeof(contact_t)==10 && offsetof(contact_t,nx)==0 &&
- offsetof(contact_t,ny)==2 && offsetof(contact_t,l)==4 && R_WHEEL-BAND==405?1:-1];
-void riding_pushout32(circle_t*,contact_t*,contact_t*) __sdcccall(1);
-#define pushout riding_pushout32
-#else
 static void pushout( circle_t* k, contact_t* c, contact_t* other ) {
-	int16_t push = R_WHEEL-BAND-c->l;
-	if( push <= 0 )
-		return;
-	int16_t px = mulq14( push, c->nx ), py = mulq14( push, c->ny );
-	k->rx += (int32_t)px << 8;
-	k->ry += (int32_t)py << 8;
-	c->l += push;
-	if( other )
-		other->l += dotq14( px, py, other->nx, other->ny );
+
+    int32_t fine_l=(int32_t)c->l*256+riding_dotq32(k->rx&255,k->ry&255,c->nx,c->ny,14);
+    int32_t push=103547-fine_l;
+    if(push<=0)return;
+    int32_t px=riding_mulq32(push,c->nx,14),py=riding_mulq32(push,c->ny,14);
+    k->rx+=px;k->ry+=py;c->l+=(push+128)>>8;
+    if(other)other->l+=(riding_dotq32(px,py,other->nx,other->ny,14)+128)>>8;
+
 }
-#endif
 
 // talppontigazitas: true if the point really supports the wheel. With two
 // points, the velocity towards it is removed (with one, rolling around it
 // takes only the velocity along the ground anyway).
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
-uint8_t riding_supports32(circle_t*,const contact_t*,int32_t,int32_t,uint8_t) __sdcccall(1);
+#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
+#include <stddef.h>
+typedef char wheel_contact_layout[sizeof(contact_t)==10 && offsetof(contact_t,nx)==0 && offsetof(contact_t,ny)==2?1:-1];
+uint8_t riding_supports32(circle_t*,const contact_t*,int32_t,int32_t,uint8_t);
+void riding_free32(circle_t*,int32_t,int32_t,int16_t) __sdcccall(0);
+void riding_roll32(circle_t*,const contact_t*,int32_t,int32_t,int16_t) __sdcccall(0);
 #define supports riding_supports32
 #else
 static uint8_t supports( circle_t* k, const contact_t* c, int32_t dvx, int32_t dvy,
@@ -268,30 +262,21 @@ static uint8_t supports( circle_t* k, const contact_t* c, int32_t dvx, int32_t d
 	}
 	return 1;
 }
-
 #endif
+
 
 static uint8_t same_side( int32_t d, int32_t m ) {
 	return !((d < 0 && m > 0) || (d > 0 && m < 0));
 }
 
 // biztostalppont_uj: true if the wheel stays on t1 turning around t2.
-/* For a nonnegative contact length, each positive coefficient below one
- * half preserves the projected impulse sign and leaves >32768 headroom.
- * Classifying same-sign terms first is exact, including zero geometry. */
-#if C_NEW_M*2 >= (1L<<C_NEW_E) || C_OLD_M*2 >= (1L<<C_OLD_E)
-#error Contact sign shortcut requires coefficients below one half
-#endif
+/* Preserve the complete projected impulse before deciding its sign. */
+
 static uint8_t sure_new(const contact_t *t1,const contact_t *t2,const circle_t *k) {
  int16_t d=dotq14(t1->tx-t2->tx,t1->ty-t2->ty,-t2->ny,t2->nx);
  int32_t vn,m;
  if(!d)return 1;
  vn=riding_dotq32(k->vx,k->vy,-t2->ny,t2->nx,14);
- if(t2->l>=0){
-  if(!vn || !t2->l)return same_side(d,k->omega);
-  if(k->omega>0 && vn>=0)return d>0;
-  if(k->omega<0 && vn<=0)return d<0;
- }
  m=k->omega+KMUL32(riding_mulshift32(vn,t2->l,10),C_NEW);
  return same_side(d,m);
 }
@@ -300,11 +285,6 @@ static uint8_t sure_old(const contact_t *t1,const contact_t *t2,int32_t dvx,int3
  int32_t dvn,p,m;
  if(!d)return 1;
  dvn=riding_dotq32(dvx,dvy,-t2->ny,t2->nx,14);
- if(t2->l>=0){
-  if(!dvn || !t2->l)return same_side(d,tq);
-  if(tq>0 && dvn>=0)return d>0;
-  if(tq<0 && dvn<=0)return d<0;
- }
  p=riding_mulshift32(dvn,t2->l,6);
  m=(int32_t)tq+KMUL32(p,C_OLD);
  return same_side(d,m);
@@ -318,23 +298,12 @@ static uint8_t faster_1ms( const circle_t* k ) {
 	return mul16((int16_t)k->vx,(int16_t)k->vx)+mul16((int16_t)k->vy,(int16_t)k->vy) > (int32_t)VEL_1MS*VEL_1MS;
 }
 
-#ifdef __SDCC
-#define move riding_move32
-#else
+#if !defined(__SDCC) || defined(PHYSICS_WHEEL_C)
 static void move( circle_t* k ) {
-	k->alfa += (int32_t)k->omega << 7;
-	k->rx += (int32_t)k->vx << 2;
-	k->ry += (int32_t)k->vy << 2;
+	k->alfa += phase_move(k->omega,7);
+	k->rx += phase_advance(k->vx,2,k==&Bike.body?0:k==&Bike.wheel[0]?2:4);
+	k->ry += phase_advance(k->vy,2,k==&Bike.body?1:k==&Bike.wheel[0]?3:5);
 }
-#endif
-
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
-#include <stddef.h>
-typedef char wheel_response_layout[ELSZ==10 && sizeof(circle_t)==22 && offsetof(circle_t,vx)==8 &&
- offsetof(circle_t,vy)==12 && offsetof(circle_t,omega)==20 &&
- offsetof(contact_t,nx)==0 && offsetof(contact_t,ny)==2?1:-1];
-void riding_free32(circle_t*,int32_t,int32_t,int16_t) __sdcccall(0);
-void riding_roll32(circle_t*,const contact_t*,int32_t,int32_t,int16_t) __sdcccall(0);
 #endif
 
 // beallit for a wheel: dv is the velocity change from the forces, tq the
@@ -345,7 +314,13 @@ int16_t riding_landing_nx[2], riding_landing_ny[2];
 uint8_t riding_landing_contact[2];
 void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED {
 	uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
-	uint8_t two = n == 2;
+    uint8_t valid=0;
+    for(uint8_t j=0;j<n;++j) {
+        int32_t distance=(int32_t)Ct[j].l*256+riding_dotq32(k->rx&255,k->ry&255,Ct[j].nx,Ct[j].ny,14);
+        if(distance<104858)Ct[valid++]=Ct[j];
+    }
+    n=valid;
+    uint8_t two = n == 2;
 	uint8_t wheel = k==&Bike.wheel[1];
 	if( n > 0 )
 		pushout( k, &Ct[0], two ? &Ct[1] : 0 );
@@ -392,7 +367,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
     riding_landing_nx[wheel]=n?Ct[0].nx:0;
     riding_landing_ny[wheel]=n?Ct[0].ny:0;
 	if( n == 0 ) {
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
+#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
         riding_free32(k,dvx,dvy,tq);
 #else
 		k->omega = sat16((int32_t)k->omega+KMUL(tq,C_FREE));
@@ -407,18 +382,17 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int16_t tq ) PH_BANKED
 		k->omega = 0;
 		return;
 	}
-#if defined(__SDCC) && defined(RIDING_COEFFICIENT_LOOKUP)
- riding_roll32(k,&Ct[0],dvx,dvy,tq);
+#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
+    riding_roll32(k,&Ct[0],dvx,dvy,tq);
 #else
 	// Rolls around the contact point:
 	int16_t n90x = -Ct[0].ny, n90y = Ct[0].nx;
 	int32_t vn = riding_dotq32(k->vx,k->vy,n90x,n90y,14);
 	int32_t dvn = riding_dotq32(dvx,dvy,n90x,n90y,14);
 	int32_t t = (int32_t)tq+KMUL32(dvn,C_ROLL_T);
-	int32_t w = KMUL32(vn,C_ROLL_W)+KMUL32(t,C_ROLL_DW);
-	/* Angular state remains16; no linear velocity is narrowed here. */
-	k->omega = sat16(w);
-	int32_t sp = KMUL32((int32_t)k->omega,C_ROLL_V);
+    /* Integrate linear rolling speed before quantizing angular state. */
+	int32_t sp = vn+Q24_MUL(t,C_ROLL_DV);
+ k->omega=sat16(Q24_MUL(sp,C_ROLL_W));
 	k->vx = riding_mulq32(sp,n90x,14);
 	k->vy = riding_mulq32(sp,n90y,14);
 	move( k );

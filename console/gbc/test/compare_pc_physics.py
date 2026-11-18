@@ -162,8 +162,8 @@ def build_host(out, gen=BASE / 'build/gen', source=BASE / 'src', name='candidate
                        'uint16_t fixture_public_size(void){return sizeof(gbc_bike);}\n' +
                        (HOST_CONTACT_WRAPPER if contacts else ''))
     sources = [source / s for s in GBC_SOURCES]
-    if (source/'physics_q24.c').is_file():
-        sources.append(source/'physics_q24.c')
+    for optional in ('physics_q24.c','physics_force.c'):
+        if (source/optional).is_file():sources.append(source/optional)
     instrumentation = None
     if contacts:
         original = source/'physics_contacts.c'; copied = out/(name+'-physics_contacts.c')

@@ -31,7 +31,8 @@ def main():
     def observe(_):
         # ph_step uses the SM83 SDCC register ABI: uint8_t argument in A.
         record = {'step': d.word('game_steps'), 'frame': d.p.frame_count,
-                  'input': d.p.register_file.A}
+                  'input': d.p.register_file.A,
+                  'volt_before': list(d.p.memory[d.symbols['_Bike']+103:d.symbols['_Bike']+105])}
         calls.append(record)
         if record['input'] & 12:
             events.append(record)
@@ -48,8 +49,8 @@ def main():
         raise AssertionError('expected physics input did not arrive: ' + str(keys))
 
     def advance(count, keys=()):
-        target = len(calls) + count
-        until(lambda: len(calls) >= target, keys)
+        start = d.word('game_steps')
+        until(lambda: (d.word('game_steps')-start)&65535 >= count, keys)
 
     def next_event(keys, mask):
         target = len(events) + 1
@@ -87,6 +88,22 @@ def main():
             restart()
             accepted = [next_event((key,), mask) for _ in range(2)]
             assert gap(*accepted) == interval
+            assert len({event['step'] for event in events}) == len(events), 'volt repeated inside one frame'
+            if '#define RIDING_PC_SCHEDULE 1' in (args.gen / 'riding_constants.h').read_text():
+                # PC ends the impulse at the first microstep whose start is
+                # strictly more than 0.1 model seconds after its acceptance.
+                origin = calls.index(accepted[0])
+                channel = 1 if mask == 8 else 0
+                elapsed = 0.0
+                release = None
+                for offset in range(1, len(calls)-origin):
+                    elapsed += .0055 if (offset-1)%3 < 2 else clock_scale/rate-.011
+                    if elapsed > cooldown*.25:
+                        release = offset
+                        break
+                assert release is not None
+                remaining = [call['volt_before'][channel] for call in calls[origin+1:origin+release+2]]
+                assert remaining == list(range(release, -1, -1)), (release, remaining)
             cases['held_' + key] = accepted
 
         restart()
@@ -120,7 +137,7 @@ def main():
         next_event(('left',), 8)
         restart()
         accepted = next_event(('right',), 4)
-        assert len(calls) <= 2, 'restart retained the preceding ride cooldown'
+        assert gap(calls[0], accepted) <= 1, 'restart retained the preceding ride cooldown'
         cases['restart_clears_cooldown'] = accepted
         report.update(status='passed', cases=cases)
     except BaseException as error:

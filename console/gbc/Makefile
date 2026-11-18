@@ -4,7 +4,7 @@ PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 ELMA_RES ?= ../../elma.res
 ELMA_LGR ?= ../../lgr/default.lgr
 PHYS_HZ ?= 30
-DAMPER ?= exponential
+DAMPER ?= scheduled
 ROM_MIB ?= 8
 ifeq ($(filter $(ROM_MIB),4 8),)
 $(error ROM_MIB must be 4 or 8)
@@ -14,7 +14,8 @@ GAME_ROM ?= build/elma-gbc-v$(VERSION)-$(ROM_MIB)m.gbc
 GEN ?= $(if $(filter 4,$(ROM_MIB)),build/gen,build/gen-8m)
 LEVEL_CACHE ?= build/gen
 # Keep the 8 MiB physics tables directly after scenery, away from the ROM tail.
-COEFFICIENT_BANK := $(if $(filter 4,$(ROM_MIB)),252,477)
+COEFFICIENT_BANK := $(if $(filter scheduled,$(DAMPER)),481,$(if $(filter 4,$(ROM_MIB)),252,477))
+COEFFICIENT_TOOL := $(if $(filter scheduled,$(DAMPER)),math_q24_coefficients.py,math32_coefficients.py)
 FLAGS := -msm83:gb -Wf--opt-code-size -Wf--max-allocs-per-node -Wf100000 -Wm-yC -Wm-yt0x1B -Wm-ya4 -Wm-yoA -Wm-ynELMA-GBC -Wl-m -Wl-j -I$(GEN) -Isrc
 PHYS_ASM := $(filter-out src/physics_mul16.s,$(wildcard src/physics_*.s))
 
@@ -51,7 +52,7 @@ endif
 	$(PYTHON) tools/mul_table.py --out $(GEN)
 	$(PYTHON) tools/scale_table.py --out $(GEN)
 	$(PYTHON) tools/physics_sine.py --out $(GEN)
-	$(PYTHON) tools/math32_coefficients.py --constants $(GEN)/riding_constants.h --out $(GEN) --first-bank $(COEFFICIENT_BANK)
+	$(PYTHON) tools/$(COEFFICIENT_TOOL) --constants $(GEN)/riding_constants.h --out $(GEN) --first-bank $(COEFFICIENT_BANK)
 
 $(GAME_ROM): assets src/video.s src/play.c src/runtime.h src/bike_render.c src/physics.c src/physics_core.c src/physics_contacts.c src/physics_collision.c src/physics_math.c src/physics_math32.c $(PHYS_ASM)
 	$(PYTHON) tools/build.py --sdk "$(GBDK_HOME)" --gen $(GEN) --out $@ --rom-mib $(ROM_MIB)

@@ -78,8 +78,10 @@ def main():
     constants = (gen / 'riding_constants.h').read_text()
     rate = float(re.search(r'#define PH_RATE ([\d.]+)', constants)[1])
     angle_units = int(re.search(r'#define RIDING_ANGLE_UNITS (\d+)', constants)[1])
-    omega_units = angle_units * .4368 / (2 * math.pi * rate * 128)
-    speeds = np.arange(65536)
+    angular_time = re.search(r'#define PH_ANGULAR_UNIT_TIME ([\d.]+)', constants)
+    unit_time = float(angular_time[1]) if angular_time else .4368/rate
+    omega_units = angle_units * unit_time / (2 * math.pi * 128)
+    speeds = np.minimum(np.arange(65536), 32768)
     reference_hz = engine['load_base_hz'] * (2-np.exp(-np.minimum(speeds/omega_units*.025, 30)))
     periods = np.array(engine['curve']['periods'])
     actual_hz = 65536/(2048-periods[np.minimum(speeds >> 6, 511)])

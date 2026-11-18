@@ -3,10 +3,10 @@
 //
 // Units:
 //   position   int32, 1 m = 2^18 (F); y points up
-//   velocity   int32, 4 F per step (VU); precision is unchanged
+//   velocity   int32, PH_VS units per m/model-second
 //   angle      uint32, a full turn is RIDING_ANGLE_UNITS (2^23 at30Hz,
 //              2^24 at60Hz); exporting drops RIDING_ANGLE_SHIFT low bits
-//   angular velocity  int16, 128 angle units per step (WU)
+//   angular velocity  int16, PH_WS units per rad/model-second
 // Short vectors are int16 in u (1 m = 1024) or in r16 (1 m = 16384).
 #ifndef GBC_PHYSICS_CORE_H
 #define GBC_PHYSICS_CORE_H
@@ -31,9 +31,16 @@
 #define RIDING_ANGLE_SHIFT 8
 #endif
 #define PH_AN ((double)RIDING_ANGLE_UNITS/(2.0*PH_PI))
-// Velocity units per m/s and angular velocity units per rad/s:
-#define PH_VS (PH_S*PH_H/4.0)
-#define PH_WS (PH_AN*PH_H/128.0)
+// Storage precision is independent of the scheduled integration intervals.
+// Legacy profiles used one frame as their velocity unit time.
+#ifndef PH_VELOCITY_UNIT_TIME
+#define PH_VELOCITY_UNIT_TIME PH_H
+#endif
+#ifndef PH_ANGULAR_UNIT_TIME
+#define PH_ANGULAR_UNIT_TIME PH_H
+#endif
+#define PH_VS (PH_S*PH_VELOCITY_UNIT_TIME/4.0)
+#define PH_WS (PH_AN*PH_ANGULAR_UNIT_TIME/128.0)
 
 #define M_TO_F( m ) ((int32_t)((m)*PH_S))
 #define M_TO_U( m ) ((int16_t)((m)*1024.0 + ((m) < 0 ? -0.5 : 0.5)))

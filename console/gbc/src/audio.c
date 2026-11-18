@@ -106,7 +106,8 @@ static void motion_tick(void) {
         last_volt[k]=Bike.volt[k];
     }
     if(motion_valid && gbc_bike.turned!=last_turned)audio_effect(FX_TURN);
-    if(motion_valid && (riding_audio_impact[0]|riding_audio_impact[1]))
+    if(motion_valid && (riding_audio_impact[0]|riding_audio_impact[1])
+       && (riding_audio_contact[0]|riding_audio_contact[1]))
         audio_effect(FX_CREAK);
     last_turned=gbc_bike.turned;motion_step=Bike.steps;motion_valid=1;
 }

@@ -167,6 +167,8 @@ const void * const observed[] = {
         reset();physical_step((1,1));frames(2)
         p.memory[contact:contact+2]=[0,0];physical_step();frames(2)
         assert not get('creak_active'),'creak continued after leaving ground'
+        physical_step((1,0));frames(2)
+        assert not get('creak_active'),'earlier substep impact restarted creak after takeoff'
         for depth in (.3,0,.4,.05)*8:
             pose(compression=depth);physical_step();frames(4)
             assert not get('creak_active'),'airborne suspension creaked'

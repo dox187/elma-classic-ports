@@ -10,6 +10,11 @@ import subprocess
 BASE=Path(__file__).resolve().parents[1]
 
 
+def scheduled_profile(gen):
+    return bool(re.search(r'^#define RIDING_PC_SCHEDULE 1$',
+                         (gen/'riding_constants.h').read_text(),re.M))
+
+
 def validate_linked_layout(symbol_path,rom_mib):
     """Include library/startup areas when checking the physical ROM windows."""
     symbols={name:int(value,16) for name,value in
@@ -55,7 +60,11 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     """Reject mixed codecs, stale table banks and out-of-range bank layouts."""
     levels=json.loads((gen/'level_manifest.json').read_text())
     physics=json.loads((gen/'physics_bank_manifest.json').read_text())
-    coefficients=json.loads((gen/'physics-coefficient-manifest.json').read_text())
+    if physics.get('segment_format') != 'length14-internal-endpoints-v1':
+        raise ValueError('Collision data lacks artificial endpoint flags; regenerate physics levels')
+    scheduled=scheduled_profile(gen)
+    coefficient_manifest='physics_q24_manifest.json' if scheduled else 'physics-coefficient-manifest.json'
+    coefficients=json.loads((gen/coefficient_manifest).read_text())
     codecs={'zx0-planes32x16':(4,'zx0-512'), 'raw3-plane32x16':(8,'raw-2bpp')}
     if levels.get('map_codec') not in codecs:
         raise ValueError('Unknown level graphics codec: '+str(levels.get('map_codec')))
@@ -101,25 +110,31 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
                     or not pointer(record.get('chunk_directory'),len(chunks)*12)):
                 raise ValueError('Invalid three-plane map directory for level %d'%(record['index']+1))
     bank_count=rom_mib*64
-    coefficient_first={4:252,8:477}[rom_mib]
-    coefficient_last=coefficient_first+3
+    coefficient_first=481 if scheduled else {4:252,8:477}[rom_mib]
+    coefficient_last=coefficients['last_bank'] if scheduled else coefficient_first+3
+    if scheduled and (rom_mib!=8 or not coefficient_first<=coefficient_last<508):
+        raise ValueError('Scheduled Q24 physics requires the 8 MiB profile, below bank 508')
+    if scheduled and coefficients.get('kind')!='q24-table-v2':
+        raise ValueError('Unsupported scheduled coefficient table format')
     if (coefficients['first_bank'],coefficients['last_bank'])!=(coefficient_first,coefficient_last):
         raise ValueError('%d MiB profile reserves coefficient banks %d..%d'%
                          (rom_mib,coefficient_first,coefficient_last))
     if coefficients['constants_sha256']!=hashlib.sha256((gen/'riding_constants.h').read_bytes()).hexdigest():
         raise ValueError('Coefficient tables do not match the generated riding constants')
-    calls=(gen/'physics_coefficient_calls.s').read_text()
-    if '_riding_coeff32_C_LANDING_EXTRA::' not in calls:
-        raise ValueError('Missing supported damping coefficient; regenerate riding constants and coefficient tables')
-    if '_riding_landing_fric_residue::' not in calls:
-        raise ValueError('Missing landing residue table; regenerate the coefficient tables')
-    for name,value in (('lo',coefficient_first&255),('hi',coefficient_first>>8)):
-        if not re.search(r'^_riding_coefficient_bank_'+name+r'\s*=\s*'+str(value)+r'\s*$',calls,re.M):
-            raise ValueError('Coefficient bank selection differs from its tables; regenerate the coefficients')
+    if not scheduled:
+        calls=(gen/'physics_coefficient_calls.s').read_text()
+        if '_riding_coeff32_C_LANDING_EXTRA::' not in calls:
+            raise ValueError('Missing supported damping coefficient; regenerate riding constants and coefficient tables')
+        if '_riding_landing_fric_residue::' not in calls:
+            raise ValueError('Missing landing residue table; regenerate the coefficient tables')
+        for name,value in (('lo',coefficient_first&255),('hi',coefficient_first>>8)):
+            if not re.search(r'^_riding_coefficient_bank_'+name+r'\s*=\s*'+str(value)+r'\s*$',calls,re.M):
+                raise ValueError('Coefficient bank selection differs from its tables; regenerate the coefficients')
     intervals={
         'physics_bank_':(physics['first_bank'],physics['next_free_bank']-1),
         'level_bank_':(levels['first_bank'],levels['last_bank']),
-        'physics_coefficient_':(coefficients['first_bank'],coefficients['last_bank']),
+        ('physics_q24_table_' if scheduled else 'physics_coefficient_'):
+            (coefficients['first_bank'],coefficients['last_bank']),
     }
     previous_end=-1
     for prefix,(first,last) in intervals.items():
@@ -160,6 +175,7 @@ def main():
     a=p.parse_args();a.sdk=a.sdk.resolve()
     a.gen=(a.gen or BASE/('build/gen' if a.rom_mib==4 else 'build/gen-8m')).resolve()
     rom_mib=validate_profile(a.gen,a.rom_mib)
+    scheduled=scheduled_profile(a.gen)
     version=(BASE/'VERSION').read_text().strip()
     if not re.fullmatch(r'\d+(?:\.\d+)+',version):raise ValueError('Invalid VERSION for the ROM filename')
     a.out=(a.out or BASE/'build'/('elma-gbc-v%s-%dm.gbc'%(version,rom_mib))).resolve()
@@ -178,10 +194,25 @@ def main():
         sources=[a.sweep_source.resolve() if path.name=='physics_sweep.c' else path for path in sources]
     if a.collision_source:
         sources=[a.collision_source.resolve() if path.name=='physics_collision.c' else path for path in sources]
-    sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name!='physics_mul16.s')
-    for pattern in ('physics_quarter_*.c','physics_scale_*.c','physics_sine_*.c','physics_coefficient_*.c','physics_bank_*.c','level_bank_*.c','riding16_body_*.c'):
+    if scheduled:
+        sources += [BASE/'src'/name for name in ('physics_q24.c','physics_force.c','physics_q24.s',
+            'physics_mul_fast.s','physics_mul16u8.s','physics_math32_bounds.s','physics_math32_exact.s',
+            'physics_math.s','physics_contact_loop.s','physics_segment_scan.s',
+            'physics_normal_fast.s','physics_shift_fast.s','physics_sqrt_fast.s',
+            'physics_div_fast.s','physics_sin_fast.s','physics_spring_torque.s',
+            'physics_div20.s','physics_export_fast.s','physics_bounds.s',
+            'physics_rider_fast.s','physics_rider_response.s','physics_phase.s',
+            'physics_supports_fast.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
+            'physics_head_pose.s','physics_brake_fast.s',
+            'physics_suspension_scheduled.s','physics_recip_fast.s')]
+        sources.append(a.gen/'physics_q24_dispatch.c')
+    else:
+        sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name!='physics_mul16.s' and not x.name.startswith('physics_q24'))
+    for pattern in ('physics_quarter_*.c','physics_scale_*.c','physics_sine_*.c',
+                    'physics_q24_table_*.c' if scheduled else 'physics_coefficient_*.c',
+                    'physics_bank_*.c','level_bank_*.c','riding16_body_*.c'):
         sources+=sorted(a.gen.glob(pattern))
-    sources.append(a.gen/'physics_coefficient_calls.s')
+    if not scheduled:sources.append(a.gen/'physics_coefficient_calls.s')
     sources += [a.gen/name for name in ('level_catalogue.c','menu_assets.c','splash_assets.c','physics_level_data.c','riding16_parts.c','riding_meta.c')]
     validate_profile(a.gen,rom_mib,sources)
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
@@ -192,7 +223,7 @@ def main():
             stat=path.stat();tool_key.append((str(path),stat.st_size,stat.st_mtime_ns))
     configuration=json.dumps([compile_flags,tool_key]).encode()
     def coefficient_lookup(path):
-        return (path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source))
+        return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     def source_key(path):
         extra=b' -DRIDING_COEFFICIENT_LOOKUP' if coefficient_lookup(path) else b''
         return hashlib.sha256(configuration+extra+dependencies(path,a.gen)).hexdigest()
