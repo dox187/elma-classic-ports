@@ -18,19 +18,21 @@ def signed(n):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     cases = []
-    deltas = (-196609, -196608, -196607, -131073, -131072, -65537, -65536,
-              -1, 0, 1, 65535, 65536, 131071, 131072, 196607, 196608, 196609)
+    deltas = sorted({sign * n + step for sign in (-1, 1)
+                     for n in (0, 65536, 196608, 524288) for step in (-1, 0, 1)})
     for coordinate in range(6):
+        limit = (8 if coordinate < 4 else 3) * 65536
         for body in (0, -1, 1, 123456789, -987654321, 2147483647, -2147483648):
             for delta in deltas:
                 part = signed(body + delta)
-                cases.append((body, part, coordinate, int(-196608 <= delta <= 196608)))
+                cases.append((body, part, coordinate, int(abs(delta) <= limit)))
     rng = random.Random(0xB0A1D5)
     for _ in range(512):
         body = rng.randrange(-(1 << 31), 1 << 31)
-        delta = rng.choice((rng.randrange(-250000,250001), rng.randrange(-(1 << 31),1 << 31)))
-        cases.append((body, signed(body+delta), rng.randrange(6),
-                      int(-196608 <= delta <= 196608)))
+        delta = rng.choice((rng.randrange(-600000,600001), rng.randrange(-(1 << 31),1 << 31)))
+        coordinate = rng.randrange(6)
+        limit = (8 if coordinate < 4 else 3) * 65536
+        cases.append((body, signed(body+delta), coordinate, int(abs(delta) <= limit)))
     (OUT/'vectors.h').write_text('''#include <stdint.h>
 typedef struct {int32_t body,part;uint8_t coordinate,expected;} bounds_vector_t;
 extern const bounds_vector_t vectors[];
@@ -55,7 +57,7 @@ static uint8_t reference(void) {
  for(i=0;i<2;++i) {
   dx=gbc_bike.wheel[i].x-gbc_bike.body.x;
   dy=gbc_bike.wheel[i].y-gbc_bike.body.y;
-  if((uint32_t)(dx+196608L)>393216UL || (uint32_t)(dy+196608L)>393216UL)return 0;
+  if((uint32_t)(dx+524288L)>1048576UL || (uint32_t)(dy+524288L)>1048576UL)return 0;
  }
  dx=gbc_bike.rider.x-gbc_bike.body.x;dy=gbc_bike.rider.y-gbc_bike.body.y;
  return (uint32_t)(dx+196608L)<=393216UL && (uint32_t)(dy+196608L)<=393216UL;
@@ -109,10 +111,10 @@ void main(void) {
             a = symbols[name]
             return p.memory[a]+256*p.memory[a+1]
         report = {'vectors':len(cases), 'failures':word('_bounds_failures'),
-                  'original_c_failures':word('_reference_failures'),
+                  'reference_c_failures':word('_reference_failures'),
                   'cycles_min':min(timings), 'cycles_max':max(timings),
                   'cycles_mean':sum(timings)/len(timings)}
-        assert not report['failures'] and not report['original_c_failures'], report
+        assert not report['failures'] and not report['reference_c_failures'], report
     finally:
         p.stop(save=False)
     (OUT/'report.json').write_text(json.dumps(report, indent=2)+'\n')

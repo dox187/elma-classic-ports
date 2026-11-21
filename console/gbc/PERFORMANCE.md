@@ -1833,3 +1833,26 @@ runtime cost, resolve the four extreme-spin/guard discrepancies with geometry
 and numerical validation, then validate cartridge timing. Stable30FPS and
 accuracy remain simultaneous requirements. Test2 is an integrated diagnostic,
 not a final0.96 release.
+
+## 0.96 test3 airborne spin comparison
+
+The 3 m wheel-axis guard caused all four premature test2 deaths. A 4 m
+candidate recovered the first 12 steps but still killed the +140 rad/s
+controlled case a step early. The original PC model reaches 7.081 m on
+its final live step, motivating the 8 m wheel envelope in test3. The
+rider limit stays at 3 m. The production change only affects the runtime
+coordinate guard.
+
+The extended controlled tests match survival through 120 updates at ±120
+and death on update 23 at ±140. Late ±140 poses still diverge. The distinct
+full-ROM test seeds rotation during a moving Freefall descent and compares
+with the original PC engine seeded from the actual ROM state. Both pass the
+old cutoff and publish the wheel sprites correctly. The strict death-step
+check still reports a one-update difference in each ±140 case.
+
+Local evidence under GBC build includes `v096-test2/spin-baseline/report.json`,
+`v096-test3-spin-guard-pc/report.json`, and `v096-test3/spin-final/report.json`.
+Ordinary Freefall still takes 4–6 display frames per update. On the existing
+test2 controller corpus, physics occupied 90.9% of active update cycles
+(weighted across 30,490 updates). The three substeps per update run the
+suspension, contacts and rider dynamics on each substep.

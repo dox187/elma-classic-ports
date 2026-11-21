@@ -94,12 +94,12 @@ check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/freefall.py --rom $(GAME_ROM) --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/freefall
 
 # Numeric-limit findings are reported, not treated as passing PC fidelity.
-# The repaired torque cutoff and raw native/HOST equivalence are strict gates.
+# Drive cutoff, extreme-spin survival and raw native/HOST equivalence are strict gates.
 ifndef SPEED_CHECK_DIR
 SPEED_CHECK_DIR := build/speed-check-$(shell date +%Y%m%d-%H%M%S)
 endif
 check-speed-limits: $(GAME_ROM)
-	$(PYTHON) test/check_speed_limits.py --gen $(GEN) --out $(SPEED_CHECK_DIR)/pc --require-gas-cutoff
+	$(PYTHON) test/check_speed_limits.py --gen $(GEN) --out $(SPEED_CHECK_DIR)/pc --require-gas-cutoff --require-spin-survival
 	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --case-file $(SPEED_CHECK_DIR)/pc/cases.json --out $(SPEED_CHECK_DIR)/native
 
 check: all

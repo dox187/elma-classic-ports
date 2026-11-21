@@ -3,6 +3,8 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest diagnostic:
+**[0.96 test3 — 8 MiB](build/elma-gbc-v0.96-test3-8m.gbc)**. It fixes premature
+crashes during extreme airborne rotation. The previous physics checkpoint is
 **[0.96 test2 — 8 MiB](build/elma-gbc-v0.96-test2-8m.gbc)**.
 This ROM includes widened angular velocity/brake torque and the close-compression
 reaction correction, preserving the original integration schedule and precision.
@@ -55,6 +57,27 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test3 — airborne wheel extension
+
+Test2 declared a crash if a wheel moved more than 3 m from the frame on
+either axis. In four airborne fixtures, original PC physics also extends the
+suspension past 3 m and continues. Test3 allows up to 8 m per wheel axis.
+The extended PC reference reaches 7.081 m on its last live step in the
+140 rad/s fixture. The rider has a separate 3 m limit.
+
+All 122 speed fixtures now agree on final survival. Six extreme volt fixtures
+reach arithmetic saturation on their terminal update (step 10 in both models). In a 120-update comparison
+at ±120 rad/s both models survive. At ±140 rad/s both stop at update 23,
+but late positions diverge by up to 3.16 m. In a separate rendered Freefall
+test we set body rotation at update 260. Both ±120 cases survive 25 further
+updates. At −140 the ROM stops after 22 updates and PC after 21. At +140
+the counts are 24 and 25. The wheel sprites match the exported coordinates.
+The Freefall test retains its strict death-step assertion and reports this
+remaining difference.
+
+Freefall without injected input still averages 13.54 updates/s in the emulator.
+SHA-256 of test3 is `084930fcdd7ead078a0cdf3198870a5913d1525f8c738017ca291928cb3d9c0b`.
 
 ## 0.96 test2 — widened physics integrated into the ROM
 

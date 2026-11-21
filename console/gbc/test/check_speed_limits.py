@@ -207,7 +207,53 @@ class AuditedGbc(comparison.Gbc):
     def step(self,keys):
         super().step(keys)
         if self.dead and self.death_cause is None:
-            self.death_cause='physics_core' if not self.core_alive else 'runtime_3m_stretch_guard'
+            self.death_cause='physics_core' if not self.core_alive else 'runtime_stretch_guard'
+
+
+def spin_regression(host, pc, gen, suite, steps=120):
+    """Follow the four original false deaths through recovery or PC termination."""
+    results = {}
+    for case in suite:
+        if case['name'] not in ('body-spin--140', 'body-spin--120', 'body-spin-120', 'body-spin-140'):
+            continue
+        seed(host, case)
+        pc.reset(gen / f"fixture{case['level']}.txt", host.seed_values(), case['turned'])
+        peak = {'pc': 0., 'gbc': 0.}
+        terminal = {'pc': None, 'gbc': None}
+        early_error = live_error = 0.
+        for step in range(1, steps + 1):
+            if terminal['pc'] is None:
+                pc.step(0, host.settings['dt'])
+            if terminal['gbc'] is None:
+                host.step(0)
+            states = {'pc': pc.snapshot(), 'gbc': host.snapshot()}
+            for model, state in states.items():
+                if state['dead']:
+                    if terminal[model] is None:
+                        terminal[model] = step
+                    continue
+                pos = state['position']
+                separation = max(abs(pos[k][axis] - pos['body'][axis])
+                                 for k in ('wheel0', 'wheel1') for axis in (0, 1))
+                peak[model] = max(peak[model], separation)
+            if not any(terminal.values()):
+                error = max(math.dist(states['pc']['position'][k], states['gbc']['position'][k])
+                            for k in states['pc']['position'])
+                live_error = max(live_error, error)
+                if step <= case['steps']:
+                    early_error = max(early_error, error)
+            if all(terminal.values()):
+                break
+        results[case['name']] = {
+            'death_step': terminal, 'gbc_death_cause': host.death_cause,
+            'peak_live_wheel_axis_m': peak,
+            'max_position_error_first_12_steps_m': early_error,
+            'max_position_error_common_live_m': live_error,
+            'passed': terminal['pc'] == terminal['gbc'] and
+                      (terminal['pc'] is None or terminal['pc'] > case['steps']) and min(peak.values()) > 3,
+        }
+    return {'steps': steps, 'cases': results,
+            'passed': len(results) == 4 and all(r['passed'] for r in results.values())}
 
 
 def gas_cutoff_regression(report):
@@ -233,6 +279,8 @@ def main():
     p.add_argument('--out',type=Path,default=BASE/'build/v094-speed-limits')
     p.add_argument('--require-gas-cutoff',action='store_true',
                    help='Fail unless the six original-PC drive-cutoff cases meet 0.1%%')
+    p.add_argument('--require-spin-survival',action='store_true',
+                   help='Fail unless the four extreme spins match PC survival for 120 steps or until death')
     a=p.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True)
     source=out/'source/gbc/src';observed_source=out/'observed/gbc/src'
     if source.exists():raise ValueError('Use a fresh output directory for immutable evidence')
@@ -261,7 +309,8 @@ def main():
     report={'schema':'speed-limit-audit-v1','version':(BASE/'VERSION').read_text().strip(),
             'settings':settings,'scope':'Synthetic initial states, original PC equations compiled with native double; not a controller-completed route or a Windows x87 run',
             'fixture_note':'Flat cases start with zero wheel omega and no contact history, then establish contact. Forward/reverse facing tests both throttle directions.',
-            'termination_note':'GBC includes the production 3 m stretch guard; exported native cases verify raw core states only, without that runtime guard.',
+            'termination_note':'GBC uses the source snapshot runtime guard; exported native cases verify raw core states only.',
+            'runtime_axis_bounds_m':{'wheel':host.wheel_bound,'rider':host.rider_bound},
             'verification_sha256':comparison.sha256(Path(__file__)),
             'constants_sha256':comparison.sha256(a.gen/'riding_constants.h'),
             'observational_identity_states':0,'cases':{},'limits':{
@@ -306,15 +355,19 @@ def main():
         if any(s['clipped_or_wrapped'] for s in row['limits'].values())]
     report['survival_differences']=[name for name,row in report['cases'].items() if row['pc_dead']!=row['gbc_dead']]
     report['gas_cutoff_regression']=gas_cutoff_regression(report)
+    report['spin_survival_regression']=spin_regression(host,pc,gen,suite)
     report['status']='audit_complete'
     (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({'report':str(out/'report.json'),'cases':len(suite),
                       'cases_with_limits':len(report['cases_with_limits']),
                       'survival_differences':len(report['survival_differences']),
                       'gas_cutoff_passed':report['gas_cutoff_regression']['passed'],
+                      'spin_survival_passed':report['spin_survival_regression']['passed'],
                       'observational_identity_states':report['observational_identity_states']}))
     if a.require_gas_cutoff and not report['gas_cutoff_regression']['passed']:
         raise SystemExit('Original-PC gas cutoff regression failed')
+    if a.require_spin_survival and not report['spin_survival_regression']['passed']:
+        raise SystemExit('Original-PC spin survival regression failed')
 
 
 if __name__=='__main__':main()

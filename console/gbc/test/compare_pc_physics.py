@@ -167,8 +167,15 @@ def build_host(out, gen=BASE / 'build/gen', source=BASE / 'src', name='candidate
     out, gen, source = Path(out).resolve(), Path(gen).resolve(), Path(source).resolve()
     out.mkdir(parents=True, exist_ok=True)
     if contacts: name += '-contacts-v1'
+    bounds_source = source / 'physics_bounds.s'
+    bounds_asm = bounds_source.read_text() if bounds_source.is_file() else ''
+    bounds = dict(re.findall(r'^(WHEEL|RIDER)_BOUND_METRES\s*=\s*(\d+)\s*$', bounds_asm, re.M))
+    # Older source snapshots use a literal three metres for all six coordinates.
+    if not bounds:
+        bounds = {'WHEEL': '3', 'RIDER': '3'}
     wrapper = out / (name + '.c')
     wrapper.write_text('#include "physics_core.h"\n#include "runtime.h"\n'
+                       f'const uint8_t fixture_bound_metres[2]={{{bounds["WHEEL"]},{bounds["RIDER"]}}};\n'
                        'uint16_t fixture_internal_size(void){return sizeof(Bike);}\n'
                        'uint16_t fixture_public_size(void){return sizeof(gbc_bike);}\n' +
                        (HOST_CONTACT_WRAPPER if contacts else ''))
@@ -189,6 +196,8 @@ def build_host(out, gen=BASE / 'build/gen', source=BASE / 'src', name='candidate
                *(['-DCOMPARE_CONTACTS=1'] if contacts else []), wrapper, *sources, '-o', library]
     run(command, out / (name + '-compile.log'))
     inputs = [wrapper, *sources, *source.glob('*.h'), *gen.glob('*.h')]
+    if bounds_source.is_file():
+        inputs.append(bounds_source)
     (out / (name + '-build.json')).write_text(json.dumps({
         'compile_command': list(map(str, command)), 'library_sha256': sha256(library),
         'input_sha256': {str(p): sha256(p) for p in inputs},
@@ -368,6 +377,10 @@ class Gbc:
         self.wide_angular = bike_type is WideBike
         assert self.f.fixture_public_size() == C.sizeof(Public)
         self.b = bike_type.in_dll(self.f, 'Bike'); self.p = Public.in_dll(self.f, 'gbc_bike')
+        try:
+            self.wheel_bound, self.rider_bound = (C.c_uint8 * 2).in_dll(self.f, 'fixture_bound_metres')
+        except ValueError:  # Frozen libraries built before the guard was widened.
+            self.wheel_bound = self.rider_bound = 3
         self.contacts = hasattr(self.f, 'fixture_contact_version') and self.f.fixture_contact_version() == 1
         if self.contacts:
             self.f.fixture_contact_state.argtypes = [C.POINTER(C.c_int), C.POINTER(C.c_int)]
@@ -444,8 +457,9 @@ class Gbc:
                     event_time = self.t-self.settings['dt']+self.f.fixture_contact_time(i)
                 self.contact_events.append({'wheel': values[0], 'from': values[1] if values[1] >= 0 else None,
                                             'count': values[2], 't_game': event_time})
-        if any(abs(C.c_int32(getattr(part,axis)-getattr(self.p.body,axis)).value)>3*65536
-               for part in (*self.p.wheel,self.p.rider) for axis in ('x','y')):
+        if any(abs(C.c_int32(getattr(part,axis)-getattr(self.p.body,axis)).value)>limit*65536
+               for part,limit in ((self.p.wheel[0],self.wheel_bound),(self.p.wheel[1],self.wheel_bound),
+                                  (self.p.rider,self.rider_bound)) for axis in ('x','y')):
             self.p.alive=0
         if not self.p.alive:
             self.dead=True
@@ -831,7 +845,7 @@ def main():
                              'The selected frame schedule is reproducible; the original game had variable frame targets.',
                              'GBC geometry is quantized by its production packer; PC uses original double vertices.',
                              'This HOST study measures trajectories, not ROM cycle budgets or input/display latency.',
-                             'GBC object events and the +/-3 m coordinate safety guard mirror play.c outside the physics library.'],
+                             'GBC object events and the coordinate safety guard mirror the runtime outside the physics library.'],
               'cases': {}}
     validation_level=level_dir/'lev00.txt';write_level(validation_level,levels[0])
     report['reference_validation']=validate_reference(out,pc,validation_level,settings)
