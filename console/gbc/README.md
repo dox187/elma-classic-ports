@@ -3,10 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest diagnostic:
-**[0.96 test4 — 8 MiB](build/elma-gbc-v0.96-test4-8m.gbc)**.
-It improves airborne suspension forces and implements the original level-exit
-checks. At Freefall update 260 both extreme rotations now end on the same
-update as PC. Freefall averages **12.85 updates/s** in the emulator.
+**[0.96 test5 — 8 MiB](build/elma-gbc-v0.96-test5-8m.gbc)**.
+It retains sub-unit body rotation and full-resolution wheel lever arms. All
+20 airborne spin outcomes agree with the PC reference. In two 70-update
+controller runs the largest frame-angle error was 0.043°. The no-input
+Freefall run averages **11.61 updates/s** in the emulator.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -56,6 +57,39 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test5 — body rotation during Freefall
+
+The wheel damper now uses both wheel-to-frame coordinates at their full Q18
+resolution. The angular impulse retains the signed Q24 remainder from both
+torque terms, and the next update uses that remainder in rotational velocity
+and body angle. Rounding the summed spring moment also preserves a symmetric
+landing on level ground.
+
+The emulator tests open Freefall through the game menu. PC starts from the
+ROM's pose and velocities. Time in the comparisons is measured in completed
+physics updates. Each update advances both simulations by the same model
+interval, regardless of the number of display frames it took.
+
+| Freefall comparison | Result on the playable ROM |
+|---|---|
+| Left then right, and right then left, via controller | Both sequences survived 70 updates. Maximum body-angle error was 0.015° and 0.0424° respectively. Maximum position error across the wheels, frame, rider and head was 2.26 cm and 1.29 cm. |
+| Inject ±120 rad/s at updates 240, 250, 260, 270 and 280 | All ten runs survived the following 25 updates in both models. Maximum position error was 2.26 mm. |
+| Inject ±140 rad/s at those same five starting points | Both models stopped 21 updates later for negative rotation and 25 for positive rotation in all ten runs. Across these runs position error reached 7.31 mm through update 19. Near the crash, the peak reached 27.6 cm and the body-angle difference reached 15.75°. |
+| The original update-260 comparison, −140 / +140 | Peak common-live position error fell from 1.56 / 0.84 m in test4 to 3.4 / 25.0 cm in test5. Each PC run starts from the matching ROM's own descent. |
+
+The 45 rebound/braking cases pass their existing gates, including the 0.1%
+flat-drop rebound and airtime checks. All 122 speed fixtures match final PC
+survival. Eight injected extreme volt fixtures reach a numeric limit. The
+SM83 matches the corresponding HOST calculation byte for byte in 9,210 default
+and 3,170 high-speed states, including the angular remainder. All 54 starts
+and complete no-input Freefall pass their functional checks. Freefall takes
+4–7 display frames per update and averages 11.61 updates/s. Stable 30 FPS,
+global 99.9% accuracy and physical-cartridge validation remain open.
+
+[Playable test5 ROM](build/elma-gbc-v0.96-test5-8m.gbc) · 8,388,608 bytes ·
+MBC5, 32 KiB RAM · SHA-256
+`4e10759c014da913bf67f1547da74e0ca1bcdf00aa72df1de841e65183317db0`.
 
 ## 0.96 test4 — airborne damping and level exits
 

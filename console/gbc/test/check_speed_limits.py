@@ -96,13 +96,15 @@ def instrument(source,destination):
         helper='audit_wide' if wide else 'audit_narrow'
         header.append(f'#define audit_{label}(v) {helper}((v),{i})')
     (destination/'speed_audit.h').write_text('\n'.join(header)+'\n')
+    spring_term = ('spring_input' if 'KMUL32(spring_input,C_SPRING_T)' in
+                   (source/'physics_core.c').read_text() else 'riding_sra8(ts)>>2')
     core_replacements=[
         ('int32_t dw = Bike.wheel[k].omega-Bike.body.omega;',
          'int32_t dw = audit_brake_delta_omega((int64_t)Bike.wheel[k].omega-Bike.body.omega);'),
         ('tq[k] = -spring-(riding_landing_contact[k]?KMUL32(dw,C_BRAKE_GW):KMUL32(dw,C_BRAKE_W));',
          'tq[k] = audit_brake_torque(-(int64_t)spring-(riding_landing_contact[k]?KMUL32(dw,C_BRAKE_GW):KMUL32(dw,C_BRAKE_W)));'),
-        ('KMUL32(riding_sra8(ts)>>2,C_SPRING_T)',
-         'KMUL32(audit_spring_torque_input(riding_sra8(ts)>>2),C_SPRING_T)'),
+        (f'KMUL32({spring_term},C_SPRING_T)',
+         f'KMUL32(audit_spring_torque_input({spring_term}),C_SPRING_T)'),
         ('Bike.body.omega += dwb;',
          'Bike.body.omega = audit_body_omega((int64_t)Bike.body.omega+dwb);')
     ] if wide else [
@@ -113,6 +115,9 @@ def instrument(source,destination):
          'KMUL(audit_spring_torque_input(riding_sra8(ts)>>2),C_SPRING_T)'),
         ('Bike.body.omega = sat16( (int32_t)Bike.body.omega+dwb );',
          'Bike.body.omega = audit_body_omega( (int32_t)Bike.body.omega+dwb );')]
+    if 'static int32_t clamp_damping(int64_t value) {' in (source/'physics_core.c').read_text():
+        core_replacements.append(('static int32_t clamp_damping(int64_t value) {',
+            'static int32_t clamp_damping(int64_t value) {\n audit_range(value,INT32_MIN,INT32_MAX,10);'))
     edit('physics_core.c',core_replacements)
     arithmetic_type='int64_t' if wide else 'int32_t'
     p=destination/'physics_core.c';s=p.read_text()

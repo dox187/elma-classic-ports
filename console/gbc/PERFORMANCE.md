@@ -1880,3 +1880,36 @@ survival outcomes and all 54 start checks. Freefall averages 12.845 updates/s
 The 54 starts and full descent miss 1,591 and 439 deadlines, respectively.
 Reports are under `build/v096-test4/{spin-final,spin240-final,level-exits-final,speed-final,rebound-final,native-final,native-speed-final,all-final,ff-final}`
 relative to this directory.
+
+## 0.96 test5 rotation and rebound
+
+Across Freefall injections at five different updates, changing the sine
+lookup or carrying the torque remainder without feeding it back into motion
+left inconsistent death timing in HOST replays. Full Q18 wheel levers plus
+fractional angular velocity in both body-point velocity and phase integration
+matched the ten PC ±140 outcomes. The SM83 implementation retains the full
+four-product damping sum through cancellation, then shifts and saturates once.
+
+The first integrated candidate introduced a 0.56% peak rebound error on a
+symmetric 4 m drop. Rounding the summed spring moment before the torque
+coefficient removed the spurious pitch. Both wheels now differ from the
+PC's 9.82939 mm peak by 0.00883 mm. The full 45-case rebound/brake suite
+passes the prior criteria. The eight synthetic extreme volt cases which
+saturate are listed in the speed audit.
+
+Test5 ROM SHA-256 is
+`4e10759c014da913bf67f1547da74e0ca1bcdf00aa72df1de841e65183317db0`.
+All 20 seeded Freefall comparisons pass their strict survival and death-step
+checks. The controller runs observed one impulse in each direction, at
+relative updates 5 and 41. During the 70-update windows their maximum angular
+errors were 0.0148° (left/right) and 0.0424° (right/left). The five extreme
+start poses give a worst near-terminal angular error of 15.75°. Remaining
+trajectory divergence and full-game cycle cost are independent acceptance
+items. No-input Freefall recorded 29 four-frame intervals, 323 five-frame,
+73 six-frame and 9 seven-frame intervals, averaging 11.614 updates/s.
+The 54 starts and full descent missed 1,590 and 439 display deadlines.
+
+Reproduce both controller routes, the five injection points, high-speed
+survival and native arithmetic parity with `make check-speed-limits` and
+the matching resources. Test5 reports are under
+`build/v096-test5/{controller,spin-240,spin-250,spin-260,spin-270,spin-280,speed-verified,rebound-final,native-final,native-speed-final,level-exits-final,levels,freefall}`.

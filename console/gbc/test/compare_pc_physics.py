@@ -381,6 +381,10 @@ class Gbc:
             self.wheel_bound, self.rider_bound = (C.c_uint8 * 2).in_dll(self.f, 'fixture_bound_metres')
         except ValueError:  # Frozen libraries built before the guard was widened.
             self.wheel_bound = self.rider_bound = 3
+        try:
+            self.angular_residual = C.c_int32.in_dll(self.f, 'angular_residual')
+        except ValueError:
+            self.angular_residual = C.c_int32(0)  # Whole-unit angular velocity in older builds.
         self.contacts = hasattr(self.f, 'fixture_contact_version') and self.f.fixture_contact_version() == 1
         if self.contacts:
             self.f.fixture_contact_state.argtypes = [C.POINTER(C.c_int), C.POINTER(C.c_int)]
@@ -413,6 +417,7 @@ class Gbc:
             values += [k.rx / 262144 + self.ox, k.ry / 262144 + self.oy,
                        k.vx / s['velocity_scale'], k.vy / s['velocity_scale'],
                        (k.alfa % s['angle']) * 2 * math.pi / s['angle'], k.omega / s['omega_scale']]
+        values[5] += self.angular_residual.value / ((1 << 24) * s['omega_scale'])
         values += [b.rider_x / 262144 + self.ox, b.rider_y / 262144 + self.oy,
                    b.rider_vx / s['velocity_scale'], b.rider_vy / s['velocity_scale'],
                    b.head_x / 262144 + self.ox, b.head_y / 262144 + self.oy]
@@ -429,10 +434,11 @@ class Gbc:
                   for name, k in zip(PARTS[:3], (b.body, *b.wheel))}
         angular_velocity = {name: k.omega / s['omega_scale']
                             for name, k in zip(PARTS[:3], (b.body, *b.wheel))}
+        angular_velocity['body'] += self.angular_residual.value / ((1 << 24) * s['omega_scale'])
         return {**(contact_snapshot(self.f.fixture_contact_state) if getattr(self, 'contacts', False) else {}),
                 't_game': self.t, 't_wall': self.t / .4368, 'position': pose,
                 'velocity': velocity, 'body_angle': angle_delta(b.body.alfa * 2 * math.pi / s['angle'], 0),
-                'body_omega': b.body.omega / s['omega_scale'], 'dead': self.dead,
+                'body_omega': angular_velocity['body'], 'dead': self.dead,
                 'finished': self.finished, 'turned': int(b.turned), 'gravity': int(b.gravity),
                 'angles': angles, 'angular_velocity': angular_velocity,
                 'gravity_direction': ('up', 'down', 'left', 'right')[b.gravity],

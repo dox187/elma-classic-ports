@@ -26,11 +26,12 @@ static const int16_t Ellipse_inside_y[]={RIDING_ELLIPSE_INSIDE_Y_VALUES};
 /* Private scheduled suspension workspace; ph_step is non-reentrant. */
 typedef struct {
  int16_t cs,sn; int32_t oms; int32_t tq[2];
- int32_t dvx[2],dvy[2],dvbx,dvby,dwb;
+ int32_t dvx[2],dvy[2],dvbx,dvby,dwb,spring_fraction;
 } riding_suspension_state_t;
-typedef char suspension_layout[sizeof(riding_suspension_state_t)==44 &&
+typedef char suspension_layout[sizeof(riding_suspension_state_t)==48 &&
     offsetof(riding_suspension_state_t,dvx)==16 &&
-    offsetof(riding_suspension_state_t,dwb)==40 ? 1 : -1];
+    offsetof(riding_suspension_state_t,dwb)==40 &&
+    offsetof(riding_suspension_state_t,spring_fraction)==44 ? 1 : -1];
 riding_suspension_state_t riding_suspension_state;
 const uint8_t riding_suspension_anchor_x=Q24_ANCHOR_X;
 const uint8_t riding_suspension_anchor_y=Q24_ANCHOR_Y;
@@ -40,6 +41,8 @@ void riding_suspension_scheduled(void) __sdcccall(0);
 bike_t Bike;
 uint8_t riding_subphase;int32_t move_residual[8];
 int64_t force_residual[2];
+/* Exact sub-unit part of Bike.body.omega, in [-2^23, 2^23). */
+int32_t angular_residual;
 extern int16_t riding_landing_nx[2], riding_landing_ny[2];
 extern uint8_t riding_landing_contact[2];
 
@@ -47,6 +50,35 @@ static int16_t Cs, Sn;   // cos and sin of the body's angle
 static int32_t Oms;      // body angular velocity, see C_OMS
 
 #ifndef __SDCC
+/* Wheel arms are stored in the position unit, 2^-18 metres. */
+typedef struct {
+    int32_t relx[2], rely[2], x[2], y[2];
+} damping_arms_t;
+
+static int32_t clamp_damping(int64_t value) {
+    if (value > INT32_MAX) return INT32_MAX;
+    if (value < INT32_MIN) return INT32_MIN;
+    return (int32_t)value;
+}
+
+static int32_t riding_lever_spin18(int32_t omega, int32_t arm) {
+    return clamp_damping(((int64_t)omega * arm + (1L << 17)) >> 18);
+}
+
+static int32_t riding_damping_torque18(const damping_arms_t *arms) {
+    /* The sum can exceed int64. Preserve each signed product as its integer
+     * and fractional parts, then carry the combined fraction exactly once. */
+    int64_t units = 0;
+    int32_t fraction = 0;
+    for (uint8_t k = 0; k < 2; ++k) {
+        int64_t x = (int64_t)arms->x[k] * arms->rely[k];
+        int64_t y = (int64_t)arms->y[k] * arms->relx[k];
+        units += (x >> 18) - (y >> 18);
+        fraction += (int32_t)(x & 0x3ffff) - (int32_t)(y & 0x3ffff);
+    }
+    return clamp_damping(units + (fraction >> 18));
+}
+
 static void angle( void ) {
 	/* Sample the closest Q16 phase for the suspension anchors. */
 	uint16_t a = (uint16_t)((Bike.body.alfa + (1UL << (RIDING_ANGLE_SHIFT-1))) >> RIDING_ANGLE_SHIFT);
@@ -72,16 +104,79 @@ static void head_position(void) {
 #endif
 
 
+/* Convert the complete angular velocity to body-point velocity. The second
+ * product contributes Q24 units to the first, with a single final rounding. */
+static int32_t body_oms(void) {
 #ifdef __SDCC
-void riding_circle_scheduled(circle_t *k,uint8_t slot) __sdcccall(0);
-static void move(circle_t *k) {riding_circle_scheduled(k,0);}
+    int32_t omega=Bike.body.omega;
+    int32_t whole=Q24_MUL(omega,C_OMS), fraction=q24_fraction;
+    int16_t offset=0;
+    if (!angular_residual) return whole;
+    if (q24_saturated) {
+        /* One inward unit can bring a boundary product back into range. */
+        int8_t sign=omega<0 ? -1 : 1;
+        whole=Q24_MUL(omega-sign,C_OMS);
+        if (q24_saturated) return whole;
+        fraction=q24_fraction;
+        offset=(int16_t)Q24_MUL(sign,C_OMS);
+        fraction+=q24_fraction;
+    }
+    int32_t low=Q24_MUL(angular_residual,C_OMS);
+    /* Floor the smaller product so a second rounding cannot flip a half tie. */
+    offset+=(int16_t)((low-(q24_fraction<0)+fraction+0x800000L)>>24);
+    int32_t result=(int32_t)((uint32_t)whole+(uint32_t)(int32_t)offset);
+    if (whole>=0 && offset>0 && result<0) return INT32_MAX;
+    if (whole<0 && offset<0 && result>=0) return INT32_MIN;
+    return result;
 #else
-static void move(circle_t *k) {
- k->alfa += (uint32_t)(phase_move(k->omega,7));
- k->rx += phase_advance(k->vx,2,k==&Bike.body?0:k==&Bike.wheel[0]?2:4);
- k->ry += phase_advance(k->vy,2,k==&Bike.body?1:k==&Bike.wheel[0]?3:5);
-}
+    int32_t m=q24_C_OMS[riding_subphase];
+    int64_t product=(int64_t)Bike.body.omega*m+(((int64_t)angular_residual*m)>>24);
+    int64_t result=(product+0x800000L)>>24;
+    return result>INT32_MAX ? INT32_MAX : result<INT32_MIN ? INT32_MIN : (int32_t)result;
 #endif
+}
+
+#ifdef __SDCC
+int16_t riding_angle_fraction(void) __sdcccall(0);
+void riding_body_translate(circle_t *k,uint8_t slot) __sdcccall(0);
+#endif
+
+static void move_body(void) {
+    int32_t omega=Bike.body.omega;
+    uint32_t phase;
+    if (!riding_subphase) {
+        phase=((uint32_t)omega<<5)+(uint32_t)((angular_residual+0x40000L)>>19);
+    } else {
+        /* 128 * remainder_time / angular_unit_time = 27007/1280 exactly.
+         * Split off 21 integer phase units per omega unit. The remaining
+         * numerator uses 127/1280 and fits signed32 after dividing by 256. */
+#ifdef __SDCC
+        int16_t f=riding_angle_fraction();
+        int32_t high=omega>>8;
+        int32_t n=(int32_t)(((uint32_t)high<<7)-(uint32_t)high)
+            +((mul16((uint8_t)omega,127)+f+640)>>8);
+        int32_t q;
+        if (n==(int16_t)n) {
+            /* 65536=5*13107+1. This bias gives floor(n/5) for signed16. */
+            q=(mul16((int16_t)n,13107)+6553)>>16;
+        } else {
+            q=n<0 ? -1-(int32_t)((uint32_t)~n/5u) : (int32_t)((uint32_t)n/5u);
+        }
+        phase=(uint32_t)omega*21u+(uint32_t)q;
+#else
+        int32_t f=(int32_t)(((int64_t)angular_residual*27007)>>24);
+        int64_t n=(int64_t)omega*27007+f+640;
+        phase=(uint32_t)(n>=0 ? n/1280 : -1-((-1-n)/1280));
+#endif
+    }
+    Bike.body.alfa+=phase;
+#ifdef __SDCC
+    riding_body_translate(&Bike.body,0);
+#else
+    Bike.body.rx+=phase_advance(Bike.body.vx,2,0);
+    Bike.body.ry+=phase_advance(Bike.body.vy,2,1);
+#endif
+}
 
 // vezeto_hatarolas: keeps the rider over the seat.
 static void rider_limit( void ) {
@@ -159,6 +254,7 @@ static void rider( int32_t gx, int32_t gy ) {
 }
 
 void ph_init( int32_t x, int32_t y ) {
+    angular_residual=0;
 	uint8_t* p = (uint8_t*)&Bike;
 	for( uint16_t i = 0; i < sizeof( bike_t ); i++ )
 		p[i] = 0;
@@ -281,7 +377,7 @@ uint8_t ph_step( uint8_t input ) {
 #ifndef __SDCC
     angle();
 #endif
-	Oms = KMUL32((int32_t)Bike.body.omega,C_OMS);
+	Oms = body_oms();
 
 	// Gas and brake:
 	uint8_t brake = input & IN_BRAKE;
@@ -325,6 +421,7 @@ uint8_t ph_step( uint8_t input ) {
  int32_t *dvx=riding_suspension_state.dvx,*dvy=riding_suspension_state.dvy;
  int32_t dvbx=riding_suspension_state.dvbx,dvby=riding_suspension_state.dvby;
  int32_t dwb=riding_suspension_state.dwb;
+ int32_t spring_fraction=riding_suspension_state.spring_fraction;
 #else
 	// Forces between the wheels and the body (erokszamitasa). The anchors
 	// of the springs, from the rotation of (K_X, -K_Y):
@@ -339,17 +436,7 @@ uint8_t ph_step( uint8_t input ) {
 	STEP_LOCAL int32_t dvx[2], dvy[2];
 	int32_t ts = 0;
     riding_force_begin();
-	STEP_LOCAL riding_torque32_t damping;
-    int32_t lx[2], ly[2];
-    uint8_t lever_bits = 12;
-    for (uint8_t k = 0; k < 2; ++k) {
-        lx[k] = Bike.wheel[k].rx - Bike.body.rx;
-        ly[k] = Bike.wheel[k].ry - Bike.body.ry;
-        /* Use Q12 while every rounded lever fits int16. Falling back to Q10
-         * keeps the previous range for a severely stretched suspension. */
-        if (lx[k] < -2097184L || lx[k] >= 2097120L ||
-            ly[k] < -2097184L || ly[k] >= 2097120L) lever_bits = 10;
-    }
+	STEP_LOCAL damping_arms_t damping;
 	for( uint8_t k = 0; k < 2; k++ ) {
 		circle_t* w = &Bike.wheel[k];
         int32_t gx = Bike.body.rx-w->rx+gsx[k];
@@ -358,16 +445,18 @@ uint8_t ph_step( uint8_t input ) {
 		dvy[k] = Q24_MUL(gy,C_SPRING_FW);riding_force_sub(1,dvy[k],q24_fraction);
 		ts += riding_spring_torque32(gsx[k],gsy[k],gx,gy);
 
-        int16_t kx = sat16(riding_sra8(lx[k]+128));
-        int16_t ky = sat16(riding_sra8(ly[k]+128));
-        int16_t fx = lever_bits == 12 ? (int16_t)((lx[k]+32)>>6) : kx;
-        int16_t fy = lever_bits == 12 ? (int16_t)((ly[k]+32)>>6) : ky;
-		// The velocity of the body at the wheel against the wheel's:
-		int32_t relx = Bike.body.vx-w->vx-riding_mulq32(Oms,fy,lever_bits);
-		int32_t rely = Bike.body.vy-w->vy+riding_mulq32(Oms,fx,lever_bits);
+        int32_t lx = (int32_t)((uint32_t)w->rx - (uint32_t)Bike.body.rx);
+        int32_t ly = (int32_t)((uint32_t)w->ry - (uint32_t)Bike.body.ry);
+        int16_t kx = sat16((lx >> 8) + ((lx >> 7) & 1));
+        int16_t ky = sat16((ly >> 8) + ((ly >> 7) & 1));
+        // The velocity of the body at the wheel against the wheel's:
+        int32_t relx = (int32_t)((uint32_t)Bike.body.vx - (uint32_t)w->vx
+                                 - (uint32_t)riding_lever_spin18(Oms, ly));
+        int32_t rely = (int32_t)((uint32_t)Bike.body.vy - (uint32_t)w->vy
+                                 + (uint32_t)riding_lever_spin18(Oms, lx));
 		int32_t dfx=KMUL32(relx,C_FRIC_W);riding_force_sub(0,dfx,q24_fraction);dvx[k]+=dfx;
 		int32_t dfy=KMUL32(rely,C_FRIC_W);riding_force_sub(1,dfy,q24_fraction);dvy[k]+=dfy;
-		damping.kx[k]=fx;damping.ky[k]=fy;
+		damping.x[k]=lx;damping.y[k]=ly;
         damping.relx[k]=relx;damping.rely[k]=rely;
         int32_t olddvx=dvx[k],olddvy=dvy[k];
 
@@ -382,10 +471,21 @@ uint8_t ph_step( uint8_t input ) {
 	// 20 times the mass of a wheel:
     int32_t dvbx=riding_force_finish(0);
     int32_t dvby=riding_force_finish(1);
-	int32_t dwb = -KMUL32(riding_sra8(ts)>>2,C_SPRING_T)
-	              -KMUL32(riding_scaled_torque32(&damping,lever_bits),C_FRIC_T);
+	/* Round the combined spring moment. Flooring two cancelling wheel
+     * contributions can otherwise accumulate a pitch impulse on level ground. */
+    int32_t spring_input = (riding_sra8(ts) >> 2) + ((ts >> 9) & 1);
+    int32_t dwb = -KMUL32(spring_input,C_SPRING_T);
+	int32_t spring_fraction=q24_fraction;
+	dwb-=KMUL32(riding_damping_torque18(&damping),C_FRIC_T);
 
 #endif
+
+    /* Both torque products are subtracted. Keep the old residual available
+     * to the rider until the body receives this substep's angular impulse. */
+    int32_t next_fraction=angular_residual-spring_fraction-q24_fraction;
+    int8_t angular_carry=(int8_t)((next_fraction+0x800000L)>>24);
+    next_fraction-=(int32_t)angular_carry*0x1000000L;
+    dwb+=angular_carry;
 
 	// Volts:
 	int32_t oldomega = Bike.body.omega;
@@ -448,13 +548,14 @@ uint8_t ph_step( uint8_t input ) {
 	// Suspension uses the pre-volt velocity, as in erokszamitasa. The rider
 	// follows after the volt and must use its new body-point velocity.
 	if( Bike.body.omega != oldomega )
-		Oms = KMUL32((int32_t)Bike.body.omega,C_OMS);
+		Oms = body_oms();
 	rider( gx, gy );
 
 	Bike.body.omega += dwb;
+    angular_residual=next_fraction;
 	Bike.body.vx += dvbx+gx;
 	Bike.body.vy += dvby+gy;
-	move( &Bike.body );
+	move_body();
 
 	for( uint8_t k = 0; k < 2; k++ )
 		riding_wheel( &Bike.wheel[k], dvx[k]+gx, dvy[k]+gy, tq[k] );

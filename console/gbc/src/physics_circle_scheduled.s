@@ -26,6 +26,15 @@ _riding_circle_scheduled::
  add hl,de
  pop de
  call circle_add
+ jr circle_translate
+; The body has already advanced its angle using its fractional omega.
+_riding_body_translate::
+ ldhl sp,#2
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ push hl
+circle_translate:
  ldhl sp,#6
  ld b,(hl)
  ld c,#2

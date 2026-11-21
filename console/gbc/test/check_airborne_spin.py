@@ -23,11 +23,24 @@ def pc_seed(d, settings):
     values = []
     for i in range(3):
         x, y, vx, vy, angle, w = read(base+24*i, '<iiiiIi')
+        if i == 0 and '_angular_residual' in d.symbols:
+            w += read(d.symbols['_angular_residual'], '<i')[0] / (1 << 24)
         values.extend([x/262144+ox, y/262144+oy, vx/vs, vy/vs,
                        (angle % settings['angle'])*math.tau/settings['angle'], w/settings['omega_scale']])
     x, y, vx, vy, hx, hy = read(base+72, '<6i')
     values.extend([x/262144+ox, y/262144+oy, vx/vs, vy/vs, hx/262144+ox, hy/262144+oy])
     return values
+
+
+def open_freefall(d):
+    d.ready()
+    d.level_menu()
+    for key, times in [('right', 4), ('down', 7)]:
+        for _ in range(times):
+            d.pulse(key)
+    d.pulse('start')
+    d.ready()
+    assert d.level_index() == 43
 
 
 def run(rom, gen, out, speed, pc, level, seed_step=260):
@@ -55,6 +68,11 @@ def run(rom, gen, out, speed, pc, level, seed_step=260):
                 assert d.rom_constant('game_physics_state_bytes', 0) == 119
                 addr = d.symbols['_Bike'] + 20
                 d.p.memory[addr:addr+4] = struct.pack('<i', round(speed * scale))
+                # Seed the same quantized speed in every ROM revision. A build
+                # carrying sub-unit angular velocity must replace both parts.
+                if '_angular_residual' in d.symbols:
+                    residual = d.symbols['_angular_residual']
+                    d.p.memory[residual:residual+4] = bytes(4)
                 pc.reset(level, pc_seed(d, settings), d.bike()['turned'])
                 for _ in range(25):
                     pc.step(0, settings['dt'])
@@ -101,14 +119,7 @@ def run(rom, gen, out, speed, pc, level, seed_step=260):
     d.p.hook_deregister(entry >> 16, entry & 65535)
     d.p.hook_register(entry >> 16, entry & 65535, observe, None)
     try:
-        d.ready()
-        d.level_menu()
-        for key, times in [('right', 4), ('down', 7)]:
-            for _ in range(times):
-                d.pulse(key)
-        d.pulse('start')
-        d.ready()
-        assert d.level_index() == 43
+        open_freefall(d)
         for _ in range(10 * (seed_step + 25)):
             if len(checked) >= 25 or d.byte('game_state') != RIDING:
                 break

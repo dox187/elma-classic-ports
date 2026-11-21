@@ -149,12 +149,19 @@ def packed_host(host):
                       for k in (p.body, *p.wheel, p.rider, p.head))
     public += struct.pack('<BB', p.alive, p.turned)
     assert len(bike) == (119 if host.wide_angular else 109) and len(public) == 52
-    return {'Bike': bike, 'gbc_bike': public,
+    fields = {'Bike': bike, 'gbc_bike': public,
             'move_residual': struct.pack('<8i', *(C.c_int32 * 8).in_dll(host.f, 'move_residual')),
             'force_residual': struct.pack('<2q', *(C.c_int64 * 2).in_dll(host.f, 'force_residual')),
             'riding_subphase': struct.pack('<B', C.c_uint8.in_dll(host.f, 'riding_subphase').value),
             'riding_audio_contact': bytes((C.c_uint8 * 2).in_dll(host.f, 'riding_audio_contact')),
             'riding_audio_impact': bytes((C.c_uint8 * 2).in_dll(host.f, 'riding_audio_impact'))}
+    try:
+        residual = C.c_int32.in_dll(host.f, 'angular_residual')
+    except ValueError:
+        pass  # Historical HOST builds predate fractional body velocity.
+    else:
+        fields['angular_residual'] = struct.pack('<i', residual.value)
+    return fields
 
 
 def cases(steps):
@@ -312,6 +319,9 @@ def verify(out, rom, library, settings, metadata, steps, timeout, suite=None):
     symbols = {name: int(value, 16) for name, value in
                re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)', rom.with_suffix('.noi').read_text())}
     host = comparison.Gbc(library, settings)
+    layout = packed_host(host)
+    if ('angular_residual' in layout) != ('_angular_residual' in symbols):
+        raise ValueError('HOST and native body angular residual layouts differ')
     legacy_air = suite is None
     suite = cases(steps) if suite is None else suite
     emulator = PyBoy(str(rom), window='null', sound_emulated=False, cgb=True)
@@ -427,7 +437,7 @@ def verify(out, rom, library, settings, metadata, steps, timeout, suite=None):
                   outer_steps=len(costs), differences=failures[:20], difference_count=len(failures),
                   mean_tcycles=sum(costs) / len(costs) if costs else None,
                   max_tcycles=max(costs) if costs else None, elapsed_s=time.monotonic() - start,
-                  packed_bytes_per_state=224 if host.wide_angular else 214, cases=results, provenance=metadata,
+                  packed_bytes_per_state=sum(map(len, layout.values())), cases=results, provenance=metadata,
                   duplicate_interrupt_hooks=state['duplicate_hooks'],
                   verification_sha256=comparison.sha256(Path(__file__)),
                   cost_note='SM83 T-cycles including turn when requested; excludes vsync and reset')

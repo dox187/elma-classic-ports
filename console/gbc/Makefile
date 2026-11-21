@@ -100,6 +100,10 @@ ifndef SPEED_CHECK_DIR
 SPEED_CHECK_DIR := build/speed-check-$(shell date +%Y%m%d-%H%M%S)
 endif
 check-speed-limits: $(GAME_ROM)
+	$(PYTHON) test/check_freefall_volts.py --rom $(GAME_ROM) --gen $(GEN) --res "$(ELMA_RES)" --out $(SPEED_CHECK_DIR)/controller
+	@for step in 240 250 260 270 280; do \
+		$(PYTHON) test/check_airborne_spin.py --rom $(GAME_ROM) --gen $(GEN) --res "$(ELMA_RES)" --seed-step $$step --out $(SPEED_CHECK_DIR)/spin-$$step || exit 1; \
+	done
 	$(PYTHON) test/check_speed_limits.py --gen $(GEN) --out $(SPEED_CHECK_DIR)/pc --require-gas-cutoff --require-spin-survival
 	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --case-file $(SPEED_CHECK_DIR)/pc/cases.json --out $(SPEED_CHECK_DIR)/native
 

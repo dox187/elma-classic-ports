@@ -87,10 +87,6 @@ exact_dot_general:
  add sp,#7
  ret
 _riding_torque_input32::
- ld a,#10
-; As above, with the lever's fractional bit count in A (native private ABI).
-_riding_scaled_torque_a::
- push af
  add sp,#-7
  ldhl sp,#0
  xor a
@@ -101,7 +97,7 @@ _riding_scaled_torque_a::
  ld (hl+),a
  ld (hl+),a
  ld (hl),a
- ldhl sp,#11
+ ldhl sp,#9
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -118,7 +114,7 @@ _riding_scaled_torque_a::
  add hl,de
  call exact_product
  call exact_add
- ldhl sp,#11
+ ldhl sp,#9
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -135,7 +131,7 @@ _riding_scaled_torque_a::
  add hl,de
  call exact_product
  call exact_sub
- ldhl sp,#11
+ ldhl sp,#9
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -152,7 +148,7 @@ _riding_scaled_torque_a::
  add hl,de
  call exact_product
  call exact_add
- ldhl sp,#11
+ ldhl sp,#9
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -169,11 +165,10 @@ _riding_scaled_torque_a::
  add hl,de
  call exact_product
  call exact_sub
- ldhl sp,#8
- ld b,(hl)
+ ld b,#10
  ld c,#0
  call exact_finish
- add sp,#9
+ add sp,#7
  ret
 ; HL -> signed32 x, BC = signed16 y. Return BC:HL:DE signed48.
 _riding_product32x16_regs::

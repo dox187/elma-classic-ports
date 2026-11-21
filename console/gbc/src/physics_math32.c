@@ -77,18 +77,14 @@ int32_t riding_dotq32(int32_t a,int32_t b,int16_t c,int16_t d,uint8_t shift) {
     return clamp32(((int64_t)a*c+(int64_t)b*d+((int64_t)1<<(shift-1)))>>shift);
 }
 
-int32_t riding_scaled_torque32(const riding_torque32_t *t, uint8_t shift) {
+int32_t riding_torque_input32(const riding_torque32_t *t) {
     int64_t sum=0;
     uint8_t i;
     for(i=0;i<2;++i)sum+=(int64_t)t->kx[i]*t->rely[i]-(int64_t)t->ky[i]*t->relx[i];
-    sum>>=shift;
+    sum>>=10;
     if(sum>INT32_MAX)return INT32_MAX;
     if(sum<INT32_MIN)return INT32_MIN;
     return (int32_t)sum;
-}
-
-int32_t riding_torque_input32(const riding_torque32_t *t) {
-    return riding_scaled_torque32(t, 10);
 }
 
 #endif

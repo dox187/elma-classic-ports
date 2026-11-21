@@ -1,80 +1,57 @@
 ; Exact scheduled suspension orchestration. Global packed context:
-; cs0,sn2,oms4,tq8,dvx16,dvy24,dvbx32,dvby36,dwb40.
+; cs0,sn2,oms4,tq8,dvx16,dvy24,dvbx32,dvby36,dwb40,spring_fraction44.
 ; Existing Q24 products retain fractions immediately; all sums wrap32.
 ; Single ph_step owner, no interrupt/reentrant entry.
  .module physics_suspension_scheduled
  .area _DATA
 ss_anchor: .ds 16
 ss_g: .ds 8
-ss_damping: .ds 24
+ss_damping: .ds 32
 ss_coarse: .ds 8
-ss_lever_bits: .ds 1
+ss_product_upper: .ds 2
+ss_moment: .ds 9
 ss_ts: .ds 4
 ss_temp: .ds 4
 ss_tr: .ds 4
  .area _CODE_8
 _riding_suspension_scheduled::
-; Both rotational damping terms share one lever scale. Keep independently
-; rounded Q10 levers for drive/brake reaction and as the wide-range fallback.
- ld a,#12
- ld (#ss_lever_bits),a
+; Full Q18 arms for damping, independently rounded Q10 arms for reaction.
  ld hl,#_Bike+0
  ld de,#_Bike+24
  call ss_lever
- ld hl,#ss_coarse+0
- ld (hl),c
- inc hl
- ld (hl),b
  ld hl,#ss_damping+16
+ call ss_store_lever
+ ld hl,#ss_coarse+0
  ld (hl),e
  inc hl
  ld (hl),d
  ld hl,#_Bike+0
  ld de,#_Bike+48
  call ss_lever
+ ld hl,#ss_damping+20
+ call ss_store_lever
  ld hl,#ss_coarse+2
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_damping+18
  ld (hl),e
  inc hl
  ld (hl),d
  ld hl,#_Bike+4
  ld de,#_Bike+28
  call ss_lever
+ ld hl,#ss_damping+24
+ call ss_store_lever
  ld hl,#ss_coarse+4
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_damping+20
  ld (hl),e
  inc hl
  ld (hl),d
  ld hl,#_Bike+4
  ld de,#_Bike+52
  call ss_lever
+ ld hl,#ss_damping+28
+ call ss_store_lever
  ld hl,#ss_coarse+6
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_damping+22
  ld (hl),e
  inc hl
  ld (hl),d
- ld a,(#ss_lever_bits)
- cp a,#12
- jr z,ss_levers_ready
- ld hl,#ss_damping+16
- ld de,#ss_coarse
- ld b,#8
-ss_copy_coarse:
- ld a,(de)
- inc de
- ld (hl+),a
- dec b
- jr nz,ss_copy_coarse
-ss_levers_ready:
  ld hl,#_riding_suspension_state
  ld e,(hl)
  inc hl
@@ -531,26 +508,9 @@ ss_index_407:
  ld (hl),c
  inc hl
  ld (hl),b
- ld a,(#ss_lever_bits)
- push af
- inc sp
- ld hl,#ss_damping+20
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#_riding_suspension_state+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
+ ld hl,#ss_damping+24
+ ld de,#_riding_suspension_state+4
+ call ss_lever_spin18
  ld b,h
  ld c,l
  ld hl,#ss_temp
@@ -659,26 +619,9 @@ ss_index_691:
  ld (hl),c
  inc hl
  ld (hl),b
- ld a,(#ss_lever_bits)
- push af
- inc sp
  ld hl,#ss_damping+16
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#_riding_suspension_state+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
+ ld de,#_riding_suspension_state+4
+ call ss_lever_spin18
  ld b,h
  ld c,l
  ld hl,#ss_temp
@@ -1179,26 +1122,9 @@ ss_index_1286:
  inc hl
  ld (hl),b
 ; Lever coordinates preserve +128 before the arithmetic byte drop.
- ld a,(#ss_lever_bits)
- push af
- inc sp
- ld hl,#ss_damping+22
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#_riding_suspension_state+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
+ ld hl,#ss_damping+28
+ ld de,#_riding_suspension_state+4
+ call ss_lever_spin18
  ld b,h
  ld c,l
  ld hl,#ss_temp
@@ -1307,26 +1233,9 @@ ss_index_1570:
  ld (hl),c
  inc hl
  ld (hl),b
- ld a,(#ss_lever_bits)
- push af
- inc sp
- ld hl,#ss_damping+18
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#_riding_suspension_state+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
+ ld hl,#ss_damping+20
+ ld de,#_riding_suspension_state+4
+ call ss_lever_spin18
  ld b,h
  ld c,l
  ld hl,#ss_temp
@@ -1678,6 +1587,16 @@ ss_reaction_done_1:
  rr c
  rr d
  rr e
+ ; Carry holds bit 9 of the signed moment after shifting by ten.
+ jr nc,ss_spring_rounded
+ inc e
+ jr nz,ss_spring_rounded
+ inc d
+ jr nz,ss_spring_rounded
+ inc c
+ jr nz,ss_spring_rounded
+ inc b
+ss_spring_rounded:
  ld hl,#_q24_index_C_SPRING_T
  ld a,(#_riding_subphase)
  or a
@@ -1686,6 +1605,15 @@ ss_reaction_done_1:
 ss_index_2081:
  ld a,(hl)
  call ss_q24
+ push de
+ ld hl,#_q24_fraction
+ ld de,#_riding_suspension_state+44
+ .rept 4
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ pop de
  xor a
  sub a,e
  ld e,a
@@ -1706,11 +1634,7 @@ ss_index_2081:
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#ss_damping
- push hl
- ld a,(#ss_lever_bits)
- call _riding_scaled_torque_a
- add sp,#2
+ call ss_damping_torque18
  ld b,h
  ld c,l
  ld hl,#_q24_index_C_FRIC_T
@@ -1758,9 +1682,17 @@ ss_index_2116:
  inc hl
  ld (hl),b
  ret
+; floor(angular_residual * 27007 / 2^24). The normalized residual limits
+; the result to signed16. The signed48 product is returned in BC:HL:DE.
+_riding_angle_fraction::
+ ld hl,#_angular_residual
+ ld bc,#27007
+ call _riding_product32x16_regs
+ ld e,h
+ ld d,c
+ ret
 ; Wheel coordinate at DE minus body coordinate at HL, in Q18 metres.
-; Return rounded Q10 in BC and Q12 in DE. If Q12 would overflow for any
-; component, the caller uses all four Q10 values before calculating forces.
+; Return the signed32 difference in BC:DE.
 ss_lever:
  ld a,(de)
  sub a,(hl)
@@ -1782,42 +1714,21 @@ ss_lever:
  sbc a,(hl)
  ld b,a
  pop de
- ; Range-check (delta + 32) before extracting bits 6..21.
- ld a,e
- add a,#32
- ld a,d
- adc a,#0
- ld l,a
- ld a,c
- adc a,#0
- ld h,a
+ ret
+ss_store_lever:
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ ; Round to Q10 for reaction. Extend the original sign before propagating
+ ; the rounding carry, including at the positive signed32 limit.
  ld a,b
- adc a,#0
- jr z,ss_lever_positive
- inc a
- jr nz,ss_lever_wide
- ld a,h
- cp a,#0xe0
- jr nc,ss_lever_fine
- jr ss_lever_wide
-ss_lever_positive:
- ld a,h
- cp a,#0x20
- jr c,ss_lever_fine
-ss_lever_wide:
- ld a,#10
- ld (#ss_lever_bits),a
-ss_lever_fine:
- ld a,e
- add a,#32
  add a,a
- rl l
- rl h
- add a,a
- rl l
- rl h
- push hl
- ; Carry bit 7 into the remaining bytes to round Q10 independently.
+ sbc a,a
+ ld h,a
  ld a,e
  add a,a
  ld a,d
@@ -1829,14 +1740,10 @@ ss_lever_fine:
  ld a,b
  adc a,#0
  ld c,a
- add a,a
- sbc a,a
+ ld a,h
+ adc a,#0
  ld b,a
- call ss_sat16
- ld b,d
- ld c,e
- pop de
- ret
+ jp ss_sat16
 ; Internal ED CB low-to-high convention to Q24 register ABI1 and back.
 ss_q24:
  push af
@@ -1869,4 +1776,366 @@ ss_clamp:
 ss_negative:
  ld de,#0x8000
  ld bc,#0xffff
+ ret
+
+; HL -> signed32 arm, DE -> signed32 speed. Return all 64 product bits in
+; ss_product_upper:BC:HL:DE. Most speeds need just one signed32 x signed16
+; product. The ROM0 multiply restores bank8 after its quarter-table reads.
+ss_lever_product:
+ push hl
+ ld a,(de)
+ inc de
+ ld c,a
+ ld a,(de)
+ inc de
+ ld b,a
+ ld a,(de)
+ inc de
+ ld l,a
+ ld a,(de)
+ ld h,a
+ ; speed = signed_low + 65536 * (signed_high + signbit(low)).
+ bit 7,b
+ jr z,ss_check_speed_high
+ inc hl
+ ld a,h
+ xor a,#0x80
+ or a,l
+ jr z,ss_positive_32768
+ss_check_speed_high:
+ ld a,h
+ or a,l
+ jr nz,ss_wide_speed
+ pop hl
+ call _riding_product32x16_regs
+ ld a,b
+ add a,a
+ sbc a,a
+ ld (#ss_product_upper),a
+ ld (#ss_product_upper+1),a
+ ret
+
+ss_positive_32768:
+ ; The adjusted high digit is +32768. Double the full 16384 product.
+ push bc
+ ld bc,#16384
+ ldhl sp,#2
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call _riding_product32x16_regs
+ sla e
+ rl d
+ rl l
+ rl h
+ rl c
+ rl b
+ jr ss_combine_products
+ss_wide_speed:
+ push bc
+ ld b,h
+ ld c,l
+ ldhl sp,#2
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call _riding_product32x16_regs
+ss_combine_products:
+ push bc
+ push hl
+ push de
+ ldhl sp,#6
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ inc hl
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call _riding_product32x16_regs
+ ; Add high_product << 16 to the sign-extended low_product.
+ ld a,b
+ add a,a
+ sbc a,a
+ ld (#ss_product_upper),a
+ ld (#ss_product_upper+1),a
+ push de
+ ld d,h
+ ld e,l
+ ldhl sp,#2
+ ld a,(hl+)
+ add a,e
+ ld e,a
+ ld a,(hl+)
+ adc a,d
+ ld d,a
+ ld a,(hl+)
+ adc a,c
+ ld c,a
+ ld a,(hl+)
+ adc a,b
+ ld b,a
+ ld a,(#ss_product_upper)
+ adc a,(hl)
+ inc hl
+ ld (#ss_product_upper),a
+ ld a,(#ss_product_upper+1)
+ adc a,(hl)
+ ld (#ss_product_upper+1),a
+ ld h,d
+ ld l,e
+ pop de
+ add sp,#10
+ ret
+
+; Return clamp32((speed * arm + 2^17) >> 18) in HLDE.
+ss_lever_spin18:
+ ; A signed16 speed produces a signed48 product, which always fits signed32
+ ; after the Q18 shift. Zero is frequent when the bike is at rest.
+ push hl
+ ld h,d
+ ld l,e
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jr nz,ss_spin_wide
+ inc hl
+ cp a,(hl)
+ jr nz,ss_spin_wide
+ pop hl
+ ld a,b
+ or a,c
+ jr z,ss_spin_zero
+ call _riding_product32x16_regs
+ ld a,l
+ add a,#2
+ ld e,a
+ ld a,h
+ adc a,#0
+ ld d,a
+ ld a,c
+ adc a,#0
+ ld l,a
+ ld a,b
+ adc a,#0
+ ld h,a
+ sra h
+ rr l
+ rr d
+ rr e
+ sra h
+ rr l
+ rr d
+ rr e
+ ret
+ss_spin_zero:
+ ld hl,#0
+ ld de,#0
+ ret
+ss_spin_wide:
+ pop hl
+ call ss_lever_product
+ ld a,l
+ add a,#2
+ ld e,a
+ ld a,h
+ adc a,#0
+ ld d,a
+ ld a,c
+ adc a,#0
+ ld l,a
+ ld a,b
+ adc a,#0
+ ld h,a
+ ld a,(#ss_product_upper)
+ adc a,#0
+ ld c,a
+ ld a,(#ss_product_upper+1)
+ adc a,#0
+ ld b,a
+ add a,a
+ sbc a,a
+ jp ss_reduce18
+
+; Return clamp32(sum(arm_x * rely - arm_y * relx) >> 18) in HLDE.
+; First product seeds the nine-byte signed accumulator. A ninth byte keeps
+; both overflow and cancellation exact when all four products are wide.
+ss_damping_torque18:
+ ld hl,#ss_damping+16
+ ld de,#ss_damping+8
+ call ss_lever_product
+ push hl
+ ld hl,#ss_moment
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
+ pop de
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ inc hl
+ ld a,(#ss_product_upper)
+ ld (hl+),a
+ ld a,(#ss_product_upper+1)
+ ld (hl+),a
+ add a,a
+ sbc a,a
+ ld (hl),a
+ ld hl,#ss_damping+24
+ ld de,#ss_damping
+ call ss_lever_product
+ call ss_sub_product
+ ld hl,#ss_damping+20
+ ld de,#ss_damping+12
+ call ss_lever_product
+ call ss_add_product
+ ld hl,#ss_damping+28
+ ld de,#ss_damping+4
+ call ss_lever_product
+ call ss_sub_product
+ ld hl,#ss_moment+2
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld a,(hl+)
+ ld b,(hl)
+ ld l,a
+ ld h,b
+ ld a,(#ss_moment+6)
+ ld c,a
+ ld a,(#ss_moment+7)
+ ld b,a
+ ld a,(#ss_moment+8)
+ss_reduce18:
+ ; A:BC is the signed upper portion above the four result bytes (HLDE).
+ ; Two final right shifts fit signed32 exactly when A:BC is -2..1.
+ or a,a
+ jr nz,ss_reduce_negative
+ ld a,b
+ or a,a
+ jr nz,ss_max32
+ ld a,c
+ cp a,#2
+ jr nc,ss_max32
+ jr ss_shift18
+ss_reduce_negative:
+ bit 7,a
+ jr z,ss_max32
+ inc a
+ jr nz,ss_min32
+ ld a,b
+ inc a
+ jr nz,ss_min32
+ ld a,c
+ cp a,#0xfe
+ jr c,ss_min32
+ss_shift18:
+ sra a
+ rr h
+ rr l
+ rr d
+ rr e
+ sra a
+ rr h
+ rr l
+ rr d
+ rr e
+ ret
+ss_min32:
+ ld hl,#0x8000
+ ld de,#0
+ ret
+ss_max32:
+ ld hl,#0x7fff
+ ld de,#0xffff
+ ret
+
+ss_add_product:
+ push hl
+ ld hl,#ss_moment
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ pop de
+ ld a,(hl)
+ adc a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl+),a
+ ld a,(#ss_product_upper)
+ adc a,(hl)
+ ld (hl+),a
+ ld a,(#ss_product_upper+1)
+ ld b,a
+ adc a,(hl)
+ ld (hl+),a
+ bit 7,b
+ ld a,#0
+ jr z,ss_add_sign
+ dec a
+ss_add_sign:
+ adc a,(hl)
+ ld (hl),a
+ ret
+
+ss_sub_product:
+ push hl
+ ld hl,#ss_moment
+ ld a,(hl)
+ sub a,e
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,d
+ ld (hl+),a
+ pop de
+ ld a,(hl)
+ sbc a,e
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,d
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,c
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,b
+ ld (hl+),a
+ ld a,(#ss_product_upper)
+ ld c,a
+ ld a,(hl)
+ sbc a,c
+ ld (hl+),a
+ ld a,(#ss_product_upper+1)
+ ld b,a
+ ld a,(hl)
+ sbc a,b
+ ld (hl+),a
+ bit 7,b
+ ld b,#0
+ jr z,ss_sub_sign
+ dec b
+ss_sub_sign:
+ ld a,(hl)
+ sbc a,b
+ ld (hl),a
  ret
