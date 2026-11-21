@@ -15,8 +15,10 @@ import subprocess
 import sys
 
 from pyboy import PyBoy
+from check_scheduled_native import CORE, NATIVE_EXTRA, TABLES, run
 
 BASE=Path(__file__).resolve().parents[1]
+DESCRIPTOR=struct.Struct('<4i3H2B6i')
 spec=importlib.util.spec_from_file_location('physics_converter',BASE/'tools/physics_level.py')
 converter=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(converter)
@@ -43,7 +45,7 @@ def expected(cell,cx,cy,sub):
     return b''.join(converter.record(s,cx,cy)for s in leaf)
 
 
-def host_check(gen,out,models):
+def host_check(source,out,models,descriptors,data,includes):
     (out/'host.c').write_text('''#include <string.h>
 #include "physics_core.h"
 #include "runtime.h"
@@ -55,10 +57,9 @@ uint8_t fixture_query(uint8_t x,uint8_t y,uint8_t sub,uint8_t *out) {
 uint8_t fixture_gravity(void){return Bike.gravity;}
 void fixture_wheel0(int32_t *p){p[0]=gbc_bike.wheel[0].x;p[1]=gbc_bike.wheel[0].y;}
 ''')
-    common=[BASE/'src'/n for n in('physics.c','physics_core.c','physics_contacts.c','physics_collision.c','physics_math.c','physics_math32.c','physics_sweep.c')]
-    data=[gen/'physics_level_data.c']+sorted(gen.glob('physics_bank_*.c'))
+    sources=[source/name for name in (*CORE,'physics_q24.c','physics_force.c')]
     command(['cc','-shared','-fPIC','-O0','-fwrapv','-Wno-unknown-pragmas',
-             '-I'+str(BASE/'src'),'-I'+str(gen),out/'host.c',*common,*data,
+             *includes,out/'host.c',*sources,*data,
              '-o',out/'host.dylib'],out/'host-compile.log')
     f=C.CDLL(str(out/'host.dylib'))
     f.fixture_query.argtypes=[C.c_uint8,C.c_uint8,C.c_uint8,C.POINTER(C.c_uint8)]
@@ -66,6 +67,7 @@ void fixture_wheel0(int32_t *p){p[0]=gbc_bike.wheel[0].x;p[1]=gbc_bike.wheel[0].
     buf=(C.c_uint8*(255*18))();xy=(C.c_int32*2)();queries=coverage=0
     for index,(level,ox,oy,w,h,cells)in enumerate(models):
         assert f.physics_select_level(index)==1
+        assert bytes((C.c_uint8*DESCRIPTOR.size).in_dll(f,'riding_level'))==descriptors[index],('descriptor',index)
         f.physics_reset_current();f.fixture_wheel0(xy)
         assert list(xy)==[math.floor(v*65536+.5)for v in level.start()]
         for ci,cell in enumerate(cells):
@@ -99,10 +101,10 @@ void fixture_wheel0(int32_t *p){p[0]=gbc_bike.wheel[0].x;p[1]=gbc_bike.wheel[0].
         f.physics_set_gravity(5);assert f.fixture_gravity()==3
         f.physics_reset_current();assert f.fixture_gravity()==1
     assert f.physics_select_level(len(models))==0 and f.physics_select_level(255)==0
-    return common,data,{'host_queries':queries,'source_subdivisions_covered':coverage}
+    return {'host_queries':queries,'source_subdivisions_covered':coverage}
 
 
-def native_check(gen,out,models,common,data):
+def native_check(source,arithmetic,out,models,descriptors,data,includes):
     dense=[]
     for _,_,_,w,h,cells in models:dense.extend(len(c)>converter.DENSE_THRESHOLD for c in cells)
     flags=[sum((1<<j)for j in range(8)if i+j<len(dense)and dense[i+j])for i in range(0,len(dense),8)]
@@ -143,15 +145,20 @@ void main(void) {
  fixture_done=1;while(1)vsync();
 }
 ''')
-    assembly=[p for p in sorted((BASE/'src').glob('physics_*.s'))if p.name not in ('physics_mul16.s','physics_suspension_fast.s','physics_brake_fast.s','physics_roll_fast.s','physics_supports_fast.s','physics_free_fast.s','physics_rider_response.s','physics_torque_reaction.s','physics_head_pose.s')]
-    if not (gen/'physics_sine_16.c').is_file():
-        subprocess.run([sys.executable,str(BASE/'tools/physics_sine.py'),'--out',str(gen)],check=True)
-    tables=sorted((BASE/'build/gen').glob('physics_quarter_*.c'))+sorted((BASE/'build/gen').glob('physics_scale_*.c'))+sorted(gen.glob('physics_sine_*.c'))
-    assert len(tables)==28,'generate the production arithmetic tables first'
+    sources=[source/name for name in (*CORE,*NATIVE_EXTRA)]
+    tables=[path for pattern in TABLES for path in sorted(arithmetic.glob(pattern))]
+    q24=json.loads((arithmetic/'physics_q24_manifest.json').read_text())
+    assert len(tables)==28+q24['last_bank']-q24['first_bank']+1,'incomplete arithmetic tables'
     rom=out/'native.gbc'
-    command([BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-Wf--opt-code-size',
-        '-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-Wl-g_riding_coefficient_bank_lo=252','-Wl-g_riding_coefficient_bank_hi=0','-I'+str(BASE/'src'),
-        '-I'+str(gen),'-o',rom,out/'native.c',out/'meta.c',*common,*assembly,*data,*tables],out/'native-compile.log')
+    flags=[BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-Wf--opt-code-size',
+           '-Wf--max-allocs-per-node','-Wf100000',*includes]
+    objects=[]
+    with (out/'native-compile.log').open('w') as log:
+        for i,path in enumerate([out/'native.c',out/'meta.c',*sources,*data,*tables,arithmetic/'physics_q24_dispatch.c']):
+            obj=out/f'{i:03}-{path.stem}.o'
+            run([*flags,'-c','-o',obj,path],log)
+            objects.append(obj)
+        run([*flags,'-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-o',rom,*objects],log)
     sym={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',rom.with_suffix('.noi').read_text())}
     p=PyBoy(str(rom),window='null',sound_emulated=False,cgb=True);p.set_emulation_speed(0)
     queries=0;selected=[];differences=[];last_observation=[None]
@@ -161,6 +168,9 @@ void main(void) {
         if not byte('ready'):return
         li=byte('level');level,ox,oy,w,h,cells=models[li]
         if byte('kind')==1:
+            a=sym['_riding_level']
+            if bytes(p.memory[a:a+DESCRIPTOR.size])!=descriptors[li] and len(differences)<5:
+                differences.append(('descriptor',li))
             a=sym['_gbc_bike']+10
             actual=struct.unpack('<ii',bytes(p.memory[a:a+8]))
             want=tuple(math.floor(v*65536+.5)for v in level.start())
@@ -190,14 +200,14 @@ void main(void) {
         assert selected==list(range(len(models))),selected
         assert queries==sum(16 if len(cell)>converter.DENSE_THRESHOLD else 1 for model in models for cell in model[5]),queries
     finally:p.stop(save=False)
-    return{'native_queries':queries,'native_levels':len(selected),'bank_restore_failures':failures,
-            'highest_data_bank':json.loads((gen/'physics_bank_manifest.json').read_text())['banks'][-1]}
+    return{'native_queries':queries,'native_levels':len(selected),'bank_restore_failures':failures}
 
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--res',type=Path,required=True)
-    parser.add_argument('--gen',type=Path,default=BASE/'build/gen')
+    parser.add_argument('--gen',type=Path,default=BASE/'build/gen-8m')
+    parser.add_argument('--source',type=Path,default=BASE/'src',help='physics source directory or frozen snapshot')
     parser.add_argument('--out',type=Path,default=BASE/'build/physics-level-check')
     parser.add_argument('--high-bank',action='store_true',help='regenerate at bank280 to exercise the MBC5 ninth bit')
     args=parser.parse_args();args.out.mkdir(parents=True,exist_ok=True)
@@ -205,10 +215,17 @@ def main():
     if args.high_bank:
         gen=args.out/'high-gen'
         command([sys.executable,BASE/'tools/physics_level.py','--res',args.res,'--out',gen,
-                 '--hz','30','--damper','exponential','--bank-base','280'],args.out/'generation.log')
+                 '--hz','30','--damper','scheduled','--bank-base','280'],args.out/'generation.log')
     models=source_models(args.res)
-    common,data,report=host_check(gen,args.out,models)
-    report.update(native_check(gen,args.out,models,common,data))
+    manifest=json.loads((gen/'physics_bank_manifest.json').read_text())
+    packer=converter.BankPacker(manifest['first_bank'])
+    descriptors=[DESCRIPTOR.pack(*converter.pack_level(model[0],i,packer)[0])
+                 for i,model in enumerate(models)]
+    data=[gen/'physics_level_data.c',*sorted(gen.glob('physics_bank_*.c'))]
+    includes=['-I'+str(path) for path in dict.fromkeys((args.source,gen,args.gen))]
+    report=host_check(args.source,args.out,models,descriptors,data,includes)
+    report.update(native_check(args.source,args.gen,args.out,models,descriptors,data,includes))
+    report.update(descriptor_bytes=DESCRIPTOR.size,highest_data_bank=manifest['banks'][-1])
     (args.out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report))
 
