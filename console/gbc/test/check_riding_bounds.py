@@ -1,4 +1,5 @@
 """Check inclusive Q16.16 bike bounds, including wrapping world coordinates."""
+import argparse
 import json
 from pathlib import Path
 import random
@@ -8,7 +9,6 @@ import subprocess
 from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
-OUT = BASE / 'build/play-physics/bounds-check'
 
 
 def signed(n):
@@ -16,7 +16,10 @@ def signed(n):
 
 
 def main():
-    OUT.mkdir(parents=True, exist_ok=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path, default=BASE / 'build/play-physics/bounds-check')
+    out = parser.parse_args().out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
     cases = []
     deltas = sorted({sign * n + step for sign in (-1, 1)
                      for n in (0, 65536, 196608, 524288) for step in (-1, 0, 1)})
@@ -33,15 +36,15 @@ def main():
         coordinate = rng.randrange(6)
         limit = (8 if coordinate < 4 else 3) * 65536
         cases.append((body, signed(body+delta), coordinate, int(abs(delta) <= limit)))
-    (OUT/'vectors.h').write_text('''#include <stdint.h>
+    (out/'vectors.h').write_text('''#include <stdint.h>
 typedef struct {int32_t body,part;uint8_t coordinate,expected;} bounds_vector_t;
 extern const bounds_vector_t vectors[];
 #define NCASES %d
 ''' % len(cases))
-    (OUT/'vectors.c').write_text('#include "vectors.h"\n#pragma bank 15\n'
+    (out/'vectors.c').write_text('#include "vectors.h"\n#pragma bank 15\n'
         'const bounds_vector_t vectors[]={\n'
         + ',\n'.join('{%dL,%dL,%d,%d}' % row for row in cases) + '\n};\n')
-    (OUT/'check.c').write_text('''#include <gb/gb.h>
+    (out/'check.c').write_text('''#include <gb/gb.h>
 #include <gb/cgb.h>
 #include <string.h>
 #include "runtime.h"
@@ -82,12 +85,12 @@ void main(void) {
 ''')
     subprocess.run([str(BASE/'.toolchain/gbdk/bin/lcc'), '-msm83:gb',
         '-Wf--opt-code-size', '-Wm-yC', '-Wm-yt0x19', '-Wm-yoA', '-Wl-m', '-Wl-j',
-        '-I'+str(OUT), '-I'+str(BASE/'src'), '-o', str(OUT/'check.gbc'), str(OUT/'check.c'),
-        str(OUT/'vectors.c'), str(BASE/'src/physics_bounds.s')],
+        '-I'+str(out), '-I'+str(BASE/'src'), '-o', str(out/'check.gbc'), str(out/'check.c'),
+        str(out/'vectors.c'), str(BASE/'src/physics_bounds.s')],
         check=True, capture_output=True, text=True)
     symbols = {k:int(v,16) for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',
-               (OUT/'check.noi').read_text())}
-    p = PyBoy(str(OUT/'check.gbc'), window='null', sound_emulated=False, cgb=True)
+               (out/'check.noi').read_text())}
+    p = PyBoy(str(out/'check.gbc'), window='null', sound_emulated=False, cgb=True)
     p.set_emulation_speed(0)
     timings, pending, returns = [], [], set()
     def returned(_):
@@ -117,7 +120,7 @@ void main(void) {
         assert not report['failures'] and not report['reference_c_failures'], report
     finally:
         p.stop(save=False)
-    (OUT/'report.json').write_text(json.dumps(report, indent=2)+'\n')
+    (out/'report.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report))
 
 

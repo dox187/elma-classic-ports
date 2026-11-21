@@ -34,5 +34,8 @@ typedef struct {
  * saturation. Angular16 clamping belongs to the caller. The 24-byte input
  * layout is identical on host and SM83.
  */
+#ifndef __SDCC
+int32_t riding_scaled_torque32(const riding_torque32_t *t, uint8_t shift);
+#endif
 int32_t riding_torque_input32(const riding_torque32_t *t) MATH32_ABI;
 #endif

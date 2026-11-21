@@ -7,7 +7,7 @@ from pathlib import Path
 import struct
 
 from compare_pc_physics import Pc, Resource, build_pc, constants, internal_levels, write_level
-from play import Driver, RIDING
+from play import Driver, RIDING, angle_delta
 
 
 def pc_seed(d, settings):
@@ -30,13 +30,16 @@ def pc_seed(d, settings):
     return values
 
 
-def run(rom, gen, out, speed, pc, level):
+def run(rom, gen, out, speed, pc, level, seed_step=260):
     d = Driver(rom, out, gen)
     settings = constants(gen / 'riding_constants.h')
     scale = settings['omega_scale']
     pc_alive = []
     pc_axles = []
-    seed_step = 260
+    pc_live_poses = []
+    pose_errors = []
+    pc_live_angles = []
+    angle_errors = []
     checked = []
     seeded = False
     wheel_slots = d.symbols['_shadow_OAM'] + 8 * 4
@@ -60,11 +63,20 @@ def run(rom, gen, out, speed, pc, level):
                     if state['dead']:
                         break
                     pos = state['position']
+                    pc_live_poses.append(pos)
+                    pc_live_angles.append(state['body_angle'])
                     pc_axles.append(max(abs(pos[wheel][axis]-pos['body'][axis])
                                         for wheel in ('wheel0', 'wheel1') for axis in (0, 1)))
                 seeded = True
             if not seeded or step <= seed_step:
                 return
+            index = step - seed_step - 1
+            if index < len(pc_live_poses):
+                bike = d.bike()
+                error = max(math.dist((bike[part]['x'], bike[part]['y']), reference)
+                            for part, reference in pc_live_poses[index].items())
+                pose_errors.append((index + 1, error))
+                angle_errors.append(abs(math.degrees(angle_delta(bike['body']['angle'], pc_live_angles[index]))))
             public = d.symbols['_gbc_bike']
             world = d.symbols['_game_world'] + 4
             ox, oy = struct.unpack('<ii', bytes(d.p.memory[world:world+8]))
@@ -97,12 +109,16 @@ def run(rom, gen, out, speed, pc, level):
         d.pulse('start')
         d.ready()
         assert d.level_index() == 43
-        for _ in range(2800):
-            if d.word('game_steps') >= seed_step+25 or d.byte('game_state') != RIDING:
+        for _ in range(10 * (seed_step + 25)):
+            if len(checked) >= 25 or d.byte('game_state') != RIDING:
                 break
             d.tick()
         return dict(speed=speed, seeded=seeded, riding=d.byte('game_state') == RIDING,
                     checked=len(checked), max_axis_m=max(checked, default=0),
+                    max_position_error_first_19_steps_m=max(
+                        (e for i, e in pose_errors if i <= 19), default=0),
+                    max_body_angle_error_common_live_deg=max(angle_errors, default=0),
+                    max_position_error_common_live_m=max((e for _, e in pose_errors), default=0),
                     elapsed_steps=d.word('game_steps')-seed_step,
                     pc_death_step=next((i for i,v in enumerate(pc_alive,1) if not v), None),
                     pc_live_max_axis_m=max(pc_axles, default=0))
@@ -114,19 +130,22 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ['rom', 'gen', 'out', 'res']:
         parser.add_argument('--'+name, required=True, type=Path)
+    parser.add_argument('--seed-step', type=int, default=260)
     args = parser.parse_args()
+    if args.seed_step < 1:
+        parser.error('--seed-step must be positive')
     args.out.mkdir(parents=True, exist_ok=True)
     pc = Pc(build_pc(args.out))
     level = args.out/'freefall.txt'
     write_level(level, internal_levels(Resource(args.res))[43])
-    results = [run(args.rom, args.gen, args.out / str(speed), speed, pc, level)
+    results = [run(args.rom, args.gen, args.out / str(speed), speed, pc, level, args.seed_step)
                for speed in (-140, -120, 120, 140)]
     report = dict(rom=str(args.rom.resolve()), sha256=hashlib.sha256(args.rom.read_bytes()).hexdigest(),
-                  synthetic_seed_step=260, cases=results)
+                  synthetic_seed_step=args.seed_step, cases=results)
     (args.out / 'report.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report, indent=2))
     for r in results:
         assert r['seeded'] and r['max_axis_m'] > 3, 'extended wheel pose must reach the renderer'
         assert r['riding'] == (r['pc_death_step'] is None), r
         assert r['elapsed_steps'] == (r['pc_death_step'] or 25), r
-        assert r['checked'] >= r['elapsed_steps'] - 1, r
+        assert r['checked'] == r['elapsed_steps'] - int(not r['riding']), r

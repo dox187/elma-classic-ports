@@ -272,9 +272,9 @@ def u24(v):
     return struct.pack('<I', v)[:3]
 
 
-def kill_bounds(lines):
+def kill_bounds(lines, units=P):
     """Where the body dies leaving the level: ecset::kilogna of the
-    original (ECSET.CPP) with its brush of the 1.11a, as P thresholds."""
+    original (ECSET.CPP) with its brush of the 1.11a, as fixed-point thresholds."""
     xs = [x for a, b in lines for x in (a[0], b[0])]
     ys = [y for a, b in lines for y in (a[1], b[1])]
     minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
@@ -288,10 +288,10 @@ def kill_bounds(lines):
     esorszam = ((maxy + 1000 / arany) - eoy) * arany
 
     def px(r):
-        return (r / P - 320.0 / arany - eox) * arany
+        return (r / units - 320.0 / arany - eox) * arany
 
     def py(r):
-        return (r / P - 240.0 / arany - eoy) * arany
+        return (r / units - 240.0 / arany - eoy) * arany
 
     def first(lo, hi, test):
         # The smallest r in lo..hi where test(r) is true (test monotonic):
@@ -302,7 +302,8 @@ def kill_bounds(lines):
             else:
                 lo = mid + 1
         return lo
-    big = 1 << 30
+    # Cover the level and the 10000-pixel brush margin at either scale.
+    big = math.ceil((max(map(abs, (minx, maxx, miny, maxy))) + 256) * units)
     x0 = first(-big, big, lambda r: not (px(r) < 20))
     y0 = first(-big, big, lambda r: not (py(r) < 20))
     x1 = first(-big, big, lambda r: math.floor(px(r)) + 639 > emaxx - 20)
@@ -310,7 +311,7 @@ def kill_bounds(lines):
     return x0, x1, y0, y1
 
 
-def racs_bounds(lines):
+def racs_bounds(lines, units=P):
     """szakaszok::felsorolasreset: a point this far right or up of the grid
     of the original (cells of 1 m from 6 m around the lines) sets
     Racsonkivul, which kills the bike."""
@@ -321,10 +322,11 @@ def racs_bounds(lines):
     ydim = int((maxy - miny) / 1.0 + 1)
 
     def first(o, dim):
-        lo, hi = -(1 << 30), 1 << 30
+        lo = math.floor((o + dim) * units) - 1
+        hi = math.ceil((o + dim + 2) * units) + 1
         while lo < hi:
             mid = (lo + hi) // 2
-            d = (mid / P - o) * (1 / 1.0)
+            d = (mid / units - o) * (1 / 1.0)
             if (int(d) if d > 0 else 0) > dim:
                 hi = mid
             else:

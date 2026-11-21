@@ -1856,3 +1856,27 @@ Ordinary Freefall still takes 4–6 display frames per update. On the existing
 test2 controller corpus, physics occupied 90.9% of active update cycles
 (weighted across 30,490 updates). The three substeps per update run the
 suspension, contacts and rider dynamics on each substep.
+
+## 0.96 test4 rotation accuracy
+
+Freefall test3 at update 260 shows angular drift while both wheels are airborne.
+For ±140 rad/s, Q10 lever rounding contributes roughly 0.006 rad/s of error
+in the first internal update. The suspension amplifies it on subsequent
+updates. Whole-step saturation and out-of-level queries occur later.
+In a replay of a frozen pose, rounding the body phase alone matched both PC
+death updates. In the rebuilt game that change still missed both. Q12 levers
+and nearest-phase sampling together pass the original four Freefall cases.
+The same build fails the −140 case starting at update 240 by one update.
+The strict test accepts an alternative `--seed-step` for independent repeats.
+
+The original desktop reference checks each wheel before movement, the head
+after movement and the frame against the camera brush. Encoding these limits
+in each level descriptor passes 1,008 PC probes and 16 exit trajectories.
+The 8 m wheel guard still applies after the complete update.
+
+The complete test4 ROM passes the 45 rebound/braking cases, all 122 final
+survival outcomes and all 54 start checks. Freefall averages 12.845 updates/s
+(204 four-frame intervals, 179 five-frame, 50 six-frame and one seven-frame).
+The 54 starts and full descent miss 1,591 and 439 deadlines, respectively.
+Reports are under `build/v096-test4/{spin-final,spin240-final,level-exits-final,speed-final,rebound-final,native-final,native-speed-final,all-final,ff-final}`
+relative to this directory.

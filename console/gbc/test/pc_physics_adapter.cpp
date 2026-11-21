@@ -172,4 +172,14 @@ void compare_pc_event(int index, int* kind_object, double* times) {
     times[0]=e.t; times[1]=ObservedTimes.at(index);
 }
 double compare_pc_pi(void) { return K_pi; }
+
+// Observe the brush and grid predicates without consuming a later physics event.
+int compare_pc_level_exit(double x, double y) {
+    const int saved=Racsonkivul;
+    Racsonkivul=0;
+    Pszak->felsorolasreset(vekt2(x,y));
+    const int grid=Racsonkivul;
+    Racsonkivul=saved;
+    return grid | (Pecsetalso->kilogna(vekt2(x,y))<<1);
+}
 }

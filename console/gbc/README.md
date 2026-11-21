@@ -3,12 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest diagnostic:
-**[0.96 test3 — 8 MiB](build/elma-gbc-v0.96-test3-8m.gbc)**. It fixes premature
-crashes during extreme airborne rotation. The previous physics checkpoint is
-**[0.96 test2 — 8 MiB](build/elma-gbc-v0.96-test2-8m.gbc)**.
-This ROM includes widened angular velocity/brake torque and the close-compression
-reaction correction, preserving the original integration schedule and precision.
-Freefall averages **13.54 updates/s**; stable 30 FPS remains unmet.
+**[0.96 test4 — 8 MiB](build/elma-gbc-v0.96-test4-8m.gbc)**.
+It improves airborne suspension forces and implements the original level-exit
+checks. At Freefall update 260 both extreme rotations now end on the same
+update as PC. Freefall averages **12.85 updates/s** in the emulator.
+Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
 The **[0.94 speed test — 8 MiB](build/elma-gbc-v0.94-speed-test-8m.gbc)**
@@ -57,6 +56,32 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test4 — airborne damping and level exits
+
+The suspension samples the nearest body-angle phase and uses four times the
+previous coordinate resolution for damping while the rounded wheel levers
+fit in Q12. Gas and brake keep their original reaction inputs. Each internal
+step also checks the wheels, head and frame against the collision-grid and
+camera bounds derived from the original course geometry.
+
+On Freefall, the test sets the frame's angular velocity at game update 260.
+The PC reference starts with the ROM's pose and velocities. At −140 rad/s
+both now stop on update 21, and at +140 both stop on update 25. Test3 was
+one update late and one early, respectively. Both ±120 runs survive all
+25 updates. Through the common live updates at ±140 the largest position
+errors are still 1.56 m and 0.84 m. Injecting −140 at update 240 exposes
+another one-update mismatch (GBC 20, PC 21).
+
+All 45 rebound/braking cases pass their 0.1% peak and airtime limits. All 122
+speed cases agree on final survival. Two native suites match 9,209 and 3,170
+HOST states byte for byte. The level-exit tests pass 1,008 boundary probes
+and 16 trajectories against the desktop source. All 54 course starts and
+the no-input Freefall pass their functional checks. Freefall takes 4–7 display
+frames per update (12.85 updates/s). Hardware timing remains unverified.
+
+[Playable test4 ROM](build/elma-gbc-v0.96-test4-8m.gbc) · 8,388,608 bytes ·
+SHA-256 `83430fd97453fd313f341978b0defae3fe5709a761b0c0c0cd508e89ddc0dc98`.
 
 ## 0.96 test3 — airborne wheel extension
 

@@ -74,6 +74,7 @@ ifndef SCHEDULE_CHECK_DIR
 SCHEDULE_CHECK_DIR := build/scheduled-check-$(shell date +%Y%m%d-%H%M%S)
 endif
 check-scheduled: $(GAME_ROM)
+	$(PYTHON) test/check_level_exits.py --gen $(GEN) --res "$(ELMA_RES)" --out $(SCHEDULE_CHECK_DIR)/level-exits
 	$(PYTHON) test/check_wide_brake.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-brake
 	$(PYTHON) test/check_wide_wheels.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-wheels
 	$(PYTHON) test/check_close_reaction.py --out $(SCHEDULE_CHECK_DIR)/close-reaction

@@ -11,6 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT/'console/snes/tools'))
 from elmadata import Resource, internal_levels
+from gen_phys import kill_bounds, racs_bounds
 
 BANK_SIZE = 16384
 DESCRIPTOR_BANK = 15
@@ -146,6 +147,19 @@ def pack_level(level,index,packer):
     start_x,start_y = level.start()
     desc = [ox*65536,oy*65536,roundi(start_x*65536),roundi(start_y*65536),
             base,bank,address,width,height]
+    # The original line table stores start and delta. Its bounds visit the
+    # reconstructed end as well as the start (SZAKASZ.CPP and ECSET.CPP).
+    lines = []
+    for grass,poly in level.polygons:
+        if grass:
+            continue
+        for i,(x,y) in enumerate(poly):
+            ex,ey = poly[(i+1)%len(poly)]
+            lines.append(((x,y),(x+(ex-x),y+(ey-y))))
+    units = 1 << 18  # Bike coordinates before display/contact quantization
+    gx,gy = racs_bounds(lines,units)
+    x0,x1,y0,y1 = kill_bounds(lines,units)
+    desc.extend([gx-ox*units,gy-oy*units,x0-ox*units,x1-ox*units,y0-oy*units,y1-oy*units])
     report = {'index':index,'name':level.name,'origin_m':[ox,oy],
               'start_q16':desc[2:4],'grid':[width,height],
               'original_edges':edge_count,'split_segments':len(segments),
@@ -172,7 +186,10 @@ typedef struct {
  int32_t origin_x,origin_y,start_x,start_y;
  uint16_t base_bank,directory_bank,directory_address;
  uint8_t width,height;
+ /* Local Q18. Grid exits at >=, brush intervals are half-open. */
+ int32_t grid_exit_x,grid_exit_y,brush_x0,brush_x1,brush_y0,brush_y1;
 } physics_level_desc_t;
+extern physics_level_desc_t riding_level;
 extern const physics_level_desc_t physics_levels[RIDING_LEVEL_COUNT];
 #ifndef __SDCC
 extern const uint8_t *const physics_bank_data[RIDING_BANK_COUNT];
@@ -186,7 +203,7 @@ extern uint8_t physics_level_index;
     source = ['#include "riding_level.h"','#pragma bank %d'%DESCRIPTOR_BANK,
               'const physics_level_desc_t physics_levels[RIDING_LEVEL_COUNT]={']
     for row in descriptors:
-        source.append('{'+','.join(str(v)+('L' if i<4 else '') for i,v in enumerate(row))+'},')
+        source.append('{'+','.join(str(v)+('L' if i<4 or i>=9 else '') for i,v in enumerate(row))+'},')
     source += ['};','#ifndef __SDCC']
     banks = list(range(packer.first,packer.bank+1))
     source += ['extern const uint8_t physics_bank_%d[];'%bank for bank in banks]

@@ -48,7 +48,8 @@ static int32_t Oms;      // body angular velocity, see C_OMS
 
 #ifndef __SDCC
 static void angle( void ) {
-	uint16_t a = (uint16_t)(Bike.body.alfa >> RIDING_ANGLE_SHIFT);
+	/* Sample the closest Q16 phase for the suspension anchors. */
+	uint16_t a = (uint16_t)((Bike.body.alfa + (1UL << (RIDING_ANGLE_SHIFT-1))) >> RIDING_ANGLE_SHIFT);
 	Cs = fcos( a );
 	Sn = fsin( a );
 }
@@ -339,6 +340,16 @@ uint8_t ph_step( uint8_t input ) {
 	int32_t ts = 0;
     riding_force_begin();
 	STEP_LOCAL riding_torque32_t damping;
+    int32_t lx[2], ly[2];
+    uint8_t lever_bits = 12;
+    for (uint8_t k = 0; k < 2; ++k) {
+        lx[k] = Bike.wheel[k].rx - Bike.body.rx;
+        ly[k] = Bike.wheel[k].ry - Bike.body.ry;
+        /* Use Q12 while every rounded lever fits int16. Falling back to Q10
+         * keeps the previous range for a severely stretched suspension. */
+        if (lx[k] < -2097184L || lx[k] >= 2097120L ||
+            ly[k] < -2097184L || ly[k] >= 2097120L) lever_bits = 10;
+    }
 	for( uint8_t k = 0; k < 2; k++ ) {
 		circle_t* w = &Bike.wheel[k];
         int32_t gx = Bike.body.rx-w->rx+gsx[k];
@@ -347,14 +358,16 @@ uint8_t ph_step( uint8_t input ) {
 		dvy[k] = Q24_MUL(gy,C_SPRING_FW);riding_force_sub(1,dvy[k],q24_fraction);
 		ts += riding_spring_torque32(gsx[k],gsy[k],gx,gy);
 
-        int16_t kx = sat16( riding_sra8(w->rx-Bike.body.rx+128) );
-        int16_t ky = sat16( riding_sra8(w->ry-Bike.body.ry+128) );
+        int16_t kx = sat16(riding_sra8(lx[k]+128));
+        int16_t ky = sat16(riding_sra8(ly[k]+128));
+        int16_t fx = lever_bits == 12 ? (int16_t)((lx[k]+32)>>6) : kx;
+        int16_t fy = lever_bits == 12 ? (int16_t)((ly[k]+32)>>6) : ky;
 		// The velocity of the body at the wheel against the wheel's:
-		int32_t relx = Bike.body.vx-w->vx-riding_mulq32(Oms,ky,10);
-		int32_t rely = Bike.body.vy-w->vy+riding_mulq32(Oms,kx,10);
+		int32_t relx = Bike.body.vx-w->vx-riding_mulq32(Oms,fy,lever_bits);
+		int32_t rely = Bike.body.vy-w->vy+riding_mulq32(Oms,fx,lever_bits);
 		int32_t dfx=KMUL32(relx,C_FRIC_W);riding_force_sub(0,dfx,q24_fraction);dvx[k]+=dfx;
 		int32_t dfy=KMUL32(rely,C_FRIC_W);riding_force_sub(1,dfy,q24_fraction);dvy[k]+=dfy;
-		damping.kx[k]=kx;damping.ky[k]=ky;
+		damping.kx[k]=fx;damping.ky[k]=fy;
         damping.relx[k]=relx;damping.rely[k]=rely;
         int32_t olddvx=dvx[k],olddvy=dvy[k];
 
@@ -370,7 +383,7 @@ uint8_t ph_step( uint8_t input ) {
     int32_t dvbx=riding_force_finish(0);
     int32_t dvby=riding_force_finish(1);
 	int32_t dwb = -KMUL32(riding_sra8(ts)>>2,C_SPRING_T)
-	              -KMUL32(riding_torque_input32(&damping),C_FRIC_T);
+	              -KMUL32(riding_scaled_torque32(&damping,lever_bits),C_FRIC_T);
 
 #endif
 

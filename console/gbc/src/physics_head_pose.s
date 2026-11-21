@@ -6,13 +6,18 @@
 .area _CODE_8
 _riding_head_pose32::
  add sp,#-8
-; Low16(alfa>>7), avoiding a full32 shift of discarded high bits.
+; Round the body angle to the closest 16-bit phase (128 angle units).
  ld hl,#_Bike+16
  ld a,(hl+)
- rlca
- ld e,(hl)
- inc hl
- ld d,(hl)
+ add a,#64
+ ld b,a
+ ld a,(hl+)
+ adc a,#0
+ ld e,a
+ ld a,(hl)
+ adc a,#0
+ ld d,a
+ sla b
  rl e
  rl d
  push de

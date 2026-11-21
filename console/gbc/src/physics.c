@@ -49,6 +49,36 @@ void physics_reset(int32_t x,int32_t y) GBC_BANKED {
     gbc_bike.alive=1;export_state();
 }
 
+#if defined(RIDING_PC_SCHEDULE)
+#ifdef __SDCC
+/* Compare the most significant byte first. Most positions differ from the
+ * limit by at least a quarter metre, so the SM83 skips the fractional bytes. */
+static uint8_t position_before(const int32_t *position,const int32_t *limit) {
+    const uint8_t *a=(const uint8_t *)position,*b=(const uint8_t *)limit;
+    if(a[3]!=b[3])return (a[3]^0x80u)<(b[3]^0x80u);
+    if(a[2]!=b[2])return a[2]<b[2];
+    if(a[1]!=b[1])return a[1]<b[1];
+    return a[0]<b[0];
+}
+#define BEFORE(a,b) position_before(&(a),&(b))
+#else
+#define BEFORE(a,b) ((a)<(b))
+#endif
+
+static uint8_t wheels_in_grid(void) {
+    return BEFORE(Bike.wheel[0].rx,riding_level.grid_exit_x)
+        && BEFORE(Bike.wheel[0].ry,riding_level.grid_exit_y)
+        && BEFORE(Bike.wheel[1].rx,riding_level.grid_exit_x)
+        && BEFORE(Bike.wheel[1].ry,riding_level.grid_exit_y);
+}
+
+static uint8_t head_body_in_level(void) {
+    return BEFORE(Bike.head_x,riding_level.grid_exit_x) && BEFORE(Bike.head_y,riding_level.grid_exit_y)
+        && !BEFORE(Bike.body.rx,riding_level.brush_x0) && BEFORE(Bike.body.rx,riding_level.brush_x1)
+        && !BEFORE(Bike.body.ry,riding_level.brush_y0) && BEFORE(Bike.body.ry,riding_level.brush_y1);
+}
+#endif
+
 void physics_step(uint8_t input) GBC_BANKED {
     uint8_t in=0;
     if(!gbc_bike.alive)return;
@@ -63,7 +93,11 @@ void physics_step(uint8_t input) GBC_BANKED {
     uint8_t impact0=0,impact1=0;
     for(uint8_t sub=0;sub<3;++sub) {
         riding_subphase=(sub==2);
-        gbc_bike.alive=ph_step(in);
+        /* BEALLIT queries the wheels before moving them. VIZSGALAT checks
+         * the resulting head in that same grid and the body against the
+         * original 640x480 brush. Finish the interval even on a grid exit. */
+        uint8_t wheels_inside=wheels_in_grid();
+        gbc_bike.alive=ph_step(in) && wheels_inside && head_body_in_level();
         impact0|=riding_audio_impact[0];
         impact1|=riding_audio_impact[1];
         if(!gbc_bike.alive)break;

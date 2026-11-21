@@ -7,11 +7,74 @@
 ss_anchor: .ds 16
 ss_g: .ds 8
 ss_damping: .ds 24
+ss_coarse: .ds 8
+ss_lever_bits: .ds 1
 ss_ts: .ds 4
 ss_temp: .ds 4
 ss_tr: .ds 4
  .area _CODE_8
 _riding_suspension_scheduled::
+; Both rotational damping terms share one lever scale. Keep independently
+; rounded Q10 levers for drive/brake reaction and as the wide-range fallback.
+ ld a,#12
+ ld (#ss_lever_bits),a
+ ld hl,#_Bike+0
+ ld de,#_Bike+24
+ call ss_lever
+ ld hl,#ss_coarse+0
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ ld hl,#ss_damping+16
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ld hl,#_Bike+0
+ ld de,#_Bike+48
+ call ss_lever
+ ld hl,#ss_coarse+2
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ ld hl,#ss_damping+18
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ld hl,#_Bike+4
+ ld de,#_Bike+28
+ call ss_lever
+ ld hl,#ss_coarse+4
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ ld hl,#ss_damping+20
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ld hl,#_Bike+4
+ ld de,#_Bike+52
+ call ss_lever
+ ld hl,#ss_coarse+6
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ ld hl,#ss_damping+22
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ld a,(#ss_lever_bits)
+ cp a,#12
+ jr z,ss_levers_ready
+ ld hl,#ss_damping+16
+ ld de,#ss_coarse
+ ld b,#8
+ss_copy_coarse:
+ ld a,(de)
+ inc de
+ ld (hl+),a
+ dec b
+ jr nz,ss_copy_coarse
+ss_levers_ready:
  ld hl,#_riding_suspension_state
  ld e,(hl)
  inc hl
@@ -468,104 +531,7 @@ ss_index_407:
  ld (hl),c
  inc hl
  ld (hl),b
-; Lever coordinates preserve +128 before the arithmetic byte drop.
- ld hl,#_Bike+24
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld a,e
- add a,#128
- ld e,a
- ld a,d
- adc a,#0
- ld d,a
- ld a,c
- adc a,#0
- ld c,a
- ld a,b
- adc a,#0
- ld b,a
- ld e,d
- ld d,c
- ld c,b
- ld a,b
- add a,a
- sbc a,a
- ld b,a
- call ss_sat16
- ld hl,#ss_damping+16
- ld (hl),e
- inc hl
- ld (hl),d
- ld hl,#_Bike+28
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+4
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld a,e
- add a,#128
- ld e,a
- ld a,d
- adc a,#0
- ld d,a
- ld a,c
- adc a,#0
- ld c,a
- ld a,b
- adc a,#0
- ld b,a
- ld e,d
- ld d,c
- ld c,b
- ld a,b
- add a,a
- sbc a,a
- ld b,a
- call ss_sat16
- ld hl,#ss_damping+20
- ld (hl),e
- inc hl
- ld (hl),d
- ld a,#10
+ ld a,(#ss_lever_bits)
  push af
  inc sp
  ld hl,#ss_damping+20
@@ -693,7 +659,7 @@ ss_index_691:
  ld (hl),c
  inc hl
  ld (hl),b
- ld a,#10
+ ld a,(#ss_lever_bits)
  push af
  inc sp
  ld hl,#ss_damping+16
@@ -830,12 +796,12 @@ ss_index_842:
  inc hl
  or a,(hl)
  jp z,ss_reaction_done_0
- ld hl,#ss_damping+20
+ ld hl,#ss_coarse+4
  ld e,(hl)
  inc hl
  ld d,(hl)
  push de
- ld hl,#ss_damping+16
+ ld hl,#ss_coarse+0
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -873,7 +839,7 @@ ss_index_959:
  ld a,#14
  push af
  inc sp
- ld hl,#ss_damping+20
+ ld hl,#ss_coarse+4
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -937,7 +903,7 @@ ss_index_959:
  ld a,#14
  push af
  inc sp
- ld hl,#ss_damping+16
+ ld hl,#ss_coarse+0
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -1213,103 +1179,7 @@ ss_index_1286:
  inc hl
  ld (hl),b
 ; Lever coordinates preserve +128 before the arithmetic byte drop.
- ld hl,#_Bike+48
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld a,e
- add a,#128
- ld e,a
- ld a,d
- adc a,#0
- ld d,a
- ld a,c
- adc a,#0
- ld c,a
- ld a,b
- adc a,#0
- ld b,a
- ld e,d
- ld d,c
- ld c,b
- ld a,b
- add a,a
- sbc a,a
- ld b,a
- call ss_sat16
- ld hl,#ss_damping+18
- ld (hl),e
- inc hl
- ld (hl),d
- ld hl,#_Bike+52
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+4
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld a,e
- add a,#128
- ld e,a
- ld a,d
- adc a,#0
- ld d,a
- ld a,c
- adc a,#0
- ld c,a
- ld a,b
- adc a,#0
- ld b,a
- ld e,d
- ld d,c
- ld c,b
- ld a,b
- add a,a
- sbc a,a
- ld b,a
- call ss_sat16
- ld hl,#ss_damping+22
- ld (hl),e
- inc hl
- ld (hl),d
- ld a,#10
+ ld a,(#ss_lever_bits)
  push af
  inc sp
  ld hl,#ss_damping+22
@@ -1437,7 +1307,7 @@ ss_index_1570:
  ld (hl),c
  inc hl
  ld (hl),b
- ld a,#10
+ ld a,(#ss_lever_bits)
  push af
  inc sp
  ld hl,#ss_damping+18
@@ -1574,12 +1444,12 @@ ss_index_1721:
  inc hl
  or a,(hl)
  jp z,ss_reaction_done_1
- ld hl,#ss_damping+22
+ ld hl,#ss_coarse+6
  ld e,(hl)
  inc hl
  ld d,(hl)
  push de
- ld hl,#ss_damping+18
+ ld hl,#ss_coarse+2
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -1617,7 +1487,7 @@ ss_index_1838:
  ld a,#14
  push af
  inc sp
- ld hl,#ss_damping+22
+ ld hl,#ss_coarse+6
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -1681,7 +1551,7 @@ ss_index_1838:
  ld a,#14
  push af
  inc sp
- ld hl,#ss_damping+18
+ ld hl,#ss_coarse+2
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -1838,7 +1708,8 @@ ss_index_2081:
  ld (hl),b
  ld hl,#ss_damping
  push hl
- call _riding_torque_input32
+ ld a,(#ss_lever_bits)
+ call _riding_scaled_torque_a
  add sp,#2
  ld b,h
  ld c,l
@@ -1886,6 +1757,85 @@ ss_index_2116:
  ld (hl),c
  inc hl
  ld (hl),b
+ ret
+; Wheel coordinate at DE minus body coordinate at HL, in Q18 metres.
+; Return rounded Q10 in BC and Q12 in DE. If Q12 would overflow for any
+; component, the caller uses all four Q10 values before calculating forces.
+ss_lever:
+ ld a,(de)
+ sub a,(hl)
+ ld c,a
+ inc de
+ inc hl
+ ld a,(de)
+ sbc a,(hl)
+ ld b,a
+ inc de
+ inc hl
+ push bc
+ ld a,(de)
+ sbc a,(hl)
+ ld c,a
+ inc de
+ inc hl
+ ld a,(de)
+ sbc a,(hl)
+ ld b,a
+ pop de
+ ; Range-check (delta + 32) before extracting bits 6..21.
+ ld a,e
+ add a,#32
+ ld a,d
+ adc a,#0
+ ld l,a
+ ld a,c
+ adc a,#0
+ ld h,a
+ ld a,b
+ adc a,#0
+ jr z,ss_lever_positive
+ inc a
+ jr nz,ss_lever_wide
+ ld a,h
+ cp a,#0xe0
+ jr nc,ss_lever_fine
+ jr ss_lever_wide
+ss_lever_positive:
+ ld a,h
+ cp a,#0x20
+ jr c,ss_lever_fine
+ss_lever_wide:
+ ld a,#10
+ ld (#ss_lever_bits),a
+ss_lever_fine:
+ ld a,e
+ add a,#32
+ add a,a
+ rl l
+ rl h
+ add a,a
+ rl l
+ rl h
+ push hl
+ ; Carry bit 7 into the remaining bytes to round Q10 independently.
+ ld a,e
+ add a,a
+ ld a,d
+ adc a,#0
+ ld e,a
+ ld a,c
+ adc a,#0
+ ld d,a
+ ld a,b
+ adc a,#0
+ ld c,a
+ add a,a
+ sbc a,a
+ ld b,a
+ call ss_sat16
+ ld b,d
+ ld c,e
+ pop de
  ret
 ; Internal ED CB low-to-high convention to Q24 register ABI1 and back.
 ss_q24:
