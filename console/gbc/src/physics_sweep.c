@@ -156,6 +156,94 @@ next_cell:;
 #ifdef __SDCC
 extern uint8_t riding_head_clear_mask;
 static uint16_t clear_x,clear_y;
+#ifdef RIDING_HEAD_TERRAIN
+static uint8_t head_tiles[4];
+extern uint16_t riding_head_cell_mask(uint8_t cx,uint8_t cy);
+static const uint16_t head_bits[16]={
+    1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768
+};
+/* Inclusive spans of columns and rows inside a 4 m cell, indexed by 4*lo+hi. */
+static const uint16_t head_columns[16]={
+    0x1111,0x3333,0x7777,0xffff,0,0x2222,0x6666,0xeeee,0,0,0x4444,0xcccc,0,0,0,0x8888
+};
+static const uint16_t head_rows[16]={
+    0x000f,0x00ff,0x0fff,0xffff,0,0x00f0,0x0ff0,0xfff0,0,0,0x0f00,0xff00,0,0,0,0xf000
+};
+
+/* A zero mask extends the cached certificate to the whole coarse cell. */
+static void head_remember(uint8_t tx,uint8_t ty,uint8_t mask) __naked {
+    tx;ty;mask;
+    __asm
+        ld b,a
+        ldhl sp,#2
+        ld a,(hl)
+        ld (#_riding_head_clear_mask),a
+        cp #0xf0
+        jr nz,head_cache_coords
+        ld a,b
+        and #0xfc
+        ld b,a
+        ld a,e
+        and #0xfc
+        ld e,a
+head_cache_coords:
+        ld l,b
+        ld h,#0
+        add hl,hl
+        add hl,hl
+        ld a,l
+        ld (#_clear_x),a
+        ld a,h
+        ld (#_clear_x+1),a
+        ld l,e
+        ld h,#0
+        add hl,hl
+        add hl,hl
+        ld a,l
+        ld (#_clear_y),a
+        ld a,h
+        ld (#_clear_y+1),a
+        pop hl
+        inc sp
+        jp (hl)
+    __endasm;
+}
+
+static uint8_t head_single_clear(uint8_t tx,uint8_t ty){
+    uint16_t occupied=riding_head_cell_mask(tx>>2,ty>>2);
+    if(occupied & head_bits[(tx&3)|((ty&3)<<2)])return 0;
+    head_remember(tx,ty,occupied?0xfc:0xf0);
+    return 1;
+}
+
+static uint8_t head_terrain_clear(void) {
+    uint8_t x0=head_tiles[0],y0=head_tiles[1],x1=head_tiles[2],y1=head_tiles[3];
+    uint8_t cx,cy,last_x,last_y,t;
+    uint16_t occupied;
+    if(x0>x1){t=x0;x0=x1;x1=t;}
+    if(y0>y1){t=y0;y0=y1;y1=t;}
+    /* At an eight-tile difference the fractional positions can take the
+     * sweep beyond 8 m. Keep the original DDA and enlarged radius there. */
+    if(x1-x0>=8 || y1-y0>=8)return 0;
+    last_x=x1>>2;last_y=y1>>2;
+    for(cy=y0>>2;cy<=last_y;++cy){
+        uint8_t lo=cy==(y0>>2)?(y0&3):0;
+        uint8_t hi=cy==last_y?(y1&3):3;
+        uint16_t rows=head_rows[lo*4+hi];
+        for(cx=x0>>2;cx<=last_x;++cx){
+            lo=cx==(x0>>2)?(x0&3):0;
+            hi=cx==last_x?(x1&3):3;
+            occupied=riding_head_cell_mask(cx,cy);
+            if(occupied & rows & head_columns[lo*4+hi])return 0;
+        }
+    }
+    /* The sweep may run towards the smaller coordinate. Remember its
+     * actual endpoint; its containing metre is certified by this check. */
+    head_remember(head_tiles[2],head_tiles[3],0xfc);
+    return 1;
+}
+#endif
+
 
 /* A cached nonempty leaf can still have whole square metres free of all
  * wheel-expanded boxes. Test the query endpoint's 1 m tile in that leaf.
@@ -223,7 +311,7 @@ uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED
     __asm
         ld a,(#_riding_head_clear_mask)
         or a,a
-        jp z,_riding_swept_head_uncached
+        jr z,head_uncached
         ld c,a
         ld hl,#_clear_x
         ld a,(hl+)
@@ -246,6 +334,54 @@ uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED
         call head_axis_clear
         ret z  ; On a match A is zero (no collision).
 head_uncached:
+#ifdef RIDING_HEAD_TERRAIN
+        ; Native banked stack still contains both Q10 endpoints. Extract the
+        ; eight metre bits only after checking all remaining high bits.
+        ldhl sp,#7
+        ld de,#_head_tiles
+        ld b,#4
+head_tile_coordinate:
+        ld a,(hl+)
+        ld c,a
+        ld a,(hl+)
+        cp #4
+        jr nc,head_original
+        rra
+        rr c
+        rra
+        rr c
+        ld a,(hl+)
+        or a,a
+        jr nz,head_original
+        ld a,c
+        ld (de),a
+        inc de
+        inc hl
+        dec b
+        jr nz,head_tile_coordinate
+        ld hl,#_head_tiles
+        ld a,(hl+)
+        ld b,a
+        ld e,(hl)
+        inc hl
+        cp (hl)
+        jr nz,head_multi_tile
+        inc hl
+        ld a,e
+        cp (hl)
+        jr nz,head_multi_tile
+        ld a,b
+        call _head_single_clear
+        jr head_map_result
+head_multi_tile:
+        call _head_terrain_clear
+head_map_result:
+        or a,a
+        jr z,head_original
+        xor a,a
+        ret
+head_original:
+#endif
         jp _riding_swept_head_uncached
 head_axis_clear:
         ld a,(hl+)

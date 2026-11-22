@@ -218,7 +218,7 @@ void main(void) {
     command = [BASE / '.toolchain/gbdk/bin/lcc', '-msm83:gb', '-Wf--opt-code-size',
                '-Wf--max-allocs-per-node', '-Wf100000', '-Wm-yC', '-Wm-yt0x1A',
                '-Wm-ya4', '-Wm-yo256', '-Wl-m', '-Wl-j', '-I' + str(out),
-               '-o', fixture, driver_path, BASE / 'src/world_dma.c', BASE / 'src/world_zx0.s',
+               '-o', fixture, driver_path, BASE / 'src/world_decompress.c', BASE / 'src/world_zx0.s',
                *sources, *data_sources]
     result = subprocess.run(list(map(str, command)), capture_output=True, text=True)
     (out / 'compile.log').write_text(result.stdout + result.stderr)

@@ -74,6 +74,8 @@ ifndef SCHEDULE_CHECK_DIR
 SCHEDULE_CHECK_DIR := build/scheduled-check-$(shell date +%Y%m%d-%H%M%S)
 endif
 check-scheduled: $(GAME_ROM)
+	$(PYTHON) test/check_wheel_pair.py --rom $(GAME_ROM)
+	$(PYTHON) test/check_projection_tables.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_level_exits.py --gen $(GEN) --res "$(ELMA_RES)" --out $(SCHEDULE_CHECK_DIR)/level-exits
 	$(PYTHON) test/check_wide_brake.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-brake
 	$(PYTHON) test/check_wide_wheels.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-wheels
@@ -142,6 +144,7 @@ check: all
 	$(PYTHON) test/check_physics_sine.py
 	$(PYTHON) test/check_physics_coefficients.py --constants $(GEN)/riding_constants.h --first-bank $(COEFFICIENT_BANK)
 	$(PYTHON) test/check_physics_sweep.py --gen $(GEN)
+	$(PYTHON) test/check_head_clearance.py --gen $(GEN) --rom $(GAME_ROM)
 	$(PYTHON) test/check_physics_levels.py --res "$(ELMA_RES)" --gen $(GEN)
 	$(PYTHON) test/check_physics_levels.py --res "$(ELMA_RES)" --gen $(GEN) --out build/physics-high-bank-check --high-bank
 	$(PYTHON) test/check_physics_trace.py --res "$(ELMA_RES)" --gen $(GEN) --first-bank $(COEFFICIENT_BANK)

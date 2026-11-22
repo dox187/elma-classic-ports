@@ -894,6 +894,7 @@ math32_dot14_pair:
 
 ; Signed16 components need at most two 16-by-8 table rows. Keep the
 ; full signed48 product contract for mixed-width vectors and cancellation.
+_riding_projection_product_regs::
 math32_projection_product:
  ld e,(hl)
  inc hl
@@ -911,6 +912,19 @@ math32_projection_product:
  ld a,d
  or a
  jr z,math32_projection_byte
+ .ifdef RIDING_PROJECTION_TABLES
+ ; DE is signed16 x. OR A above cleared carry to select a narrow result.
+math32_projection_lookup:
+ ld a,#<477
+ ld (#0x2000),a
+ ld a,#1
+ ld (#0x3000),a
+ jp _riding_projection_bank_477
+_riding_projection_miss16::
+ xor a
+ ld (#0x3000),a
+ ; The original multiplier selects its own low bank and restores the caller.
+ .endif
  ; Compute the unsigned product. If x or y is negative, subtract the
  ; opposite operand from its upper word to recover signed x*y modulo 2^32.
  push bc
@@ -974,6 +988,18 @@ math32_projection_sign:
  jr math32_projection_restore
 
 math32_projection_wide:
+ .ifdef RIDING_PROJECTION_TABLES
+ ; HL points to the high word. Keep it across the coefficient check.
+ push hl
+ scf
+ jr math32_projection_lookup
+_riding_projection_miss32::
+ xor a
+ ld (#0x3000),a
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ pop hl
+ .endif
  dec hl
  dec hl
  jp exact_product_nonzero
@@ -999,6 +1025,11 @@ math32_projection_negative:
  ld l,a
  ld h,#255
  ld bc,#0xffff
+ .ifdef RIDING_PROJECTION_TABLES
+_riding_projection_hit::
+ xor a
+ ld (#0x3000),a
+ .endif
 math32_projection_restore:
  ld a,(#__current_bank)
  ld (#0x2000),a

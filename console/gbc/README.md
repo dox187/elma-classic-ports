@@ -3,10 +3,10 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test9 — 8 MiB](build/elma-gbc-v0.96-test9-8m.gbc)**.
-Freefall now averages **18.67 physics updates per real second** in the
+**[0.96 test10 — 8 MiB](build/elma-gbc-v0.96-test10-8m.gbc)**.
+Freefall now averages **18.77 physics updates per real second** in the
 emulator. Across 216 short controller runs on all 54 courses, the aggregate
-rate is **17.65**, up from **17.34** in test8. The target is **29.86**.
+rate is **18.06**, up from **17.65** in test9. The target is **29.86**.
 All 19,885 compared gameplay updates reproduce test5.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
@@ -57,6 +57,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test10 — repeated wheel contacts and collision tables
+
+The game reuses both ordered contacts when a wheel returns to the exact
+same position. It reads precomputed head clearance from all 54 courses and
+uses exact partial products for 80 frequent projection coefficients. All
+19,885 controller updates matched test9 at both comparison points. The full
+game averaged 409,130 active T-cycles per update. Five of the 216 routes
+met the 280,896-cycle deadline throughout. Hardware timing is pending.
+[Measurements and regression checks](PERFORMANCE.md#096-test10--combined-cartridge)
 
 ## 0.96 test9 — single wheel contact
 

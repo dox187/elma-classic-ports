@@ -2187,3 +2187,39 @@ The benchmark cartridge and the playable test9 have the same SHA-256,
 The benchmark reports are in `build/v096-test8/optimization-audit/` under
 `support-catalog`, `native`, `native-speed`, `fullfall`, `freefall`, `rebound`
 and `spin-240` through `spin-280`. The isolated test used `support_oracle.py`.
+
+### 0.96 test10 — combined cartridge
+
+The production ROM includes per-wheel reuse of ordered contacts at an exact
+Q18 center, conservative 1 m head clearance for all 54 courses, and ROM-only
+partial products for 80 common signed coefficients. The projection tables
+support both 16-bit and 32-bit components. No directory is copied to WRAM.
+The raw scenery build also omits the ZX0 decoder and its banking wrapper.
+The linked cartridge has 195 bytes of free fixed ROM and leaves banks
+508–511 empty for FlashMaster. Seven controller routes left at least 1,261
+bytes between static data and the observed stack watermark.
+
+| Full-game PyBoy workload | Test9 | Test10 |
+| --- | ---: | ---: |
+| Aggregate updates/s on 216 routes | 17.655 | 18.061 |
+| Freefall input samples/s, full descent | 18.673 | 18.768 |
+| Mean whole active update / physics T-cycles | 418,598 / 364,301 | 409,130 / 355,098 |
+| Maximum active T-cycles | 690,936 | 690,444 |
+| Active updates over budget / 19,885 | 18,695 | 18,692 |
+| Entire routes within deadline / 216 | 5 | 5 |
+
+All 19,885 physics and presentation snapshots matched test9 at each of the
+two update boundaries. The ordinary and extended-speed native fixtures
+matched the frozen test5 host for 12,380 states. On the linked cartridge,
+48,816 head sweeps matched test9 across all 54 courses, including border
+crossings and tangencies. All 420,944 predicted tiles matched the geometry
+oracle. All 26,635 native mask queries and bank restorations passed. The
+projection checks covered 5,242,880 signed16 products, 10,704 native vectors
+and 48 VBlank interruptions inside the high-bank reader. The 45 PC landing
+and braking checks passed, and all 20 seeded spins reproduced test9's PC
+comparisons. The player and save functional checks passed.
+
+The ROM SHA-256 is `4292c81fe0d77059560940a3144d6bdfb9d2922dc639d5865f16487cdea39738`.
+Rebuild with `tools/build.py --gen build/gen-v096-test4-8m --rom-mib 8
+--out build/elma-gbc-v0.96-test10-8m.gbc` using the project's Python
+environment. Reports are in `build/v096-test10/`.

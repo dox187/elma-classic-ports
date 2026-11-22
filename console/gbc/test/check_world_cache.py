@@ -56,7 +56,9 @@ def main():
     OUT.mkdir(parents=True,exist_ok=True)
     source_paths={name:(args.world_source if name=='world.c' else BASE/'src'/name)
                   for name in ('world.c','world.h','world_dma.c','world_memory.s','world_memory.h','world_retire_fast.s','video.s')}
-    optional_helpers=('world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','video_strip_pair.s','world_prepare_fast.s','world_zx0.s')
+    optional_helpers=('world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','video_strip_pair.s','world_prepare_fast.s')
+    if args.compressed:
+        optional_helpers+=('world_decompress.c','world_zx0.s')
     lookup_memory=source_paths['world_memory.s']
     if args.helper_dir and (args.helper_dir/'world_memory.s').exists():
         lookup_memory=args.helper_dir/'world_memory.s'
@@ -80,7 +82,7 @@ def main():
     split_units=b'prepare_fetch_plane'in sources['world.c']
     (OUT/'world-under-test.c').write_bytes(sources['world.c'])
     for name in sources:
-        if name.endswith('.s')or name=='world_dma.c':(OUT/name).write_bytes(sources[name])
+        if name.endswith('.s') or name in ('world_dma.c','world_decompress.c'):(OUT/name).write_bytes(sources[name])
     header=(args.gen/'level_catalogue.h').read_text()
     header=re.sub(r'^\s*#define WORLD_(?:GRAPHICS_ZX0|PATTERN_BLOCK_BYTES|MAP_PLANE_BYTES|ZX0_COST_PREFIX)\b[^\n]*\n','',header,flags=re.M)
     if args.compressed:header='#define WORLD_GRAPHICS_ZX0 1\n#define WORLD_PATTERN_BLOCK_BYTES 512\n#define WORLD_MAP_PLANE_BYTES 512\n#define WORLD_ZX0_COST_PREFIX 1\n'+header

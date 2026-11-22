@@ -7,6 +7,9 @@ from pathlib import Path
 import re
 import subprocess
 
+import head_clearance
+import projection_tables
+
 BASE=Path(__file__).resolve().parents[1]
 
 
@@ -39,6 +42,14 @@ def validate_linked_layout(symbol_path,rom_mib):
             fixed_end=max(fixed_end,start+size)
         elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
             raise ValueError(f'ROM bank {bank} exceeds its linked address window')
+    if '_riding_head_cell_mask' in symbols:
+        for bank in (506,507):
+            if symbols.get(f'_physics_head_bank_{bank}') != (bank << 16) + 0x4000:
+                raise ValueError(f'Head-clearance directory requires bank {bank} at 0x4000')
+        if symbols['_riding_head_cell_mask'] >> 16 != 4 or symbols['_riding_head_read_map'] >= 0x4000:
+            raise ValueError('Head-clearance reader requires caller bank 4 and fixed-ROM bank switching')
+    if '_riding_projection_bank_477' in symbols:
+        projection_tables.validate_layout(symbols)
     return {'rom0_end':fixed_end,'rom0_free_bytes':0x4000-fixed_end}
 
 
@@ -144,6 +155,19 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
         ('physics_q24_table_' if scheduled else 'physics_coefficient_'):
             (coefficients['first_bank'],coefficients['last_bank']),
     }
+    if scheduled:
+        head = json.loads((gen/'physics_head_manifest.json').read_text())
+        if (head['first_bank'], head['last_bank']) != (506,507):
+            raise ValueError('Scheduled head clearance reserves banks 506..507')
+        inputs = hashlib.sha256((gen/'physics_bank_manifest.json').read_bytes())
+        for bank in physics['banks']:
+            inputs.update((gen/f'physics_bank_{bank}.c').read_bytes())
+        if inputs.hexdigest() != head['collision_sha256']:
+            raise ValueError('Head clearance differs from the packed collision geometry')
+        for name, digest in head['output_sha256'].items():
+            if hashlib.sha256((gen/name).read_bytes()).hexdigest() != digest:
+                raise ValueError(f'Head-clearance source changed during build: {name}')
+        intervals['physics_head_bank_'] = (head['first_bank'], head['last_bank'])
     previous_end=-1
     for prefix,(first,last) in intervals.items():
         if not 0<first<=last<bank_count or first<=previous_end:
@@ -182,8 +206,10 @@ def main():
     p.add_argument('--collision-source',type=Path,help='isolated exact collision-cache candidate')
     a=p.parse_args();a.sdk=a.sdk.resolve()
     a.gen=(a.gen or BASE/('build/gen' if a.rom_mib==4 else 'build/gen-8m')).resolve()
-    rom_mib=validate_profile(a.gen,a.rom_mib)
     scheduled=scheduled_profile(a.gen)
+    if scheduled:
+        head_clearance.generate(a.gen)
+    rom_mib=validate_profile(a.gen,a.rom_mib)
     if not scheduled:
         raise ValueError('Current riding sources require scheduled physics; regenerate assets with --hz 30 --damper scheduled')
     version=(BASE/'VERSION').read_text().strip()
@@ -194,12 +220,13 @@ def main():
     compile_flags=['-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000',
                    '-I'+str(a.gen),'-I'+str(BASE/'src')]
     link_flags=['-msm83:gb','-Wm-yC','-Wm-yt0x1B','-Wm-ya4','-Wm-yo%d'%(rom_mib*64),'-Wm-ynELMA-GBC','-Wl-m','-Wl-j']
-    names=['play.c','splash.c','audio.c','save.c','world.c','world_dma.c','world_zx0.s','world_memory.s','world_retire_fast.s','world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','menu.c','result.c','bike_render16.c','physics.c','physics_core.c',
+    names=['play.c','splash.c','audio.c','save.c','world.c','world_dma.c','world_memory.s','world_retire_fast.s','world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','menu.c','result.c','bike_render16.c','physics.c','physics_core.c',
            'physics_contacts.c','physics_collision.c','physics_sweep.c','physics_math.c','physics_math32.c','mul16.s','video.s','video_screen_fast.s','video_strip_pair.s','object16.s','objects_touch_fast.s','objects_draw_fast.s','objects_bounds_fast.s','objects_visible_fast.s']
     sources=[BASE/'src'/name for name in names]
     sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
     if rom_mib==4:
         sources=[path for path in sources if path.name!='world_upload_raw.s']
+        sources.extend((BASE/'src/world_decompress.c', BASE/'src/world_zx0.s'))
     if a.sweep_source:
         sources=[a.sweep_source.resolve() if path.name=='physics_sweep.c' else path for path in sources]
     if a.collision_source:
@@ -216,11 +243,14 @@ def main():
             'physics_angle.c','physics_body_angle.s','physics_geometry.c','physics_pose_lookup.s','physics_head_pose.s','physics_brake_fast.s',
             'physics_suspension_scheduled.s','physics_step_scheduled.s','physics_level_bounds.s','physics_recip_fast.s','physics_contact_filter.s','physics_reaction_division.s')]
         sources.extend((BASE/'src/physics_rider_coeff.s', a.gen/'physics_rider_rows.c', a.gen/'physics_q24_dispatch.c'))
+        sources.extend((BASE/'src/head_clearance.s', a.gen/'physics_head_map.c'))
+        math_source = BASE/'src/physics_math32_exact.s'
+        sources[sources.index(math_source)] = projection_tables.generate(math_source, a.gen/'physics_projection_game.s')
     else:
         sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name!='physics_mul16.s' and not x.name.startswith('physics_q24'))
     for pattern in ('physics_quarter_*.c','physics_scale_*.c','physics_sine_*.c',
                     'physics_q24_table_*.c' if scheduled else 'physics_coefficient_*.c',
-                    'physics_bank_*.c','level_bank_*.c','riding16_body_*.c'):
+                    'physics_bank_*.c','physics_head_bank_*.c','level_bank_*.c','riding16_body_*.c'):
         sources+=sorted(a.gen.glob(pattern))
     if not scheduled:sources.append(a.gen/'physics_coefficient_calls.s')
     sources += [a.gen/name for name in ('level_catalogue.c','menu_assets.c','splash_assets.c','physics_level_data.c','riding16_parts.c','riding_meta.c')]
@@ -234,8 +264,12 @@ def main():
     configuration=json.dumps([compile_flags,tool_key]).encode()
     def coefficient_lookup(path):
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
+    sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
+    def source_flags(path):
+        if scheduled and path==sweep_path:return ['-DRIDING_HEAD_TERRAIN']
+        return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []
     def source_key(path):
-        extra=b' -DRIDING_COEFFICIENT_LOOKUP' if coefficient_lookup(path) else b''
+        extra=b''.join(b' '+flag.encode() for flag in source_flags(path))
         return hashlib.sha256(configuration+extra+dependencies(path,a.gen)).hexdigest()
     objects=[];keys=[];pending=[]
     for path in sources:
@@ -244,7 +278,7 @@ def main():
         if not obj.is_file():pending.append((path,obj,key))
     def compile_one(item):
         path,obj,key=item
-        extra=['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []
+        extra=source_flags(path)
         result=subprocess.run([str(compiler),*compile_flags,*extra,'-c','-o',str(obj),str(path)],capture_output=True,text=True)
         if result.returncode:
             obj.unlink(missing_ok=True)
