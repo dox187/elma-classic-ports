@@ -3,10 +3,10 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test7 — 8 MiB](build/elma-gbc-v0.96-test7-8m.gbc)**.
-Freefall now averages **18.20 physics updates per real second** in the
+**[0.96 test8 — 8 MiB](build/elma-gbc-v0.96-test8-8m.gbc)**.
+Freefall now averages **18.50 physics updates per real second** in the
 emulator. Across 216 short controller runs on all 54 courses, the aggregate
-rate is **16.83**, up from **10.99** in test5. The target is **29.86**.
+rate is **17.34**, up from **10.99** in test5. The target is **29.86**.
 All 19,885 compared gameplay updates reproduce test5.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
@@ -57,6 +57,29 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test8 — grounded wheels, terrain vertices and rider motion
+
+| Measured updates per real second in emulation | Test5 | Test6 | Test7 | Test8 |
+| --- | ---: | ---: | ---: | ---: |
+| Freefall, complete descent | 11.61 | 17.87 | 18.20 | **18.50** |
+| All 54 levels, four short routes each | 10.99 | 15.75 | 16.83 | **17.34** |
+| Shelf Life, gas followed by braking | 8.75 | 12.32 | 12.34 | **12.61** |
+
+One simulated second now takes **1.61 real seconds in Freefall** and **1.72
+seconds** across the controller routes. Three of the 216 routes met the
+29.86 updates/s requirement throughout. The largest single frame cost
+increased on Double Trouble. The detailed timing is in the
+[performance log](PERFORMANCE.md#096-test8--grounded-contact-and-vertex-costs).
+
+Against test5, all **19,885** gameplay updates and all **12,380** native
+physics states matched. The native checks include both wheel support
+normals, contact flags and accumulated motion fractions. The PC rebound,
+braking and rotation regressions passed. Measurements use the double-speed
+CGB emulator. Cartridge timing still needs a physical test.
+
+[Download test8 for the 8 MiB cartridge](build/elma-gbc-v0.96-test8-8m.gbc) ·
+SHA-256 `88ce9d247f301183bb5e92517e93412135b7f20b952fb9e6ce14a8466f93bbbf`.
 
 ## 0.96 test7 — wheel contacts, head collisions and damping torque
 

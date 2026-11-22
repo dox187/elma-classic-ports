@@ -295,16 +295,61 @@ uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {
 
 // helyigazitas: does not let the wheel into the ground deeper than the band.
 // The other contact point gets farther by the push along its direction.
-static void pushout( circle_t* k, contact_t* c, contact_t* other ) {
+#define FINE_PUSH_TARGET 103547L
+#define FINE_CONTACT_RADIUS 104858L
+#define FINE_REJECT_PUSH (FINE_PUSH_TARGET - FINE_CONTACT_RADIUS)
 
-    int32_t fine_l=(int32_t)c->l*256+riding_dotq32(k->rx&255,k->ry&255,c->nx,c->ny,14);
-    int32_t push=103547-fine_l;
-    if(push<=0)return;
-    int32_t px=riding_mulq32(push,c->nx,14),py=riding_mulq32(push,c->ny,14);
-    k->rx+=px;k->ry+=py;c->l+=(push+128)>>8;
-    if(other)other->l+=(riding_dotq32(px,py,other->nx,other->ny,14)+128)>>8;
-
+static void apply_push(circle_t *k, contact_t *c, contact_t *other, int32_t push) {
+    int32_t px = riding_mulq32(push, c->nx, 14), py = riding_mulq32(push, c->ny, 14);
+    k->rx += px;
+    k->ry += py;
+    c->l += (push + 128) >> 8;
+    if (other)
+        other->l += (riding_dotq32(px, py, other->nx, other->ny, 14) + 128) >> 8;
 }
+
+#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
+#define NATIVE_FINE_CONTACTS
+/* The native kernel uses 103547-distance. It may return zero for an
+ * accepted contact proven to need no push. */
+int32_t riding_contact_push(circle_t *, const contact_t *);
+
+/* One or two coarse candidates arrive in record order. Filter both against
+ * the original center. The first push changes both the center fractions and
+ * the other contact's length, so recompute its push only in that case. */
+uint8_t riding_prepare_contacts(circle_t *k, uint8_t n) {
+    int32_t first = riding_contact_push(k, &Ct[0]), second;
+    if (n == 2) {
+        second = riding_contact_push(k, &Ct[1]);
+        if (second > FINE_REJECT_PUSH) {
+            if (first > FINE_REJECT_PUSH) {
+                if (first > 0) {
+                    apply_push(k, &Ct[0], &Ct[1], first);
+                    second = riding_contact_push(k, &Ct[1]);
+                }
+                if (second > 0)
+                    apply_push(k, &Ct[1], 0, second);
+                return 2;
+            }
+            Ct[0] = Ct[1];
+            first = second;
+        }
+    }
+    if (first <= FINE_REJECT_PUSH)
+        return 0;
+    if (first > 0)
+        apply_push(k, &Ct[0], 0, first);
+    return 1;
+}
+#else
+static void pushout(circle_t *k, contact_t *c, contact_t *other) {
+    int32_t fine_l = (int32_t)c->l * 256 + riding_dotq32(k->rx & 255, k->ry & 255,
+                                                          c->nx, c->ny, 14);
+    int32_t push = FINE_PUSH_TARGET - fine_l;
+    if (push > 0)
+        apply_push(k, c, other, push);
+}
+#endif
 
 // talppontigazitas: true if the point really supports the wheel. With two
 // points, the velocity towards it is removed (with one, rolling around it
@@ -379,7 +424,6 @@ uint8_t riding_audio_contact[2], riding_audio_impact[2];
 int16_t riding_landing_nx[2], riding_landing_ny[2];
 uint8_t riding_landing_contact[2];
 #if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
-uint8_t riding_contact_filter(circle_t*,uint8_t);
 
 /* The banked ABI passes k and the three int32 impulses contiguously.
  * The contact resolver reads these inputs when the fine filter accepts a
@@ -776,7 +820,7 @@ ws_have_answer:
     ld e,(hl)
     inc hl
     ld d,(hl)
-    call _riding_contact_filter
+    call _riding_prepare_contacts
     or a,a
     jr z,wheel_no_contact
     ldhl sp,#6
@@ -836,16 +880,19 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
     uint8_t valid=0;
     for(uint8_t j=0;j<n;++j) {
         int32_t distance=(int32_t)Ct[j].l*256+riding_dotq32(k->rx&255,k->ry&255,Ct[j].nx,Ct[j].ny,14);
-        if(distance<104858)Ct[valid++]=Ct[j];
+        if(distance<FINE_CONTACT_RADIUS)Ct[valid++]=Ct[j];
     }
     n=valid;
 #endif
     uint8_t two = n == 2;
 	uint8_t wheel = k==&Bike.wheel[1];
+#ifndef NATIVE_FINE_CONTACTS
 	if( n > 0 )
 		pushout( k, &Ct[0], two ? &Ct[1] : 0 );
-	if( two ) {
+	if( two )
 		pushout( k, &Ct[1], 0 );
+#endif
+	if( two ) {
 		if( faster_1ms( k ) ) {
 			if( !sure_new( &Ct[0], &Ct[1], k ) ) {
 				n = 1;

@@ -86,6 +86,7 @@ check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/check_q24.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/q24-signed --signed-edges
 	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/native
 	$(PYTHON) test/check_damping_moment.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/damping-moment
+	$(PYTHON) test/check_rider_coefficients.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/rider-coefficients
 	$(PYTHON) test/check_rebound_schedule.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/pc --max-rebound-error-percent 0.1 --max-airtime-error-percent 0.1
 	$(PYTHON) test/check_audio.py --gen $(GEN)
 	$(PYTHON) test/check_riding_audio.py --gen $(GEN)

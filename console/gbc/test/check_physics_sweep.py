@@ -56,6 +56,19 @@ def main():
                 for oy in(-1,0,1):
                     rows.append((0,0,dx,dy,ax+ox,ay+oy,0,0,radius))
                     rows.append((0,0,dx,dy,ax+ox,ay+oy,dx//10,dy//10,radius))
+    # In an endpoint's outward quadrant the closest point on the head sweep
+    # can be its start, its end, or an interior tangent. (147,196) lies
+    # exactly 245 units from the vertex, with perpendicular direction (4,-3).
+    for sx in (-1,1):
+        for sy in (-1,1):
+            vx,vy=12288*sx,-8192*sy
+            for ex,ey in ((-8192*sx,-sy),(-sx,-8192*sy),(0,-8192*sy),(-8192*sx,0)):
+                for first,last in ((-10,0),(0,10),(-10,10),(10,-10),(0,0)):
+                    for offset in (-1,0,1):
+                        px,py=vx+sx*(147+4*first+offset),vy+sy*(196-3*first)
+                        qx,qy=vx+sx*(147+4*last+offset),vy+sy*(196-3*last)
+                        rows.append((px,py,qx,qy,vx,vy,ex,ey,245))
+                        rows.append((px,py,qx,qy,vx+ex,vy+ey,-ex,-ey,245))
     rng=random.Random(0xCCD244)
     assert len(rows)<=args.vectors<=65535
     while len(rows)<args.vectors:

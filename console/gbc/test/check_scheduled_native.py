@@ -33,12 +33,12 @@ NATIVE_EXTRA = ('physics_q24.c', 'physics_force.c', 'physics_math.s', 'physics_m
                 'physics_segment_scan.s', 'physics_normal_fast.s', 'physics_shift_fast.s',
                 'physics_sqrt_fast.s', 'physics_div_fast.s', 'physics_sin_fast.s',
                 'physics_spring_torque.s', 'physics_q24.s', 'physics_div20.s',
-                'physics_export_fast.s','physics_rider_fast.s','physics_rider_response.s','physics_phase.s','physics_circle_scheduled.s',
+                'physics_export_fast.s','physics_rider_fast.s','physics_rider_response.s','physics_rider_coeff.s','physics_phase.s','physics_circle_scheduled.s',
                 'physics_supports_fast.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
                 'physics_angle.c','physics_body_angle.s','physics_geometry.c','physics_pose_lookup.s','physics_head_pose.s','physics_brake_fast.s',
                 'physics_suspension_scheduled.s','physics_step_scheduled.s','physics_level_bounds.s','physics_recip_fast.s','physics_contact_filter.s','physics_reaction_division.s')
 TABLES = ('physics_quarter_*.c', 'physics_scale_*.c', 'physics_sine_*.c',
-          'physics_q24_table_*.c')
+                'physics_q24_table_*.c', 'physics_rider_rows.c')
 
 # Explicit offsets in packed SM83 bike_t, not padded ctypes offsets. Angles
 # are deliberately excluded: changing them would invalidate cached sin/cos.
@@ -161,6 +161,14 @@ def packed_host(host):
         pass  # Historical HOST builds predate fractional body velocity.
     else:
         fields['angular_residual'] = struct.pack('<i', residual.value)
+    try:
+        contacts = (C.c_uint8 * 2).in_dll(host.f, 'riding_landing_contact')
+    except ValueError:
+        pass  # Earlier models did not carry wheel support into the next substep.
+    else:
+        fields['riding_landing_contact'] = bytes(contacts)
+        for name in ('riding_landing_nx', 'riding_landing_ny'):
+            fields[name] = struct.pack('<2h', *(C.c_int16 * 2).in_dll(host.f, name))
     return fields
 
 

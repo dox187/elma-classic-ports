@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate exact signed Q24 coefficient tables for the scheduled GBC core."""
 import argparse
+from bisect import bisect_left
 import hashlib
 import json
 import math
@@ -85,6 +86,40 @@ def write_pose_tables(out, coefficients, fixed):
         + '\n};\n')
 
 
+def write_rider_tables(out, coefficients):
+    """Rank byte remainders so one comparison reproduces the rounded sum."""
+    unit = 1 << 24
+    pages = []
+    for name in ('C_RIDER_S', 'C_RIDER_F'):
+        for scale in coefficients[name]:
+            low = [divmod(b * scale, unit) for b in range(256)]
+            fractions = sorted(remainder for _, remainder in low)
+            ranks = [bisect_left(fractions, r) for _, r in low]
+            high = []
+            for raw_high in range(256):
+                signed_high = raw_high if raw_high < 128 else raw_high - 256
+                whole, remainder = divmod(signed_high * 256 * scale + unit // 2, unit)
+                threshold = bisect_left(fractions, unit - remainder)
+                # A threshold of 256 never carries. Encode the same sum
+                # with a zero threshold (always carries) and a lower base.
+                high.append((whole - 1, 0) if threshold == 256 else (whole, threshold))
+            if any(not 0 <= q <= 65535 for q, _ in low):
+                raise ValueError('Rider low product exceeds two bytes')
+            for v in range(-32768, 32768):
+                q, threshold = high[(v >> 8) & 255]
+                result = q + low[v & 255][0] + (ranks[v & 255] >= threshold)
+                if result != (v * scale + unit // 2) // unit or not -(1 << 23) <= result < (1 << 23):
+                    raise ValueError(f'Inexact signed rider product at {v}')
+            pages.extend((ranks, [q & 255 for q, _ in low], [q >> 8 for q, _ in low],
+                          [t for _, t in high]))
+            for shift in (0, 8, 16):
+                pages.append([(q >> shift) & 255 for q, _ in high])
+    output = out / 'physics_rider_rows.c'
+    output.write_text('#pragma bank 2\nconst unsigned char riding_rider_rows[]={\n'
+                      + ',\n'.join(','.join(map(str, row)) for row in pages) + '\n};\n')
+    return hashlib.sha256(output.read_bytes()).hexdigest()
+
+
 def write_angle_tables(out, oms):
     # For the remainder substep each signed omega unit advances 27007/1280
     # phase units. Divide per byte, then combine all remainders before rounding.
@@ -167,6 +202,7 @@ def generate(constants,out,first_bank, *, include_pose=True):
         'coefficient_count':len(values),'tables':tables,
         'dispatch':'physics_q24_dispatch.c','header':'physics_q24_coefficients.h'}
     if include_pose:
+        manifest['rider_rows_sha256'] = write_rider_tables(out, coefficients)
         manifest['geometry_sha256'] = {name: hashlib.sha256((out/name).read_bytes()).hexdigest()
                                        for name in ('physics_pose_rows.h', 'physics_angle_rows.h')}
     (out/'physics_q24_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

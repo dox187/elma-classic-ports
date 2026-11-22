@@ -55,6 +55,7 @@ from profile_play import Profiler
 SCHEMA = 1
 CONTROLLER_VERSION = 1
 DISPLAY_CYCLES = 140448
+DOUBLE_SPEED_CLOCK = 8_388_608
 UPDATE_BUDGET = 280896
 LEVEL_COUNT = 54
 SCENARIOS = ("neutral", "gas", "brake", "seeded")
@@ -108,6 +109,23 @@ def statistics(values):
             "mean_cycles": sum(ordered) / len(ordered) if ordered else None,
             "p95_cycles": ordered[math.ceil(.95 * len(ordered)) - 1] if ordered else None,
             "max_cycles": ordered[-1] if ordered else None}
+
+
+def aggregate_cadence(cases):
+    """Weight each observed interval by its actual display time across all routes."""
+    histogram = Counter()
+    for case in cases:
+        timing = case.get("timing") or {}
+        cadence = timing.get("input_cadence", {}).get("display_frame_histogram", {})
+        for frames, count in cadence.items():
+            histogram[int(frames)] += count
+    intervals = sum(histogram.values())
+    display_frames = sum(frames * count for frames, count in histogram.items())
+    hz = DOUBLE_SPEED_CLOCK / DISPLAY_CYCLES
+    return {"intervals": intervals, "display_frames": display_frames,
+            "updates_per_emulated_second": hz * intervals / display_frames if display_frames else None,
+            "real_seconds_per_target_game_second": display_frames / (2 * intervals) if intervals else None,
+            "target_updates_per_second": hz / 2}
 
 
 def controller_plan(scenario, seed, level, count):
@@ -666,6 +684,7 @@ def main():
         expected = len(args.levels) * len(args.scenario)
         report["requested_cases"] = expected
         report["completed_cases"] = len(cases)
+        report["aggregate_input_cadence"] = aggregate_cadence(cases)
         report["correctness_checks_passed"] = len(cases) == expected and not report["errors"] and all(
             case["correctness_checks_passed"] for case in cases)
         report["performance_requirement_met"] = len(cases) == expected and all(

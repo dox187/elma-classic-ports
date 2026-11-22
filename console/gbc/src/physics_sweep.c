@@ -26,16 +26,11 @@ static uint8_t close_point(int16_t x,int16_t y,uint16_t radius,uint32_t radius2)
  * |cross|=q*R+r. Only the ambiguous q^2<=L^2<(q+1)^2 case needs
  * 2*R*q*r+r^2 < R^2*(L^2-q^2). Both sides fit32 for these8m pieces.
  */
-static uint8_t close_segment(int16_t x,int16_t y,int16_t dx,int16_t dy,uint32_t length2,
-                            uint16_t radius,uint32_t radius2,int32_t c){
+static uint8_t close_line(int16_t dx,int16_t dy,uint32_t length2,
+                          uint16_t radius,uint32_t radius2,int32_t c){
     int16_t adx,ady;
-    int32_t dot;
     uint32_t distance,q2,delta,left,right;
     uint16_t q,r;
-    if(!length2)return close_point(x,y,radius,radius2);
-    dot=mul16(x,dx)+mul16(y,dy);
-    if(dot<=0)return close_point(x,y,radius,radius2);
-    if((uint32_t)dot>=length2)return close_point(x-dx,y-dy,radius,radius2);
     distance=c<0?(uint32_t)(-c):(uint32_t)c;
     adx=absolute(dx);ady=absolute(dy);
     if(distance<(uint32_t)mul16(radius,maximum(adx,ady)))return 1;
@@ -50,6 +45,37 @@ static uint8_t close_segment(int16_t x,int16_t y,int16_t dx,int16_t dy,uint32_t 
     right=(uint32_t)mul16((int16_t)delta,(int16_t)radius2);
     if(radius2&32768UL)right+=delta<<16;
     return left<right;
+}
+
+static uint8_t close_segment(int16_t x,int16_t y,int16_t dx,int16_t dy,uint32_t length2,
+                             uint16_t radius,uint32_t radius2,int32_t c){
+    int32_t dot;
+    if(!length2)return close_point(x,y,radius,radius2);
+    dot=mul16(x,dx)+mul16(y,dy);
+    if(dot<=0)return close_point(x,y,radius,radius2);
+    if((uint32_t)dot>=length2)return close_point(x-dx,y-dy,radius,radius2);
+    return close_line(dx,dy,length2,radius,radius2,c);
+}
+
+/* A path entirely in the endpoint's outward coordinate quadrant projects
+ * beyond that endpoint at every point. Its distance to the edge therefore
+ * equals its distance to the one vertex, including when the path is still.
+ * A zero edge component imposes no restriction on that axis. */
+static uint8_t behind(int16_t p,int16_t q,int16_t direction){
+    if(direction>0)return p<=0 && q<=0;
+    if(direction<0)return p>=0 && q>=0;
+    return 1;
+}
+
+static uint8_t close_vertex(int16_t x,int16_t y,int16_t dx,int16_t dy,uint16_t radius){
+    int16_t xq=x-dx,yq=y-dy;
+    uint32_t r2=(uint32_t)mul16(radius,radius);
+    int32_t dot=mul16(xq,dx)+mul16(yq,dy);
+    uint32_t d2;
+    if(dot>=0)return close_point(xq,yq,radius,r2);
+    d2=(uint32_t)(mul16(dx,dx)+mul16(dy,dy));
+    if((uint32_t)(-dot)>=d2)return close_point(x,y,radius,r2);
+    return close_line(dx,dy,d2,radius,r2,cross(x,y,dx,dy));
 }
 
 /* Keep the infinite-line rejection first, then reuse its exact cross
@@ -71,6 +97,10 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
     }
     if(maximum(px,qx)+(int16_t)radius<=minimum(ax,bx)||minimum(px,qx)-(int16_t)radius>=maximum(ax,bx)
        ||maximum(py,qy)+(int16_t)radius<=minimum(ay,by)||minimum(py,qy)-(int16_t)radius>=maximum(ay,by))return 0;
+    if(behind(x,qx-ax,ex)&&behind(y,qy-ay,ey))
+        return close_vertex(-x,-y,dx,dy,radius);
+    if(behind(bx-px,bx-qx,ex)&&behind(by-py,by-qy,ey))
+        return close_vertex(bx-px,by-py,dx,dy,radius);
     if(maximum(px,qx)>=minimum(ax,bx)&&minimum(px,qx)<=maximum(ax,bx)
        &&maximum(py,qy)>=minimum(ay,by)&&minimum(py,qy)<=maximum(ay,by)){
         if(!have_cd){cd=cross(dx,dy,ex,ey);have_cd=1;}

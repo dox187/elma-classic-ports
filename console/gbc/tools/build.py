@@ -122,6 +122,9 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     if coefficients['constants_sha256']!=hashlib.sha256((gen/'riding_constants.h').read_bytes()).hexdigest():
         raise ValueError('Coefficient tables do not match the generated riding constants')
     if scheduled:
+        rider_rows = gen / 'physics_rider_rows.c'
+        if not rider_rows.is_file() or hashlib.sha256(rider_rows.read_bytes()).hexdigest() != coefficients.get('rider_rows_sha256'):
+            raise ValueError('Regenerate the signed rider coefficient tables for these physics constants')
         for name in ('physics_pose_rows.h', 'physics_angle_rows.h'):
             path = gen / name
             if not path.is_file() or coefficients.get('geometry_sha256', {}).get(name) != hashlib.sha256(path.read_bytes()).hexdigest():
@@ -212,7 +215,7 @@ def main():
             'physics_supports_fast.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
             'physics_angle.c','physics_body_angle.s','physics_geometry.c','physics_pose_lookup.s','physics_head_pose.s','physics_brake_fast.s',
             'physics_suspension_scheduled.s','physics_step_scheduled.s','physics_level_bounds.s','physics_recip_fast.s','physics_contact_filter.s','physics_reaction_division.s')]
-        sources.append(a.gen/'physics_q24_dispatch.c')
+        sources.extend((BASE/'src/physics_rider_coeff.s', a.gen/'physics_rider_rows.c', a.gen/'physics_q24_dispatch.c'))
     else:
         sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name!='physics_mul16.s' and not x.name.startswith('physics_q24'))
     for pattern in ('physics_quarter_*.c','physics_scale_*.c','physics_sine_*.c',

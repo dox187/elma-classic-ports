@@ -2035,3 +2035,56 @@ their reports and traces. Test7 SHA-256 is
 `3fb8c2c232f6e7c3bee4bda6eabb5d520670983e3bc24ed17113d3924166e15f`.
 The public ROM reproduced byte for byte on relink. Its last four banks are
 erased, and its header declares MBC5 with battery, 8 MiB ROM and 32 KiB RAM.
+
+## 0.96 test8 — grounded contact and vertex costs
+
+The real test7 cartridge identified different costs on different routes.
+Shelf Life braking spent 299,304 T per update processing its two wheels.
+On Haircut update 98, the head sweep alone spent 249,564 T. All six
+candidate capsule tests there projected beyond the endpoint of a terrain
+edge. Test8 preserves contact order and the strict wheel and head radii.
+
+| Matched workload | Test7 | Test8 |
+| --- | ---: | ---: |
+| 216 routes, aggregate updates/s | 16.830 | 17.341 |
+| 216 routes, mean / maximum active T | 442,663 / 796,636 | 427,400 / 817,412 |
+| Complete active updates exceeding the deadline | 18,750 / 19,885 | 18,698 / 19,885 |
+| Complete Freefall descent, updates/s | 18.200 | 18.499 |
+| Complete Freefall active T, mean / maximum | 420,767 / 647,724 | 413,750 / 622,208 |
+| Shelf Life braking, mean active T | 609,394 | 574,897 |
+| Haircut neutral, update 98, active T | 792,684 | 664,924 |
+| Sink seeded, peak active T | 796,636 | 691,012 |
+
+The mean active time improved on 215/216 routes. Bumpy Journey neutral
+took an additional 2,590 T per update on average. The highest active cost
+moved to Double Trouble with gas on update 71. On that same update physics
+fell from 533,632 to 498,028 T. Scrolling rose from 11,840 to 150,500 T and
+background preparation rose from 81,328 to 108,076 T. The earlier and
+later images had identical physics, camera and game-clock traces in that
+comparison. The two-display-frame budget remains 280,896 T.
+
+| Physics change | Verification |
+| --- | --- |
+| Reuse fine contact distances when checking wheel penetration | 832 of 853 observed pushout calls on the Shelf Life braking route left the wheel untouched. The resolver can prove some pushes unnecessary and computes both filters against the original center. A real first push updates the wheel and its other contact before recomputing the second push. An independent oracle passed 10,448 inputs including reject, reorder, signed extremes and sequential pushes. |
+| Compute distance to one terrain vertex in its outward quadrant | When the entire swept path projects beyond one endpoint, test that vertex directly. The general segment path handles all other configurations. The final isolated cartridge passed 12,455 circle/segment vectors, including 167 calls captured from the real route and exact tangencies. The combined cartridge spent 145,920 T on the Haircut head check at update 98. |
+| Compute the rider's exact signed16 spring and damper products from byte tables | A low-byte remainder rank and a high-byte threshold encode the carry into the rounded integer. The tables use 7,168 bytes in bank 2. Wider inputs still use Q24. A cartridge fixture tested 262,176 results against the full multiplier, including every signed16 value for both coefficients in both phases, wide endpoints and bank restoration. |
+
+Each of the 19,885 controller updates matched the frozen test5 at physics
+return and at the end of the update. The native fixture additionally
+compared both landing flags and all four support normal components. All
+12,380 states of 238 bytes matched the test5 HOST. The 46 ordinary fixtures
+averaged 295,006 T with a maximum of 625,892 T. The 122 speed fixtures
+averaged 304,273 T with a maximum of 713,128 T. All 45 PC rebound and braking checks passed.
+All 20 seeded Freefall spin comparisons reproduced the test5 results.
+All 54 course starts and the player/save smoke tests passed their functional
+checks. Freefall's measured input intervals comprise 335 three-frame, 97
+four-frame and one five-frame interval. Physical cartridge timing is pending.
+
+The 8 MiB ROM SHA-256 is
+`88ce9d247f301183bb5e92517e93412135b7f20b952fb9e6ce14a8466f93bbbf`.
+Rebuild and benchmark using the test7 commands above with the test8 ROM
+and output directory. The catalog report includes the aggregate input rate
+and the ratio of elapsed display time to target game time. The full timing,
+fidelity and arithmetic reports are under `build/v096-test8/`, including
+`catalog`, `route-cost`, `spike-test7`, `spike-test8`,
+`native-with-support`, `native-speed-with-support` and `rider-signed`.
