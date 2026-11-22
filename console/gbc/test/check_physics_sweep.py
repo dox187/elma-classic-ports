@@ -77,8 +77,15 @@ def main():
 uint8_t riding_head_clear_mask,fixture_queries;
 /* Only child 1 of cell (3,2) contains this horizontal edge. */
 static const seg_t edge={1500,400,400,0,16384,0,400,145,164,127,140};
+static const seg_t cluster[]={
+ {100,100,320,0,16384,0,320,123,140,123,135},
+ {3210,1300,0,400,0,16384,400,171,184,141,160},
+ {1030,3020,600,0,16384,0,600,137,159,168,181}
+};
 void seg_query(uint8_t x,uint8_t y,uint8_t sub){
- ++fixture_queries;Seg_cur=&edge;Seg_subcell=x==3 && y==2?sub:255;
+ ++fixture_queries;
+ if(x==4 && y==2){Seg_cur=cluster;Seg_subcell=255;Seg_left=3;return;}
+ Seg_cur=&edge;Seg_subcell=x==3 && y==2?sub:255;
  Seg_left=(x==3 && y==2 && sub==1);
 }
 const seg_t *seg_next(void){if(!Seg_left)return 0;--Seg_left;return Seg_cur++;}
@@ -123,6 +130,17 @@ static void check_leaves(void){
  sweep(x+1023,y,x,y+1023,0,0);
  sweep(x+900,y+400,x+1550,y+400,1,1);
  sweep(x+1550,y+400,x+900,y+400,1,1);
+ /* Certify an empty tile inside a coarse cell with three disjoint boxes.
+  * Each box must still collide, including when the sweep starts in that tile. */
+ {const int32_t xx=4L*4096;
+  sweep(xx+1024,y+1024,xx+2047,y+2047,0,1);
+  sweep(xx+2047,y+1024,xx+1024,y+2047,0,0);
+  sweep(xx+1536,y+1536,xx+3210,y+1450,1,1);
+  sweep(xx+1200,y+3000,xx+1100,y+3020,1,1);
+  sweep(xx+140,y+100,xx+300,y+100,1,1);
+  sweep(xx+2000,y+2000,xx+1100,y+1200,0,0);
+ }
+
  sweep(x+1550,y+400,x+1550,y+400,1,1);
  /* Crossing in y leaves a proven child even if both x coordinates match. */
  sweep(x,y+1024,x+500,y+1400,0,1);
@@ -153,7 +171,7 @@ void main(void){cpu_fast();check_leaves();\n'''
         def word(name):a=symbols[name];return emu.memory[a]+256*emu.memory[a+1]
         report={'captured_vectors':len(captured),'vectors':len(rows),'native_vectors':word('_sweep_vectors'),'failures':word('_sweep_failures'),'bank_restore_failures':word('_bank_failures')}
         report.update(empty_leaf_cases=word('_leaf_cases'),empty_leaf_failures=word('_leaf_failures'))
-        assert report['empty_leaf_cases']==11 and report['empty_leaf_failures']==0,report
+        assert report['empty_leaf_cases']==17 and report['empty_leaf_failures']==0,report
         assert report['native_vectors']==len(rows),report
         assert report['failures']==report['bank_restore_failures']==0,report
     finally:emu.stop(save=False)

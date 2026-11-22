@@ -127,6 +127,62 @@ next_cell:;
 extern uint8_t riding_head_clear_mask;
 static uint16_t clear_x,clear_y;
 
+/* A cached nonempty leaf can still have whole square metres free of all
+ * wheel-expanded boxes. Test the query endpoint's 1 m tile in that leaf.
+ * A matching pair of endpoints puts their entire sweep inside the tile. */
+static uint8_t tile_clear(uint16_t origin) __naked {
+    origin;
+    __asm
+        ; DE is the tile's lower corner in the record's 64u box units.
+        ld a,(#_Seg_left)
+        ld b,a
+        ld hl,#_Seg_cur
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+        ld a,#14
+tile_advance:
+        add a,l
+        ld l,a
+        ld a,h
+        adc a,#0
+        ld h,a
+        ld a,(hl+)
+        and a,#0xf0
+        cp e
+        jr z,tile_xmax
+        jr c,tile_xmax
+        ld a,#17
+        jr tile_next
+tile_xmax:
+        ld a,(hl+)
+        cp e
+        jr nc,tile_ymin
+        ld a,#16
+        jr tile_next
+tile_ymin:
+        ld a,(hl+)
+        and a,#0xf0
+        cp d
+        jr z,tile_ymax
+        jr c,tile_ymax
+        ld a,#15
+        jr tile_next
+tile_ymax:
+        ld a,(hl+)
+        cp d
+        jr nc,tile_occupied
+        ld a,#14
+tile_next:
+        dec b
+        jr nz,tile_advance
+        ld a,#1
+        ret
+tile_occupied:
+        xor a
+        ret
+    __endasm;
+}
 /* In the banked ABI the four coordinates start at SP+6. A zero-count leaf
  * contains no wheel-expanded boxes. Both endpoints inside that same convex
  * 4 m cell (or 1 m child) prove the complete head path clear. Compare all
@@ -190,11 +246,18 @@ uint8_t HEAD_QUERY(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED {
             uint8_t b=(uint8_t)((x1>>10)|((y1>>8)&12));
             seg_query(cx,cy,b);
 #ifdef __SDCC
-            if(!Seg_left){
-                uint8_t mask=Seg_subcell==255?0xf0:0xfc;
+            uint8_t mask=0;
+            if(!Seg_left) mask=Seg_subcell==255?0xf0:0xfc;
+            else {
+                uint8_t lo=(uint8_t)(128u+((b&3u)<<4));
+                uint8_t hi=(uint8_t)(128u+((b&12u)<<2));
+                if(tile_clear(((uint16_t)hi<<8)|lo))mask=0xfc;
+            }
+            if(mask) {
                 clear_x=(uint16_t)((uint32_t)qx>>8)&(0xff00u|mask);
                 clear_y=(uint16_t)((uint32_t)qy>>8)&(0xff00u|mask);
                 riding_head_clear_mask=mask;
+                if(mask==0xf0||a==b)return 0;
             }
 #endif
             if(Seg_subcell==255||a==b)return scan(x0,y0,x1,y1,R_HEAD);

@@ -21,6 +21,9 @@ uint8_t Seg_left,Seg_subcell;
 #ifdef __SDCC
 /* Zero invalidates the swept-head empty rectangle on every collision reset. */
 uint8_t riding_head_clear_mask;
+#if !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
+void riding_surface_reset(void) __nonbanked;
+#endif
 #endif
 
 typedef struct {uint16_t address;uint8_t bank,count;} cell_pointer_t;
@@ -48,6 +51,9 @@ static void read_data(void *dest,uint16_t bank,uint16_t address,uint16_t size) {
 void physics_collision_reset(void) {
     uint8_t i;
 #ifdef __SDCC
+#if !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
+    riding_surface_reset();
+#endif
     riding_head_clear_mask=0;
 #endif
     for(i=0;i<CACHES;++i)cell_ids[i]=65535;

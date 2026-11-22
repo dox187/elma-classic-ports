@@ -1982,3 +1982,56 @@ Full-game reports and state traces are under `build/v096-test6/`. The
 `controller` measure active work and compare gameplay traces. The native
 fixtures exclude rendering and VBlank waits. The 8 MiB cartridge keeps
 mapper 1B/08/03 and leaves banks 508–511 erased.
+
+## 0.96 test7 — complete controller and timing comparison
+
+The same four button sequences (neutral, gas, gas followed by braking, and
+seeded mixed controls) ran on all 54 levels using each shipped cartridge.
+Each route ends at death, finish or 100 updates. All three ROMs completed
+19,885 updates. Aggregate updates/s uses the sum of the measured intervals
+between input samples divided by their total elapsed emulated display time.
+The denominator excludes setup and the unobserved interval after a route ends.
+
+| Same controller routes | Test5 | Test6 | Test7 |
+| --- | ---: | ---: | ---: |
+| Aggregate updates/s | 10.989 | 15.748 | 16.830 |
+| Mean complete active update (T) | 708,762 | 468,659 | 442,663 |
+| Maximum complete active update (T) | 1,108,276 | 788,320 | 796,636 |
+| Active updates above the 280,896 T deadline | 19,878 | 19,266 | 18,750 |
+| Entire routes meeting the 30 Hz gate | 0/216 | 1/216 | 1/216 |
+
+Test7 improved mean active work against test6 on 213/216 routes. Its largest
+single update was Sink, seeded controls, update 78. Of its 796,636 T,
+631,908 T went to physics. The slower Shelf Life braking route averaged
+12.345 updates/s. The complete no-input Freefall run recorded 318 input
+intervals of three display frames, 108 of four and seven of five, averaging
+18.200 updates/s. All 439 complete active updates exceeded the deadline.
+
+| Isolated experiment against test6 | Outcome |
+| --- | --- |
+| Cache wheel contacts in 256-unit squares | Waiting for five consecutive visits reduced the cost of classifying squares a fast wheel leaves immediately. A square with multiple possible surfaces or a possible endpoint keeps the full iterator. The adopted version saved 9,236 T on average over 1,934 controller updates. It added 1,194 T to the mean of the synthetic high-speed suite and raised the individual peak on seeded Warm Up by 18,144 T. |
+| Reuse empty head sweeps inside nonempty terrain leaves | Inspect every wheel-expanded bounding box before marking a 1 m tile clear. A sweep can use the result only when both endpoints lie inside. Alone this saved 6,401 T per update on the complete Freefall run. All 8,192 native capsule checks and 17 queries at tile and cell boundaries passed. |
+| Combine four damping products while retaining their fractional bits | Accumulate signed24 inputs directly. A wider operand transfers the current signed sum to the full nine-byte accumulator and resumes at that operand. Restarting from the first product made some wide calls 6,004 T slower. The retained code saves 26.4% on the mean cost of the moment in the standard native suite. Its dedicated cartridge passed 7,336 integer and bank-restoration checks. |
+
+Together these changes reduced native physics from 321,678 to 303,770 T
+on average in the 46 ordinary scenarios and from 320,999 to 310,270 T in
+the 122 speed scenarios. The maxima were 651,832 and 728,012 T. All 12,380
+packed 228-byte states matched the frozen test5 HOST. Independent PC checks
+passed all 45 rebound/braking scenarios and reproduced all 20 previous
+extreme Freefall spin comparisons. All 54 normal starts passed their
+functional checks.
+
+Reproduce from this directory using the generated 8 MiB assets and the
+matching ROM and symbols in `build/`:
+
+```sh
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.96-test5-8m.gbc --gen build/gen-v096-test4-8m --steps 100 --out build/v096-test6/baseline-catalog
+.venv/bin/python test/benchmark_gameplay.py --rom build/elma-gbc-v0.96-test7-8m.gbc --gen build/gen-v096-test4-8m --steps 100 --out build/v096-test7/catalog --reference build/v096-test6/baseline-catalog
+.venv/bin/python test/freefall.py --rom build/elma-gbc-v0.96-test7-8m.gbc --gen build/gen-v096-test4-8m --out build/v096-test7/freefall
+```
+
+The timing tests return a failing exit status for deadline misses and write
+their reports and traces. Test7 SHA-256 is
+`3fb8c2c232f6e7c3bee4bda6eabb5d520670983e3bc24ed17113d3924166e15f`.
+The public ROM reproduced byte for byte on relink. Its last four banks are
+erased, and its header declares MBC5 with battery, 8 MiB ROM and 32 KiB RAM.

@@ -393,9 +393,368 @@ typedef char wheel_input_layout[sizeof(wheel_input_t)==14 && offsetof(wheel_inpu
     offsetof(bike_t,wheel[1])==48?1:-1];
 void riding_wheel_contact(const wheel_input_t *input,uint8_t n);
 
+/* A 256u square fits within the 1m collision subcell. After five consecutive
+ * queries to the same square, classify it from the ordered segment list.
+ * Modes 0..4 are invalid, empty, interior, clipped interior and general.
+ * Modes 8..5 count down to classification; fast-moving wheels normally use
+ * the original query throughout. Entries own their geometry across eviction
+ * of the three collision-reader slots. */
+typedef struct {
+    uint16_t x,y;
+    uint8_t kind;
+    int16_t base_x,base_y,nx,ny;
+    uint8_t x0,x1,y0,y1;
+} surface_cache_t;
+surface_cache_t wheel_surface_cache[2];
+void riding_surface_reset(void) __nonbanked {
+    wheel_surface_cache[0].kind=wheel_surface_cache[1].kind=0;
+}
+/* ABI1 supplies by:bx in DE. Return NULL, the sole record, or address 1
+ * for multiple records. Peek without modifying Seg_cur or Seg_left so the
+ * fill query still executes the complete original iterator. */
+static const seg_t *surface_candidate(uint16_t box) __naked {
+    box;
+    __asm
+    ld b,d
+    ld c,e
+    ld a,(#_Seg_left)
+    or a,a
+    jr z,ws_no_candidate
+    ld d,a
+    ld e,#0
+    ld hl,#_Seg_cur
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+ws_scan:
+    ld a,l
+    add #14
+    ld l,a
+    jr nc,ws_bbox
+    inc h
+ws_bbox:
+    ld a,c
+    add #3
+    cp (hl)
+    inc hl
+    jr c,ws_reject1
+    ld a,(hl+)
+    cp c
+    jr c,ws_reject2
+    ld a,b
+    add #3
+    cp (hl)
+    inc hl
+    jr c,ws_reject3
+    ld a,(hl+)
+    cp b
+    jr c,ws_next
+    ld a,e
+    or a,a
+    jr nz,ws_multiple
+    inc e
+    push hl
+    jr ws_next
+ws_reject1:
+    inc hl
+ws_reject2:
+    inc hl
+ws_reject3:
+    inc hl
+ws_next:
+    dec d
+    jr nz,ws_scan
+    ld a,e
+    or a,a
+    jr z,ws_no_candidate
+    pop hl
+    ld a,l
+    sub #18
+    ld c,a
+    ld a,h
+    sbc #0
+    ld b,a
+    ret
+ws_multiple:
+    pop hl
+    ld bc,#1
+    ret
+ws_no_candidate:
+    ld bc,#0
+    ret
+    __endasm;
+}
+
+static void wheel_classify(surface_cache_t *w,uint16_t qx,uint16_t qy){
+    uint8_t bx=((qx>>6)&0xfc)+128,by=((qy>>6)&0xfc)+128;
+    const seg_t *one=surface_candidate((uint16_t)by*256+bx);
+    if(one==(const seg_t *)1){w->kind=4;return;}
+    if(!one){w->kind=1;return;}
+    int16_t x=(qx&0xf00)+128-one->px,y=(qy&0xf00)+128-one->py;
+    int16_t t=dotq14(x,y,one->ex,one->ey);
+    /* The center-to-corner change in either component is at most 128u.
+     * Each Q14 direction component has magnitude <=16384, so the rounded
+     * tangent projection can change by at most 256u. Strictly exclude the
+     * far endpoint to preserve ownership of artificial subdivision joins. */
+    if(t<256 || t>=(one->len&0x3fff)-256){w->kind=4;return;}
+    w->base_x=(qx&0xf00)-one->px;
+    w->base_y=(qy&0xf00)-one->py;
+    w->nx=-one->ey;
+    w->ny=one->ex;
+    w->x0=one->x0<=bx ? 0 : (one->x0-bx)*64;
+    w->x1=one->x1>=bx+3u ? 255 : (one->x1-bx)*64+63;
+    w->y0=one->y0<=by ? 0 : (one->y0-by)*64;
+    w->y1=one->y1>=by+3u ? 255 : (one->y1-by)*64+63;
+    w->kind=one->x0<=bx && one->x1>=bx+3u && one->y0<=by && one->y1>=by+3u ? 2 : 3;
+}
+uint8_t riding_wheel_surface(circle_t *k) {
+    const uint8_t *p=(const uint8_t *)k;
+    uint16_t x=*(const uint16_t*)(p+2),y=*(const uint16_t*)(p+6);
+    uint16_t qx=*(const uint16_t*)(p+1)&4095,qy=*(const uint16_t*)(p+5)&4095;
+    surface_cache_t *w=&wheel_surface_cache[k==&Bike.wheel[1]];
+    w->x=x;w->y=y;
+    seg_query(x>=4096?255:(uint8_t)(x>>4),y>=4096?255:(uint8_t)(y>>4),
+            (uint8_t)((qx>>10)|((qy>>8)&12)));
+    wheel_classify(w,qx,qy);
+    return riding_contacts_loop(qx,qy);
+}
+typedef char wheel_cache_layout[sizeof(surface_cache_t)==17 &&
+    offsetof(surface_cache_t,kind)==4 && offsetof(surface_cache_t,base_x)==5 &&
+    offsetof(surface_cache_t,nx)==9 && offsetof(surface_cache_t,x0)==13 ? 1 : -1];
+/* ABI1 DE is the wheel. A=255 falls through to the existing full query.
+ * An interior hit writes exactly the normal and length produced by the
+ * original iterator. Filtering, pushout, landing and audio follow as usual. */
+uint8_t riding_cert_hit(circle_t *k) __naked {
+    k;
+    __asm
+    ld hl,#_wheel_surface_cache
+    ld a,e
+    cp #<(_Bike+48)
+    jr nz,ws_slot
+    ld hl,#(_wheel_surface_cache+17)
+ws_slot:
+    push de
+    push hl
+    inc de
+    inc de
+    ld a,(de)
+    cp (hl)
+    jr nz,ws_change
+    inc de
+    inc hl
+    ld a,(de)
+    cp (hl)
+    jr nz,ws_change
+    inc de
+    inc de
+    inc de
+    inc hl
+    ld a,(de)
+    cp (hl)
+    jr nz,ws_change
+    inc de
+    inc hl
+    ld a,(de)
+    cp (hl)
+    jr nz,ws_change
+    inc hl
+    ld a,(hl)
+    cp #1
+    jr z,ws_empty
+    cp #2
+    jr z,ws_interior
+    cp #3
+    jr z,ws_interior
+    cp #5
+    jr z,ws_build
+    jr c,ws_kind_low
+    dec (hl)
+    jr ws_fallback
+ws_kind_low:
+    or a,a
+    jr z,ws_change
+ws_fallback:
+    pop hl
+    pop de
+    ld a,#255
+    ret
+ws_build:
+    ld (hl),#0
+    pop hl
+    pop de
+    jp _riding_wheel_surface
+ws_change:
+    pop hl
+    pop de
+    inc de
+    inc de
+    ld a,(de)
+    ld (hl+),a
+    inc de
+    ld a,(de)
+    ld (hl+),a
+    inc de
+    inc de
+    inc de
+    ld a,(de)
+    ld (hl+),a
+    inc de
+    ld a,(de)
+    ld (hl+),a
+    ld (hl),#8
+    ld a,#255
+    ret
+ws_empty:
+    pop hl
+    pop de
+    xor a,a
+    ret
+ws_interior:
+    pop de
+    pop hl
+    inc hl
+    ld c,(hl)
+    inc hl
+    inc hl
+    inc hl
+    inc hl
+    ld b,(hl)
+    ; C,B are the within-square X,Y offsets. DE is the entry.
+    cp #3
+    jr nz,ws_compute
+    ld hl,#13
+    add hl,de
+    ld a,c
+    cp (hl)
+    jp c,ws_no_contact
+    inc hl
+    ld a,(hl+)
+    cp c
+    jp c,ws_no_contact
+    ld a,b
+    cp (hl)
+    jp c,ws_no_contact
+    inc hl
+    ld a,(hl)
+    cp b
+    jp c,ws_no_contact
+ws_compute:
+    ld hl,#5
+    add hl,de
+    ld a,c
+    add a,(hl)
+    inc hl
+    ld e,a
+    ld a,#0
+    adc a,(hl)
+    inc hl
+    ld d,a
+    ld a,b
+    add a,(hl)
+    inc hl
+    ld c,a
+    ld a,#0
+    adc a,(hl)
+    inc hl
+    ld b,a
+    ; HL points at the immutable normal. Save it across the rounded dot.
+    push hl
+    push bc
+    ld a,(hl+)
+    ld c,a
+    ld a,(hl+)
+    ld b,a
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    push hl
+    push bc
+    ldhl sp,#4
+    ld a,(hl+)
+    ld c,a
+    ld b,(hl)
+    call _dotq14
+    pop hl  ; discard saved point Y
+    pop hl  ; normal at offset 9
+    ; BC is d. Wheel radius is 410, inclusive max length 409.
+    ld a,c
+    add a,#0x99
+    ld e,a
+    ld a,b
+    adc a,#1
+    ld d,a
+    ld a,e
+    sub a,#0x33
+    ld a,d
+    sbc a,#3
+    jr nc,ws_no_contact
+    bit 7,b
+    jr nz,ws_negative
+    ld de,#_Ct
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    ld a,(hl)
+    ld (de),a
+    inc de
+    jr ws_length
+ws_negative:
+    ld de,#_Ct
+    xor a,a
+    sub (hl)
+    ld (de),a
+    inc de
+    inc hl
+    ld a,#0
+    sbc (hl)
+    ld (de),a
+    inc de
+    inc hl
+    xor a,a
+    sub (hl)
+    ld (de),a
+    inc de
+    inc hl
+    ld a,#0
+    sbc (hl)
+    ld (de),a
+    inc de
+    xor a,a
+    sub c
+    ld c,a
+    ld a,#0
+    sbc b
+    ld b,a
+ws_length:
+    ld a,c
+    ld (de),a
+    inc de
+    ld a,b
+    ld (de),a
+    ld a,#1
+    ret
+ws_no_contact:
+    xor a,a
+    ret
+    __endasm;
+}
+
 void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED __naked {
     k;dvx;dvy;tq;
     __asm
+    ldhl sp,#6
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    call _riding_cert_hit
+    cp #255
+    jr nz,ws_have_answer
     ldhl sp,#6
     ld a,(hl+)
     ld h,(hl)
@@ -410,6 +769,7 @@ void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED __na
     add hl,de
     call wheel_query_position
     call _contacts
+ws_have_answer:
     or a,a
     jr z,wheel_no_contact
     ldhl sp,#6

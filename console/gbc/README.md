@@ -3,11 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test6 — 8 MiB](build/elma-gbc-v0.96-test6-8m.gbc)**.
-The Freefall emulator run averages **17.87 physics updates/s**, up from 11.61
-in test5. The target is **29.86 updates/s**. All 12,380 native state checks
-match the frozen test5 model, and all 20 Freefall spin tests reproduce the
-previous PC comparisons.
+**[0.96 test7 — 8 MiB](build/elma-gbc-v0.96-test7-8m.gbc)**.
+Freefall now averages **18.20 physics updates per real second** in the
+emulator. Across 216 short controller runs on all 54 courses, the aggregate
+rate is **16.83**, up from **10.99** in test5. The target is **29.86**.
+All 19,885 compared gameplay updates reproduce test5.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +57,30 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test7 — wheel contacts, head collisions and damping torque
+
+| Emulator measurement | Test5 | Test6 | Test7 |
+| --- | ---: | ---: | ---: |
+| Freefall descent, updates per real second | 11.61 | 17.87 | **18.20** |
+| All 54 courses, four controller routes each, aggregate updates/s | 10.99 | 15.75 | **16.83** |
+| Slowest route, Shelf Life with braking, updates/s | 8.75 | 12.32 | **12.34** |
+| Complete active updates over 280,896 T-cycles on those routes | 19,878 | 19,266 | **18,750** |
+
+These routes use identical inputs for up to 100 updates each. A simulated
+game second takes **1.64 real seconds** on the complete Freefall run, or
+**1.77** across the short routes. The wheel contact shortcut reuses a small
+terrain region after repeated visits. The head collision shortcut skips
+regions clear of terrain, and the damper preserves the full sum of both
+wheels' torques before rounding.
+
+All 12,380 native state comparisons passed. The 45 PC rebound and braking
+checks and the 20 extreme Freefall spin tests retain their previous results.
+All 54 courses started successfully. The stable-30 timing gate still fails
+in the emulator. Physical Game Boy Color timing is unverified.
+
+[Download test7 for the 8 MiB cartridge](build/elma-gbc-v0.96-test7-8m.gbc) ·
+SHA-256 `3fb8c2c232f6e7c3bee4bda6eabb5d520670983e3bc24ed17113d3924166e15f`.
 
 ## 0.96 test6 — faster physics on GBC
 

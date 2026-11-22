@@ -626,83 +626,176 @@ ss_spin_wide:
  sbc a,a
  jp ss_reduce18
 
-; Return clamp32(sum(arm_x * rely - arm_y * relx) >> 18) in HLDE.
-; First product seeds the nine-byte signed accumulator. A ninth byte keeps
-; both overflow and cancellation exact when all four products are wide.
-ss_damping_torque18:
- ; Four signed32 x signed16 products sum to a magnitude at most 2^48;
- ; after the 18-bit shift the result fits signed32 without clamping.
- ; Keep bits 0..49 of the sum, including all cross-wheel fractional carries.
- ld hl,#ss_damping+1
- .rept 4
+; Add or subtract one signed24 by signed24 product. With a wider input,
+; extend the partial sum and let the wide routine finish the remaining terms.
+.macro ss_moment_term label,speed,arm,subtract,partial,wide
+label:
+ ld hl,#ss_damping+speed
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld d,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ .if partial
+ jp nz,004$
+ .else
+ jp nz,wide
+ .endif
+ ld a,c
+ or a,b
+ or a,d
+ jr z,006$
+ bit 7,d
+ jr z,001$
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+001$:
+ ld e,b
+ push de
+ ld hl,#ss_damping+arm
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jr nz,003$
+ pop hl
+ ld a,(#ss_damping+speed+3)
+ xor a,b
+ push af
+ bit 7,b
+ jr z,002$
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+002$:
+ call ss_magnitude_product
+ pop af
+ bit 7,a
+ .if subtract
+ jr z,005$
+ .else
+ jr nz,005$
+ .endif
+ call ss_magnitude_add
+ jr 006$
+003$:
+ pop hl
+ .if partial
+004$:
+ ld hl,#ss_moment+6
  ld a,(hl+)
  add a,a
  sbc a,a
- cp a,(hl)
- jp nz,ss_moment_wide
+ ld (hl+),a
+ ld (hl),a
+ .endif
+ jp wide
+005$:
+ call ss_magnitude_sub
+006$:
+.endm
+
+; Return clamp32(sum(arm_x * rely - arm_y * relx) >> 18) in HLDE.
+; The signed24 path preserves every fractional bit. A wider operand transfers
+; the existing partial sum to the nine-byte accumulator before its product.
+ss_damping_torque18:
+ ; Both horizontal speeds must vanish for these two zero cases. Either
+ ; all speeds vanish, or equal vertical speeds act on opposite x arms.
+ ld hl,#ss_damping
+ ld a,(hl+)
+ or a,(hl)
+ jr nz,ss_mt_general
  inc hl
- cp a,(hl)
- jp nz,ss_moment_wide
- inc hl
+ .rept 6
+ or a,(hl)
  inc hl
  .endm
+ jr nz,ss_mt_general
+ ld a,(hl+)
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ inc hl
+ jr nz,ss_mt_vertical
+ .rept 3
+ or a,(hl)
+ inc hl
+ .endm
+ or a,(hl)
+ jr nz,ss_mt_general
+ss_mt_zero:
+ ld hl,#0
+ ld de,#0
+ ret
+ss_mt_vertical:
+ ; Compare both full-width vertical speeds.
  ld hl,#ss_damping+8
- ld c,(hl)
+ ld de,#ss_damping+12
+ .rept 4
+ ld a,(de)
+ inc de
+ cp a,(hl)
+ jr nz,ss_mt_general
  inc hl
- ld b,(hl)
- ld hl,#ss_damping+16
- call _riding_product32x16_regs
- push hl
- ld hl,#ss_moment
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- pop de
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- inc hl
- ld a,b
- add a,a
- sbc a,a
- ld (hl),a
- ld hl,#ss_damping
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld a,b
- or a,c
- jr z,ss_moment_wheel1
- ld hl,#ss_damping+24
- call _riding_product32x16_regs
- call ss_sub48
-ss_moment_wheel1:
- ld hl,#ss_damping+12
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld a,b
- or a,c
- jr z,ss_moment_wheel1_y
+ .endm
+ ; Opposite signs exclude the same-sign pair INT_MIN, INT_MIN.
+ ld hl,#ss_damping+19
+ ld a,(#ss_damping+23)
+ xor a,(hl)
+ bit 7,a
+ jr z,ss_mt_general
  ld hl,#ss_damping+20
- call _riding_product32x16_regs
- call ss_add48
-ss_moment_wheel1_y:
- ld hl,#ss_damping+4
- ld c,(hl)
+ ld a,(#ss_damping+16)
+ add a,(hl)
+ jr nz,ss_mt_general
  inc hl
- ld b,(hl)
- ld a,b
- or a,c
- jr z,ss_moment_shift
- ld hl,#ss_damping+28
- call _riding_product32x16_regs
- call ss_sub48
+ ld a,(#ss_damping+17)
+ adc a,(hl)
+ jr nz,ss_mt_general
+ inc hl
+ ld a,(#ss_damping+18)
+ adc a,(hl)
+ jr nz,ss_mt_general
+ inc hl
+ ld a,(#ss_damping+19)
+ adc a,(hl)
+ jr z,ss_mt_zero
+ss_mt_general:
+ ; Four signed24 products of magnitude at most 2^46 fit a signed56
+ ; accumulator, and their Q18 result fits signed32 without saturation.
+ xor a
+ ld hl,#ss_moment
+ .rept 7
+ ld (hl+),a
+ .endm
+ ss_moment_term ss_mt_x0,8,16,0,0,ss_moment_wide
+ ss_moment_term ss_mt_y0,0,24,1,1,ss_mt_wide_term1
+ ss_moment_term ss_mt_x1,12,20,0,1,ss_mt_wide_term2
+ ss_moment_term ss_mt_y1,4,28,1,1,ss_mt_wide_term3
 ss_moment_shift:
  ld hl,#ss_moment+2
  ld e,(hl)
@@ -742,14 +835,17 @@ ss_moment_wide:
  add a,a
  sbc a,a
  ld (hl),a
+ss_mt_wide_term1:
  ld hl,#ss_damping+24
  ld de,#ss_damping
  call ss_lever_product
  call ss_sub_product
+ss_mt_wide_term2:
  ld hl,#ss_damping+20
  ld de,#ss_damping+12
  call ss_lever_product
  call ss_add_product
+ss_mt_wide_term3:
  ld hl,#ss_damping+28
  ld de,#ss_damping+4
  call ss_lever_product
@@ -898,26 +994,122 @@ ss_sub_sign:
  ld (hl),a
  ret
 
-ss_add48:
+ss_magnitude_add:
  ss_add_low48
- bit 7,b
- ld b,#0
- jr z,ss_add48_sign
- dec b
-ss_add48_sign:
- ld a,(hl)
- adc a,b
- ld (hl),a
+ ret nc
+ inc (hl)
+ ret
+ss_magnitude_sub:
+ ss_sub_low48
+ ret nc
+ dec (hl)
  ret
 
-ss_sub48:
- ss_sub_low48
- bit 7,b
- ld b,#0
- jr z,ss_sub48_sign
- dec b
-ss_sub48_sign:
+.area _CODE
+; Multiply B:DE (arm magnitude) by H:L:C (speed magnitude). Combine the
+; complete byte-table rows before returning the unsigned product in BC:HL:DE.
+; ss_g is free after both spring torques have been accumulated.
+.macro ss_mt_two_rows
+ ; A is the middle speed digit. Save its row while looking up the low digit.
+ push bc
+ push de
+ ld c,a
+ call ss_mt_row
+ push bc
+ push de
+ ldhl sp,#4
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ call _riding_product24x8_row
+ ldhl sp,#0
+ ld a,(hl+)
+ add a,d
+ ld d,a
+ ld a,(hl+)
+ adc a,c
+ ld c,a
+ ld a,(hl+)
+ adc a,b
+ ld b,a
  ld a,(hl)
- sbc a,b
- ld (hl),a
+ adc a,#0
+ ld h,b
+ ld l,c
+ ld c,a
+ ld b,#0
+ add sp,#8
+.endm
+ss_magnitude_product:
+ ld a,h
+ or a
+ jr nz,ss_mt_three
+ ld a,l
+ or a
+ jr nz,ss_mt_two
+ call _riding_product24x8_row
+ ld h,b
+ ld l,c
+ ld bc,#0
+ jr ss_mt_done
+ss_mt_three:
+ push hl
+ push bc
+ push de
+ ld c,a
+ call ss_mt_row
+ ; Store top partial at byte offset 2, then compute the two lower rows.
+ ld hl,#ss_g+4
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ pop de
+ pop bc
+ pop hl
+ ld a,l
+ ss_mt_two_rows
+ ld a,(#ss_g+4)
+ add a,l
+ ld l,a
+ ld a,(#ss_g+5)
+ adc a,h
+ ld h,a
+ ld a,(#ss_g+6)
+ adc a,c
+ ld c,a
+ ld a,(#ss_g+7)
+ adc a,b
+ ld b,a
+ jr ss_mt_done
+ss_mt_two:
+ ss_mt_two_rows
+ss_mt_done:
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+ss_mt_row:
+ ld a,c
+ dec a
+ jr z,ss_mt_row_one
+ dec a
+ jp nz,_riding_product24x8_row
+ sla e
+ rl d
+ ld a,b
+ rla
+ ld c,a
+ ld b,#0
+ rl b
+ ret
+ss_mt_row_one:
+ ld c,b
+ ld b,#0
  ret

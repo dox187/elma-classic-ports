@@ -303,6 +303,7 @@ exact_product_wide:
 
 ; B:DE is an unsigned 24-bit magnitude, C selects a row in banks 36..43.
 ; Return the exact unsigned product in BC:DE, little-endian.
+_riding_product24x8_row::
 exact_product_byte_row:
  ld a,c
  rlca
