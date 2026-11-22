@@ -13,18 +13,18 @@ TILE = 1024
 GROUP = 4  # Four neighbouring 4 m cells share one eight-byte dictionary entry.
 
 
-def touches_tile(edge, x, y):
+def touches_tile(edge, x, y, size=TILE):
     """Does a finite segment come strictly within RADIUS of the closed square?"""
     ax, ay, dx, dy = edge
     bx, by = ax + dx, ay + dy
-    x1, y1 = x + TILE, y + TILE
+    x1, y1 = x + size, y + size
     if (x1 + RADIUS <= min(ax, bx) or x - RADIUS >= max(ax, bx) or
             y1 + RADIUS <= min(ay, by) or y - RADIUS >= max(ay, by)):
         return False
     # The box axes and the segment normal are all separating axes.
     cross = (x - ax) * dy - (y - ay) * dx
-    lo = cross + min(0, TILE * dy) + min(0, -TILE * dx)
-    hi = cross + max(0, TILE * dy) + max(0, -TILE * dx)
+    lo = cross + min(0, size * dy) + min(0, -size * dx)
+    hi = cross + max(0, size * dy) + max(0, -size * dx)
     if (x1 >= min(ax, bx) and x <= max(ax, bx) and
             y1 >= min(ay, by) and y <= max(ay, by) and lo <= 0 <= hi):
         return True

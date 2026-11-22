@@ -56,6 +56,30 @@ def main():
                     assert actual == expected & 0xffffffff, (v,tq,phase,actual,expected)
                     assert bytes(mem[0x4078:0x4088]) == sentinel and mem[names['__current_bank']] == 9
                     count += 1
+        free = names['_riding_free_throttle']
+        assert free >> 16 == 9
+        mem[address:address+5] = [0xcd, free & 255, free >> 8 & 255, 0x18, 0xfe]
+        free_count = 0
+        for phase, scale in enumerate((16542280, 10907162)):
+            mem[names['_riding_subphase']] = phase
+            for torque in (0, 2400, -2400, 2399, 2401, -2399, -2401, 0x10960,
+                           -0x10960, 0xff0960, -0xff0960, 2**31-1, -2**31):
+                fraction = names['_q24_fraction']
+                saturated = names['_q24_saturated']
+                mem[fraction:fraction+4] = bytes.fromhex('81428418')
+                mem[saturated] = 1
+                regs.D, regs.E = (torque >> 24) & 255, (torque >> 16) & 255
+                regs.B, regs.C = (torque >> 8) & 255, torque & 255
+                regs.SP, regs.PC = stack, address
+                emu.tick(1, False)
+                hit = abs(torque) == 2400
+                assert bool(regs.F & 0x10) == hit and regs.SP == stack and regs.PC == address+3
+                impulse = (torque * scale + (1 << 23)) >> 24
+                want_fraction = struct.pack('<i', torque*scale-(impulse<<24)) if hit else bytes.fromhex('81428418')
+                assert bytes(mem[fraction:fraction+4]) == want_fraction and mem[saturated] == int(not hit)
+                got = (regs.D << 24) | (regs.E << 16) | (regs.B << 8) | regs.C
+                assert got == (impulse if hit else torque) & 0xffffffff
+                free_count += 1
         gas = names['_riding_gas_reaction']
         mem[0x2000] = mem[names['__current_bank']] = gas >> 16
         mem[address:address+5] = [0xcd, gas & 255, gas >> 8 & 255, 0x18, 0xfe]
@@ -90,7 +114,7 @@ def main():
                     gas_count += 1
     finally:
         emu.stop(save=False)
-    print(f'{count} native rolling cases and {gas_count} throttle reaction cases passed')
+    print(f'{count} native rolling cases, {gas_count} throttle reaction and {free_count} free-wheel throttle cases passed')
 
 
 if __name__ == '__main__':

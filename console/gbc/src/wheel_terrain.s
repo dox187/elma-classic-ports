@@ -1,5 +1,5 @@
 ; DE,BC are the upper unsigned words of the two Q18 coordinates. One
-; quarter metre is one unit. A=0 empty, 1..254 ordered leaf index, 255 unknown.
+; quarter metre is one unit. A=0 empty, 1..63 plane, 64..254 ordered window, 255 unknown.
 .module wheel_terrain
 .area _CODE_9
 _riding_wheel_lookup::
@@ -97,9 +97,9 @@ wheel_real_row:
  ld a,c
  ld c,b
  call _riding_wheel_read_map
- ; A indexes four row-major half-metre certificates in bank 9.
+ ; BA indexes four row-major half-metre certificates in bank 9.
  ld l,a
- ld h,#0
+ ld h,b
  add hl,hl
  add hl,hl
  ld de,#_wheel_terrain_patterns
@@ -140,8 +140,11 @@ wheel_bank_ready:
 wheel_cell_addr:
  ld a,(hl)
  pop hl
+ ld b,#0
  or a
  jr z,wheel_read_done
+ bit 7,a
+ jr nz,wheel_read_extended
  dec a
  ld e,d
  ld d,#0
@@ -157,6 +160,64 @@ wheel_cell_addr:
  ld d,a
  add hl,de
  ld a,(hl)
+ jr wheel_read_done
+
+wheel_read_extended:
+ ; This layout starts 18*abs(index) bytes before the row's cell IDs.
+ cpl
+ inc a
+ ld e,a
+ ld d,#0
+ push hl
+ ld l,e
+ ld h,d
+ add hl,hl
+ add hl,hl
+ add hl,hl
+ add hl,de
+ add hl,hl
+ ld d,h
+ ld e,l
+ pop hl
+ ld a,l
+ sub e
+ ld l,a
+ ld a,h
+ sbc d
+ ld h,a
+ ld d,#0
+ ld e,c
+ add hl,de
+ ld e,(hl)
+ ; Select one of sixteen bits at layout+16 after reading layout[sub].
+ ld a,#16
+ sub c
+ bit 3,c
+ jr z,wheel_page_byte
+ inc a
+wheel_page_byte:
+ add l
+ ld l,a
+ jr nc,wheel_page_bit
+ inc h
+wheel_page_bit:
+ ld a,(hl)
+ bit 2,c
+ jr z,wheel_low_nibble
+ swap a
+wheel_low_nibble:
+ bit 1,c
+ jr z,wheel_low_pair
+ rrca
+ rrca
+wheel_low_pair:
+ bit 0,c
+ jr z,wheel_low_bit
+ rrca
+wheel_low_bit:
+ and #1
+ ld b,a
+ ld a,e
 wheel_read_done:
  ld c,a
  xor a
@@ -189,6 +250,7 @@ _riding_compiled_surface::
  ld c,a
  pop hl
  push hl
+wheel_query:
  push bc
  ; seg_query(cx,cy,subcell) takes cx in A, cy in E and one stack byte.
  ld a,(hl+)
@@ -224,6 +286,9 @@ _riding_compiled_surface::
  inc sp
  call _seg_query
  pop bc
+ ld a,c
+ cp #64
+ jr nc,wheel_window
  ld a,(#_Seg_left)
  cp c
  jr c,wheel_fallback
@@ -241,7 +306,7 @@ _riding_compiled_surface::
  ld a,(#_Seg_cur+1)
  ld d,a
  add hl,de
- jr wheel_install
+ jp wheel_install
 wheel_fallback:
  pop bc
  pop de
@@ -254,6 +319,105 @@ wheel_clear:
  ld (hl),#1
  pop de
  xor a
+ ret
+
+ ; Reacquire the leaf on every revisit. The three collision slots can
+ ; be evicted by the other wheel or the swept head between two queries.
+_riding_wheel_cached_window::
+ ld c,a
+ pop hl
+ push hl
+ jr wheel_query
+
+wheel_window:
+ ; C = 64 + 4*start + (count-1). Verify the entire interval before
+ ; installing it, and leave the fallback countdown armed on failure.
+ sub #64
+ ld b,a
+ and #3
+ inc a
+ ld e,a
+ ld a,b
+ rrca
+ rrca
+ and #63
+ ld l,a
+ add e
+ ld d,a
+ ld a,(#_Seg_left)
+ sub d
+ jr c,wheel_fallback
+ ld b,a                   ; number of trailing records
+ ld a,e
+ ld (#_Seg_left),a
+ ld h,#0
+ ld d,h
+ ld e,l
+ add hl,hl
+ add hl,hl
+ add hl,hl
+ add hl,de
+ add hl,hl
+ ld a,(#_Seg_cur)
+ add l
+ ld (#_Seg_cur),a
+ ld a,(#_Seg_cur+1)
+ adc h
+ ld (#_Seg_cur+1),a
+ pop hl
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+ ld (hl),c                ; Store the index, never a leaf slot pointer.
+ pop hl
+ inc hl
+ ld e,(hl)
+ inc hl
+ ld a,(hl+)
+ and #15
+ ld d,a
+ inc hl
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld a,(hl)
+ and #15
+ push bc                  ; preserve the skipped suffix count
+ ld b,a
+ call _riding_contacts_loop
+ pop bc
+ ; Preserve the public iterator state even on an early second contact.
+ cp #2
+ jr z,wheel_window_pair
+ ld e,a
+ ld a,b
+ or a
+ ld a,e
+ ret z
+ push af
+ ld h,#0
+ ld l,b
+ ld d,h
+ ld e,l
+ add hl,hl
+ add hl,hl
+ add hl,hl
+ add hl,de
+ add hl,hl
+ ld a,(#_Seg_cur)
+ add l
+ ld (#_Seg_cur),a
+ ld a,(#_Seg_cur+1)
+ adc h
+ ld (#_Seg_cur+1),a
+ pop af
+ ret
+wheel_window_pair:
+ ld a,(#_Seg_left)
+ add b
+ ld (#_Seg_left),a
+ ld a,#2
  ret
 
 wheel_install:

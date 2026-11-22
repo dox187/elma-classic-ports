@@ -25,13 +25,15 @@ static const int16_t Ellipse_inside_y[]={RIDING_ELLIPSE_INSIDE_Y_VALUES};
 #include <stddef.h>
 /* Private scheduled suspension workspace; ph_step is non-reentrant. */
 typedef struct {
- int16_t cs,sn; int32_t oms; int32_t tq[2];
- int32_t dvx[2],dvy[2],dvbx,dvby,dwb,spring_fraction;
+ int16_t cs,sn; int32_t oms;
+ wheel_input_t wheel[2];
+ int32_t dvbx,dvby,dwb,spring_fraction;
 } riding_suspension_state_t;
-typedef char suspension_layout[sizeof(riding_suspension_state_t)==48 &&
-    offsetof(riding_suspension_state_t,dvx)==16 &&
-    offsetof(riding_suspension_state_t,dwb)==40 &&
-    offsetof(riding_suspension_state_t,spring_fraction)==44 ? 1 : -1];
+typedef char suspension_layout[sizeof(riding_suspension_state_t)==52 &&
+    offsetof(riding_suspension_state_t,wheel[0])==8 &&
+    offsetof(riding_suspension_state_t,wheel[1])==22 &&
+    offsetof(riding_suspension_state_t,dvbx)==36 &&
+    offsetof(riding_suspension_state_t,spring_fraction)==48 ? 1 : -1];
 riding_suspension_state_t riding_suspension_state;
 const uint8_t riding_suspension_anchor_x=Q24_ANCHOR_X;
 const uint8_t riding_suspension_anchor_y=Q24_ANCHOR_Y;
@@ -106,7 +108,7 @@ static void angle( void ) {
 #ifdef __SDCC
 extern int16_t riding_pose_rest[2];
 void riding_step_head_position(void) __sdcccall(0);
-void riding_brake32(int32_t*) __sdcccall(0);
+void riding_brake_fields(int32_t *left, int32_t *right);
 #define head_position riding_step_head_position
 #else
 static void head_position(void) {
@@ -134,15 +136,14 @@ static int32_t body_oms(void) {
 #endif
 
 #ifdef __SDCC
-int16_t riding_angle_fraction(void) __sdcccall(0);
-void riding_partial_angle(int16_t fraction) __banked;
+void riding_partial_body_angle(void) __banked;
 void riding_full_angle(void) __sdcccall(0);
 void riding_body_translate(circle_t *k,uint8_t slot) __sdcccall(0);
 #endif
 
 static void move_body(void) {
 #ifdef __SDCC
-    if (riding_subphase) riding_partial_angle(riding_angle_fraction());
+    if (riding_subphase) riding_partial_body_angle();
     else riding_full_angle();
     riding_body_translate(&Bike.body,0);
 #else
@@ -242,6 +243,10 @@ static void rider( int32_t gx, int32_t gy ) {
 #endif
 
 void ph_init( int32_t x, int32_t y ) {
+#ifdef __SDCC
+    riding_suspension_state.wheel[0].k=&Bike.wheel[0];
+    riding_suspension_state.wheel[1].k=&Bike.wheel[1];
+#endif
     angular_residual=0;
 	uint8_t* p = (uint8_t*)&Bike;
 	for( uint16_t i = 0; i < sizeof( bike_t ); i++ )
@@ -423,22 +428,23 @@ uint8_t ph_step( uint8_t input ) {
 	}
 	Bike.brake_was = brake;
 #ifdef __SDCC
-    int32_t *const tq = riding_suspension_state.tq;
+#define STEP_TORQUE(slot) riding_suspension_state.wheel[slot].tq
 #else
     int32_t tq[2];
+#define STEP_TORQUE(slot) tq[slot]
 #endif
-	tq[0] = 0; tq[1] = 0;
+	STEP_TORQUE(0) = 0; STEP_TORQUE(1) = 0;
 	if( input & IN_GAS ) {
 		if( Bike.turned ) {
 			if( Bike.wheel[0].omega > -WHEEL_MAXW )
-				tq[0] = -GAS_TQ;
+				STEP_TORQUE(0) = -GAS_TQ;
 		}
 		else if( Bike.wheel[1].omega < WHEEL_MAXW )
-			tq[1] = GAS_TQ;
+			STEP_TORQUE(1) = GAS_TQ;
 	}
 	if( brake ) {
 #ifdef __SDCC
-        riding_brake32(tq);
+        riding_brake_fields(&STEP_TORQUE(0), &STEP_TORQUE(1));
 #else
 		for( uint8_t k = 0; k < 2; k++ ) {
 			// Brake deflection accumulates: wrapping at half a turn reverses
@@ -453,6 +459,7 @@ uint8_t ph_step( uint8_t input ) {
 #endif
 	}
 
+#undef STEP_TORQUE
 #ifdef __SDCC
     riding_suspension_scheduled();
     riding_step_fraction();

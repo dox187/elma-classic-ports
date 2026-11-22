@@ -4,13 +4,15 @@
 .area _CODE_8
 
 step_oms = 4
-step_tq = 8
-step_dvx = 16
-step_dvy = 24
-step_dvbx = 32
-step_dvby = 36
-step_dwb = 40
-step_fraction = 44
+step_wheel0 = 8
+step_wheel1 = 22
+step_wheel_stride = 14
+step_dvx = 10
+step_dvy = 14
+step_dvbx = 36
+step_dvby = 40
+step_dwb = 44
+step_fraction = 48
 
 ; BC:DE holds one signed32 contribution, low byte in E.
 .macro step_load32 address
@@ -112,7 +114,7 @@ step_gravity_left:
 step_gravity_x:
  call step_extend_gravity
  step_add32 _riding_suspension_state+step_dvx
- step_add32 _riding_suspension_state+step_dvx+4
+ step_add32 _riding_suspension_state+step_dvx+step_wheel_stride
  step_add32 _riding_suspension_state+step_dvbx
  ld hl,#0
  push hl
@@ -123,7 +125,7 @@ step_gravity_x:
 step_gravity_y:
  call step_extend_gravity
  step_add32 _riding_suspension_state+step_dvy
- step_add32 _riding_suspension_state+step_dvy+4
+ step_add32 _riding_suspension_state+step_dvy+step_wheel_stride
  step_add32 _riding_suspension_state+step_dvby
  push bc
  push de
@@ -168,21 +170,21 @@ step_extend_gravity:
  ld c,a
  ret
 
-.macro step_wheel offset,wheel
- step_push32 _riding_suspension_state+step_tq+offset
- step_push32 _riding_suspension_state+step_dvy+offset
- step_push32 _riding_suspension_state+step_dvx+offset
- ld hl,#(_Bike+wheel)
- push hl
- ld e,#b_riding_wheel
- ld hl,#_riding_wheel
- call ___sdcc_bcall_ehl
- add sp,#14
-.endm
+; Both records already contain the full impulses. Keep bank 9 mapped until
+; the right wheel has observed all effects of the left wheel's solve.
 _riding_step_wheels::
- step_wheel 0,24
- step_wheel 4,48
- ret
+ ld e,#b_riding_wheel
+ ld hl,#step_solve_wheels
+ jp ___sdcc_bcall_ehl
+
+.area _CODE_9
+step_solve_wheels:
+ ld hl,#_riding_suspension_state+step_wheel0
+ call _riding_wheel_inputs
+ ld hl,#_riding_suspension_state+step_wheel1
+ jp _riding_wheel_inputs
+
+.area _CODE_8
 
 ; Convert F to u by dropping the low byte and sign-extending the upper 24.
 .macro step_push_head address

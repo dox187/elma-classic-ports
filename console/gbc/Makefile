@@ -150,6 +150,7 @@ check: all
 	$(PYTHON) test/check_physics_coefficients.py --constants $(GEN)/riding_constants.h --first-bank $(COEFFICIENT_BANK)
 	$(PYTHON) test/check_physics_sweep.py --gen $(GEN)
 	$(PYTHON) test/check_head_clearance.py --gen $(GEN) --rom $(GAME_ROM)
+	$(PYTHON) test/check_head_quarters.py --rom $(GAME_ROM) --res "$(ELMA_RES)"
 	$(PYTHON) test/check_physics_levels.py --res "$(ELMA_RES)" --gen $(GEN)
 	$(PYTHON) test/check_physics_levels.py --res "$(ELMA_RES)" --gen $(GEN) --out build/physics-high-bank-check --high-bank
 	$(PYTHON) test/check_physics_trace.py --res "$(ELMA_RES)" --gen $(GEN) --first-bank $(COEFFICIENT_BANK)

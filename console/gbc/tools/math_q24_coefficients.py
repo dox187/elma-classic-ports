@@ -162,17 +162,31 @@ def write_angle_tables(out, oms):
         if pos == 3 and byte >= 128:
             byte -= 256
         return divmod((byte << (pos * 8)) * 27007, 1280)
-    def array(type_name, name, values):
-        return 'static const ' + type_name + ' ' + name + '[]={\n' + ','.join(map(str, values)) + '};\n'
+    def array(name, values):
+        return 'const uint8_t ' + name + '[]={\n' + ','.join(map(str, values)) + '};\n'
+
     text = ''
-    for pos in range(4):
-        text += array('uint32_t', f'whole{pos}', [f'{piece(pos, b)[0] & 0xffffffff}UL' for b in range(256)])
-    text += array('uint16_t', 'low_remainder', [piece(0, b)[1] for b in range(256)])
-    for pos in (1, 3):
-        text += array('uint8_t', f'high_remainder{pos}', [piece(pos, b)[1] >> 8 for b in range(256)])
-    assert all(piece(1, b)[1] == piece(2, b)[1] for b in range(256))
-    # floor((f+640+r0)/256) + r1/256 + r2/256 + r3/256 is in [-51,72].
-    text += array('int8_t', 'carry_units', [n // 5 for n in range(-64, 80)])
+    for pos, width in enumerate((2, 3, 4, 4)):
+        pairs = [piece(pos, byte) for byte in range(256)]
+        if pos == 0:
+            # Fold the round-to-nearest bias into this byte's remainder.
+            pages = [[(r + 640) & 255 for _, r in pairs], [(r + 640) >> 8 for _, r in pairs]]
+        else:
+            if any(r & 255 for _, r in pairs):
+                raise ValueError('Upper angle digits must have byte-aligned remainders')
+            pages = [[r >> 8 for _, r in pairs]]
+        if pos < 2 and any(q >= 1 << (width * 8) for q, _ in pairs):
+            raise ValueError('Angular quotient exceeds its stored width')
+        pages.extend([(q >> (8 * digit)) & 255 for q, _ in pairs] for digit in range(width))
+        text += array(f'riding_angle_digit{pos}', [v for page in pages for v in page])
+    # With high word 0xffff, the two upper digits together subtract 65536.
+    q, r = divmod(-65536 * 27007, 1280)
+    text += array('riding_angle_negative', [r >> 8] + [(q >> (8 * i)) & 255 for i in range(4)])
+    text += array('riding_angle_carry', [(n // 5) & 255 for n in range(-64, 80)])
+    for pos in range(3):
+        terms = [(b - 256 if pos == 2 and b >= 128 else b) * 27007 for b in range(256)]
+        shifts = (8, 16) if pos == 0 else (0, 8, 16)
+        text += array(f'riding_angle_frac{pos}', [(v >> shift) & 255 for shift in shifts for v in terms])
     # Five parallel product-byte pages feed a base-256 multiply of the
     # complete Q24 body angular velocity. Both substeps use the same scale.
     if oms[0] != oms[1] or not 0x40000100 <= oms[0] < 0x80000000:
@@ -237,6 +251,7 @@ def generate(constants,out,first_bank, *, include_pose=True):
         'coefficient_count':len(values),'tables':tables,
         'dispatch':'physics_q24_dispatch.c','header':'physics_q24_coefficients.h'}
     if include_pose:
+        manifest['geometry_format'] = 'signed-pose-ranked-angle-pages-v1'
         manifest['rider_rows_sha256'] = write_rider_tables(out, coefficients)
         manifest['geometry_sha256'] = {name: hashlib.sha256((out/name).read_bytes()).hexdigest()
                                        for name in ('physics_pose_rows.h', 'physics_angle_rows.h')}

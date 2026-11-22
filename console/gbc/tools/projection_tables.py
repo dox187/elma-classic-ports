@@ -189,7 +189,9 @@ def validate_layout(symbols):
     for bank in BANKS:
         start = (bank << 16) | 0x4000
         expected_size = 0x3c00
+        end = start + symbols.get(f'l__CODE_{bank}',0)
+        tail = symbols.get(f'_head_quarter_tail_{bank}',end)
         if (symbols.get(f'_riding_projection_bank_{bank}') != start or
                 symbols.get(f's__CODE_{bank}') != start or
-                symbols.get(f'l__CODE_{bank}') != expected_size):
+                tail != start+expected_size or symbols.get(f'_head_quarter_end_{bank}',tail) != end):
             raise ValueError(f'Overlapping or misaligned signed projection table in bank {bank}')

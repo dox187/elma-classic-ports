@@ -18,15 +18,15 @@ def signed(n):return (n+2**31)%2**32-2**31
 
 def expected(raw,ox,oy,shift,alive):
     result=bytearray(52);result[50]=alive
-    for source,target,axis in ((0,0,ox),(4,4,oy),(22,10,ox),
-            (26,14,oy),(44,20,ox),(48,24,oy),(66,30,ox),
-            (70,34,oy),(82,40,ox),(86,44,oy)):
+    for source,target,axis in ((0,0,ox),(4,4,oy),(24,10,ox),
+            (28,14,oy),(48,20,ox),(52,24,oy),(72,30,ox),
+            (76,34,oy),(88,40,ox),(92,44,oy)):
         value=struct.unpack_from('<i',raw,source)[0]
         struct.pack_into('<i',result,target,signed((value>>2)+axis))
-    for source,target in ((16,8),(38,18),(60,28)):
+    for source,target in ((16,8),(40,18),(64,28)):
         angle=struct.unpack_from('<I',raw,source)[0]>>shift
         struct.pack_into('<H',result,target,angle&65535)
-    result[38:40]=result[48:50]=result[8:10];result[51]=raw[90]
+    result[38:40]=result[48:50]=result[8:10];result[51]=raw[96]
     return result
 
 
@@ -37,11 +37,13 @@ def main():
     edges=(-2147483648,-2147483647,-262145,-262144,-65537,-65536,-5,-4,-3,-2,-1,0,1,2,3,4,5,65535,65536,2147483646,2147483647)
     for shift in (7,8):
         for n in range(512):
-            raw=bytearray(rng.randbytes(109))
+            raw=bytearray(rng.randbytes(119))
             if n<len(edges)*4:
-                for off in (0,4,22,26,44,48,66,70,74,78,82,86):struct.pack_into('<i',raw,off,edges[(n+off)%len(edges)])
-                raw[93]=n&1
+                for off in (0,4,24,28,48,52,72,76,80,84,88,92):struct.pack_into('<i',raw,off,edges[(n+off)%len(edges)])
+                raw[96]=n&1
             ox=rng.randrange(-2147483648,2147483648);oy=rng.randrange(-2147483648,2147483648);alive=rng.randrange(256)
+            if n % 4 in (0, 1): ox &= ~65535
+            if n % 4 in (0, 2): oy &= ~65535
             vectors.append(bytes(raw)+struct.pack('<iiBB',ox,oy,shift,alive)+expected(raw,ox,oy,shift,alive))
     per_bank=90;parts=[vectors[i:i+per_bank]for i in range(0,len(vectors),per_bank)]
     declarations=[];sources=[]
@@ -54,7 +56,7 @@ def main():
 #include <string.h>
 #include "physics_core.h"
 #include "runtime.h"
-typedef char layout[(sizeof(bike_t)==109 && sizeof(gbc_bike_t)==52 && offsetof(bike_t,steps)==93)?1:-1];
+typedef char layout[(sizeof(bike_t)==119 && sizeof(gbc_bike_t)==52 && offsetof(bike_t,turned)==96)?1:-1];
 bike_t Bike;gbc_bike_t gbc_bike;
 int32_t physics_level_origin_x,physics_level_origin_y;
 uint8_t physics_export_angle_shift;
@@ -79,12 +81,12 @@ void main(void) {
  cpu_fast();
  for(bank=0;bank<sizeof(counts);++bank) {
   SWITCH_ROM(16+bank);v=parts[bank];
-  for(n=0;n<counts[bank];++n,v+=171) {
-   memcpy(Bike,v,109);memcpy(&physics_level_origin_x,v+109,4);memcpy(&physics_level_origin_y,v+113,4);
-   physics_export_angle_shift=v[117];memset(gbc_bike,0x69,52);gbc_bike[50]=v[118];
+  for(n=0;n<counts[bank];++n,v+=181) {
+   memcpy(Bike,v,119);memcpy(&physics_level_origin_x,v+119,4);memcpy(&physics_level_origin_y,v+123,4);
+   physics_export_angle_shift=v[127];memset(gbc_bike,0x69,52);gbc_bike[50]=v[128];
    export_call();
    if(CURRENT_BANK!=16+bank)++export_bank_failures;
-   for(i=0;i<52;++i)if(gbc_bike[i]!=v[119+i])++export_failures;
+   for(i=0;i<52;++i)if(gbc_bike[i]!=v[129+i])++export_failures;
    ++export_checked;
   }
  }

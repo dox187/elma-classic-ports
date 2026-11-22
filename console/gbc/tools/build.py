@@ -8,6 +8,7 @@ import re
 import subprocess
 
 import head_clearance
+import head_refinement
 import projection_tables
 import rolling_tables
 import wheel_terrain
@@ -54,6 +55,8 @@ def validate_linked_layout(symbol_path,rom_mib):
                 raise ValueError(f'Head-clearance directory requires bank {bank} at 0x4000')
         if symbols['_riding_head_cell_mask'] >> 16 != 4 or symbols['_riding_head_read_map'] >= 0x4000:
             raise ValueError('Head-clearance reader requires caller bank 4 and fixed-ROM bank switching')
+    if '_riding_head_quarters' in symbols:
+        head_refinement.validate_layout(symbols)
     if '_riding_wheel_lookup' in symbols:
         wheel_terrain.validate_layout(symbols)
     if '_riding_projection_bank_477' in symbols:
@@ -144,6 +147,8 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
         rider_rows = gen / 'physics_rider_rows.c'
         if not rider_rows.is_file() or hashlib.sha256(rider_rows.read_bytes()).hexdigest() != coefficients.get('rider_rows_sha256'):
             raise ValueError('Regenerate the signed rider coefficient tables for these physics constants')
+        if coefficients.get('geometry_format') != 'signed-pose-ranked-angle-pages-v1':
+            raise ValueError('Regenerate scheduled pose and angle tables with math_q24_coefficients.py')
         for name in ('physics_pose_rows.h', 'physics_angle_rows.h'):
             path = gen / name
             if not path.is_file() or coefficients.get('geometry_sha256', {}).get(name) != hashlib.sha256(path.read_bytes()).hexdigest():
@@ -255,6 +260,8 @@ def main():
         suspension = BASE/'src/physics_suspension_scheduled.s'
         sources[sources.index(suspension)] = rolling_tables.generate_reaction(
             a.gen, suspension, BASE.parent/'nes/src/recip.inc')
+        free_source = BASE/'src/physics_free_fast.s'
+        sources[sources.index(free_source)] = rolling_tables.generate_free(a.gen, free_source)
         roll_source = BASE/'src/physics_roll_fast.s'
         sources[sources.index(roll_source)] = rolling_tables.generate(a.gen, roll_source)
         geometry_math = BASE/'src/physics_math.s'
@@ -275,7 +282,7 @@ def main():
     if scheduled:
         # Native graphics pointers require their original bank base. Place
         # each linked terrain row after the graphics payload in its bank.
-        sources += [BASE/'src/wheel_terrain.s', wheel_terrain.generate(a.gen)]
+        sources += [BASE/'src/wheel_terrain.s', wheel_terrain.generate(a.gen), head_refinement.generate(a.gen)]
     validate_profile(a.gen,rom_mib,sources)
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
@@ -288,6 +295,7 @@ def main():
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
     def source_flags(path):
+        if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
         if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN']
         if scheduled and path==sweep_path:return ['-DRIDING_HEAD_TERRAIN']
         return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []

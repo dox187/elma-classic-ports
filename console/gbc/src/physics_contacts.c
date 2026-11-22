@@ -556,10 +556,6 @@ uint8_t riding_landing_contact[2];
 /* The banked ABI passes k and the three int32 impulses contiguously.
  * The contact resolver reads these inputs when the fine filter accepts a
  * candidate. An empty query passes the same block to the free-wheel kernel. */
-typedef struct {
-    circle_t *k;
-    int32_t dvx,dvy,tq;
-} wheel_input_t;
 typedef char wheel_input_layout[sizeof(wheel_input_t)==14 && offsetof(wheel_input_t,dvx)==2 &&
     offsetof(wheel_input_t,dvy)==6 && offsetof(wheel_input_t,tq)==10 &&
     offsetof(bike_t,wheel[1])==48?1:-1];
@@ -571,7 +567,8 @@ void riding_wheel_contact(const wheel_input_t *input,uint8_t n);
  * Modes 8..5 count down to classification; fast-moving wheels normally use
  * the original query throughout. Entries own their geometry across eviction
  * of the three collision-reader slots. Mode 9 holds a prepared pair at one
- * exact center in a square already known to have multiple candidates. */
+ * exact center in a square already known to have multiple candidates.
+ * Kinds 64..254 identify contiguous windows in the original ordered leaf. */
 typedef struct {
     uint16_t x,y;
     uint8_t kind;
@@ -767,6 +764,10 @@ ws_slot:
     jr c,ws_kind_low
     cp #9
     jr z,ws_pair
+#ifdef RIDING_WHEEL_TERRAIN
+    cp #64
+    jp nc,_riding_wheel_cached_window
+#endif
     dec (hl)
     jr ws_fallback
 ws_kind_low:
@@ -1047,17 +1048,19 @@ void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED __na
     k;dvx;dvy;tq;
     __asm
     ldhl sp,#6
+_riding_wheel_inputs::
+    ; Preserve the record and the wheel across queries, pushes and dot products.
+    push hl
     ld a,(hl+)
     ld d,(hl)
     ld e,a
+    push de
     call _riding_cert_hit
     cp #254
     jr c,ws_have_answer
     jr z,wheel_prepared_pair
-    ldhl sp,#6
-    ld a,(hl+)
-    ld h,(hl)
-    ld l,a
+    pop hl
+    push hl
     ; Form both signed F>>8 coordinates from their upper three bytes.
     ld de,#5
     add hl,de
@@ -1071,19 +1074,17 @@ void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED __na
 ws_have_answer:
     or a,a
     jp z,wheel_no_contact
-    ldhl sp,#6
-    ld e,(hl)
-    inc hl
-    ld d,(hl)
+    pop de
+    push de
     call _riding_prepare_contacts
     or a,a
     jp z,wheel_no_contact
 wheel_resolve:
     cp #1
     jp z,wheel_single
-    ldhl sp,#6
-    ld d,h
-    ld e,l
+wheel_pair_inputs:
+    pop de  ; discard the wheel, pass its input record in DE
+    pop de
     jp _riding_wheel_contact
 wheel_query_position:
     ld a,(hl+)
@@ -1099,10 +1100,7 @@ wheel_query_position:
 wheel_prepared_pair:
 #ifdef NATIVE_ORDERED_PAIR
     ; 254 carries the exact prepared-geometry proof to the ordered resolver.
-    ldhl sp,#6
-    ld d,h
-    ld e,l
-    jp _riding_wheel_contact
+    jr wheel_pair_inputs
 #else
     ld a,#2
     jr wheel_resolve
@@ -1111,29 +1109,36 @@ wheel_prepared_pair:
 wheel_single:
     ; If both impulse products are nonpositive, their rounded Q14 sum is
     ; also nonpositive. Opposite signs or a zero normal prove each term.
+    pop de
+    pop hl
+    push hl
+    push de
+    inc hl
+    inc hl
+    ld d,h
+    ld e,l  ; dvx,dvy for the exact dot
+    ld bc,#3
+    add hl,bc
     ld a,(#_Ct+1)
-    ldhl sp,#11
+    ld b,a
     xor (hl)
     bit 7,a
     jr nz,wheel_single_y
-    ld hl,#_Ct
-    ld a,(hl+)
-    or (hl)
+    ld a,(#_Ct)
+    or b
     jr nz,wheel_single_dot
 wheel_single_y:
+    ld bc,#4
+    add hl,bc
     ld a,(#_Ct+3)
-    ldhl sp,#15
+    ld b,a
     xor (hl)
     bit 7,a
     jr nz,wheel_single_accepted
-    ld hl,#_Ct+2
-    ld a,(hl+)
-    or (hl)
+    ld a,(#_Ct+2)
+    or b
     jr z,wheel_single_accepted
 wheel_single_dot:
-    ldhl sp,#8
-    ld d,h
-    ld e,l
     ld hl,#_Ct
     call _riding_dotq14_regs
     bit 7,h
@@ -1144,10 +1149,8 @@ wheel_single_dot:
     or e
     jr z,wheel_single_accepted
     ; Outward impulse: accept exactly when normal velocity <= -ELSZ.
-    ldhl sp,#6
-    ld a,(hl+)
-    ld d,(hl)
-    ld e,a
+    pop de
+    push de
     call wheel_normal_velocity
     bit 7,h
     jp z,wheel_no_contact
@@ -1163,10 +1166,8 @@ wheel_single_dot:
     jp c,wheel_no_contact
     jp z,wheel_no_contact
 wheel_single_accepted:
-    ldhl sp,#6
-    ld a,(hl+)
-    ld d,(hl)
-    ld e,a
+    pop de
+    ld a,e
     ld bc,#0
     cp #<(_Bike+48)
     jr nz,wheel_single_slot
@@ -1223,7 +1224,7 @@ wheel_single_impact:
     ld (hl+),a
     ld a,(#_Ct+3)
     ld (hl),a
-    ldhl sp,#6
+    pop hl
     ld bc,#_Ct
     jp _riding_roll_inputs
 wheel_normal_velocity:
@@ -1235,11 +1236,12 @@ wheel_normal_velocity:
     jp _riding_dotq14_regs
 wheel_no_contact:
     ; Clear every reported field, even on the first airborne substep.
-    ldhl sp,#6
-    ld a,(hl+)
+    pop de
+    pop hl
+    ld a,e
     cp a,#<(_Bike+48)
     jr nz,wheel_air_left
-    ld a,(hl)
+    ld a,d
     cp a,#>(_Bike+48)
     jr nz,wheel_air_left
     xor a,a
@@ -1261,7 +1263,6 @@ wheel_air_left:
     ld (#_riding_landing_ny),a
     ld (#_riding_landing_ny+1),a
 wheel_air_move:
-    ldhl sp,#6
     jp _riding_free_inputs
     __endasm;
 }
@@ -1301,11 +1302,33 @@ static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
     }
     return riding_pair_supports(&Ct[0]);
 }
+
+/* SDCC passes input in DE. Keep the record in place after resolving a pair,
+ * including when only one or neither of its contacts supports the wheel. */
+static void wheel_free_record(const wheel_input_t *input) __naked {
+    input;
+    __asm
+    ld h,d
+    ld l,e
+    jp _riding_free_inputs
+    __endasm;
+}
+static void wheel_roll_record(const wheel_input_t *input) __naked {
+    input;
+    __asm
+    ld h,d
+    ld l,e
+    ld bc,#_Ct
+    jp _riding_roll_inputs
+    __endasm;
+}
 #endif
 
 void riding_wheel_contact(const wheel_input_t *input,uint8_t n) {
     circle_t *k=input->k;
+#ifndef NATIVE_ORDERED_PAIR
     int32_t dvx=input->dvx,dvy=input->dvy,tq=input->tq;
+#endif
 #else
 void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED {
     uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
@@ -1332,7 +1355,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
     if(two) {
         uint8_t local_signs[2]={0,0};
         n=resolve_ordered_pair(input,n==254?pair_separation[wheel]:local_signs);
-    } else if(n && !supports(k,&Ct[0],dvx,dvy,0))
+    } else if(n && !supports(k,&Ct[0],input->dvx,input->dvy,0))
         n=0;
 #else
 	if( two ) {
@@ -1378,7 +1401,9 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
     riding_landing_nx[wheel]=n?Ct[0].nx:0;
     riding_landing_ny[wheel]=n?Ct[0].ny:0;
 	if( n == 0 ) {
-#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
+#ifdef NATIVE_ORDERED_PAIR
+        wheel_free_record(input);
+#elif defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
         riding_free32(k,dvx,dvy,tq);
 #else
 		k->omega += KMUL32(tq,C_FREE);
@@ -1393,7 +1418,9 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
 		k->omega = 0;
 		return;
 	}
-#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
+#ifdef NATIVE_ORDERED_PAIR
+    wheel_roll_record(input);
+#elif defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
     riding_roll32(k,&Ct[0],dvx,dvy,tq);
 #else
 	// Rolls around the contact point:
@@ -1409,3 +1436,17 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
 	move( k );
 #endif
 }
+
+#if defined(__SDCC) && !defined(NATIVE_FINE_CONTACTS)
+/* The reference configurations keep their C solver and its public banked ABI. */
+void riding_wheel_from_record(const wheel_input_t *input) {
+    riding_wheel(input->k,input->dvx,input->dvy,input->tq);
+}
+void riding_wheel_inputs(void) __naked {
+    __asm
+    ld d,h
+    ld e,l
+    jp _riding_wheel_from_record
+    __endasm;
+}
+#endif

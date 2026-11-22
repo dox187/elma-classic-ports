@@ -2295,3 +2295,40 @@ build/gen-v096-test12-8m/riding_constants.h --out build/gen-v096-test12-8m
 --first-bank 481`. Build with `tools/build.py --gen build/gen-v096-test12-8m
 --rom-mib 8 --out build/elma-gbc-v0.96-test12-8m.gbc` in the project's Python
 environment. The full reports are in `build/v096-test12/`.
+
+### 0.96 test13 — combined cartridge
+
+| Full-game PyBoy workload | Test12 | Test13 |
+| --- | ---: | ---: |
+| Aggregate updates/s on 216 routes | 20.742 | 21.203 |
+| Freefall input samples/s, full descent | 20.823 | 21.374 |
+| Mean active update / physics SM83 T-cycles | 339,535 / 285,073 | 330,304 / 275,936 |
+| Maximum active T-cycles | 664,280 | 659,912 |
+| Active updates over budget / 19,885 | 16,215 | 15,283 |
+| Entire routes within budget / 216 | 8 | 11 |
+
+The wheel solver reads its two ordered input records in one bank visit.
+It shares the rolling velocity across its two tangent projections. The
+body angle update combines the three-byte angular residual and the four
+velocity digits in bank 3. The pose exporter uses the integer origin of
+each original course and retains a fractional-origin correction for other
+descriptors.
+
+All 19,885 controller updates matched test12 at both boundaries, and all
+12,380 native states matched test5. The 45 PC landing and braking checks
+passed. Twenty seeded spins reproduced test12's PC comparisons. The 900
+mixed wheel cases matched both after wheel one and after wheel two.
+Across all courses the linked wheel tables contain 24,617 ordered windows.
+The linked head tables certified 438,689 additional empty quarter squares.
+All 6,735,104 squares, 421,270 native lookups, 8,640 independent sweep
+boundaries, and 48,816 test12 differential sweeps passed.
+
+The playable ROM SHA-256 is
+`b8c878d613d489ed50a11f768e601be5b9d2ba5c3d29c0ed325233907b26f928`.
+Fixed ROM has 112 bytes free and banks 508–511 remain erased. To rebuild
+from a copy of the test12 generated profile at `build/gen-v096-test13-8m`,
+regenerate `tools/math_q24_coefficients.py --constants
+build/gen-v096-test13-8m/riding_constants.h --out build/gen-v096-test13-8m
+--first-bank 481`, then run `tools/build.py --gen build/gen-v096-test13-8m
+--rom-mib 8 --out build/elma-gbc-v0.96-test13-8m.gbc` with the project Python.
+Reports are in `build/v096-test13/`. Physical cartridge timing is pending.

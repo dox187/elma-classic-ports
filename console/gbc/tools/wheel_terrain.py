@@ -8,6 +8,7 @@ import struct
 from head_clearance import packed_inputs, write_if_changed
 
 GENERAL = 255
+WINDOW = 64
 RADIUS = 410
 SIZE = 512
 RECORD = struct.Struct('<6hH4B')
@@ -22,7 +23,9 @@ def projected_range(x0, x1, y0, y1, dx, dy):
 
 
 def classify(records, x, y):
-    single = 0
+    # Keep the legacy plane classification as well as every record whose
+    # interior or real radial cap might contribute anywhere in this square.
+    single = first = last_index = 0
     for i, (px, py, dx, dy, ex, ey, length, bx, bx1, by, by1) in enumerate(records, 1):
         x0, x1 = max(x, (bx-128)*64)-px, min(x+SIZE-1, (bx1-127)*64-1)-px
         y0, y1 = max(y, (by-128)*64)-py, min(y+SIZE-1, (by1-127)*64-1)-py
@@ -32,33 +35,40 @@ def classify(records, x, y):
         # Packed 8 m pieces fit easily. Fall back for any future wider input.
         if (min(x0,y0) < -32768 or max(x1,y1) > 32767 or
                 max(abs(ex), abs(ey)) > 16384):
-            return GENERAL
+            return GENERAL, GENERAL
         if max(abs(x0), abs(x1))+max(abs(y0),abs(y1)) > 32767:
-            return GENERAL
+            return GENERAL, GENERAL
         d0, d1 = projected_range(x0,x1,y0,y1,-ey,ex)
         if d1 <= -RADIUS or d0 >= RADIUS:
             continue
         p0, p1 = projected_range(x0,x1,y0,y1,ex,ey)
         end = length & 0x3fff
         last = end - bool(length & 0x8000)
-        # Only original ends have radial caps. A synthetic end at p==end
-        # belongs to the following piece and has no radial contact either.
+        # The synthetic end at p==end is owned by the next piece. Only
+        # original endpoints can contribute a radial contact outside [0,end].
         def near_vertex(vx, vy):
             tx = max(x0-vx, vx-x1, 0)
             ty = max(y0-vy, vy-y1, 0)
             return tx*tx + ty*ty < RADIUS*RADIUS
-        if p0 < 0 and not length & 0x4000 and near_vertex(0, 0):
-            return GENERAL
+        cap = p0 < 0 and not length & 0x4000 and near_vertex(0, 0)
         if p1 > end and not length & 0x8000:
-            if (min(x0-dx,y0-dy) < -32768 or max(x1-dx,y1-dy) > 32767
-                    or near_vertex(dx, dy)):
-                return GENERAL
-        if p1 < 0 or p0 > last:
+            if min(x0-dx,y0-dy) < -32768 or max(x1-dx,y1-dy) > 32767:
+                return GENERAL, GENERAL
+            cap = cap or near_vertex(dx, dy)
+        interior = p1 >= 0 and p0 <= last
+        if not interior and not cap:
             continue
-        if single or p0 < 0 or p1 > last:
-            return GENERAL
-        single = i
-    return single
+        first = first or i
+        last_index = i
+        single = GENERAL if single or cap or p0 < 0 or p1 > last else i
+    if single != GENERAL:
+        code = single if single < WINDOW else GENERAL
+        return code, code
+    count = last_index - first + 1
+    code = WINDOW + 4*(first-1) + count-1
+    if not 1 <= count <= 4 or code >= GENERAL or count == len(records):
+        return GENERAL, GENERAL
+    return GENERAL, code
 
 
 def level_rows(level, banks):
@@ -81,11 +91,13 @@ def level_rows(level, banks):
                 child = pointer(base+ptr[1], ptr[0]+i*4) if ptr[2] == 255 else ptr
                 leaf = records(child)
                 if not leaf:
-                    blocks.append(bytes(4))
+                    blocks.append((bytes(4), bytes(4)))
                 else:
                     tx, ty = (i%4)*1024, (i//4)*1024
-                    blocks.append(bytes(classify(leaf,tx+sx*SIZE,ty+sy*SIZE)
-                                        for sy in range(2) for sx in range(2)))
+                    squares = [classify(leaf, tx+sx*SIZE, ty+sy*SIZE)
+                               for sy in range(2) for sx in range(2)]
+                    original, refined = zip(*squares)
+                    blocks.append((bytes(original), bytes(refined)))
             row.append(tuple(blocks))
         yield row
 
@@ -99,13 +111,31 @@ def generate(gen, dest=None):
         dest = gen
     levels, banks, _ = packed_inputs(gen)
     rows = [[*level_rows(level,banks)] for level in levels]
-    # One byte per metre selects four half-metre certificates. Rare patterns
-    # fall back to the ordered geometry. Make both sentinels unconditional.
-    frequencies = Counter(block for level in rows for row in level for cell in row for block in cell)
+    # Retain the original 256 patterns. An additional page describes the
+    # most useful exact refinements, selected independently for each metre.
+    pairs = Counter(block for level in rows for row in level for cell in row for block in cell)
+    frequencies = Counter()
+    for (old, new), count in pairs.items():
+        frequencies[old] += count
     zero, unknown = bytes(4), bytes([GENERAL])*4
     del frequencies[zero], frequencies[unknown]
     patterns = [zero, unknown] + [p for p,_ in frequencies.most_common(254)]
     codes = {p:i for i,p in enumerate(patterns)}
+    gains = Counter()
+    for (old, new), count in pairs.items():
+        if new in codes:
+            continue
+        previous = old if old in codes else unknown
+        gains[new] += count * sum(a == GENERAL and b != GENERAL for a,b in zip(previous,new))
+    # The upper page always starts exactly 256 entries after the lower page.
+    extra = [p for p,benefit in gains.most_common(256) if benefit]
+    codes.update((p,256+i) for i,p in enumerate(extra))
+    if extra:
+        patterns += [unknown] * (256-len(patterns)) + extra
+    def pack_cell(cell):
+        ids = [codes.get(new, codes.get(old,1)) for old,new in cell]
+        flags = sum((index >> 8) << bit for bit,index in enumerate(ids))
+        return bytes(i & 255 for i in ids) + flags.to_bytes(2,'little')
     # Each level_bank array starts at 0x4000, as required by the graphics
     # engine. Append row records to the available tails *after* these objects.
     graphics = json.loads((gen/'level_manifest.json').read_text())
@@ -127,23 +157,34 @@ def generate(gen, dest=None):
     for i, level in enumerate(rows):
         out.append(f'wheel_rows_{i}:')
         for j,row in enumerate(level):
-            cells = [bytes(codes.get(p,1) for p in cell) for cell in row]
-            layouts = dict.fromkeys(c for c in cells if c != bytes(16))
+            cells = [pack_cell(cell) for cell in row]
+            layouts = dict.fromkeys(c for c in cells if c != bytes(18))
             if not layouts:
                 out += [' .dw 0',' .db 0']
                 continue
-            ids = {cell:k+1 for k,cell in enumerate(layouts)}
-            payload = bytes(ids.get(cell,0) for cell in cells) + b''.join(layouts)
+            # Point the row label between the two layout sets. Positive
+            # indices keep the normal 16-byte format. Negative indices run
+            # backwards over 18-byte layouts with a 16-bit page selector.
+            plain = [c for c in layouts if c[-2:] == bytes(2)]
+            extended = [c for c in layouts if c[-2:] != bytes(2)]
+            if len(plain) > 127 or len(extended) > 128:
+                out += [' .dw 1',' .db 0']
+                continue
+            ids = {cell:k+1 for k,cell in enumerate(plain)}
+            ids.update((cell,255-k) for k,cell in enumerate(extended))
+            prefix = b''.join(reversed(extended))
+            payload = bytes(ids.get(cell,0) for cell in cells) + b''.join(c[:16] for c in plain)
+            size = len(prefix) + len(payload)
             # First fit in numerical order. A missing row always uses the
             # general query if an alternate graphics pack has less free room.
-            bank = next((b for b in free if free[b] >= len(payload)), None)
+            bank = next((b for b in free if free[b] >= size), None)
             if bank is None:
                 out += [' .dw 1',' .db 0']
                 continue
             name = f'wheel_row_{i}_{j}'
             out += [f' .dw {name}'+('+0x8000' if bank>=256 else ''), f' .db {bank&255}']
-            tables.setdefault(bank,[]).extend([name+'::',*data_lines(payload)])
-            free[bank] -= len(payload)
+            tables.setdefault(bank,[]).extend([*data_lines(prefix),name+'::',*data_lines(payload)])
+            free[bank] -= size
     for bank,lines in tables.items():
         out += [f'.globl _wheel_graphics_end_{bank}', f'_wheel_graphics_end_{bank} = {starts[bank]}',
                 f'.area _CODE_{bank}',f'_wheel_terrain_tail_{bank}::',*lines,
@@ -156,6 +197,7 @@ def generate(gen, dest=None):
 def validate_layout(symbols):
     if (symbols.get('_riding_wheel_lookup', 0) >> 16 != 9
             or symbols.get('_riding_wheel_cached_plane', 0) >> 16 != 9
+            or symbols.get('_riding_wheel_cached_window', 0) >> 16 != 9
             or symbols.get('_riding_wheel_read_map', 65535) >= 0x4000):
         raise ValueError('Wheel terrain requires its caller in bank 9 and a fixed-ROM reader')
     for name, addr in symbols.items():

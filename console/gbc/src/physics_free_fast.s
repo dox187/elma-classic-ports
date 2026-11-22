@@ -27,6 +27,10 @@ _riding_free_inputs::
  or a,b
  or a,c
  jr z,free_velocity
+.ifdef RIDING_FREE_THROTTLE
+ call _riding_free_throttle
+ jr c,free_apply
+.endif
  ld hl,#_q24_index_C_FREE
  ld a,(#_riding_subphase)
  or a,a
@@ -36,6 +40,7 @@ free_coefficient:
  ld a,(hl)
  dec sp
  call _q24_apply_a
+free_apply:
  ; Add the full coefficient result (DEBC) to omega.
  ldhl sp,#2
  ld a,(hl+)
@@ -102,3 +107,62 @@ wheel_move_other:
  ld b,#0
 wheel_move_slot:
  jp _riding_circle_move_regs
+
+.ifdef RIDING_FREE_THROTTLE
+; DEBC is a nonzero torque. For constant throttle, publish the same
+; fractional remainder and saturation byte as q24_apply, even in free fall.
+; A miss preserves all four input bytes and clears carry.
+_riding_free_throttle::
+ ld a,d
+ or a,e
+ jr nz,free_check_negative
+ ld a,c
+ xor a,#<free_gas
+ ret nz
+ ld a,b
+ xor a,#>free_gas
+ ret nz
+ ld hl,#free_throttle_values
+ jr free_select_step
+free_check_negative:
+ ld a,d
+ and a,e
+ inc a
+ jr nz,free_miss
+ ld a,c
+ xor a,#<(-free_gas)
+ ret nz
+ ld a,b
+ xor a,#>(-free_gas)
+ ret nz
+ ld hl,#free_throttle_values+16
+free_select_step:
+ ld a,(#_riding_subphase)
+ or a
+ jr z,free_read_throttle
+ ld de,#8
+ add hl,de
+free_read_throttle:
+ xor a
+ ldh (#_q24_saturated),a
+ ld a,(hl+)
+ ldh (#_q24_fraction),a
+ ld a,(hl+)
+ ldh (#_q24_fraction+1),a
+ ld a,(hl+)
+ ldh (#_q24_fraction+2),a
+ ld a,(hl+)
+ ldh (#_q24_fraction+3),a
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ scf
+ ret
+free_miss:
+ or a
+ ret
+.endif

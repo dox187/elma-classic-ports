@@ -5,14 +5,23 @@
 .module physics_brake_fast
 .area _CODE_8
 _riding_brake32::
+ ldhl sp,#2
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ ld hl,#4
+ add hl,de
+ ld b,h
+ ld c,l
+; DE and BC point to the separate scheduled torque fields.
+_riding_brake_fields::
+ push bc
+ push de
  ld a,(#_riding_landing_contact)
  ld hl,#_Bike+40
  ld de,#_Bike+101
  call brake_one
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
+ pop hl
  ld (hl),e
  inc hl
  ld (hl),d
@@ -24,14 +33,7 @@ _riding_brake32::
  ld hl,#_Bike+64
  ld de,#_Bike+105
  call brake_one
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- inc hl
- inc hl
- inc hl
- inc hl
+ pop hl
  ld (hl),e
  inc hl
  ld (hl),d

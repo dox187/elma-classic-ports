@@ -13,7 +13,7 @@ def contents(path):
     return bytes(map(int, path.read_bytes().split(b'={', 1)[1].split(b'}', 1)[0].split(b',')))
 
 
-def native_masks(rom, levels):
+def native_masks(rom, levels, reader='_riding_head_cell_mask'):
     symbols = {name: int(value, 16) for name, value in
                re.findall(r'^DEF (\S+) 0x([0-9a-fA-F]+)$', rom.with_suffix('.noi').read_text(), re.M)}
     image = bytearray(rom.read_bytes())
@@ -31,8 +31,13 @@ def native_masks(rom, levels):
         memory[symbols['__current_bank']] = 4
         # Inspect a ROM-window byte that distinguishes the caller from both
         # dictionary banks and every intermediate high/low MBC5 selection.
+        switched = {250, 251, 260, 506, 507}
+        if reader == '_riding_head_quarters':
+            switched.update(int(k.rsplit('_',1)[1]) for k in symbols if k.startswith('_head_quarter_tail_'))
+            switched.update(b&255 for b in tuple(switched) if b>=256)
+            switched.discard(4)
         offset = next(i for i in range(16384)
-                      if all(image[4*16384+i] != image[b*16384+i] for b in (250, 251, 260, 506, 507)))
+                      if all(image[4*16384+i] != image[b*16384+i] for b in switched))
         # Run a batch below the test stack in WRAM. SRAM contains x,y,mask_lo,mask_hi records,
         # followed by FE. HL advances through the batch across each C ABI call.
         start = 0xdf00
@@ -41,7 +46,7 @@ def native_masks(rom, levels):
         code.extend((0x2a, 0xfe, 0xfe, 0x28, 0))  # ld a,(hl+); cp $fe; jr z,done
         success_branch = len(code)-1
         code.extend((0x5e, 0x23, 0xe5, 0xcd))     # ld e,(hl); inc hl; push hl; call
-        code.extend(struct.pack('<H', symbols['_riding_head_cell_mask'] & 65535))
+        code.extend(struct.pack('<H', symbols[reader] & 65535))
         code.extend((0xe1, 0x2a, 0xb9, 0x20, 0))  # pop hl; ld a,(hl+); cp c; jr nz,fail
         fail_branches = [len(code)-1]
         code.extend((0x2a, 0xb8, 0x20, 0))        # ld a,(hl+); cp b; jr nz,fail

@@ -12,12 +12,26 @@ _riding_full_angle::
  ld a,(hl+)
  ld e,a
  ld d,(hl)
- .rept 5
- sla c
- rl b
- rl e
- rl d
+ ; Adjacent bytes supply the two pieces of omega << 5, modulo 2^32.
+ .macro angle_shift_five upper,lower
+ ld a,upper
+ xor a,lower
+ and a,#7
+ xor a,lower
+ rrca
+ rrca
+ rrca
+ ld upper,a
  .endm
+ angle_shift_five d,e
+ angle_shift_five e,b
+ angle_shift_five b,c
+ ld a,c
+ rrca
+ rrca
+ rrca
+ and a,#0xe0
+ ld c,a
  ld hl,#_angular_residual+2
  ld a,(hl+)
  add a,#4
@@ -61,6 +75,184 @@ _riding_full_angle::
  ret
 
 .area _CODE_3
+; Each byte of omega selects an integer quotient and a remainder for
+; omega*27007/1280. All remainders share a single final floor.
+.macro angle_page table,offset
+ ld a,(#_Bike+20+offset)
+ add a,#<table
+ ld l,a
+ ld a,#>table
+ adc a,#0
+ ld h,a
+.endm
+
+; The accumulated quotient is BCDE, least significant byte in E.
+; The pending remainder index, biased by 64, lives on the stack.
+.macro angle_add_digit table,offset
+ angle_page table,offset
+ pop af
+ add a,(hl)
+ push af
+ inc h
+ ld a,e
+ add a,(hl)
+ ld e,a
+ inc h
+ ld a,d
+ adc a,(hl)
+ ld d,a
+ inc h
+ ld a,c
+ adc a,(hl)
+ ld c,a
+ inc h
+ ld a,b
+ adc a,(hl)
+ ld b,a
+.endm
+
+; A signed 24-bit angular residual contributes floor(residual*27007/2^24).
+; Each discarded low byte contributes its carry to the next digit.
+.macro angle_residual_page table,offset
+ ld a,(#_angular_residual+offset)
+ add a,#<table
+ ld l,a
+ ld a,#>table
+ adc a,#0
+ ld h,a
+.endm
+.globl b_riding_partial_body_angle
+b_riding_partial_body_angle = 3
+_riding_partial_body_angle::
+ angle_residual_page _riding_angle_frac0,0
+ ld e,(hl)
+ inc h
+ ld d,(hl)
+ .macro angle_frac_digit table,offset
+ angle_residual_page table,offset
+ ld a,e
+ add a,(hl)
+ inc h
+ ld a,d
+ adc a,(hl)
+ ld e,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld d,a
+ .endm
+ angle_frac_digit _riding_angle_frac1,1
+ angle_frac_digit _riding_angle_frac2,2
+ jr angle_omega_digits
+.globl b_riding_partial_angle
+b_riding_partial_angle = 3
+_riding_partial_angle::
+ ; GBDK banked ABI0 puts the signed fractional input at SP+6.
+ ldhl sp,#6
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+angle_omega_digits:
+ angle_page _riding_angle_digit0,0
+ ld a,e
+ add a,(hl)
+ inc h
+ ld a,d
+ adc a,(hl)
+ add a,#64
+ push af
+ inc h
+ ld e,(hl)
+ inc h
+ ld d,(hl)
+ angle_page _riding_angle_digit1,1
+ pop af
+ add a,(hl)
+ push af
+ inc h
+ ld a,e
+ add a,(hl)
+ ld e,a
+ inc h
+ ld a,d
+ adc a,(hl)
+ ld d,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld c,a
+ ld b,#0
+ ld hl,#_Bike+22
+ ld a,(hl+)
+ or a,(hl)
+ jr z,angle_finish
+ ld a,(hl-)
+ and a,(hl)
+ inc a
+ jr nz,angle_wide
+ ld hl,#_riding_angle_negative
+ pop af
+ add a,(hl)
+ push af
+ inc hl
+ ld a,e
+ add a,(hl)
+ ld e,a
+ inc hl
+ ld a,d
+ adc a,(hl)
+ ld d,a
+ inc hl
+ ld a,c
+ adc a,(hl)
+ ld c,a
+ inc hl
+ ld a,(hl)
+ adc a,#0
+ ld b,a
+ jr angle_finish
+angle_wide:
+ angle_add_digit _riding_angle_digit2,2
+ angle_add_digit _riding_angle_digit3,3
+angle_finish:
+ pop af
+ add a,#<_riding_angle_carry
+ ld l,a
+ ld a,#>_riding_angle_carry
+ adc a,#0
+ ld h,a
+ ld a,(hl)
+ add a,a
+ sbc a,a
+ ld h,(hl)
+ ld l,a
+ ld a,e
+ add a,h
+ ld e,a
+ ld a,d
+ adc a,l
+ ld d,a
+ ld a,c
+ adc a,l
+ ld c,a
+ ld a,b
+ adc a,l
+ ld b,a
+ ld hl,#_Bike+16
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl),a
+ ret
+
 .globl b_body_oms
 b_body_oms = 3
 

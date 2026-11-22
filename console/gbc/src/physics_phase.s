@@ -26,15 +26,16 @@ _riding_phase_advance_hl::
  ; A full substep adds only the low velocity nibble at bit 20.
  ; Bias the signed residual by half a unit: the byte addition's carry
  ; is exactly the extra position unit, and its low 16 bits stay intact.
- push bc
- ld a,(hl)
- xor a,#0x80
- ld b,a
  ld a,c
  swap a
  and a,#0xf0
+ push bc
+ ld b,a
+ ld a,(hl)
+ xor a,#0x80
  add a,b
  ld b,a
+ ; Save the carry in C without affecting the biased result in B.
  ld a,#0
  adc a,#0
  ld c,a
@@ -46,15 +47,29 @@ _riding_phase_advance_hl::
  ld (hl),a
  ld a,c
  pop bc
- or a,a
- push af
- .rept 4
- sra d
- rr e
- rr b
- rr c
+ ld l,a
+ ; Join neighboring nibbles instead of shifting all four bytes four times.
+ .macro shift_four low,high
+ ld a,high
+ xor a,low
+ and a,#0x0f
+ xor a,low
+ swap a
+ ld low,a
  .endm
- pop af
+ shift_four c,b
+ shift_four b,e
+ shift_four e,d
+ ld a,d
+ add a,a
+ sbc a,a
+ xor a,d
+ and a,#0x0f
+ xor a,d
+ swap a
+ ld d,a
+ ld a,l
+ or a,a
  jr z,phase_done
  jr phase_increment
 phase_second:

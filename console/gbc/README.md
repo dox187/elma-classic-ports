@@ -3,11 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test12 — 8 MiB](build/elma-gbc-v0.96-test12-8m.gbc)**.
-On 216 controller routes across all 54 courses, the emulator averages
-**20.74 physics updates per real second**, up from **19.57** in test11.
-Freefall averages **20.82** over the full descent. The target is **29.86**.
-All 19,885 compared gameplay updates reproduce test11.
+**[0.96 test13 — 8 MiB](build/elma-gbc-v0.96-test13-8m.gbc)**.
+Across 216 routes on all 54 courses this ROM averages **21.20 physics
+updates per emulated second**, up from **20.74** in test12. Freefall
+averages **21.37**. The two-display-frame target is **29.86**.
+All 19,885 compared gameplay updates reproduce test12.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +57,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test13 — terrain and wheel updates
+
+Both wheels consume suspension impulses directly in one visit to bank 9.
+Precomputed terrain windows preserve the order of wheel contacts. Finer
+clearance masks let head sweeps past empty quarter-metre squares skip
+the exact edge scan. The rider, body and wheels retain the previous
+movement and angular rounding. Eleven of 216 routes stayed within the
+two-frame budget throughout.
+[Full timings and collision checks](PERFORMANCE.md#096-test13--combined-cartridge)
 
 ## 0.96 test12 — suspension forces and contact geometry
 

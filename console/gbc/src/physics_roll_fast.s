@@ -143,48 +143,10 @@ roll_have_delta:
  ld a,e
  ld (hl+),a
  ld (hl),d
- ; Form vy first and save it so both components can be written consecutively.
- ldhl sp,#6
- ld c,(hl)
- inc hl
- ld b,(hl)
- ldhl sp,#0
- call _riding_mulq14_regs
- push hl
- push de
- ldhl sp,#8
- ld c,(hl)
- inc hl
- ld b,(hl)
- ldhl sp,#4
- call _riding_mulq14_regs
- ld b,h
- ld c,l
- ldhl sp,#14
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- push de
- ld de,#8
+ ; HL is at omega+3. The pair writes vx and vy directly into the wheel.
+ ld de,#-15
  add hl,de
- pop de
- ld a,e
- ld (hl+),a
- ld a,d
- ld (hl+),a
- ld a,c
- ld (hl+),a
- ld a,b
- ld (hl+),a
- pop de
- pop bc
- ld a,e
- ld (hl+),a
- ld a,d
- ld (hl+),a
- ld a,c
- ld (hl+),a
- ld (hl),b
+ call _riding_roll_project_pair
  add sp,#10
  pop hl
  jp _riding_wheel_move_hl
@@ -200,8 +162,199 @@ roll_coefficient_ready:
  ld a,(hl)
  jp _q24_apply_a
 
-.ifdef RIDING_ROLL_TABLES
 .area _CODE
+; HL -> vx, vy. The caller's stack holds speed32, tangent x16, tangent y16.
+; Both components use round-to-nearest with positive half ties, then saturate.
+_riding_roll_project_pair::
+ push hl
+ .ifdef RIDING_ROLL_TABLES
+ ldhl sp,#4
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ add a,a
+ sbc a,a
+ cp (hl)
+ jr nz,roll_project_wide
+ inc hl
+ cp (hl)
+ jr nz,roll_project_wide
+ ld a,d
+ or e
+ jr z,roll_project_zero
+ ; The directory and this routine are in ROM0, so both projections can keep
+ ; MBC5's high bit selected until the pair finishes.
+ ld a,#1
+ ld (#0x3000),a
+ ldhl sp,#8
+ call roll_project_component
+ pop hl
+ call roll_store_regs
+ push hl
+ ldhl sp,#4
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ ldhl sp,#10
+ call roll_project_component
+ xor a
+ ld (#0x3000),a
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ jr roll_store_second
+roll_project_zero:
+ pop hl
+ .rept 8
+ ld (hl+),a
+ .endm
+ ret
+ .endif
+roll_project_wide:
+ ldhl sp,#8
+ call roll_project_general
+ pop hl
+ call roll_store_regs
+ push hl
+ ldhl sp,#10
+ call roll_project_general
+roll_store_second:
+ pop hl
+roll_store_regs:
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ret
+roll_project_general:
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ ldhl sp,#6
+ call _riding_mulq14_regs
+ ld b,h
+ ld c,l
+ ret
+
+ .ifdef RIDING_ROLL_TABLES
+; Signed16 speed in DE, HL -> signed16 coefficient. Return BCDE.
+roll_project_component:
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ or a
+ jr nz,roll_project_lookup
+ ld a,b
+ or a
+ jr z,roll_component_zero
+ cp #192
+ jr z,roll_component_negate
+ cp #64
+ jr z,roll_component_unit
+roll_project_lookup:
+ ld a,b
+ rrca
+ rrca
+ sub c
+ add a,#<_riding_projection_directory
+ ld l,a
+ ld a,#>_riding_projection_directory
+ adc a,#0
+ ld h,a
+ ld a,(hl)
+ cp b
+ jr nz,roll_component_miss
+ inc h
+ ld a,(hl)
+ or a
+ jr z,roll_component_miss
+ ld (#0x2000),a
+ inc h
+ ld h,(hl)
+ ; U[lo] + (S[hi] << 8) is the signed product. Discard byte 0 and
+ ; add the Q14 half at bit 5 of byte 1. U + 8192 fits its three planes
+ ; for every signed16 coefficient and every unsigned low speed byte.
+ inc h
+ ld l,e
+ ld a,(hl)
+ add a,#32
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld b,a
+ inc h
+ ld l,d
+ ld a,(hl)
+ add a,c
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc a,b
+ ld e,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld d,a
+ ; BC starts as the sign extension. Shifting the top sign bit into it
+ ; would leave it unchanged; bit 6 supplies the final upper-word bit.
+ add a,a
+ sbc a,a
+ ld b,a
+ ld a,c
+ ld c,b
+ add a,a
+ rl e
+ rl d
+ add a,a
+ rl e
+ rl d
+ rl c
+ ret
+roll_component_unit:
+ ld a,d
+ add a,a
+ sbc a,a
+ ld b,a
+ ld c,a
+ ret
+roll_component_negate:
+ ; Speed is nonzero. -INT16_MIN is +32768 in the full-width output.
+ ld a,d
+ cpl
+ add a,a
+ sbc a,a
+ ld b,a
+ ld c,a
+ xor a
+ sub e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ret
+roll_component_zero:
+ ld de,#0
+ ld bc,#0
+ ret
+roll_component_miss:
+ ; A directory miss can have any signed16 coefficient, including -32768.
+ xor a
+ ld (#0x3000),a
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ldhl sp,#6
+ call _riding_mulq14_regs
+ ld b,h
+ ld c,l
+ ld a,#1
+ ld (#0x3000),a
+ ret
+
 ; DEBC holds dvn, HL points to the signed32 wheel torque. On a hit, DEBC is
 ; the final rolling speed delta. On a miss DEBC is preserved. Carry = hit.
 _riding_roll_table_delta::

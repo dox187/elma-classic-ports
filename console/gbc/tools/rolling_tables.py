@@ -54,6 +54,27 @@ def generate(gen, assembly):
     write_if_changed(dest, '\n'.join(output) + '\n')
     return dest
 
+
+def generate_free(gen, source):
+    """Precompute the exact Q24 quotient and fraction at full throttle."""
+    constants = (gen / 'riding_constants.h').read_text()
+    gas = int(re.search(r'^#define GAS_TQ (\d+)$', constants, re.M)[1])
+    scales = tuple(map(int, re.search(r'q24_C_FREE\[2\]=\{(-?\d+),(-?\d+)\}', constants).groups()))
+    output = ['RIDING_FREE_THROTTLE = 1', f'free_gas = {gas}', source.read_text(),
+              '.area _CODE_9', 'free_throttle_values:']
+    for torque in (gas, -gas):
+        for scale in scales:
+            result = rounded(torque, scale)
+            if not -(1 << 31) <= result < (1 << 31):
+                raise ValueError('Free-wheel throttle impulse saturates')
+            fraction = torque * scale - (result << 24)
+            row = [(n >> shift) & 255 for n in (fraction, result) for shift in (0, 8, 16, 24)]
+            output.append(' .db ' + ','.join(map(str, row)))
+    dest = gen / 'physics_free_game.s'
+    write_if_changed(dest, '\n'.join(output) + '\n')
+    return dest
+
+
 def generate_reaction(gen, assembly, reciprocal_source):
     """Compose the reciprocal-index and Q24 torque factors at fixed throttle."""
     constants = (gen / 'riding_constants.h').read_text()

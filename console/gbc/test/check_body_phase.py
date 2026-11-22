@@ -31,12 +31,14 @@ volatile uint8_t ready,request;
 void riding_full_angle(void) __sdcccall(0);
 int32_t body_oms(void) BANKED;
 void riding_partial_angle(int16_t fraction) BANKED;
+void riding_partial_body_angle(void) BANKED;
 void main(void) {
     cpu_fast(); SWITCH_ROM(8); ready=1;
     while (1) {
         if (request==1) riding_full_angle();
         if (request==2) riding_partial_angle(fragment);
         if (request==3) point_velocity=body_oms();
+        if (request==4) riding_partial_body_angle();
         request=0; vsync();
     }
 }
@@ -79,7 +81,8 @@ void main(void) {
         for w,r in cases:
             initial = rng.getrandbits(32)
             f = r * 27007 >> 24
-            for request,delta in ((1,32*w+((r+0x40000)>>19)),(2,(27007*w+f+640)//1280)):
+            for request,delta in ((1,32*w+((r+0x40000)>>19)),(2,(27007*w+f+640)//1280),
+                                  (4,(27007*w+f+640)//1280)):
                 write(symbols['_Bike']+16,'<I',initial)
                 write(symbols['_Bike']+20,'<i',w)
                 write(symbols['_angular_residual'],'<i',r)
@@ -98,7 +101,7 @@ void main(void) {
             assert actual == max(-(1<<31), min((1<<31)-1, expected)), (w,r,actual,expected)
     finally:
         emu.stop(save=False)
-    report = dict(passed=True,native_cases=len(cases)*3,omega_edge_values=len(omega_edges))
+    report = dict(passed=True,native_cases=len(cases)*4,omega_edge_values=len(omega_edges))
     (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(report)
 

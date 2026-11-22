@@ -13,6 +13,11 @@ ss_ts: .ds 4
 ss_coarse: .ds 4
 ss_tr: .ds 4
 
+ss_wheel_dvx = 10
+ss_wheel_dvy = 14
+ss_wheel_tq = 18
+ss_wheel_stride = 14
+
 ; Scheduled register convention is BC:DE, high word first.
 .macro ss_read address
  ld hl,#(address)
@@ -171,7 +176,7 @@ selected:
 ; Return a full signed33 spring+damper in A:BCDE and publish its wrapped
 ; low 32 bits for the wheel. Carry out of bit 31 and both operand signs
 ; determine byte 4, including for oppositely signed products.
-.macro ss_force_pair product,wheel,positive
+.macro ss_force_pair product,destination,positive
  ld hl,#(ss_force_products+product+3)
  ld a,(hl+)
  ld e,a
@@ -192,10 +197,10 @@ selected:
  dec a
 positive:
  adc a,#0
- ss_write _riding_suspension_state+16+wheel
+ ss_write _riding_suspension_state+destination
 .endm
 
-.macro ss_force_axis pair,wheel,axis,first_pos,second_pos
+.macro ss_force_axis pair,axis,first_pos,second_pos
  ld hl,#(_force_residual+axis*8)
  ld a,(hl+)
  ld e,a
@@ -209,7 +214,7 @@ positive:
  ss_sub_fraction pair+35
  ss_write _riding_force_sums+axis*9
 
- ss_force_pair pair,wheel,first_pos
+ ss_force_pair pair,ss_wheel_dvx+axis*4,first_pos
  ld h,a
  ld a,(#_force_residual+axis*8+7)
  sub a,h
@@ -222,7 +227,7 @@ positive:
  push bc
  push de
 
- ss_force_pair pair+7,wheel+4,second_pos
+ ss_force_pair pair+7,ss_wheel_dvx+axis*4+ss_wheel_stride,second_pos
  push af
  ; Stack now has the second sign, the first difference in two words,
  ; and its fifth byte in the A slot of the final saved AF.
@@ -265,23 +270,23 @@ positive:
  ld b,h
  ld c,l
 .endm
-; wheel is the position offset in Bike; offset selects the wheel's 32-bit
-; entry in the paired suspension arrays. The lookup pose holds gsx[2],gsy[2].
+; The four spring displacements occupy the future damper-product rows.
+; The spring batch consumes all four before the damper batch fills its rows.
 .macro ss_wheel_inputs wheel,offset
  ss_read _riding_pose_anchor+offset
  ss_sub ss_damping+16+offset
- ss_write _riding_suspension_state+16+offset
+ ss_write ss_force_products+28+offset
  ss_read _riding_pose_anchor+8+offset
  ss_sub ss_damping+24+offset
- ss_write _riding_suspension_state+24+offset
+ ss_write ss_force_products+36+offset
  ld hl,#_riding_pose_anchor+offset
- ld de,#_riding_suspension_state+24+offset
+ ld de,#ss_force_products+36+offset
  call ss_spring_product
  push bc
  push hl
  push de
  ld hl,#_riding_pose_anchor+8+offset
- ld de,#_riding_suspension_state+16+offset
+ ld de,#ss_force_products+28+offset
  call ss_spring_product
  call ss_spring_difference
  add sp,#6
@@ -299,9 +304,9 @@ positive:
  ss_sub _Bike+wheel+12
  ss_write ss_damping+8+offset
 .endm
-.macro ss_wheel_reaction offset,next_wheel,reaction_index,ordinary,have_reaction
+.macro ss_wheel_reaction offset,record,next_wheel,reaction_index,ordinary,have_reaction
  ; Round coarse arms only when this wheel has a reaction torque.
- ld hl,#_riding_suspension_state+8+offset
+ ld hl,#_riding_suspension_state+ss_wheel_tq+record
  ld a,(hl+)
  or a,(hl)
  inc hl
@@ -323,7 +328,7 @@ positive:
  inc hl
  ld (hl),d
  push de
- ss_read _riding_suspension_state+8+offset
+ ss_read _riding_suspension_state+ss_wheel_tq+record
  push bc
  push de
  .ifdef RIDING_GAS_REACTION
@@ -343,12 +348,12 @@ have_reaction:
  .endif
  ss_write ss_tr
  ss_reaction_product 2
- ss_accumulate _riding_suspension_state+16+offset
+ ss_accumulate _riding_suspension_state+ss_wheel_dvx+record
  xor a
  call _riding_force_sub_integer_regs
  ss_reaction_product 0
  ss_negate
- ss_accumulate _riding_suspension_state+24+offset
+ ss_accumulate _riding_suspension_state+ss_wheel_dvy+record
  ld a,#1
  call _riding_force_sub_integer_regs
 .endm
@@ -369,7 +374,7 @@ _riding_suspension_scheduled::
  inc hl
 ss_spring_selected:
  ld a,(hl)
- ld hl,#_riding_suspension_state+16
+ ld hl,#ss_force_products+28
  ld de,#ss_force_products
  call ss_force_four
  ld hl,#_q24_index_C_FRIC_W
@@ -382,11 +387,11 @@ ss_damper_selected:
  ld hl,#ss_damping
  ld de,#ss_force_products+28
  call ss_force_four
- ss_force_axis 0,0,0,ss_x0_pos,ss_x1_pos
- ss_force_axis 14,8,1,ss_y0_pos,ss_y1_pos
- ss_wheel_reaction 0,ss_wheel1,ss_reaction0_index,ss_ordinary0,ss_reaction_ready0
+ ss_force_axis 0,0,ss_x0_pos,ss_x1_pos
+ ss_force_axis 14,1,ss_y0_pos,ss_y1_pos
+ ss_wheel_reaction 0,0,ss_wheel1,ss_reaction0_index,ss_ordinary0,ss_reaction_ready0
 ss_wheel1:
- ss_wheel_reaction 4,ss_wheels_done,ss_reaction1_index,ss_ordinary1,ss_reaction_ready1
+ ss_wheel_reaction 4,ss_wheel_stride,ss_wheels_done,ss_reaction1_index,ss_ordinary1,ss_reaction_ready1
 ss_wheels_done:
  xor a
  push af
@@ -395,7 +400,7 @@ ss_wheels_done:
  inc sp
  ld b,h
  ld c,l
- ss_write _riding_suspension_state+32
+ ss_write _riding_suspension_state+36
  ld a,#1
  push af
  inc sp
@@ -403,7 +408,7 @@ ss_wheels_done:
  inc sp
  ld b,h
  ld c,l
- ss_write _riding_suspension_state+36
+ ss_write _riding_suspension_state+40
  ld hl,#ss_ts+1
  ld e,(hl)
  inc hl
@@ -431,9 +436,9 @@ ss_wheels_done:
 ss_spring_rounded:
  ss_q24_phase _q24_index_C_SPRING_T,ss_c_spring_t_index
  ss_negate
- ss_write _riding_suspension_state+40
+ ss_write _riding_suspension_state+44
  ld hl,#_q24_fraction
- ld de,#_riding_suspension_state+44
+ ld de,#_riding_suspension_state+48
  .rept 4
  ld a,(hl+)
  ld (de),a
@@ -443,8 +448,8 @@ ss_spring_rounded:
  ld b,h
  ld c,l
  ss_q24_phase _q24_index_C_FRIC_T,ss_c_fric_t_index
- ss_reverse_sub _riding_suspension_state+40
- ss_write _riding_suspension_state+40
+ ss_reverse_sub _riding_suspension_state+44
+ ss_write _riding_suspension_state+44
  ret
 
 ; The returned spring impulse uses only bits 12..43 of the difference,
@@ -490,15 +495,6 @@ ss_spring_difference:
  ld e,h
  ret
 
-; floor(angular_residual * 27007 / 2^24). The normalized residual limits
-; the result to signed16. The signed48 product is returned in BC:HL:DE.
-_riding_angle_fraction::
- ld hl,#_angular_residual
- ld bc,#27007
- call _riding_product32x16_regs
- ld e,h
- ld d,c
- ret
 ss_coarse_arm:
  ld e,(hl)
  inc hl

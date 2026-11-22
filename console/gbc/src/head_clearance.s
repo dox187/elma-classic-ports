@@ -7,7 +7,9 @@ _riding_head_read_map::
  ld (#0x2000),a
  ld a,#1
  ld (#0x3000),a
- ld l,(hl)
+ ld a,(hl)
+ ld (#_head_group_index),a
+ ld l,a
  ld h,#0
  add hl,hl
  add hl,hl
@@ -23,11 +25,15 @@ _riding_head_read_map::
  ret
 
 .area _DATA
+_head_group_index:: .ds 1
+_head_cache_x::
 head_cache_x: .ds 1
+_head_cache_y::
 head_cache_y: .ds 1
 head_cache_mask: .ds 2
 ; Store index+1. Copy its zero initializer even on a warm reset.
 .area _INITIALIZED
+_head_cache_level::
 head_cache_level: .ds 1
 .area _INITIALIZER
 .db 0
@@ -131,4 +137,87 @@ head_dir_ready:
  ld (hl),d
  ld c,e
  ld b,d
+ ret
+
+; ABI0 stack: tagged level base, physical bank low byte, group, cell, rank.
+; Returns the palette index in E. Only called from sweep bank 4.
+.area _CODE
+_riding_head_quarter_code::
+ ldhl sp,#2
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld a,(hl+)
+ ld (#0x2000),a
+ bit 7,d
+ jr z,quarter_window
+ res 7,d
+ ld a,#1
+ ld (#0x3000),a
+quarter_window:
+ ld l,(hl)
+ ld h,#0
+ add hl,hl
+ add hl,de
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ add hl,de
+ ld b,h
+ ld c,l
+ ; Three cumulative counts prefix the sparse codes for a group.
+ ldhl sp,#6
+ ld a,(hl+)
+ ld e,(hl)
+ or a
+ jr z,quarter_rank
+ dec a
+ add a,c
+ ld l,a
+ ld a,b
+ adc a,#0
+ ld h,a
+ ld a,(hl)
+ add a,e
+ ld e,a
+quarter_rank:
+ ld a,e
+ srl a
+ srl a
+ ld d,a
+ add a,a
+ add a,d
+ add a,#3
+ ld l,a
+ ld h,#0
+ add hl,bc
+ ld b,(hl)
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld d,(hl)
+ bit 1,e
+ jr z,quarter_pair
+ ld b,c
+ swap d
+quarter_pair:
+ bit 0,e
+ jr z,quarter_fields
+ swap b
+ rrc d
+ rrc d
+quarter_fields:
+ ld a,b
+ and #15
+ ld b,a
+ swap d
+ ld a,d
+ and #0x30
+ or b
+ ld e,a
+ xor a
+ ld (#0x3000),a
+ ld a,#4
+ ld (#0x2000),a
  ret

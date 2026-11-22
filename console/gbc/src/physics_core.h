@@ -52,6 +52,12 @@ typedef struct {
 	int32_t omega;
 } circle_t;
 #ifdef __SDCC
+/* A scheduled wheel record has the same representation as the arguments
+ * of the public banked wheel solver. */
+typedef struct {
+    circle_t *k;
+    int32_t dvx, dvy, tq;
+} wheel_input_t;
 void riding_move32(circle_t *k) __sdcccall(0);
 #endif
 

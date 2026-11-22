@@ -7,14 +7,16 @@
 const uint8_t riding_move_index=Q24_MOVE,riding_angle_index=Q24_ANGLE;
 int32_t riding_rider_s_wide(int32_t v) __sdcccall(0) {return Q24_MUL(v,C_RIDER_S);}
 int32_t riding_rider_f_wide(int32_t v) __sdcccall(0) {return Q24_MUL(v,C_RIDER_F);}
-int16_t riding_coeff16_C_H_X(int16_t v) __sdcccall(0) {return sat16(Q24_MUL(v,C_H_X));}
-int16_t riding_coeff16_C_H_Y(int16_t v) __sdcccall(0) {return sat16(Q24_MUL(v,C_H_Y));}
 int32_t riding_coeff32_C_BRAKE_A(int32_t v) __sdcccall(0) {return Q24_MUL(v,C_BRAKE_A);}
 int32_t riding_coeff32_C_BRAKE_W(int32_t v) __sdcccall(0) {return Q24_MUL(v,C_BRAKE_W);}
 int32_t riding_coeff32_C_BRAKE_GW(int32_t v) __sdcccall(0) {return Q24_MUL(v,C_BRAKE_GW);}
+
+#ifndef RIDING_SCHEDULED_CART
+int16_t riding_coeff16_C_H_X(int16_t v) __sdcccall(0) {return sat16(Q24_MUL(v,C_H_X));}
+int16_t riding_coeff16_C_H_Y(int16_t v) __sdcccall(0) {return sat16(Q24_MUL(v,C_H_Y));}
 int16_t riding_coeff16_C_BRAKE_W(int16_t v) __sdcccall(0) {return sat16(Q24_MUL(v,C_BRAKE_W));}
 int16_t riding_coeff16_C_BRAKE_GW(int16_t v) __sdcccall(0) {return sat16(Q24_MUL(v,C_BRAKE_GW));}
-
+#endif
 #else
 int32_t q24_fraction;
 uint8_t q24_saturated;

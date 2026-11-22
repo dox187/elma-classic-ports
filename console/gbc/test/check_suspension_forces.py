@@ -41,8 +41,8 @@ _fixture_forces::
  ld hl,#_fixture_input+16
  ld de,#ss_force_products+28
  call ss_force_four
- ss_force_axis 0,0,0,ff_x0_pos,ff_x1_pos
- ss_force_axis 14,8,1,ff_y0_pos,ff_y1_pos
+ ss_force_axis 0,0,ff_x0_pos,ff_x1_pos
+ ss_force_axis 14,1,ff_y0_pos,ff_y1_pos
  ld a,(#ff_bank)
  ld (#_fixture_bank),a
  ret
@@ -160,8 +160,10 @@ def main():
         sums, wheels = expected(indices, inputs, residuals[index], scales)
         addr = symbols['_riding_force_sums']
         actual_sums = bytes(emulator.memory[addr:addr + 18])
-        addr = symbols['_riding_suspension_state'] + 16
-        actual_wheels = bytes(emulator.memory[addr:addr + 16])
+        addr = symbols['_riding_suspension_state']
+        # The oracle uses axis order. Each native record holds k*, X, Y, torque.
+        actual_wheels = b''.join(bytes(emulator.memory[addr+i:addr+i+4])
+                                 for i in (10, 24, 14, 28))
         bank = emulator.memory[symbols['_fixture_bank']]
         if (actual_sums, actual_wheels, bank) != (sums, wheels, 0xa5):
             failures.append(dict(index=index, indices=indices, inputs=inputs, residual=residuals[index],

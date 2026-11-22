@@ -225,6 +225,60 @@ static const uint16_t head_rows[16]={
     0x000f,0x00ff,0x0fff,0xffff,0,0x00f0,0x0ff0,0xfff0,0,0,0x0f00,0xff00,0,0,0,0xf000
 };
 
+/* The metre dictionary groups four adjacent 4 m cells. Each occupied
+ * metre gets a conservative 4x4 mask in the group's sparse quarter map. */
+typedef struct {uint16_t address; uint8_t bank;} head_quarter_level_t;
+extern const head_quarter_level_t head_quarter_levels[];
+extern const uint16_t head_quarter_palette[];
+extern const uint8_t head_count_bits[],riding_head_level_count;
+extern uint8_t head_group_index,head_cache_x,head_cache_y,head_cache_level,physics_level_index;
+extern uint8_t riding_head_quarter_code(uint16_t address,uint8_t bank,uint8_t group,
+    uint8_t cell,uint8_t rank) __sdcccall(0);
+static uint8_t head_fractions[4];
+static uint8_t quarter_level=0;
+static uint8_t quarter_x,quarter_y;
+static uint16_t quarter_mask;
+
+uint16_t riding_head_quarters(uint8_t tx,uint8_t ty) {
+    uint8_t level=physics_level_index,cx=tx>>2,cy=ty>>2;
+    if(level>=riding_head_level_count)return 0xffff;
+    if(quarter_level==level+1 && quarter_x==tx && quarter_y==ty)return quarter_mask;
+    uint16_t coarse=riding_head_cell_mask(cx,cy);
+    uint16_t bit=head_bits[(tx&3)|((ty&3)<<2)];
+    if(!(coarse&bit))return 0;
+    const head_quarter_level_t *desc=&head_quarter_levels[level];
+    if(!desc->address || head_cache_level!=level+1 || cx!=head_cache_x || cy!=head_cache_y)return 0xffff;
+    coarse&=bit-1;
+    uint8_t rank=head_count_bits[(uint8_t)coarse]+head_count_bits[(uint8_t)(coarse>>8)];
+    quarter_mask=head_quarter_palette[riding_head_quarter_code(desc->address,desc->bank,
+        head_group_index,cx&3,rank)];
+    quarter_x=tx;quarter_y=ty;quarter_level=level+1;
+    return quarter_mask;
+}
+
+static uint8_t head_refine_clear(void) {
+    uint16_t xe=4u*head_tiles[2]+head_fractions[2],ye=4u*head_tiles[3]+head_fractions[3];
+    uint16_t x0=4u*head_tiles[0]+head_fractions[0],y0=4u*head_tiles[1]+head_fractions[1];
+    uint16_t x1=xe,y1=ye,t;
+    if(x0>x1){t=x0;x0=x1;x1=t;}
+    if(y0>y1){t=y0;y0=y1;y1=t;}
+    /* At most a 2 m span per axis. Longer sweeps keep the original DDA
+     * and its enlarged radius. Inspect every closed quarter in the box. */
+    if(x1-x0>=8 || y1-y0>=8)return 0;
+    uint8_t xlo=x0>>2,xhi=x1>>2,ylo=y0>>2,yhi=y1>>2,x,y;
+    for(y=ylo;;++y){
+        uint8_t lo=y==ylo?(y0&3):0,hi=y==yhi?(y1&3):3;
+        uint16_t rows=head_rows[4*lo+hi];
+        for(x=xlo;;++x){
+            lo=x==xlo?(x0&3):0;hi=x==xhi?(x1&3):3;
+            if(riding_head_quarters(x,y)&rows&head_columns[4*lo+hi])return 0;
+            if(x==xhi)break;
+        }
+        if(y==yhi)break;
+    }
+    clear_x=xe;clear_y=ye;riding_head_clear_mask=0xff;
+    return 1;
+}
 /* A zero mask extends the cached certificate to the whole coarse cell. */
 static void head_remember(uint8_t tx,uint8_t ty,uint8_t mask) __naked {
     tx;ty;mask;
@@ -432,7 +486,24 @@ head_multi_tile:
         call _head_terrain_clear
 head_map_result:
         or a,a
+        jr nz,head_map_clear
+        ldhl sp,#7
+        ld de,#_head_fractions
+        ld b,#4
+head_quarter_coordinate:
+        ld a,(hl+)
+        and #3
+        ld (de),a
+        inc de
+        inc hl
+        inc hl
+        inc hl
+        dec b
+        jr nz,head_quarter_coordinate
+        call _head_refine_clear
+        or a,a
         jr z,head_original
+head_map_clear:
         xor a,a
         ret
 head_original:
