@@ -1,134 +1,22 @@
-; Exact scheduled suspension orchestration. Global packed context:
-; cs0,sn2,oms4,tq8,dvx16,dvy24,dvbx32,dvby36,dwb40,spring_fraction44.
-; Existing Q24 products retain fractions immediately; all sums wrap32.
-; Single ph_step owner, no interrupt/reentrant entry.
- .module physics_suspension_scheduled
- .area _DATA
-ss_anchor: .ds 16
+; Both wheels use the full Q18 arms for damping; only the reciprocal
+; reaction uses rounded Q10 arms. All force products consume their Q24
+; fraction immediately. The complete spring and damping moments are
+; narrowed only after the two wheels have contributed.
+.module physics_suspension_scheduled
+.area _DATA
 ss_g: .ds 8
-ss_damping: .ds 32
-ss_coarse: .ds 8
+ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
 ss_product_upper: .ds 2
 ss_moment: .ds 9
 ss_ts: .ds 4
-ss_temp: .ds 4
+ss_coarse: .ds 4
 ss_tr: .ds 4
- .area _CODE_8
-_riding_suspension_scheduled::
-; Full Q18 arms for damping, independently rounded Q10 arms for reaction.
- ld hl,#_Bike+0
- ld de,#_Bike+24
- call ss_lever
- ld hl,#ss_damping+16
- call ss_store_lever
- ld hl,#ss_coarse+0
- ld (hl),e
- inc hl
- ld (hl),d
- ld hl,#_Bike+0
- ld de,#_Bike+48
- call ss_lever
- ld hl,#ss_damping+20
- call ss_store_lever
- ld hl,#ss_coarse+2
- ld (hl),e
- inc hl
- ld (hl),d
- ld hl,#_Bike+4
- ld de,#_Bike+28
- call ss_lever
- ld hl,#ss_damping+24
- call ss_store_lever
- ld hl,#ss_coarse+4
- ld (hl),e
- inc hl
- ld (hl),d
- ld hl,#_Bike+4
- ld de,#_Bike+52
- call ss_lever
- ld hl,#ss_damping+28
- call ss_store_lever
- ld hl,#ss_coarse+6
- ld (hl),e
- inc hl
- ld (hl),d
- ld hl,#_riding_suspension_state
- ld e,(hl)
- inc hl
- ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
- ld a,(#_riding_suspension_anchor_x)
- call ss_q24
- ld hl,#ss_anchor
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_riding_suspension_state+2
- ld e,(hl)
- inc hl
- ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
- ld a,(#_riding_suspension_anchor_y)
- call ss_q24
- ld hl,#ss_anchor+4
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_riding_suspension_state+2
- ld e,(hl)
- inc hl
- ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
- ld a,(#_riding_suspension_anchor_x)
- call ss_q24
- ld hl,#ss_anchor+8
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_riding_suspension_state
- ld e,(hl)
- inc hl
- ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
- ld a,(#_riding_suspension_anchor_y)
- call ss_q24
- ld hl,#ss_anchor+12
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_anchor
+ss_spring_index: .ds 1
+ss_damper_index: .ds 1
+
+; Scheduled register convention is BC:DE, high word first.
+.macro ss_read address
+ ld hl,#(address)
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -136,23 +24,9 @@ _riding_suspension_scheduled::
  ld c,(hl)
  inc hl
  ld b,(hl)
- ld hl,#ss_anchor+4
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_temp
+.endm
+.macro ss_write address
+ ld hl,#(address)
  ld (hl),e
  inc hl
  ld (hl),d
@@ -160,15 +34,9 @@ _riding_suspension_scheduled::
  ld (hl),c
  inc hl
  ld (hl),b
- ld hl,#ss_anchor+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#ss_anchor
+.endm
+.macro ss_sub address
+ ld hl,#(address)
  ld a,e
  sub a,(hl)
  ld e,a
@@ -184,1371 +52,252 @@ _riding_suspension_scheduled::
  ld a,b
  sbc a,(hl)
  ld b,a
- ld hl,#ss_anchor
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#ss_anchor+4
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_anchor+8
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#ss_anchor+12
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_anchor+8
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- xor a
+.endm
+; R = memory - R. Useful for body_velocity - (wheel_velocity + spin).
+.macro ss_reverse_sub address
+ ld hl,#(address)
+ ld a,(hl+)
  sub a,e
  ld e,a
- ld a,#0
+ ld a,(hl+)
  sbc a,d
  ld d,a
- ld a,#0
+ ld a,(hl+)
  sbc a,c
  ld c,a
- ld a,#0
+ ld a,(hl)
  sbc a,b
  ld b,a
- ld hl,#ss_anchor+12
- ld a,e
- sub a,(hl)
+.endm
+.macro ss_add address
+ ld hl,#(address)
+ ld a,(hl+)
+ add a,e
  ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
+ ld a,(hl+)
+ adc a,d
  ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
+ ld a,(hl+)
+ adc a,c
  ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
+ ld a,(hl)
+ adc a,b
  ld b,a
- ld hl,#ss_anchor+8
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#ss_anchor+12
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- xor a
- ld hl,#ss_ts
+.endm
+; Add the contribution to the wheel while keeping the same value in
+; registers for the opposite body force.
+.macro ss_accumulate address
+ ld hl,#(address)
+ ld a,(hl)
+ add a,e
  ld (hl+),a
+ ld a,(hl)
+ adc a,d
  ld (hl+),a
+ ld a,(hl)
+ adc a,c
  ld (hl+),a
+ ld a,(hl)
+ adc a,b
  ld (hl),a
+.endm
+.macro ss_negate
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+.endm
+; Q24 native ABI is DE:BC. The register entry consumes one scratch stack
+; byte after its return address. The shuffle preserves the index in A.
+.macro ss_q24
+ dec sp
+ ld h,b
+ ld l,c
+ ld b,d
+ ld c,e
+ ld d,h
+ ld e,l
+ call _q24_apply_a
+ ld h,b
+ ld l,c
+ ld b,d
+ ld c,e
+ ld d,h
+ ld e,l
+.endm
+.macro ss_q24_phase coefficient,selected
+ ld hl,#coefficient
+ ld a,(#_riding_subphase)
+ or a
+ jr z,selected
+ inc hl
+selected:
+ ld a,(hl)
+ ss_q24
+.endm
+.macro ss_arm body,wheel,destination
+ ss_read _Bike+body
+ ss_reverse_sub _Bike+wheel
+ ss_write destination
+.endm
+.macro ss_spring axis,anchor,arm,displacement,force
+ ss_read anchor
+ ss_sub arm
+ ss_write displacement
+ ld a,(#ss_spring_index)
+ ss_q24
+ ss_write force
+ ld a,#axis
+ call _riding_force_sub_q24_regs
+.endm
+.macro ss_damper axis,relative,force
+ ss_write relative
+ ld a,(#ss_damper_index)
+ ss_q24
+ ss_accumulate force
+ ld a,#axis
+ call _riding_force_sub_q24_regs
+.endm
+.macro ss_reaction_product arm
+ ld a,#14
+ push af
+ inc sp
+ ld hl,#(ss_coarse+arm)
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ ss_read ss_tr
+ push bc
+ push de
+ call _riding_mulq32
+ add sp,#7
+ ld b,h
+ ld c,l
+.endm
+; wheel is the position offset in Bike; offset selects the wheel's 32-bit
+; entry in the paired suspension arrays. The lookup pose holds gsx[2],gsy[2].
+.macro ss_wheel wheel,offset,next_wheel,reaction_index
+ ss_spring 0,_riding_pose_anchor+offset,ss_damping+16+offset,ss_g,_riding_suspension_state+16+offset
+ ss_spring 1,_riding_pose_anchor+8+offset,ss_damping+24+offset,ss_g+4,_riding_suspension_state+24+offset
+ ld hl,#_riding_pose_anchor+offset
+ ld de,#ss_g+4
+ call ss_lever_product
+ push bc
+ push hl
+ push de
+ ld hl,#_riding_pose_anchor+8+offset
+ ld de,#ss_g
+ call ss_lever_product
+ call ss_spring_difference
+ add sp,#6
+ .if offset
+ ss_accumulate ss_ts
+ .else
+ ss_write ss_ts
+ .endif
+ ld hl,#ss_damping+24+offset
+ ld de,#_riding_suspension_state+4
+ call ss_lever_spin18
+ ld b,h
+ ld c,l
+ ss_add _Bike+wheel+8
+ ss_reverse_sub _Bike+8
+ ss_damper 0,ss_damping+offset,_riding_suspension_state+16+offset
+ ld hl,#ss_damping+16+offset
+ ld de,#_riding_suspension_state+4
+ call ss_lever_spin18
+ ld b,h
+ ld c,l
+ ss_add _Bike+12
+ ss_sub _Bike+wheel+12
+ ss_damper 1,ss_damping+8+offset,_riding_suspension_state+24+offset
+ ; Round coarse arms only when this wheel has a reaction torque.
+ ld hl,#_riding_suspension_state+8+offset
+ ld a,(hl+)
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ jp z,next_wheel
+ ld hl,#ss_damping+24+offset
+ call ss_coarse_arm
+ ld hl,#ss_coarse+2
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ push de
+ ld hl,#ss_damping+16+offset
+ call ss_coarse_arm
+ ld hl,#ss_coarse
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ push de
+ ss_read _riding_suspension_state+8+offset
+ push bc
+ push de
+ call _riding_reaction_input32
+ add sp,#8
+ ld b,h
+ ld c,l
+ ss_q24_phase _q24_index_C_REACT,reaction_index
+ ss_write ss_tr
+ ss_reaction_product 2
+ ss_accumulate _riding_suspension_state+16+offset
+ xor a
+ call _riding_force_sub_integer_regs
+ ss_reaction_product 0
+ ss_negate
+ ss_accumulate _riding_suspension_state+24+offset
+ ld a,#1
+ call _riding_force_sub_integer_regs
+.endm
+
+.area _CODE_8
+_riding_suspension_scheduled::
+ ss_arm 0,24,ss_damping+16
+ ss_arm 0,48,ss_damping+20
+ ss_arm 4,28,ss_damping+24
+ ss_arm 4,52,ss_damping+28
+ ; Each coefficient is used on both axes of both wheels.
+ ld de,#0
+ ld a,(#_riding_subphase)
+ or a
+ jr z,ss_force_indices
+ inc e
+ss_force_indices:
+ ld hl,#_q24_index_C_SPRING_FW
+ add hl,de
+ ld a,(hl)
+ ld (#ss_spring_index),a
+ ld hl,#_q24_index_C_FRIC_W
+ add hl,de
+ ld a,(hl)
+ ld (#ss_damper_index),a
  call _riding_force_begin
-; Wheel 0: spring displacement and complete Q24 force.
- ld hl,#_Bike
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+24
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_anchor
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_g
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_q24_index_C_SPRING_FW
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_318
- inc hl
-ss_index_318:
- ld a,(hl)
- call ss_q24
- ld hl,#_riding_suspension_state+16
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#0
- call _riding_force_sub_q24_regs
- ld hl,#_Bike+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+28
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_anchor+8
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_g+4
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_q24_index_C_SPRING_FW
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_407
- inc hl
-ss_index_407:
- ld a,(hl)
- call ss_q24
- ld hl,#_riding_suspension_state+24
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#1
- call _riding_force_sub_q24_regs
- ld hl,#ss_g+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_g
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_anchor+8
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_anchor
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_spring_torque32
- add sp,#16
- ld b,h
- ld c,l
- ld hl,#ss_ts
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_ts
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_damping+24
- ld de,#_riding_suspension_state+4
- call ss_lever_spin18
- ld b,h
- ld c,l
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_Bike+8
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+32
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_temp
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_damping
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_q24_index_C_FRIC_W
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_691
- inc hl
-ss_index_691:
- ld a,(hl)
- call ss_q24
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#0
- call _riding_force_sub_q24_regs
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_riding_suspension_state+16
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+16
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_damping+16
- ld de,#_riding_suspension_state+4
- call ss_lever_spin18
- ld b,h
- ld c,l
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_Bike+12
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+36
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_temp
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_damping+8
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_q24_index_C_FRIC_W
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_842
- inc hl
-ss_index_842:
- ld a,(hl)
- call ss_q24
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#1
- call _riding_force_sub_q24_regs
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_riding_suspension_state+24
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+24
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; Wheel 0: exact reciprocal reaction and integer-only body reaction.
- ld hl,#_riding_suspension_state+8
- ld a,(hl+)
- or a,(hl)
- inc hl
- or a,(hl)
- inc hl
- or a,(hl)
- jp z,ss_reaction_done_0
- ld hl,#ss_coarse+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#ss_coarse+0
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#_riding_suspension_state+8
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_reaction_input32
- add sp,#8
- ld b,h
- ld c,l
- ld hl,#_q24_index_C_REACT
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_959
- inc hl
-ss_index_959:
- ld a,(hl)
- call ss_q24
- ld hl,#ss_tr
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#14
- push af
- inc sp
- ld hl,#ss_coarse+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#ss_tr
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
- ld b,h
- ld c,l
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#0
- call _riding_force_sub_integer_regs
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_riding_suspension_state+16
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+16
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#14
- push af
- inc sp
- ld hl,#ss_coarse+0
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#ss_tr
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
- ld b,h
- ld c,l
+
+ ss_wheel 24,0,ss_wheel1,ss_reaction0_index
+ss_wheel1:
+ ss_wheel 48,4,ss_wheels_done,ss_reaction1_index
+ss_wheels_done:
  xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#1
- call _riding_force_sub_integer_regs
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_riding_suspension_state+24
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+24
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-ss_reaction_done_0:
-; Wheel 1: spring displacement and complete Q24 force.
- ld hl,#_Bike
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+48
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_anchor+4
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_g
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_q24_index_C_SPRING_FW
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_1197
- inc hl
-ss_index_1197:
- ld a,(hl)
- call ss_q24
- ld hl,#_riding_suspension_state+20
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#0
- call _riding_force_sub_q24_regs
- ld hl,#_Bike+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+52
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_anchor+12
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_g+4
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_q24_index_C_SPRING_FW
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_1286
- inc hl
-ss_index_1286:
- ld a,(hl)
- call ss_q24
- ld hl,#_riding_suspension_state+28
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#1
- call _riding_force_sub_q24_regs
- ld hl,#ss_g+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_g
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_anchor+12
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- ld hl,#ss_anchor+4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_spring_torque32
- add sp,#16
- ld b,h
- ld c,l
- ld hl,#ss_ts
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_ts
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; Lever coordinates preserve +128 before the arithmetic byte drop.
- ld hl,#ss_damping+28
- ld de,#_riding_suspension_state+4
- call ss_lever_spin18
- ld b,h
- ld c,l
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_Bike+8
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+56
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_temp
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_damping+4
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_q24_index_C_FRIC_W
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_1570
- inc hl
-ss_index_1570:
- ld a,(hl)
- call ss_q24
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#0
- call _riding_force_sub_q24_regs
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_riding_suspension_state+20
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+20
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_damping+20
- ld de,#_riding_suspension_state+4
- call ss_lever_spin18
- ld b,h
- ld c,l
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_Bike+12
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+60
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ld hl,#ss_temp
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#ss_damping+12
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#_q24_index_C_FRIC_W
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_1721
- inc hl
-ss_index_1721:
- ld a,(hl)
- call ss_q24
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#1
- call _riding_force_sub_q24_regs
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_riding_suspension_state+28
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+28
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; Wheel 1: exact reciprocal reaction and integer-only body reaction.
- ld hl,#_riding_suspension_state+12
- ld a,(hl+)
- or a,(hl)
- inc hl
- or a,(hl)
- inc hl
- or a,(hl)
- jp z,ss_reaction_done_1
- ld hl,#ss_coarse+6
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#ss_coarse+2
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#_riding_suspension_state+12
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_reaction_input32
- add sp,#8
- ld b,h
- ld c,l
- ld hl,#_q24_index_C_REACT
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_1838
- inc hl
-ss_index_1838:
- ld a,(hl)
- call ss_q24
- ld hl,#ss_tr
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#14
- push af
- inc sp
- ld hl,#ss_coarse+6
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#ss_tr
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
- ld b,h
- ld c,l
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#0
- call _riding_force_sub_integer_regs
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_riding_suspension_state+20
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+20
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#14
- push af
- inc sp
- ld hl,#ss_coarse+2
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ld hl,#ss_tr
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
- ld b,h
- ld c,l
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
- ld hl,#ss_temp
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld a,#1
- call _riding_force_sub_integer_regs
- ld hl,#ss_temp
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_riding_suspension_state+28
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+28
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-ss_reaction_done_1:
- ld a,#0
  push af
  inc sp
  call _riding_force_finish
  inc sp
  ld b,h
  ld c,l
- ld hl,#_riding_suspension_state+32
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
+ ss_write _riding_suspension_state+32
  ld a,#1
  push af
  inc sp
@@ -1556,26 +305,14 @@ ss_reaction_done_1:
  inc sp
  ld b,h
  ld c,l
- ld hl,#_riding_suspension_state+36
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- ld hl,#ss_ts
+ ss_write _riding_suspension_state+36
+ ld hl,#ss_ts+1
  ld e,(hl)
  inc hl
  ld d,(hl)
  inc hl
  ld c,(hl)
- inc hl
- ld b,(hl)
- ld e,d
- ld d,c
- ld c,b
- ld a,b
+ ld a,c
  add a,a
  sbc a,a
  ld b,a
@@ -1587,25 +324,16 @@ ss_reaction_done_1:
  rr c
  rr d
  rr e
- ; Carry holds bit 9 of the signed moment after shifting by ten.
  jr nc,ss_spring_rounded
- inc e
+ inc de
+ ld a,d
+ or a,e
  jr nz,ss_spring_rounded
- inc d
- jr nz,ss_spring_rounded
- inc c
- jr nz,ss_spring_rounded
- inc b
+ inc bc
 ss_spring_rounded:
- ld hl,#_q24_index_C_SPRING_T
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_2081
- inc hl
-ss_index_2081:
- ld a,(hl)
- call ss_q24
- push de
+ ss_q24_phase _q24_index_C_SPRING_T,ss_c_spring_t_index
+ ss_negate
+ ss_write _riding_suspension_state+40
  ld hl,#_q24_fraction
  ld de,#_riding_suspension_state+44
  .rept 4
@@ -1613,75 +341,52 @@ ss_index_2081:
  ld (de),a
  inc de
  .endm
- pop de
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
- ld hl,#_riding_suspension_state+40
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
  call ss_damping_torque18
  ld b,h
  ld c,l
- ld hl,#_q24_index_C_FRIC_T
- ld a,(#_riding_subphase)
- or a
- jr z,ss_index_2116
- inc hl
-ss_index_2116:
- ld a,(hl)
- call ss_q24
- xor a
+ ss_q24_phase _q24_index_C_FRIC_T,ss_c_fric_t_index
+ ss_reverse_sub _riding_suspension_state+40
+ ss_write _riding_suspension_state+40
+ ret
+
+; The returned spring impulse uses only bits 12..43 of the difference,
+; so six low product bytes suffice for every signed input.
+ss_spring_difference:
+ push hl
+ ldhl sp,#4
+ ld a,(hl+)
  sub a,e
+ ld a,(hl+)
+ sbc a,d
+ pop de
+ ; Preserve difference byte 1 and its borrow while reducing bytes 2..5.
+ push af
+ ld a,(hl+)
+ sbc a,e
  ld e,a
- ld a,#0
+ ld a,(hl+)
  sbc a,d
  ld d,a
- ld a,#0
+ ld a,(hl+)
  sbc a,c
  ld c,a
- ld a,#0
+ ld a,(hl)
  sbc a,b
  ld b,a
- ld hl,#_riding_suspension_state+40
- ld a,e
- add a,(hl)
+ pop af
+ .rept 4
+ srl b
+ rr c
+ rr d
+ rr e
+ rra
+ .endm
+ ld b,c
+ ld c,d
+ ld d,e
  ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld hl,#_riding_suspension_state+40
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
  ret
+
 ; floor(angular_residual * 27007 / 2^24). The normalized residual limits
 ; the result to signed16. The signed48 product is returned in BC:HL:DE.
 _riding_angle_fraction::
@@ -1691,38 +396,14 @@ _riding_angle_fraction::
  ld e,h
  ld d,c
  ret
-; Wheel coordinate at DE minus body coordinate at HL, in Q18 metres.
-; Return the signed32 difference in BC:DE.
-ss_lever:
- ld a,(de)
- sub a,(hl)
- ld c,a
- inc de
+ss_coarse_arm:
+ ld e,(hl)
  inc hl
- ld a,(de)
- sbc a,(hl)
- ld b,a
- inc de
+ ld d,(hl)
  inc hl
- push bc
- ld a,(de)
- sbc a,(hl)
- ld c,a
- inc de
+ ld c,(hl)
  inc hl
- ld a,(de)
- sbc a,(hl)
- ld b,a
- pop de
- ret
-ss_store_lever:
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
+ ld b,(hl)
  ; Round to Q10 for reaction. Extend the original sign before propagating
  ; the rounding carry, including at the positive signed32 limit.
  ld a,b
@@ -1744,20 +425,6 @@ ss_store_lever:
  adc a,#0
  ld b,a
  jp ss_sat16
-; Internal ED CB low-to-high convention to Q24 register ABI1 and back.
-ss_q24:
- push af
- inc sp
- push bc
- push de
- pop bc
- pop de
- call _q24_apply
- push bc
- push de
- pop bc
- pop de
- ret
 ; Saturate internal signed32 to signed16, preserving sign extension.
 ss_sat16:
  ld a,d
@@ -1780,7 +447,7 @@ ss_negative:
 
 ; HL -> signed32 arm, DE -> signed32 speed. Return all 64 product bits in
 ; ss_product_upper:BC:HL:DE. Most speeds need just one signed32 x signed16
-; product. The ROM0 multiply restores bank8 after its quarter-table reads.
+; product. The ROM0 multiplier restores the caller bank after table reads.
 ss_lever_product:
  push hl
  ld a,(de)
@@ -1911,26 +578,24 @@ ss_lever_spin18:
  or a,c
  jr z,ss_spin_zero
  call _riding_product32x16_regs
- ld a,l
- add a,#2
- ld e,a
- ld a,h
- adc a,#0
- ld d,a
- ld a,c
- adc a,#0
- ld l,a
- ld a,b
- adc a,#0
- ld h,a
- sra h
+ sra b
+ rr c
+ rr h
  rr l
- rr d
- rr e
- sra h
+ sra b
+ rr c
+ rr h
  rr l
- rr d
- rr e
+ ld d,h
+ ld e,l
+ ld h,b
+ ld l,c
+ ret nc
+ inc de
+ ld a,d
+ or a,e
+ ret nz
+ inc hl
  ret
 ss_spin_zero:
  ld hl,#0
@@ -1965,6 +630,93 @@ ss_spin_wide:
 ; First product seeds the nine-byte signed accumulator. A ninth byte keeps
 ; both overflow and cancellation exact when all four products are wide.
 ss_damping_torque18:
+ ; Four signed32 x signed16 products sum to a magnitude at most 2^48;
+ ; after the 18-bit shift the result fits signed32 without clamping.
+ ; Keep bits 0..49 of the sum, including all cross-wheel fractional carries.
+ ld hl,#ss_damping+1
+ .rept 4
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jp nz,ss_moment_wide
+ inc hl
+ cp a,(hl)
+ jp nz,ss_moment_wide
+ inc hl
+ inc hl
+ .endm
+ ld hl,#ss_damping+8
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld hl,#ss_damping+16
+ call _riding_product32x16_regs
+ push hl
+ ld hl,#ss_moment
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
+ pop de
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ inc hl
+ ld a,b
+ add a,a
+ sbc a,a
+ ld (hl),a
+ ld hl,#ss_damping
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld a,b
+ or a,c
+ jr z,ss_moment_wheel1
+ ld hl,#ss_damping+24
+ call _riding_product32x16_regs
+ call ss_sub48
+ss_moment_wheel1:
+ ld hl,#ss_damping+12
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld a,b
+ or a,c
+ jr z,ss_moment_wheel1_y
+ ld hl,#ss_damping+20
+ call _riding_product32x16_regs
+ call ss_add48
+ss_moment_wheel1_y:
+ ld hl,#ss_damping+4
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld a,b
+ or a,c
+ jr z,ss_moment_shift
+ ld hl,#ss_damping+28
+ call _riding_product32x16_regs
+ call ss_sub48
+ss_moment_shift:
+ ld hl,#ss_moment+2
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld a,(hl+)
+ ld b,(hl)
+ ld l,a
+ ld h,b
+ ld a,(#ss_moment+6)
+ jp ss_shift18
+
+ss_moment_wide:
  ld hl,#ss_damping+16
  ld de,#ss_damping+8
  call ss_lever_product
@@ -2060,7 +812,7 @@ ss_max32:
  ld de,#0xffff
  ret
 
-ss_add_product:
+.macro ss_add_low48
  push hl
  ld hl,#ss_moment
  ld a,(hl)
@@ -2082,6 +834,9 @@ ss_add_product:
  ld a,(hl)
  adc a,b
  ld (hl+),a
+.endm
+ss_add_product:
+ ss_add_low48
  ld a,(#ss_product_upper)
  adc a,(hl)
  ld (hl+),a
@@ -2098,7 +853,7 @@ ss_add_sign:
  ld (hl),a
  ret
 
-ss_sub_product:
+.macro ss_sub_low48
  push hl
  ld hl,#ss_moment
  ld a,(hl)
@@ -2120,6 +875,9 @@ ss_sub_product:
  ld a,(hl)
  sbc a,b
  ld (hl+),a
+.endm
+ss_sub_product:
+ ss_sub_low48
  ld a,(#ss_product_upper)
  ld c,a
  ld a,(hl)
@@ -2135,6 +893,30 @@ ss_sub_product:
  jr z,ss_sub_sign
  dec b
 ss_sub_sign:
+ ld a,(hl)
+ sbc a,b
+ ld (hl),a
+ ret
+
+ss_add48:
+ ss_add_low48
+ bit 7,b
+ ld b,#0
+ jr z,ss_add48_sign
+ dec b
+ss_add48_sign:
+ ld a,(hl)
+ adc a,b
+ ld (hl),a
+ ret
+
+ss_sub48:
+ ss_sub_low48
+ bit 7,b
+ ld b,#0
+ jr z,ss_sub48_sign
+ dec b
+ss_sub48_sign:
  ld a,(hl)
  sbc a,b
  ld (hl),a

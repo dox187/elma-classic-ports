@@ -129,10 +129,76 @@ uint8_t riding_contact_merge(void) {
 		return 2;
  return 0;
 }
-static uint8_t contacts(int32_t cx,int32_t cy) {
- int16_t qx=(int16_t)(cx&4095),qy=(int16_t)(cy&4095);
- seg_query(seg_cell(cx),seg_cell(cy),(uint8_t)((qx>>10)|((qy>>8)&12)));
- return riding_contacts_loop(qx,qy);
+/* ABI1 passes X in DE:BC and Y on the stack. Save the low 12 bits of each
+ * coordinate for the contact geometry. Only their upper bits select a grid
+ * cell, so no signed32 shifts or full coordinate copies are needed. */
+static uint8_t contacts(int32_t cx,int32_t cy) __naked {
+ cx;cy;
+ __asm
+    ld a,b
+    and a,#15
+    ld h,a
+    ld l,c
+    push hl
+    call contact_query_axis
+    ld c,a
+    push bc
+    ldhl sp,#6
+    ld a,(hl+)
+    ld c,a
+    ld a,(hl+)
+    ld b,a
+    ld a,(hl+)
+    ld e,a
+    ld d,(hl)
+    ld a,b
+    and a,#15
+    ld h,a
+    ld l,c
+    push hl
+    call contact_query_axis
+    ld e,a
+    ldhl sp,#5
+    ld a,(hl)
+    rrca
+    rrca
+    and a,#3
+    ld b,a
+    ldhl sp,#1
+    ld a,(hl)
+    and a,#12
+    or a,b
+    ld b,a
+    ldhl sp,#2
+    ld a,(hl)
+    push bc
+    inc sp
+    call _seg_query
+    pop bc
+    pop de
+    pop de
+    call _riding_contacts_loop
+    pop hl
+    add sp,#4
+    jp (hl)
+contact_query_axis:
+    ld a,d
+    or a,a
+    jr nz,contact_query_outside
+    ld a,e
+    cp a,#16
+    jr nc,contact_query_outside
+    swap a
+    ld c,a
+    ld a,b
+    swap a
+    and a,#15
+    or a,c
+    ret
+contact_query_outside:
+    ld a,#255
+    ret
+ __endasm;
 }
 #else
 // talppontkereses of UTKOZES.CPP: at most two contact points of the wheel
@@ -314,12 +380,99 @@ int16_t riding_landing_nx[2], riding_landing_ny[2];
 uint8_t riding_landing_contact[2];
 #if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
 uint8_t riding_contact_filter(circle_t*,uint8_t);
-#endif
-void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED {
-	uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
-#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
-    n=riding_contact_filter(k,n);
+
+/* The banked ABI passes k and the three int32 impulses contiguously.
+ * The contact resolver reads these inputs when the fine filter accepts a
+ * candidate. An empty query passes the same block to the free-wheel kernel. */
+typedef struct {
+    circle_t *k;
+    int32_t dvx,dvy,tq;
+} wheel_input_t;
+typedef char wheel_input_layout[sizeof(wheel_input_t)==14 && offsetof(wheel_input_t,dvx)==2 &&
+    offsetof(wheel_input_t,dvy)==6 && offsetof(wheel_input_t,tq)==10 &&
+    offsetof(bike_t,wheel[1])==48?1:-1];
+void riding_wheel_contact(const wheel_input_t *input,uint8_t n);
+
+void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED __naked {
+    k;dvx;dvy;tq;
+    __asm
+    ldhl sp,#6
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    ; Form both signed F>>8 coordinates from their upper three bytes.
+    ld de,#5
+    add hl,de
+    call wheel_query_position
+    push de
+    push bc
+    ld de,#-6
+    add hl,de
+    call wheel_query_position
+    call _contacts
+    or a,a
+    jr z,wheel_no_contact
+    ldhl sp,#6
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    call _riding_contact_filter
+    or a,a
+    jr z,wheel_no_contact
+    ldhl sp,#6
+    ld d,h
+    ld e,l
+    jp _riding_wheel_contact
+wheel_query_position:
+    ld a,(hl+)
+    ld c,a
+    ld a,(hl+)
+    ld b,a
+    ld a,(hl)
+    ld e,a
+    add a,a
+    sbc a,a
+    ld d,a
+    ret
+wheel_no_contact:
+    ; Clear every reported field, even on the first airborne substep.
+    ldhl sp,#6
+    ld a,(hl+)
+    cp a,#<(_Bike+48)
+    jr nz,wheel_air_left
+    ld a,(hl)
+    cp a,#>(_Bike+48)
+    jr nz,wheel_air_left
+    xor a,a
+    ld (#_riding_audio_impact+1),a
+    ld (#_riding_audio_contact+1),a
+    ld (#_riding_landing_contact+1),a
+    ld (#_riding_landing_nx+2),a
+    ld (#_riding_landing_nx+3),a
+    ld (#_riding_landing_ny+2),a
+    ld (#_riding_landing_ny+3),a
+    jr wheel_air_move
+wheel_air_left:
+    xor a,a
+    ld (#_riding_audio_impact),a
+    ld (#_riding_audio_contact),a
+    ld (#_riding_landing_contact),a
+    ld (#_riding_landing_nx),a
+    ld (#_riding_landing_nx+1),a
+    ld (#_riding_landing_ny),a
+    ld (#_riding_landing_ny+1),a
+wheel_air_move:
+    ldhl sp,#6
+    jp _riding_free_inputs
+    __endasm;
+}
+
+void riding_wheel_contact(const wheel_input_t *input,uint8_t n) {
+    circle_t *k=input->k;
+    int32_t dvx=input->dvx,dvy=input->dvy,tq=input->tq;
 #else
+void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED {
+    uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
     uint8_t valid=0;
     for(uint8_t j=0;j<n;++j) {
         int32_t distance=(int32_t)Ct[j].l*256+riding_dotq32(k->rx&255,k->ry&255,Ct[j].nx,Ct[j].ny,14);

@@ -33,55 +33,16 @@ _riding_roll32::
  inc hl
  ld (hl),b
 ; vn = dotq32(vx,vy,tangent,14).
- ld a,#14
- push af
- inc sp
- ldhl sp,#3
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#3
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#19
+ ldhl sp,#14
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- ld bc,#14
- add hl,bc
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- dec hl
- dec hl
- dec hl
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- dec hl
- dec hl
- dec hl
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- dec hl
- dec hl
- dec hl
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- dec hl
- dec hl
- dec hl
- call _riding_dotq32
- add sp,#13
+ ld de,#8
+ add hl,de
+ ld d,h
+ ld e,l
+ ldhl sp,#0
+ call _riding_dotq14_regs
  ld b,h
  ld c,l
  ldhl sp,#4
@@ -93,41 +54,11 @@ _riding_roll32::
  inc hl
  ld (hl),b
 ; dvn = dotq32(dvx,dvy,tangent,14).
- ld a,#14
- push af
- inc sp
- ldhl sp,#3
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#3
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#29
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#29
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#29
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#29
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_dotq32
- add sp,#13
+ ldhl sp,#18
+ ld d,h
+ ld e,l
+ ldhl sp,#0
+ call _riding_dotq14_regs
  push hl
  push de
  call _riding_wheel_roll_t
@@ -215,26 +146,12 @@ _riding_roll32::
  inc hl
  ld (hl),b
 ; vx = mulq32(sp,tangent,14).
- ld a,#14
- push af
- inc sp
- ldhl sp,#1
- ld e,(hl)
+ ldhl sp,#0
+ ld c,(hl)
  inc hl
- ld d,(hl)
- push de
- ldhl sp,#13
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#13
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_mulq32
- add sp,#7
+ ld b,(hl)
+ ldhl sp,#8
+ call _riding_mulq14_regs
  ld b,h
  ld c,l
  ldhl sp,#14
@@ -253,26 +170,12 @@ _riding_roll32::
  inc hl
  ld (hl),b
 ; vy = mulq32(sp,tangent,14).
- ld a,#14
- push af
- inc sp
- ldhl sp,#3
- ld e,(hl)
+ ldhl sp,#2
+ ld c,(hl)
  inc hl
- ld d,(hl)
- push de
- ldhl sp,#13
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#13
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_mulq32
- add sp,#7
+ ld b,(hl)
+ ldhl sp,#8
+ call _riding_mulq14_regs
  ld b,h
  ld c,l
  ldhl sp,#14

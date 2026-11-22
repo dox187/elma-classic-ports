@@ -36,6 +36,14 @@ riding_suspension_state_t riding_suspension_state;
 const uint8_t riding_suspension_anchor_x=Q24_ANCHOR_X;
 const uint8_t riding_suspension_anchor_y=Q24_ANCHOR_Y;
 void riding_suspension_scheduled(void) __sdcccall(0);
+void riding_step_fraction(void) __sdcccall(0);
+void riding_step_apply(int16_t gravity);
+void riding_step_wheels(void) __sdcccall(0);
+uint8_t riding_step_head(void);
+typedef char scheduled_step_layout[
+    sizeof(circle_t)==24 && offsetof(bike_t,body.omega)==20 &&
+    offsetof(bike_t,head_x)==88 && offsetof(bike_t,gravity)==97 &&
+    GRAV_UP==0 && GRAV_DOWN==1 && GRAV_LEFT==2 && GRAV_RIGHT==3 ? 1 : -1];
 #endif
 
 bike_t Bike;
@@ -47,7 +55,11 @@ extern int16_t riding_landing_nx[2], riding_landing_ny[2];
 extern uint8_t riding_landing_contact[2];
 
 static int16_t Cs, Sn;   // cos and sin of the body's angle
+#ifdef __SDCC
+#define Oms riding_suspension_state.oms
+#else
 static int32_t Oms;      // body angular velocity, see C_OMS
+#endif
 
 #ifndef __SDCC
 /* Wheel arms are stored in the position unit, 2^-18 metres. */
@@ -89,9 +101,11 @@ static void angle( void ) {
 
 /* Rider, renderer and head collision all observe the same completed step. */
 #ifdef __SDCC
+extern int16_t riding_pose_rest[2];
 void riding_head_pose32(int16_t*,int16_t*) __sdcccall(0);
 void riding_brake32(int32_t*) __sdcccall(0);
-static void head_position(void) {riding_head_pose32(&Cs,&Sn);}
+void riding_step_head_position(void) {riding_head_pose32(&Cs,&Sn);}
+#define head_position riding_step_head_position
 #else
 static void head_position(void) {
  int32_t x=Bike.rider_x,y=Bike.rider_y;
@@ -106,84 +120,61 @@ static void head_position(void) {
 
 /* Convert the complete angular velocity to body-point velocity. The second
  * product contributes Q24 units to the first, with a single final rounding. */
-static int32_t body_oms(void) {
 #ifdef __SDCC
-    int32_t omega=Bike.body.omega;
-    int32_t whole=Q24_MUL(omega,C_OMS), fraction=q24_fraction;
-    int16_t offset=0;
-    if (!angular_residual) return whole;
-    if (q24_saturated) {
-        /* One inward unit can bring a boundary product back into range. */
-        int8_t sign=omega<0 ? -1 : 1;
-        whole=Q24_MUL(omega-sign,C_OMS);
-        if (q24_saturated) return whole;
-        fraction=q24_fraction;
-        offset=(int16_t)Q24_MUL(sign,C_OMS);
-        fraction+=q24_fraction;
-    }
-    int32_t low=Q24_MUL(angular_residual,C_OMS);
-    /* Floor the smaller product so a second rounding cannot flip a half tie. */
-    offset+=(int16_t)((low-(q24_fraction<0)+fraction+0x800000L)>>24);
-    int32_t result=(int32_t)((uint32_t)whole+(uint32_t)(int32_t)offset);
-    if (whole>=0 && offset>0 && result<0) return INT32_MAX;
-    if (whole<0 && offset<0 && result>=0) return INT32_MIN;
-    return result;
+int32_t body_oms(void) __banked;
 #else
+static int32_t body_oms(void) {
     int32_t m=q24_C_OMS[riding_subphase];
     int64_t product=(int64_t)Bike.body.omega*m+(((int64_t)angular_residual*m)>>24);
     int64_t result=(product+0x800000L)>>24;
     return result>INT32_MAX ? INT32_MAX : result<INT32_MIN ? INT32_MIN : (int32_t)result;
-#endif
 }
+#endif
 
 #ifdef __SDCC
 int16_t riding_angle_fraction(void) __sdcccall(0);
+void riding_partial_angle(int16_t fraction) __banked;
+void riding_full_angle(void) __sdcccall(0);
 void riding_body_translate(circle_t *k,uint8_t slot) __sdcccall(0);
 #endif
 
 static void move_body(void) {
+#ifdef __SDCC
+    if (riding_subphase) riding_partial_angle(riding_angle_fraction());
+    else riding_full_angle();
+    riding_body_translate(&Bike.body,0);
+#else
     int32_t omega=Bike.body.omega;
     uint32_t phase;
     if (!riding_subphase) {
         phase=((uint32_t)omega<<5)+(uint32_t)((angular_residual+0x40000L)>>19);
     } else {
-        /* 128 * remainder_time / angular_unit_time = 27007/1280 exactly.
-         * Split off 21 integer phase units per omega unit. The remaining
-         * numerator uses 127/1280 and fits signed32 after dividing by 256. */
-#ifdef __SDCC
-        int16_t f=riding_angle_fraction();
-        int32_t high=omega>>8;
-        int32_t n=(int32_t)(((uint32_t)high<<7)-(uint32_t)high)
-            +((mul16((uint8_t)omega,127)+f+640)>>8);
-        int32_t q;
-        if (n==(int16_t)n) {
-            /* 65536=5*13107+1. This bias gives floor(n/5) for signed16. */
-            q=(mul16((int16_t)n,13107)+6553)>>16;
-        } else {
-            q=n<0 ? -1-(int32_t)((uint32_t)~n/5u) : (int32_t)((uint32_t)n/5u);
-        }
-        phase=(uint32_t)omega*21u+(uint32_t)q;
-#else
+        /* 128 * remainder_time / angular_unit_time = 27007/1280 exactly. */
         int32_t f=(int32_t)(((int64_t)angular_residual*27007)>>24);
         int64_t n=(int64_t)omega*27007+f+640;
         phase=(uint32_t)(n>=0 ? n/1280 : -1-((-1-n)/1280));
-#endif
     }
     Bike.body.alfa+=phase;
-#ifdef __SDCC
-    riding_body_translate(&Bike.body,0);
-#else
     Bike.body.rx+=phase_advance(Bike.body.vx,2,0);
     Bike.body.ry+=phase_advance(Bike.body.vy,2,1);
 #endif
 }
 
 // vezeto_hatarolas: keeps the rider over the seat.
+#if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
+uint8_t riding_rider_local(int16_t cs, int16_t sn, int16_t *xy);
+#endif
 static void rider_limit( void ) {
+#if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
+    int16_t xy[2];
+    if (riding_rider_local(Cs, Sn, xy)) return;
+    int16_t x = xy[0], y = xy[1];
+#else
 	int16_t dx = sat16( riding_sra8(Bike.rider_x-Bike.body.rx) );
 	int16_t dy = sat16( riding_sra8(Bike.rider_y-Bike.body.ry) );
 	int16_t x = dotq14( dx, dy, Cs, Sn );
 	int16_t y = dotq14( dy, dx, Cs, -Sn );
+#endif
 	uint8_t moved = 0;
 	if( Bike.turned )
 		x = -x;
@@ -229,14 +220,9 @@ static void rider_limit( void ) {
 }
 
 // beallitvezeto, at the same rate as the body and wheels:
-#ifdef __SDCC
-void riding_rider_response32(int16_t,int16_t,int32_t,int32_t,int32_t) __sdcccall(0);
-#endif
+#ifndef __SDCC
 static void rider( int32_t gx, int32_t gy ) {
 	rider_limit();
-#ifdef __SDCC
- riding_rider_response32(-KMUL(Sn,C_RREST),KMUL(Cs,C_RREST),Oms,gx,gy);
-#else
 	int16_t dirx = sat16( ((Bike.body.rx-Bike.rider_x) >> 4)-KMUL( Sn, C_RREST ) );
 	int16_t diry = sat16( ((Bike.body.ry-Bike.rider_y) >> 4)+KMUL( Cs, C_RREST ) );
 	int16_t dx = sat16( (Bike.rider_x-Bike.body.rx) >> 4 );
@@ -250,8 +236,8 @@ static void rider( int32_t gx, int32_t gy ) {
 	Bike.rider_vy += ay;
 	Bike.rider_x += phase_advance(Bike.rider_vx,2,6);
 	Bike.rider_y += phase_advance(Bike.rider_vy,2,7);
-#endif
 }
+#endif
 
 void ph_init( int32_t x, int32_t y ) {
     angular_residual=0;
@@ -372,9 +358,57 @@ static void landing_response(riding_torque32_t *t,int32_t *sx,int32_t *sy) {
 }
 #endif
 
+/* Releases can also change the angular velocity on a substep with no input. */
+static void step_volts(uint8_t input) {
+	// Volts:
+	int32_t oldomega = Bike.body.omega;
+	uint8_t volt = input & (IN_VOLT_RIGHT | IN_VOLT_LEFT);
+	if( Bike.volt[0] && (volt || --Bike.volt[0] == 0) ) {
+		Bike.body.omega += LOKET;
+		if( Bike.body.omega > Bike.volt_omega[0] )
+			Bike.body.omega = Bike.volt_omega[0];
+		if( Bike.body.omega > 0 ) {
+			Bike.body.omega -= OMEGAVALT;
+			if( Bike.body.omega < 0 )
+				Bike.body.omega = 0;
+		}
+		Bike.volt[0] = 0;
+	}
+	if( Bike.volt[1] && (volt || --Bike.volt[1] == 0) ) {
+		Bike.body.omega -= LOKET;
+		if( Bike.body.omega < Bike.volt_omega[1] )
+			Bike.body.omega = Bike.volt_omega[1];
+		if( Bike.body.omega < 0 ) {
+			Bike.body.omega += OMEGAVALT;
+			if( Bike.body.omega > 0 )
+				Bike.body.omega = 0;
+		}
+		Bike.volt[1] = 0;
+	}
+	if( input & IN_VOLT_RIGHT ) {
+		Bike.volt[0] = VOLT_STEPS;
+		Bike.volt_omega[0] = Bike.body.omega;
+		Bike.body.omega -= LOKET;
+	}
+	if( input & IN_VOLT_LEFT ) {
+		Bike.volt[1] = VOLT_STEPS;
+		Bike.volt_omega[1] = Bike.body.omega;
+		Bike.body.omega += LOKET;
+	}
+	if( volt ) {
+		int32_t dw = KMUL32((int32_t)Bike.body.omega-oldomega,C_OMS);
+		int16_t dx = sat16( (Bike.rider_x-Bike.body.rx) >> 4 );
+		int16_t dy = sat16( (Bike.rider_y-Bike.body.ry) >> 4 );
+		Bike.rider_vx += riding_mulq32(dw,-dy,14);
+		Bike.rider_vy += riding_mulq32(dw,dx,14);
+	}
+
+    if (Bike.body.omega != oldomega) Oms = body_oms();
+}
+
 uint8_t ph_step( uint8_t input ) {
-	int32_t previous_head_x=Bike.head_x,previous_head_y=Bike.head_y;
 #ifndef __SDCC
+	int32_t previous_head_x=Bike.head_x,previous_head_y=Bike.head_y;
     angle();
 #endif
 	Oms = body_oms();
@@ -386,7 +420,11 @@ uint8_t ph_step( uint8_t input ) {
 		Bike.dbrake[1] = Bike.wheel[1].alfa-Bike.body.alfa;
 	}
 	Bike.brake_was = brake;
-	STEP_LOCAL int32_t tq[2];
+#ifdef __SDCC
+    int32_t *const tq = riding_suspension_state.tq;
+#else
+    int32_t tq[2];
+#endif
 	tq[0] = 0; tq[1] = 0;
 	if( input & IN_GAS ) {
 		if( Bike.turned ) {
@@ -414,14 +452,8 @@ uint8_t ph_step( uint8_t input ) {
 	}
 
 #ifdef __SDCC
- riding_suspension_state.cs=Cs;riding_suspension_state.sn=Sn;
- riding_suspension_state.oms=Oms;
- riding_suspension_state.tq[0]=tq[0];riding_suspension_state.tq[1]=tq[1];
- riding_suspension_scheduled();
- int32_t *dvx=riding_suspension_state.dvx,*dvy=riding_suspension_state.dvy;
- int32_t dvbx=riding_suspension_state.dvbx,dvby=riding_suspension_state.dvby;
- int32_t dwb=riding_suspension_state.dwb;
- int32_t spring_fraction=riding_suspension_state.spring_fraction;
+    riding_suspension_scheduled();
+    riding_step_fraction();
 #else
 	// Forces between the wheels and the body (erokszamitasa). The anchors
 	// of the springs, from the rotation of (K_X, -K_Y):
@@ -478,7 +510,6 @@ uint8_t ph_step( uint8_t input ) {
 	int32_t spring_fraction=q24_fraction;
 	dwb-=KMUL32(riding_damping_torque18(&damping),C_FRIC_T);
 
-#endif
 
     /* Both torque products are subtracted. Keep the old residual available
      * to the rider until the body receives this substep's angular impulse. */
@@ -486,49 +517,10 @@ uint8_t ph_step( uint8_t input ) {
     int8_t angular_carry=(int8_t)((next_fraction+0x800000L)>>24);
     next_fraction-=(int32_t)angular_carry*0x1000000L;
     dwb+=angular_carry;
+#endif
 
-	// Volts:
-	int32_t oldomega = Bike.body.omega;
-	uint8_t volt = input & (IN_VOLT_RIGHT | IN_VOLT_LEFT);
-	if( Bike.volt[0] && (volt || --Bike.volt[0] == 0) ) {
-		Bike.body.omega += LOKET;
-		if( Bike.body.omega > Bike.volt_omega[0] )
-			Bike.body.omega = Bike.volt_omega[0];
-		if( Bike.body.omega > 0 ) {
-			Bike.body.omega -= OMEGAVALT;
-			if( Bike.body.omega < 0 )
-				Bike.body.omega = 0;
-		}
-		Bike.volt[0] = 0;
-	}
-	if( Bike.volt[1] && (volt || --Bike.volt[1] == 0) ) {
-		Bike.body.omega -= LOKET;
-		if( Bike.body.omega < Bike.volt_omega[1] )
-			Bike.body.omega = Bike.volt_omega[1];
-		if( Bike.body.omega < 0 ) {
-			Bike.body.omega += OMEGAVALT;
-			if( Bike.body.omega > 0 )
-				Bike.body.omega = 0;
-		}
-		Bike.volt[1] = 0;
-	}
-	if( input & IN_VOLT_RIGHT ) {
-		Bike.volt[0] = VOLT_STEPS;
-		Bike.volt_omega[0] = Bike.body.omega;
-		Bike.body.omega -= LOKET;
-	}
-	if( input & IN_VOLT_LEFT ) {
-		Bike.volt[1] = VOLT_STEPS;
-		Bike.volt_omega[1] = Bike.body.omega;
-		Bike.body.omega += LOKET;
-	}
-	if( volt ) {
-		int32_t dw = KMUL32((int32_t)Bike.body.omega-oldomega,C_OMS);
-		int16_t dx = sat16( (Bike.rider_x-Bike.body.rx) >> 4 );
-		int16_t dy = sat16( (Bike.rider_y-Bike.body.ry) >> 4 );
-		Bike.rider_vx += riding_mulq32(dw,-dy,14);
-		Bike.rider_vy += riding_mulq32(dw,dx,14);
-	}
+    if ((input & (IN_VOLT_RIGHT | IN_VOLT_LEFT)) || Bike.volt[0] || Bike.volt[1])
+        step_volts(input);
 
 	// Gravity, with its fraction carried over:
 	int16_t g = G_INT;
@@ -536,6 +528,14 @@ uint8_t ph_step( uint8_t input ) {
 	Bike.gfrac = f+G_FRAC;
 	if( Bike.gfrac < f )
 		g++;
+    ++Bike.steps;
+#ifdef __SDCC
+    rider_limit();
+    riding_step_apply(g);
+    move_body();
+    riding_step_wheels();
+    return riding_step_head();
+#else
 	int16_t gx = 0, gy = 0;
 	switch( Bike.gravity ) {
 		case GRAV_UP: gy = g; break;
@@ -544,11 +544,6 @@ uint8_t ph_step( uint8_t input ) {
 		default: gy = -g; break;
 	}
 
-	++Bike.steps;
-	// Suspension uses the pre-volt velocity, as in erokszamitasa. The rider
-	// follows after the volt and must use its new body-point velocity.
-	if( Bike.body.omega != oldomega )
-		Oms = body_oms();
 	rider( gx, gy );
 
 	Bike.body.omega += dwb;
@@ -563,6 +558,7 @@ uint8_t ph_step( uint8_t input ) {
 	// Head collision and rendering use the completed 30 Hz rider pose.
 	head_position();
 	return !riding_swept_head(riding_sra8(previous_head_x),riding_sra8(previous_head_y),riding_sra8(Bike.head_x),riding_sra8(Bike.head_y));
+#endif
 }
 
 #undef STEP_LOCAL

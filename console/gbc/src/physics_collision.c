@@ -7,7 +7,8 @@
 #include <string.h>
 
 #define CACHES 3
-static seg_t cells[CACHES][RIDING_CELL_MAX];
+static seg_t cells[CACHES*RIDING_CELL_MAX];
+static seg_t * const cell_records[CACHES]={cells,cells+RIDING_CELL_MAX,cells+2*RIDING_CELL_MAX};
 static uint16_t cell_ids[CACHES];
 static uint8_t cell_subcells[CACHES],cell_counts[CACHES];
 static uint8_t next_cell;
@@ -17,6 +18,10 @@ int32_t physics_level_start_x,physics_level_start_y;
 uint8_t physics_level_index=255;
 const seg_t *Seg_cur;
 uint8_t Seg_left,Seg_subcell;
+#ifdef __SDCC
+/* Zero invalidates the swept-head empty rectangle on every collision reset. */
+uint8_t riding_head_clear_mask;
+#endif
 
 typedef struct {uint16_t address;uint8_t bank,count;} cell_pointer_t;
 typedef char descriptor_layout[sizeof(physics_level_desc_t)==48?1:-1];
@@ -42,6 +47,9 @@ static void read_data(void *dest,uint16_t bank,uint16_t address,uint16_t size) {
 
 void physics_collision_reset(void) {
     uint8_t i;
+#ifdef __SDCC
+    riding_head_clear_mask=0;
+#endif
     for(i=0;i<CACHES;++i)cell_ids[i]=65535;
     next_cell=0;Seg_left=0;
 }
@@ -66,14 +74,17 @@ void seg_query(uint8_t cx,uint8_t cy,uint8_t subcell) {
     uint16_t id;
     uint8_t c,sub=255;
     cell_pointer_t pointer;
-    Seg_left=0;Seg_subcell=255;
-    if(cx>=riding_level.width||cy>=riding_level.height)return;
+    if(cx>=riding_level.width||cy>=riding_level.height){
+        Seg_left=0;Seg_subcell=255;return;
+    }
     /* Cache identity needs only the two coordinates. Delay the directory's
      * row multiplication until a miss; all levels are smaller than256 cells
      * on either axis, so FFFF remains reserved for an invalid entry. */
     id=((uint16_t)cy<<8)|cx;
-    for(c=0;c<CACHES;++c)
-        if(cell_ids[c]==id && (cell_subcells[c]==255 || cell_subcells[c]==subcell))goto found;
+    /* The fixed three slots let SM83 compare each key directly in WRAM. */
+    if(cell_ids[0]==id && (cell_subcells[0]==255 || cell_subcells[0]==subcell)){c=0;goto found;}
+    if(cell_ids[1]==id && (cell_subcells[1]==255 || cell_subcells[1]==subcell)){c=1;goto found;}
+    if(cell_ids[2]==id && (cell_subcells[2]==255 || cell_subcells[2]==subcell)){c=2;goto found;}
     read_data(&pointer,riding_level.directory_bank,
               riding_level.directory_address+((uint16_t)cy*riding_level.width+cx)*4,4);
     if(pointer.count==255) {
@@ -85,9 +96,9 @@ void seg_query(uint8_t cx,uint8_t cy,uint8_t subcell) {
     cell_ids[c]=id;cell_subcells[c]=sub;
     cell_counts[c]=pointer.count;
     if(pointer.count)
-        read_data(cells[c],riding_level.base_bank+pointer.bank,pointer.address,(uint16_t)pointer.count*sizeof(seg_t));
+        read_data(cell_records[c],riding_level.base_bank+pointer.bank,pointer.address,(uint16_t)pointer.count*sizeof(seg_t));
 found:
-    Seg_cur=cells[c];Seg_left=cell_counts[c];Seg_subcell=cell_subcells[c];
+    Seg_cur=cell_records[c];Seg_left=cell_counts[c];Seg_subcell=cell_subcells[c];
 }
 
 const seg_t *seg_next(void) {

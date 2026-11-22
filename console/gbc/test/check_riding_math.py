@@ -13,7 +13,7 @@ BASE=Path(__file__).resolve().parents[1]
 OUT=BASE/'build/play-physics/math-check'
 
 
-def main(serial_oracle=False):
+def main(gen, serial_oracle=False):
     global OUT
     if serial_oracle:
         OUT=BASE/'build/play-physics/math-check-serial'
@@ -98,15 +98,15 @@ void main(void) {
 }
 ''')
     source=BASE/'src'
-    quarter_sources=[BASE/'build/gen'/('physics_quarter_%d.c'%bank)for bank in range(20,36)]
+    quarter_sources=[gen/('physics_quarter_%d.c'%bank)for bank in range(20,36)]
     if not serial_oracle and any(not path.is_file()for path in quarter_sources):
-        subprocess.run([sys.executable,str(BASE/'tools/mul_table.py'),'--out',str(BASE/'build/gen')],check=True)
-    scale_sources=[BASE/'build/gen'/('physics_scale_%d.c'%bank)for bank in range(36,44)]
-    if any(not path.is_file()for path in scale_sources):
-        subprocess.run([sys.executable,str(BASE/'tools/scale_table.py'),'--out',str(BASE/'build/gen')],check=True)
+        subprocess.run([sys.executable,str(BASE/'tools/mul_table.py'),'--out',str(gen)],check=True)
+    scale_sources=[gen/('physics_scale_%d.c'%bank)for bank in range(36,44)]
+    if any(not path.is_file() for path in scale_sources) or "physics_scale_planes_36" not in scale_sources[0].read_text():
+        subprocess.run([sys.executable,str(BASE/'tools/scale_table.py'),'--out',str(gen)],check=True)
     implementation='physics_mul16.s' if serial_oracle else 'physics_mul_fast.s'
     cmd=[str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-DPHYSICS_ASM','-Wf--opt-code-size',
-         '-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(source),'-I'+str(OUT),
+         '-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(source),'-I'+str(gen),'-I'+str(OUT),
          '-o',str(OUT/'check.gbc'),str(OUT/'check.c'),str(OUT/'vectors.c'),str(OUT/'products.c'),str(OUT/'scaled.c'),str(OUT/'dots.c'),
          str(source/'physics_math.c'),str(source/'physics_math.s'),str(source/'physics_kmul_fast.s'),str(source/implementation)] + list(map(str,scale_sources))
     if not serial_oracle:
@@ -115,9 +115,9 @@ void main(void) {
     sym={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',(OUT/'check.noi').read_text())}
     rom=(OUT/'check.gbc').read_bytes()
     for bank in range(36,44):
-        assert sym['_physics_scale_%d'%bank]==(bank<<16)|0x4000, ('scale bank layout',bank)
+        assert sym['_physics_scale_planes_%d'%bank]==(bank<<16)|0x4000, ('scale bank layout',bank)
         first=(bank-36)*32
-        expected=b''.join((m*x).to_bytes(2,'little')for m in range(first,first+32)for x in range(256))
+        expected=bytes(((m*x) >> shift) & 255 for m in range(first,first+32) for shift in (0,8) for x in range(256))
         assert rom[bank*16384:(bank+1)*16384]==expected, ('scale ROM bytes',bank)
     if not serial_oracle:
         for bank in range(20,36):
@@ -150,4 +150,6 @@ void main(void) {
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--serial-oracle',action='store_true',help='test the independent bit-serial multiplication instead')
-    main(parser.parse_args().serial_oracle)
+    parser.add_argument('--gen', type=Path, default=BASE/'build/gen-8m', help='generated scheduled physics headers and tables')
+    args = parser.parse_args()
+    main(args.gen.resolve(), args.serial_oracle)

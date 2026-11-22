@@ -48,7 +48,72 @@ USED = ('C_ELLIPSE','C_NEW','C_BRAKE_GW','C_OMS','C_FRIC_W','C_OLD',
         'C_RIDER_S','C_ROLL_T','C_SPRING_FW','C_H_Y','C_BRAKE_A',
         'C_ROLL_DW','C_REACT','C_FRIC_T','C_H_X','C_SPRING_T',
         'C_SEAT_NX','C_ROLL_DV','C_BRAKE_W','C_SEAT_NY')
-def generate(constants,out,first_bank):
+
+def write_pose_tables(out, coefficients, fixed):
+    # On the Q14 sine domain every 1600 inputs add the same integer vector.
+    # Prove the decomposition for these exact generated constants, including
+    # negative half ties, before using the small table on the cartridge.
+    period = 1600
+    names = ('C_H_X', 'C_H_Y', 'C_RREST')
+    if any(coefficients[name][0] != coefficients[name][1] for name in names):
+        raise ValueError('Pose coefficients vary between substeps')
+    factors = [coefficients[name][0] for name in names] + [fixed['Q24_ANCHOR_X'], fixed['Q24_ANCHOR_Y']]
+    def products(value):
+        return tuple((value * factor + (1 << 23)) >> 24 for factor in factors)
+    rows = [products(value) for value in range(period)]
+    blocks = [products(block * period) for block in range(16384 // period + 1)]
+    def array(type_name, name, records):
+        body = ',\n'.join('{' + ','.join(map(str, record)) + '}' for record in records)
+        return f'static const {type_name} {name}[]={{\n{body}\n}};\n'
+    # Extend only far enough for a low byte of 255 on the last page.
+    pages = [divmod(high * 256, period) for high in range(65)]
+    end = max(row for _, row in pages) + 256
+    extended = rows + [products(i) for i in range(period, end)]
+    if any(not 0 <= n <= limit for row in extended for n, limit in zip(row, (255, 255, 65535, 65535, 65535))):
+        raise ValueError('Pose coefficient exceeds the packed row width')
+    for value in range(-16384, 16385):
+        mag = abs(value)
+        block, first = pages[mag >> 8]
+        row = extended[first + (mag & 255)]
+        decoded = tuple((a + b) * (-1 if value < 0 else 1) for a, b in zip(row, blocks[block]))
+        if decoded != products(value):
+            raise ValueError(f'Pose table loses precision at {value}')
+    (out / 'physics_pose_rows.h').write_text(
+        array('pose_row_t', 'pose_rows', extended) + array('pose_values_t', 'pose_blocks', blocks)
+        + 'const pose_page_t riding_pose_pages[]={\n'
+        + ',\n'.join(f'{{pose_rows+{row},pose_blocks+{block}}}' for block, row in pages)
+        + '\n};\n')
+
+
+def write_angle_tables(out, oms):
+    # For the remainder substep each signed omega unit advances 27007/1280
+    # phase units. Divide per byte, then combine all remainders before rounding.
+    def piece(pos, byte):
+        if pos == 3 and byte >= 128:
+            byte -= 256
+        return divmod((byte << (pos * 8)) * 27007, 1280)
+    def array(type_name, name, values):
+        return 'static const ' + type_name + ' ' + name + '[]={\n' + ','.join(map(str, values)) + '};\n'
+    text = ''
+    for pos in range(4):
+        text += array('uint32_t', f'whole{pos}', [f'{piece(pos, b)[0] & 0xffffffff}UL' for b in range(256)])
+    text += array('uint16_t', 'low_remainder', [piece(0, b)[1] for b in range(256)])
+    for pos in (1, 3):
+        text += array('uint8_t', f'high_remainder{pos}', [piece(pos, b)[1] >> 8 for b in range(256)])
+    assert all(piece(1, b)[1] == piece(2, b)[1] for b in range(256))
+    # floor((f+640+r0)/256) + r1/256 + r2/256 + r3/256 is in [-51,72].
+    text += array('int8_t', 'carry_units', [n // 5 for n in range(-64, 80)])
+    # Five parallel product-byte pages feed a base-256 multiply of the
+    # complete Q24 body angular velocity. Both substeps use the same scale.
+    if oms[0] != oms[1] or not 0x40000100 <= oms[0] < 0x80000000:
+        raise ValueError('Recheck the body angular velocity saturation bounds')
+    pages = [(value * oms[0] >> shift) & 255 for shift in range(0, 40, 8)
+             for value in range(256)]
+    text += 'const uint8_t riding_oms_product[]={\n' + ','.join(map(str, pages)) + '};\n'
+    (out / 'physics_angle_rows.h').write_text(text)
+
+
+def generate(constants,out,first_bank, *, include_pose=True):
     raw=constants.read_bytes()
     def unit(name):
         match=re.search(r'^#define '+name+r' ([\d.eE+-]+)$',raw.decode(),re.M)
@@ -73,6 +138,9 @@ def generate(constants,out,first_bank):
         raise ValueError('Q24 tables must stay in physical banks256..507')
     out.mkdir(parents=True,exist_ok=True)
     for old in out.glob('physics_q24_table_*.c'):old.unlink()
+    if include_pose:
+        write_pose_tables(out, coefficients, fixed)
+        write_angle_tables(out, coefficients['C_OMS'])
     tables=[]
     for offset in range(count):
         bank=first_bank+offset
@@ -98,6 +166,9 @@ def generate(constants,out,first_bank):
         'constants_sha256':hashlib.sha256(raw).hexdigest(),'coefficient_values':values,
         'coefficient_count':len(values),'tables':tables,
         'dispatch':'physics_q24_dispatch.c','header':'physics_q24_coefficients.h'}
+    if include_pose:
+        manifest['geometry_sha256'] = {name: hashlib.sha256((out/name).read_bytes()).hexdigest()
+                                       for name in ('physics_pose_rows.h', 'physics_angle_rows.h')}
     (out/'physics_q24_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     return manifest
 

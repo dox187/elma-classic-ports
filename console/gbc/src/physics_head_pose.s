@@ -1,12 +1,13 @@
-; Exact 30Hz head pose, bank8, ABI0: cached cosine/sine pointers.
-; Existing sine and rounded coefficient kernels retain every result bit.
-; Stack workspace: cosine0..1, sine2..3, head cosine4..5, head sine6..7.
-; Coordinates wrap32 after the signed16 sum is shifted by eight.
+; Cache the angle-dependent geometry. A rider can turn or translate while
+; the body phase is unchanged, so always apply the current facing and position.
 .module physics_head_pose
+.area _DATA
+pose_valid: .ds 1
+_riding_pose_phase:: .ds 2
+
 .area _CODE_8
 _riding_head_pose32::
- add sp,#-8
-; Round the body angle to the closest 16-bit phase (128 angle units).
+ ; Rounded Q16 phase, discarding the high turn bits.
  ld hl,#_Bike+16
  ld a,(hl+)
  add a,#64
@@ -20,138 +21,115 @@ _riding_head_pose32::
  sla b
  rl e
  rl d
- push de
- call _riding_sin16
- pop bc
- ldhl sp,#2
- ld (hl),e
- inc hl
- ld (hl),d
- ld a,b
- add a,#0x40
- ld b,a
- push bc
- call _riding_sin16
- pop hl
- ldhl sp,#0
- ld (hl),e
- inc hl
- ld (hl),d
-; Refresh the caches used by the next step, including init/turn callers.
- ldhl sp,#10
- ld c,(hl)
- inc hl
- ld b,(hl)
+ ld hl,#_riding_pose_phase
+ ld a,(hl+)
+ cp e
+ jr nz,pose_refresh
+ ld a,(hl)
+ cp d
+ jr nz,pose_refresh
+ ld a,(#pose_valid)
+ or a,a
+ jr nz,pose_ready
+pose_refresh:
+ ld hl,#_riding_pose_phase
  ld a,e
- ld (bc),a
- inc bc
- ld a,d
- ld (bc),a
- ldhl sp,#12
- ld c,(hl)
- inc hl
- ld b,(hl)
+ ld (hl+),a
+ ld (hl),d
+ ld a,#1
+ ld (#pose_valid),a
+ ld e,#b_riding_refresh_geometry
+ ld hl,#_riding_refresh_geometry
+ call ___sdcc_bcall_ehl
+pose_ready:
+ ; Stack ABI0: publish cosine and sine to the calling physics context.
  ldhl sp,#2
  ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(#_riding_pose_trig)
  ld (bc),a
  inc bc
- ld a,(hl)
+ ld a,(#_riding_pose_trig+1)
  ld (bc),a
-; hc=KMUL(Cs,C_H_X), hs=KMUL(Sn,C_H_X).
- push de
- call _riding_coeff16_C_H_X
- pop hl
- ldhl sp,#4
- ld (hl),e
- inc hl
- ld (hl),d
- ldhl sp,#2
- ld e,(hl)
- inc hl
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ ld a,(#_riding_pose_trig+2)
+ ld (bc),a
+ inc bc
+ ld a,(#_riding_pose_trig+3)
+ ld (bc),a
+
+ ; DE and BC hold the two facing-dependent head displacements.
+ ld hl,#_riding_pose_cosine
+ ld a,(hl+)
+ ld e,a
  ld d,(hl)
- push de
- call _riding_coeff16_C_H_X
- pop hl
- ldhl sp,#6
- ld (hl),e
- inc hl
- ld (hl),d
+ ld hl,#_riding_pose_sine
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
  ld a,(#_Bike+96)
  or a,a
- jr nz,head_pose_sign_ready
- ldhl sp,#4
+ jr nz,pose_facing_ready
  xor a
- sub a,(hl)
- ld (hl+),a
- ld a,#0
- sbc a,(hl)
- ld (hl+),a
- xor a
- sub a,(hl)
- ld (hl+),a
- ld a,#0
- sbc a,(hl)
- ld (hl),a
-head_pose_sign_ready:
-; head_x=rider_x+signed16(hc-KMUL(Sn,C_H_Y))*256.
- ldhl sp,#2
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_coeff16_C_H_Y
- pop hl
- ldhl sp,#4
- ld a,(hl+)
  sub a,e
  ld e,a
- ld a,(hl)
+ ld a,#0
  sbc a,d
  ld d,a
- add a,a
- sbc a,a
+ xor a
+ sub a,c
  ld c,a
- ld hl,#_Bike+72
- ld a,(hl+)
- ld (#_Bike+88),a
- ld a,(hl+)
- add a,e
- ld (#_Bike+89),a
- ld a,(hl+)
- adc a,d
- ld (#_Bike+90),a
- ld a,(hl)
- adc a,c
- ld (#_Bike+91),a
-; head_y=rider_y+signed16(hs+KMUL(Cs,C_H_Y))*256.
- ldhl sp,#0
- ld e,(hl)
+ ld a,#0
+ sbc a,b
+ ld b,a
+pose_facing_ready:
+ ld hl,#_riding_pose_sine+2
+ ld a,e
+ sub a,(hl)
  inc hl
- ld d,(hl)
- push de
- call _riding_coeff16_C_H_Y
- pop hl
- ldhl sp,#6
- ld a,(hl+)
- add a,e
  ld e,a
- ld a,(hl)
- adc a,d
+ ld a,d
+ sbc a,(hl)
  ld d,a
- add a,a
- sbc a,a
- ld c,a
+ push bc
+ ld hl,#_Bike+72
+ ld bc,#_Bike+88
+ call pose_coordinate
+ pop de
+ ld hl,#_riding_pose_cosine+2
+ ld a,e
+ add a,(hl)
+ inc hl
+ ld e,a
+ ld a,d
+ adc a,(hl)
+ ld d,a
  ld hl,#_Bike+76
+ ld bc,#_Bike+92
+pose_coordinate:
+ ; Copy rider + signextended offset*256 modulo 2^32.
  ld a,(hl+)
- ld (#_Bike+92),a
+ ld (bc),a
+ inc bc
  ld a,(hl+)
  add a,e
- ld (#_Bike+93),a
+ ld (bc),a
+ inc bc
  ld a,(hl+)
  adc a,d
- ld (#_Bike+94),a
+ ld (bc),a
+ inc bc
  ld a,(hl)
- adc a,c
- ld (#_Bike+95),a
- add sp,#8
+ bit 7,d
+ jr z,pose_positive
+ adc a,#255
+ ld (bc),a
+ ret
+pose_positive:
+ adc a,#0
+ ld (bc),a
  ret

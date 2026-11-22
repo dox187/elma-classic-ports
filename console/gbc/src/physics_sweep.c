@@ -90,6 +90,7 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
 /* Cached wheel-expanded boxes conservatively contain the smaller head
  * capsule. Reject distant records before constructing the exact predicate. */
 static uint8_t scan(int16_t px,int16_t py,int16_t qx,int16_t qy,uint16_t radius){
+    if(!Seg_left)return 0;
     uint8_t x0=seg_box1(minimum(px,qx)),x1=seg_box1(maximum(px,qx));
     uint8_t y0=seg_box1(minimum(py,qy)),y1=seg_box1(maximum(py,qy));
     const seg_t *s;
@@ -122,7 +123,62 @@ next_cell:;
     return 0;
 }
 
-uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED {
+#ifdef __SDCC
+extern uint8_t riding_head_clear_mask;
+static uint16_t clear_x,clear_y;
+
+/* In the banked ABI the four coordinates start at SP+6. A zero-count leaf
+ * contains no wheel-expanded boxes. Both endpoints inside that same convex
+ * 4 m cell (or 1 m child) prove the complete head path clear. Compare all
+ * integer bits, including the high byte that rules out negative coordinates.
+ * The mask selects bits 12..31 or 10..31 of each coordinate. */
+uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED __naked {
+    px;py;qx;qy;
+    __asm
+        ld a,(#_riding_head_clear_mask)
+        or a,a
+        jp z,_riding_swept_head_uncached
+        ld c,a
+        ld hl,#_clear_x
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        ldhl sp,#7
+        call head_axis_clear
+        jr nz,head_uncached
+        ldhl sp,#15
+        call head_axis_clear
+        jr nz,head_uncached
+        ld hl,#_clear_y
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        ldhl sp,#11
+        call head_axis_clear
+        jr nz,head_uncached
+        ldhl sp,#19
+        call head_axis_clear
+        ret z  ; On a match A is zero (no collision).
+head_uncached:
+        jp _riding_swept_head_uncached
+head_axis_clear:
+        ld a,(hl+)
+        and a,c
+        cp a,e
+        ret nz
+        ld a,(hl+)
+        cp a,d
+        ret nz
+        ld a,(hl)
+        or a,a
+        ret
+    __endasm;
+}
+#define HEAD_QUERY riding_swept_head_uncached
+#else
+#define HEAD_QUERY riding_swept_head
+#endif
+uint8_t HEAD_QUERY(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED {
     /* Most frames stay in one convex4m cell. Unsplit cells, or one1m leaf,
      * already contain every possible hit for the whole center segment. */
     if((((uint32_t)px^(uint32_t)qx)|((uint32_t)py^(uint32_t)qy))<4096UL){
@@ -133,6 +189,14 @@ uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED
             uint8_t a=(uint8_t)((x0>>10)|((y0>>8)&12));
             uint8_t b=(uint8_t)((x1>>10)|((y1>>8)&12));
             seg_query(cx,cy,b);
+#ifdef __SDCC
+            if(!Seg_left){
+                uint8_t mask=Seg_subcell==255?0xf0:0xfc;
+                clear_x=(uint16_t)((uint32_t)qx>>8)&(0xff00u|mask);
+                clear_y=(uint16_t)((uint32_t)qy>>8)&(0xff00u|mask);
+                riding_head_clear_mask=mask;
+            }
+#endif
             if(Seg_subcell==255||a==b)return scan(x0,y0,x1,y1,R_HEAD);
         }
     }

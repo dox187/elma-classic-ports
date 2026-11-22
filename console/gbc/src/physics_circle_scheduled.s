@@ -1,81 +1,80 @@
-; Exact scheduled packed circle_t motion, stack ABI0, fixed ROM0.
-; Arguments: circle pointer, x residual slot (body 0, wheels 2/4).
+; Scheduled packed circle_t motion, fixed ROM0.
+; Stack ABI0: circle pointer, x residual slot (body 0, wheels 2/4).
 ; Layout rx0 ry4 vx8 vy12 alfa16 omega20. All additions wrap modulo 2^32.
-; Shared phase helpers preserve their signed Q24 residual and bank contracts.
 .module physics_circle_scheduled
 .area _CODE
 _riding_circle_scheduled::
+ ldhl sp,#4
+ ld b,(hl)
  ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+; HL=circle, B=x slot. Angle has no residual, so zero omega leaves it intact.
+_riding_circle_move_regs::
+ push bc
  push hl
  ld de,#20
  add hl,de
  call circle_load
+ ld a,c
+ or a,b
+ or a,e
+ or a,d
+ jr z,circle_angle_done
  ld a,#7
  push af
  inc sp
  call _phase_move
- ldhl sp,#0
- ld a,(hl+)
- ld h,(hl)
- ld l,a
+ pop hl
+ push hl
  push de
  ld de,#16
  add hl,de
  pop de
  call circle_add
+circle_angle_done:
+ pop hl
+ pop bc
  jr circle_translate
 ; The body has already advanced its angle using its fractional omega.
 _riding_body_translate::
+ ldhl sp,#4
+ ld b,(hl)
  ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- push hl
 circle_translate:
- ldhl sp,#6
- ld b,(hl)
- ld c,#2
- ldhl sp,#0
- ld a,(hl+)
- ld h,(hl)
- ld l,a
+ push bc
+ push hl
  ld de,#8
  add hl,de
+ ld c,#2
  push bc
  call circle_load
  call _phase_advance
- ldhl sp,#0
- ld a,(hl+)
- ld h,(hl)
- ld l,a
+ pop hl
  call circle_add
- ; circle_add leaves HL at the next position (ry).
+ ; HL now points to ry. Both axes retain their own signed Q24 residual.
+ pop bc
  push hl
  ld de,#8
  add hl,de
- push hl
- ldhl sp,#10
- ld b,(hl)
  inc b
  ld c,#2
- pop hl
  push bc
  call circle_load
  call _phase_advance
  pop hl
- call circle_add
- pop hl
- ret
+ jp circle_add
 circle_load:
- ld c,(hl)
- inc hl
- ld b,(hl)
- inc hl
- ld e,(hl)
- inc hl
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
  ld d,(hl)
  ret
 circle_add:

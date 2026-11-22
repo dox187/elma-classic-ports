@@ -157,7 +157,8 @@ void main(void) {uint16_t i;cpu_fast();
     gen=BASE/'build/gen'
     if not(gen/'physics_quarter_20.c').is_file():
         subprocess.run([sys.executable,str(BASE/'tools/mul_table.py'),'--out',str(gen)],check=True)
-    if not(gen/'physics_scale_36.c').is_file():
+    scale = gen/'physics_scale_36.c'
+    if not scale.is_file() or 'physics_scale_planes_36' not in scale.read_text():
         subprocess.run([sys.executable,str(BASE/'tools/scale_table.py'),'--out',str(gen)],check=True)
     table_sources=list(gen.glob('physics_quarter_*.c'))+list(gen.glob('physics_scale_*.c'))
     cmd=[str(lcc),'-msm83:gb','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-Wl-g_riding_coefficient_bank_lo=252','-Wl-g_riding_coefficient_bank_hi=0',

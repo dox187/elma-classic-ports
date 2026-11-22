@@ -21,7 +21,7 @@ if a.signed_edges:
   return m[1]+str(pair[0])+','+str(pair[1])+'}'
  raw=re.sub(r'(q24_C_\w+\[2\]=\{)(-?\d+),(-?\d+)\}',signed_pair,raw)
  constants=O/'signed_constants.h';constants.write_text(raw)
- G=O/'signed-gen';generator.generate(constants,G,481)
+ G=O/'signed-gen';generator.generate(constants,G,481,include_pose=False)
 coeff=json.loads((G/'physics_q24_manifest.json').read_text())['coefficient_values']
 if a.signed_edges:assert {-2147483648,0,2147483647}<=set(coeff)
 rng=random.Random(924283)

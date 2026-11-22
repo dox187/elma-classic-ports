@@ -2,12 +2,12 @@
 
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
-ROM exists yet. Latest diagnostic:
-**[0.96 test5 — 8 MiB](build/elma-gbc-v0.96-test5-8m.gbc)**.
-It retains sub-unit body rotation and full-resolution wheel lever arms. All
-20 airborne spin outcomes agree with the PC reference. In two 70-update
-controller runs the largest frame-angle error was 0.043°. The no-input
-Freefall run averages **11.61 updates/s** in the emulator.
+ROM exists yet. Latest playable diagnostic:
+**[0.96 test6 — 8 MiB](build/elma-gbc-v0.96-test6-8m.gbc)**.
+The Freefall emulator run averages **17.87 physics updates/s**, up from 11.61
+in test5. The target is **29.86 updates/s**. All 12,380 native state checks
+match the frozen test5 model, and all 20 Freefall spin tests reproduce the
+previous PC comparisons.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +57,34 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test6 — faster physics on GBC
+
+| Emulator measurement | Test5 | Test6 |
+| --- | ---: | ---: |
+| Freefall, no input, measured updates per real second | 11.61 | **17.87** |
+| Real seconds per simulated game second on this run | 2.57 | **1.67** |
+| Freefall, mean / worst complete active update in CPU T-cycles | 671,566 / 938,636 | **425,960 / 663,348** |
+| 12 controller runs on three courses, mean / worst complete active update | 705,610 / 966,868 | **462,809 / 685,588** |
+| 46 native physics cases, mean / worst T-cycles | 537,506 / 1,030,792 | **321,678 / 657,704** |
+
+A real-time update has **280,896 T-cycles** for input, physics, audio and graphics.
+In Freefall, 296 measured intervals took three display frames, 126 took four,
+and 11 took five. The game clock advances once per simulated update. Timing
+above comes from emulation at the original double-speed CGB clock.
+
+The ROM retains all three physics intervals per update. Precomputed exact
+body geometry, fixed-point arithmetic and fewer repeated terrain and rider
+calculations account for the gain. Across 168 native cases, every compared
+228-byte state matches test5. The 45 rebound and braking cases passed the
+existing gates, and the 122 speed cases agreed with the PC on survival.
+All 54 courses passed the menu, start and rendering checks. The stable-30
+timing gate remains open. Measurements and rejected experiments are in
+[the performance log](PERFORMANCE.md#096-test6--integrated-physics-timing).
+
+[Download the 8 MiB ROM](build/elma-gbc-v0.96-test6-8m.gbc) ·
+SHA-256 `9a6a84b44140158c1ceed5803d5050cadf58fc2e91e62b38850833032e1654ce`.
+Physical Game Boy Color timing awaits a cartridge test.
 
 ## 0.96 test5 — body rotation during Freefall
 

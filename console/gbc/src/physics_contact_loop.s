@@ -11,6 +11,9 @@ contact_loop_y: .ds 2
 contact_loop_d: .ds 2
 .area _CODE_9
 _riding_contacts_loop::
+ ld a,(#_Seg_left)
+ or a,a
+ ret z
  ld hl,#_riding_contact_qx
  ld a,e
  ld (hl+),a
@@ -93,6 +96,48 @@ contact_loop_record:
  ld a,(hl+)
  ld e,a
  ld d,(hl)
+ ; Exact Q14 unit axes project by selecting a signed coordinate. All other
+ ; normals, including nearly horizontal or vertical ones, use the full dot.
+ ld a,c
+ or a,e
+ jr nz,contact_loop_general
+ ld a,b
+ or a,a
+ jr z,contact_loop_vertical
+ ld a,d
+ or a,a
+ jr nz,contact_loop_general
+ ld a,b
+ cp #0x40
+ jr z,contact_loop_axis_right
+ cp #0xc0
+ jr nz,contact_loop_general
+ call contact_loop_xy
+ call contact_loop_neg_pos
+ call contact_loop_neg_distance
+ jr contact_loop_axis_ready
+contact_loop_axis_right:
+ call contact_loop_xy
+ jr contact_loop_axis_ready
+contact_loop_vertical:
+ ld a,d
+ cp #0x40
+ jr z,contact_loop_axis_up
+ cp #0xc0
+ jr nz,contact_loop_general
+ call contact_loop_yx
+ call contact_loop_neg_pos
+ jr contact_loop_axis_ready
+contact_loop_axis_up:
+ call contact_loop_yx
+ call contact_loop_neg_distance
+contact_loop_axis_ready:
+ push de
+ call contact_loop_in_radius
+ pop bc
+ jp nc,contact_loop_next
+ jr contact_loop_position
+contact_loop_general:
  push bc
  xor a,a
  sub a,e
@@ -103,21 +148,7 @@ contact_loop_record:
  push de
  call contact_loop_xy
  call _dotq14
- ld hl,#contact_loop_d
- ld a,c
- ld (hl+),a
- ld (hl),b
- ; -410<d<410 iff uint16(d+409)<819, including signed extremes.
- ld a,c
- add a,#0x99
- ld e,a
- ld a,b
- adc a,#1
- ld d,a
- ld a,e
- sub a,#0x33
- ld a,d
- sbc a,#3
+ call contact_loop_in_radius
  jp nc,contact_loop_next
  ld hl,#contact_loop_seg
  ld a,(hl+)
@@ -136,6 +167,7 @@ contact_loop_record:
  push de
  call contact_loop_xy
  call _dotq14
+contact_loop_position:
  ; Low14 length; high bits identify synthetic endpoints.
  bit 7,b
  jp nz,contact_loop_endpoint
@@ -370,4 +402,55 @@ contact_loop_xy:
  ld a,(hl+)
  ld c,a
  ld b,(hl)
+ ret
+contact_loop_yx:
+ ld hl,#contact_loop_y
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ ld hl,#contact_loop_x
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ ret
+contact_loop_neg_pos:
+ ; dotq14 saturates -(-32768) to +32767.
+ xor a,a
+ sub a,e
+ ld e,a
+ sbc a,a
+ sub a,d
+ ld d,a
+ cp #0x80
+ ret nz
+ ld a,e
+ or a,a
+ ret nz
+ dec de
+ ret
+contact_loop_neg_distance:
+ ; Either signed extreme lies outside the wheel radius.
+ xor a,a
+ sub a,c
+ ld c,a
+ sbc a,a
+ sub a,b
+ ld b,a
+ ret
+contact_loop_in_radius:
+ ld hl,#contact_loop_d
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
+ ; -410<d<410 iff uint16(d+409)<819, including signed extremes.
+ ld a,c
+ add a,#0x99
+ ld e,a
+ ld a,b
+ adc a,#1
+ ld d,a
+ ld a,e
+ sub a,#0x33
+ ld a,d
+ sbc a,#3
  ret

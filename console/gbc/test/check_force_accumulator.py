@@ -14,6 +14,7 @@ def main():
 #include <gb/cgb.h>
 #include <stdint.h>
 int64_t force_residual[2];
+int32_t q24_fraction;
 volatile int32_t units[6],fractions[6],answer;
 volatile uint8_t ready,request,axis;
 void service(void) BANKED;

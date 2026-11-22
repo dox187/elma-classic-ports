@@ -25,55 +25,16 @@ _riding_supports32::
  ld (hl),c
  inc hl
  ld (hl),b
- ld a,#14
- push af
- inc sp
- ldhl sp,#3
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#3
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#9
+ ldhl sp,#4
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- ld bc,#14
- add hl,bc
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- dec hl
- dec hl
- dec hl
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- dec hl
- dec hl
- dec hl
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- dec hl
- dec hl
- dec hl
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- dec hl
- dec hl
- dec hl
- call _riding_dotq32
- add sp,#13
+ ld de,#8
+ add hl,de
+ ld d,h
+ ld e,l
+ ldhl sp,#0
+ call _riding_dotq14_regs
  ld b,h
  ld c,l
  ldhl sp,#6
@@ -100,41 +61,11 @@ _riding_supports32::
  cp c
  jr c,supports_accept
 supports_dv:
- ld a,#14
- push af
- inc sp
- ldhl sp,#3
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#3
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#23
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#23
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#23
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#23
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_dotq32
- add sp,#13
+ ldhl sp,#12
+ ld d,h
+ ld e,l
+ ldhl sp,#0
+ call _riding_dotq14_regs
  bit 7,h
  jr nz,supports_accept
  ld a,h
@@ -149,26 +80,12 @@ supports_accept:
  ld a,(hl)
  or a
  jp z,supports_true
- ld a,#14
- push af
- inc sp
- ldhl sp,#1
- ld e,(hl)
+ ldhl sp,#0
+ ld c,(hl)
  inc hl
- ld d,(hl)
- push de
- ldhl sp,#11
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#11
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_mulq32
- add sp,#7
+ ld b,(hl)
+ ldhl sp,#6
+ call _riding_mulq14_regs
  ld b,h
  ld c,l
  ldhl sp,#4
@@ -191,26 +108,12 @@ supports_accept:
  ld a,(hl)
  sbc a,b
  ld (hl),a
- ld a,#14
- push af
- inc sp
- ldhl sp,#3
- ld e,(hl)
+ ldhl sp,#2
+ ld c,(hl)
  inc hl
- ld d,(hl)
- push de
- ldhl sp,#11
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#11
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_mulq32
- add sp,#7
+ ld b,(hl)
+ ldhl sp,#6
+ call _riding_mulq14_regs
  ld b,h
  ld c,l
  ldhl sp,#4

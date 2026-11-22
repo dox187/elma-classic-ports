@@ -51,19 +51,13 @@ void physics_reset(int32_t x,int32_t y) GBC_BANKED {
 
 #if defined(RIDING_PC_SCHEDULE)
 #ifdef __SDCC
-/* Compare the most significant byte first. Most positions differ from the
- * limit by at least a quarter metre, so the SM83 skips the fractional bytes. */
-static uint8_t position_before(const int32_t *position,const int32_t *limit) {
-    const uint8_t *a=(const uint8_t *)position,*b=(const uint8_t *)limit;
-    if(a[3]!=b[3])return (a[3]^0x80u)<(b[3]^0x80u);
-    if(a[2]!=b[2])return a[2]<b[2];
-    if(a[1]!=b[1])return a[1]<b[1];
-    return a[0]<b[0];
-}
-#define BEFORE(a,b) position_before(&(a),&(b))
+#include <stddef.h>
+typedef char bounds_descriptor_layout[offsetof(physics_level_desc_t,grid_exit_x)==24 &&
+    offsetof(physics_level_desc_t,brush_y1)==44 ? 1 : -1];
+uint8_t wheels_in_grid(void);
+uint8_t head_body_in_level(void);
 #else
 #define BEFORE(a,b) ((a)<(b))
-#endif
 
 static uint8_t wheels_in_grid(void) {
     return BEFORE(Bike.wheel[0].rx,riding_level.grid_exit_x)
@@ -77,6 +71,7 @@ static uint8_t head_body_in_level(void) {
         && !BEFORE(Bike.body.rx,riding_level.brush_x0) && BEFORE(Bike.body.rx,riding_level.brush_x1)
         && !BEFORE(Bike.body.ry,riding_level.brush_y0) && BEFORE(Bike.body.ry,riding_level.brush_y1);
 }
+#endif
 #endif
 
 void physics_step(uint8_t input) GBC_BANKED {

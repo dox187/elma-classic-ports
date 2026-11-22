@@ -74,8 +74,14 @@ def main():
     assert len(rows)<=65535
     expected=[oracle(row)for row in rows]
     stub='''#include "physics_core.h"\nconst seg_t *Seg_cur;uint8_t Seg_left,Seg_subcell;
-void seg_query(uint8_t x,uint8_t y,uint8_t sub){x;y;sub;Seg_left=0;Seg_subcell=255;}
-const seg_t *seg_next(void){return 0;}
+uint8_t riding_head_clear_mask,fixture_queries;
+/* Only child 1 of cell (3,2) contains this horizontal edge. */
+static const seg_t edge={1500,400,400,0,16384,0,400,145,164,127,140};
+void seg_query(uint8_t x,uint8_t y,uint8_t sub){
+ ++fixture_queries;Seg_cur=&edge;Seg_subcell=x==3 && y==2?sub:255;
+ Seg_left=(x==3 && y==2 && sub==1);
+}
+const seg_t *seg_next(void){if(!Seg_left)return 0;--Seg_left;return Seg_cur++;}
 '''
     (out/'stub.c').write_text(stub)
     command=['cc','-shared','-fPIC','-O0','-fwrapv','-DPHYSICS_SWEEP_TEST','-I'+str(BASE/'src'),'-I'+str(gen),source,BASE/'src/physics_math.c',out/'stub.c','-o',out/'host.dylib']
@@ -97,13 +103,39 @@ const seg_t *seg_next(void){return 0;}
     driver='''#include <gb/gb.h>\n#include <gb/cgb.h>\n#include "cases.h"
 uint8_t riding_capsule_test(int16_t,int16_t,int16_t,int16_t,int16_t,int16_t,int16_t,int16_t,uint16_t) BANKED;
 volatile uint16_t sweep_failures,bank_failures,sweep_vectors;volatile uint8_t sweep_done;
+extern uint8_t riding_head_clear_mask,fixture_queries;
+uint8_t riding_swept_head(int32_t,int32_t,int32_t,int32_t) BANKED;
+volatile uint16_t leaf_failures,leaf_cases;
+static void sweep(int32_t px,int32_t py,int32_t qx,int32_t qy,uint8_t hit,uint8_t lookup){
+ fixture_queries=0;
+ if(riding_swept_head(px,py,qx,qy)!=hit || (!!fixture_queries)!=lookup)++leaf_failures;
+ ++leaf_cases;
+}
+static void check_leaves(void){
+ const int32_t x=3L*4096,y=2L*4096;
+ /* Cold/hot unsplit cell, including its exact four corners. */
+ sweep(4096,y,8191,y+4095,0,1);
+ sweep(8191,y,4096,y+4095,0,0);
+ riding_head_clear_mask=0;
+ sweep(4096,y,8191,y+4095,0,1);
+ /* Empty child 0 cannot certify adjoining child 1, in either direction. */
+ sweep(x,y,x+1023,y+1023,0,1);
+ sweep(x+1023,y,x,y+1023,0,0);
+ sweep(x+900,y+400,x+1550,y+400,1,1);
+ sweep(x+1550,y+400,x+900,y+400,1,1);
+ sweep(x+1550,y+400,x+1550,y+400,1,1);
+ /* Crossing in y leaves a proven child even if both x coordinates match. */
+ sweep(x,y+1024,x+500,y+1400,0,1);
+ sweep(x+500,y+1400,x,y+1024,0,0);
+ sweep(x+1550,y+1400,x+1550,y+400,1,1);
+}
 static void check(const case_t*v,uint16_t count,uint8_t bank){uint16_t i;
  for(i=0;i<count;++i){
   if(riding_capsule_test(v[i].p[0],v[i].p[1],v[i].p[2],v[i].p[3],v[i].p[4],v[i].p[5],v[i].p[6],v[i].p[7],v[i].radius)!=v[i].expected)++sweep_failures;
   if(CURRENT_BANK!=bank)++bank_failures;
   ++sweep_vectors;
  }}
-void main(void){cpu_fast();\n'''
+void main(void){cpu_fast();check_leaves();\n'''
     for bank in banks[:len(batches)]:driver+='SWITCH_ROM(%d);check(cases%d,COUNT%d,%d);\n'%(bank,bank,bank,bank)
     driver+='sweep_done=1;while(1)vsync();}\n';(out/'native.c').write_text(driver)
     assembly=[BASE/'src'/name for name in('physics_math.s','physics_mul_fast.s','physics_kmul_fast.s','physics_div_fast.s','physics_shift_fast.s')]
@@ -120,6 +152,8 @@ void main(void){cpu_fast();\n'''
         assert emu.memory[symbols['_sweep_done']],'native sweep vectors did not finish'
         def word(name):a=symbols[name];return emu.memory[a]+256*emu.memory[a+1]
         report={'captured_vectors':len(captured),'vectors':len(rows),'native_vectors':word('_sweep_vectors'),'failures':word('_sweep_failures'),'bank_restore_failures':word('_bank_failures')}
+        report.update(empty_leaf_cases=word('_leaf_cases'),empty_leaf_failures=word('_leaf_failures'))
+        assert report['empty_leaf_cases']==11 and report['empty_leaf_failures']==0,report
         assert report['native_vectors']==len(rows),report
         assert report['failures']==report['bank_restore_failures']==0,report
     finally:emu.stop(save=False)

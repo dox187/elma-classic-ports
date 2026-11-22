@@ -57,7 +57,7 @@ void main(void){disable_interrupts();DISPLAY_OFF;cpu_fast();
  cmd=[str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(out),'-o',str(out/'check.gbc'),str(out/'driver.c'),str(out/'regs.s'),str(a.assembly),str(BASE/'src/physics_kmul_fast.s')]+list(map(str,sources+tables));subprocess.run(cmd,check=True,capture_output=True,text=True)
  sy={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9a-fA-F]+)',(out/'check.noi').read_text())};rom=(out/'check.gbc').read_bytes()
  for bank in range(36,44):
-  first=(bank-36)*32;want=b''.join((m*x).to_bytes(2,'little')for m in range(first,first+32)for x in range(256));assert rom[bank*16384:(bank+1)*16384]==want
+  first=(bank-36)*32;want=bytes(((m*x) >> shift) & 255 for m in range(first,first+32) for shift in (0,8) for x in range(256));assert rom[bank*16384:(bank+1)*16384]==want
  for bank in range(20,36):
   first=(bank-20)*4096;want=b''.join((x*x//4).to_bytes(4,'little')for x in range(first,first+4096));assert rom[bank*16384:(bank+1)*16384]==want
  emu=PyBoy(str(out/'check.gbc'),window='null',sound_emulated=False,cgb=True);emu.set_emulation_speed(0)

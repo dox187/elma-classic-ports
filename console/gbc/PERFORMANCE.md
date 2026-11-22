@@ -1913,3 +1913,72 @@ Reproduce both controller routes, the five injection points, high-speed
 survival and native arithmetic parity with `make check-speed-limits` and
 the matching resources. Test5 reports are under
 `build/v096-test5/{controller,spin-240,spin-250,spin-260,spin-270,spin-280,speed-verified,rebound-final,native-final,native-speed-final,level-exits-final,levels,freefall}`.
+
+## 0.96 test6 rider constraint projection, isolated against test5
+
+The native rider limit skips both Q14 dot products when the world-space
+rider displacement falls inside a 101 × 101 box centered near body-local
+(0,416). The exact sine and cosine high bytes select the box. On a miss,
+the helper reuses its wrapped, byte-shifted and saturated deltas to compute
+both original dots. The 46-case test5 corpus takes the shortcut on 23,175 of
+27,478 substeps (84.3%). The change adds 39 linked bytes in bank 8 and
+uses stack temporaries.
+
+The integer proof checks both turns and all 65,536 interpolated phases. Linear
+seat and side bounds and a convex upper bound on the rounded ellipse radius
+cover every point in each box. The minimum seat clearance is five units.
+A separate native fixture passes 38,500 cases, including 21,867 wrapped
+coordinate differences and 3,494 cases with at least one saturated delta.
+
+| Frozen native suite | Compared states | Test5 mean T | Fused mean T | Test5 maximum T | Fused maximum T |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 46 scheduled cases | 9,210 | 537,506 | 525,848 | 1,030,792 | 1,030,148 |
+| 122 speed cases | 3,170 | 545,234 | 534,592 | 1,125,796 | 1,124,860 |
+
+Every compared state matches the frozen test5 HOST. A separate guard that
+recomputed the deltas on a miss raised the two maxima by 2,012 and 1,632 T
+respectively. Retaining the fused version removes that extra work.
+Evidence is in `build/test6-rider-opt/{final,final-speed,final-proof,vectors}`.
+
+## 0.96 test6 — integrated physics timing
+
+The comparison uses the shipped test5 and test6 ROMs, identical simulation
+steps and controller inputs. The 8 MiB test6 SHA-256 is
+`9a6a84b44140158c1ceed5803d5050cadf58fc2e91e62b38850833032e1654ce`.
+The hardware deadline is 280,896 SM83 T-cycles per complete active update.
+
+| Check | Frozen test5 | Test6 |
+| --- | ---: | ---: |
+| Freefall physics updates/s from display intervals | 11.614 | 17.873 |
+| Freefall complete active update, mean / worst T | 671,566 / 938,636 | 425,960 / 663,348 |
+| Freefall active updates over budget | 439 of 439 | 439 of 439 |
+| 12 controller routes, active updates over budget | 1,934 of 1,934 | 1,933 of 1,934 |
+| 46 native physics cases, mean / maximum T | 537,506 / 1,030,792 | 321,678 / 657,704 |
+| 122 native speed cases, mean / maximum T | 545,234 / 1,125,796 | 320,999 / 734,384 |
+
+The strict real-ROM tests report timing failures. Their functional checks
+pass for all 54 course starts, the complete Freefall descent and all 1,934
+updates in the four controller scenarios on Warm Up, Twin Peaks and Freefall.
+The native comparison matched 12,380 complete 228-byte states against the HOST
+compiled from test5. The 20 raw-seeded Freefall comparisons and both
+controller-only PC rotation tests reproduce the test5 results.
+
+The following measurements isolate changes on different frozen checkpoints.
+The integrated results above account for overlap.
+
+| Experiment retained | Evidence |
+| --- | --- |
+| Keep Q24 input bytes and partial products in registers, use HRAM for the exact fraction | Mean saving of 13,205 T per update on the test5 native corpus. Production and signed synthetic arithmetic checked quotient, fraction, saturation and mapper restoration. |
+| Combine suspension forces directly and reuse byte multiplication rows | 51,068 T mean saving on the same corpus before sharing the pose lookup. The four-term damping moment keeps the full-width fallback. |
+| Cache empty head sweeps and extract terrain grid coordinates directly | Complete Freefall physics entry-to-export cost fell by 35,547 T on average in isolation. |
+| Reuse exact phase geometry for head, rider and suspension | Lookup generation checks every signed Q14 input. An independent native oracle checks all 65,536 phases, both facings, all anchors and head coordinates. A first C-only lookup took 8,376 T per call in the head fixture. The retained assembly path averages 4,042 T and also supplies the rider and wheel terms. |
+| Fast scheduled movement and body rotation | Full intervals add the fractional velocity nibble directly. The remainder interval combines byte quotients before its single floor operation. The body-point velocity keeps the whole signed residual through rounding and saturation. |
+| Fuse body impulse bookkeeping and Q14 projections | The impulse helper saved 22,340 T per update on the 20-case mixed-control fixture. The projections saved 12,997 T on a subsequent matched 46-case checkpoint. |
+| Reshape the integer product and division tables | Separating the two bytes of 8×8 products into pages saved 5,506 T mean and 24,540 T worst on the matched intermediate physics fixture. The accumulator's signed division by 20 now uses a bytewise quotient/remainder table in bank 15. |
+| Take the free-wheel path as soon as contact is ruled out | Isolated mean saving of 8,878 T. The before/after native fixtures matched all 238 bytes including both landing flags and all four normal components. |
+
+Full-game reports and state traces are under `build/v096-test6/`. The
+`freefall` report measures hardware-frame spacing, and `fullfall` and
+`controller` measure active work and compare gameplay traces. The native
+fixtures exclude rendering and VBlank waits. The 8 MiB cartridge keeps
+mapper 1B/08/03 and leaves banks 508–511 erased.

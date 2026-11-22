@@ -118,9 +118,13 @@ extern uint8_t Seg_left;
 
 // The cell of a coordinate in u, 255 outside the grid:
 static inline uint8_t seg_cell( int32_t c ) {
-	if( c < 0 || c >= 255L << 12 )
+	/* Check the upper half before joining the two cell-index nibbles.
+	 * This avoids a 12-iteration signed32 shift on each SM83 query.
+	 * Coordinates in cell 255 already produce the outside sentinel. */
+	uint16_t high = (uint16_t)((uint32_t)c >> 16);
+	if( high >= 16 )
 		return 255;
-	return (uint8_t)(c >> 12);
+	return (uint8_t)(((uint8_t)high << 4) | ((uint8_t)((uint32_t)c >> 8) >> 4));
 }
 
 // Inputs of a step:

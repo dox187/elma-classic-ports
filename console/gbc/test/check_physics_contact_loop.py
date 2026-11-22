@@ -77,17 +77,25 @@ for bank,start in enumerate(range(0,len(groups),50),44):
 #include "vectors.h"
 #pragma bank 9
 const seg_t *Seg_cur;uint8_t Seg_left;
-void seg_query(uint8_t a,uint8_t b,uint8_t c){Seg_cur=copy.seg;Seg_left=copy.count;}
+uint8_t query_x,query_y,query_sub;
+void seg_query(uint8_t a,uint8_t b,uint8_t c){query_x=a;query_y=b;query_sub=c;Seg_cur=copy.seg;Seg_left=copy.count;}
 const seg_t *seg_next(void){if(!Seg_left)return 0;--Seg_left;return Seg_cur++;}
 uint8_t baseline_contacts(int32_t,int32_t);uint8_t candidate_contacts(int32_t,int32_t);
 uint8_t baseline_touches(int32_t,int32_t,int16_t) BANKED;
 uint8_t candidate_touches(int32_t,int32_t,int16_t) BANKED;
 extern uint8_t baseline_Ct[20],candidate_Ct[20];
-volatile uint16_t cases,failures,touch_failures,bank_failures,cursor_failures,first_bad;volatile uint8_t first_byte;
+volatile uint16_t cases,failures,touch_failures,bank_failures,cursor_failures,grid_failures,first_bad;volatile uint8_t first_byte;
 void loop_case(void) BANKED {
  uint8_t i,n0,n1,left;int16_t rad;const seg_t *cursor;
+ uint8_t gx=(uint8_t)cases,gy=(uint8_t)(cases>>3),sub=(copy.qx>>10)|((copy.qy>>8)&12);
+ int32_t x=4096L*gx+copy.qx,y=4096L*gy+copy.qy;
+ /* The stub supplies the same ordered records at each address. Verify the
+  * actual directory key too, including negative coordinates and high aliases. */
+ if((cases&511)==0){x-=0x100000L;gx=255;}
+ if((cases&511)==511){y+=0x1000000L;gy=255;}
  memset(baseline_Ct,0x5a,20);memset(candidate_Ct,0x5a,20);
- n0=baseline_contacts(copy.qx,copy.qy);left=Seg_left;cursor=Seg_cur;n1=candidate_contacts(copy.qx,copy.qy);if(left!=Seg_left||cursor!=Seg_cur)++cursor_failures;
+ n0=baseline_contacts(x,y);left=Seg_left;cursor=Seg_cur;n1=candidate_contacts(x,y);if(left!=Seg_left||cursor!=Seg_cur)++cursor_failures;
+ if(query_x!=gx || query_y!=gy || query_sub!=sub)++grid_failures;
  if(n0!=n1){if(!failures){first_bad=cases;first_byte=20;}++failures;}
  for(i=0;i<20;++i)if(baseline_Ct[i]!=candidate_Ct[i]){if(!failures){first_bad=cases;first_byte=i;}++failures;}
  for(i=0;i<4;++i){rad=i==0?0:i==1?1:i==2?326:410;
@@ -123,9 +131,9 @@ for _ in range(1000):
  p.tick(100,False)
  if p.memory[sy['_done']]:break
 def get(n,size=2):return int.from_bytes(bytes(p.memory[sy['_'+n]:sy['_'+n]+size]),'little')
-report={n:get(n)for n in ('cases','failures','touch_failures','bank_failures','cursor_failures','first_bad')};report.update(done=get('done',1),first_byte=get('first_byte',1),timings={n:{'calls':len(v),'total':sum(v),'mean':sum(v)/len(v)if v else None,'min':min(v)if v else None,'max':max(v)if v else None}for n,v in timings.items()})
+report={n:get(n)for n in ('cases','failures','touch_failures','bank_failures','cursor_failures','grid_failures','first_bad')};report.update(done=get('done',1),first_byte=get('first_byte',1),timings={n:{'calls':len(v),'total':sum(v),'mean':sum(v)/len(v)if v else None,'min':min(v)if v else None,'max':max(v)if v else None}for n,v in timings.items()})
 report['source_sha256']=source_hashes;report['source_still_current']=all(hashlib.sha256((S/p).read_bytes()).hexdigest()==h for p,h in source_hashes.items())
 report['paired_savings']={kind:{'total':sum(timings['baseline_'+kind])-sum(timings['candidate_'+kind]),'per_call':(sum(timings['baseline_'+kind])-sum(timings['candidate_'+kind]))/len(timings['baseline_'+kind])}for kind in ('contacts','touches')}
 (O/'cycles.json').write_text(json.dumps(timings)+'\n')
 (O/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2));p.stop(save=False)
-assert report['source_still_current']and report['done']and report['cases']==len(groups)and not any(report[n]for n in ('failures','touch_failures','bank_failures','cursor_failures'))
+assert report['source_still_current']and report['done']and report['cases']==len(groups)and not any(report[n]for n in ('failures','touch_failures','bank_failures','cursor_failures','grid_failures'))

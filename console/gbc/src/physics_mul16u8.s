@@ -14,31 +14,18 @@ _riding_mul16u8_unsigned::
  ld a,c
  and a,#31
  add a,a
- or a,#0x40
+ or a,#>_physics_scale_planes_36
  ld h,a
- ld a,e
- add a,a
- ld l,a
- jr nc,500$
+ ld l,e
+ ld e,(hl)
  inc h
-500$:
- ld a,(hl+)
- ld e,a
  ld d,(hl)
- ld a,c
- and a,#31
- add a,a
- or a,#0x40
- ld h,a
- ld a,b
- add a,a
- ld l,a
- jr nc,510$
- inc h
-510$:
- ld a,(hl+)
+ ld l,b
+ dec h
+ ld a,(hl)
  add a,d
  ld d,a
+ inc h
  ld a,(hl)
  adc a,#0
  ld l,a

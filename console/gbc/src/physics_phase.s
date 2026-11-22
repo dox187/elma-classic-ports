@@ -6,33 +6,49 @@ _phase_advance::
  ld a,(#_riding_subphase)
  or a,a
  jr nz,phase_second
- ld a,c
- and a,#15
- swap a
- push af
- sra d
- rr e
- rr b
- rr c
- sra d
- rr e
- rr b
- rr c
- sra d
- rr e
- rr b
- rr c
- sra d
- rr e
- rr b
- rr c
- pop af
- push de
+ ; A full substep adds only the low velocity nibble at bit 20.
+ ; Bias the signed residual by half a unit: the byte addition's carry
+ ; is exactly the extra position unit, and its low 16 bits stay intact.
+ ldhl sp,#3
+ ld a,(hl)
+ add a,a
+ add a,a
+ add a,#<(_move_residual+2)
+ ld l,a
+ ld a,#>(_move_residual+2)
+ adc a,#0
+ ld h,a
  push bc
- ld e,a
- ld d,#0
- ld bc,#0
- jr phase_residual
+ ld a,(hl)
+ xor a,#0x80
+ ld b,a
+ ld a,c
+ swap a
+ and a,#0xf0
+ add a,b
+ ld b,a
+ ld a,#0
+ adc a,#0
+ ld c,a
+ ld a,b
+ xor a,#0x80
+ ld (hl+),a
+ rlca
+ sbc a,a
+ ld (hl),a
+ ld a,c
+ pop bc
+ or a,a
+ push af
+ .rept 4
+ sra d
+ rr e
+ rr b
+ rr c
+ .endm
+ pop af
+ jp z,phase_done
+ jp phase_increment
 phase_second:
  ld a,(#_riding_move_index)
  push af
@@ -114,6 +130,7 @@ phase_store:
  jr z,phase_done
  bit 7,a
  jr nz,phase_decrement
+phase_increment:
  inc c
  jr nz,phase_done
  inc b

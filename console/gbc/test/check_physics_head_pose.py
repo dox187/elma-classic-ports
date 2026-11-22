@@ -1,5 +1,5 @@
 """Exhaustive native head pose with frozen C and independent integer oracle."""
-import argparse,json,re,subprocess
+import argparse,json,re,struct,subprocess
 from pathlib import Path
 from pyboy import PyBoy
 B=Path(__file__).resolve().parents[1]
@@ -41,10 +41,10 @@ common = [B/'src'/name for name in ('physics_math.c', 'physics_math.s', 'physics
           'physics_mul16u8.s', 'physics_sin_fast.s', 'physics_q24.c', 'physics_q24.s')]
 cmd = [B/'.toolchain/gbdk/bin/lcc', '-msm83:gb', '-Wf--opt-code-size', '-Wm-yC',
        '-Wm-yt0x19', '-Wm-yoA', '-Wl-m', '-Wl-j', '-I'+str(G), '-I'+str(B/'src'),
-       '-o', O/'check.gbc', O/'driver.c', O/'reference.c', B/'src/physics_head_pose.s',
+       '-o', O/'check.gbc', O/'driver.c', O/'reference.c', B/'src/physics_geometry.c', B/'src/physics_pose_lookup.s', B/'src/physics_head_pose.s',
        *common, *tables, G/'physics_q24_dispatch.c']
 r=subprocess.run(list(map(str,cmd)),capture_output=True,text=True);(O/'compile.log').write_text(r.stdout+r.stderr);assert r.returncode==0,(O/'compile.log').read_text()
-symbols={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',(O/'check.noi').read_text())};emu=PyBoy(str(O/'check.gbc'),window='null',sound_emulated=False,cgb=True);emu.set_emulation_speed(0);started=[];cycles={'assembly':[],'reference':[]};returns=set();oracle_failures=[];oracle_seen=[0]
+symbols={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',(O/'check.noi').read_text())};emu=PyBoy(str(O/'check.gbc'),window='null',sound_emulated=False,cgb=True);emu.set_emulation_speed(0);started=[];cycles={'geometry':[],'reference':[]};returns=set();oracle_failures=[];oracle_seen=[0]
 def returned(_):
  if started and started[-1][0]==emu.register_file.SP-2:
   sp,when,name=started.pop();cycles[name].append(emu._cycles()-when)
@@ -52,7 +52,7 @@ def entered(name):
  sp=emu.register_file.SP;pc=emu.memory[sp]+256*emu.memory[sp+1]
  if pc not in returns:emu.hook_register(0,pc,returned,None);returns.add(pc)
  started.append((sp,emu._cycles(),name))
-for name,sym in [('assembly','_riding_head_pose32'),('reference','_head_reference')]:emu.hook_register(8,symbols[sym]&65535,entered,name)
+for name,sym in [('geometry','_riding_head_pose32'),('reference','_head_reference')]:emu.hook_register(symbols[sym]>>16,symbols[sym]&65535,entered,name)
 sintab=[int(x)for x in re.search(r'Sintab\[257\] = \{(.*?)\};',(B/'src/physics_math.c').read_text(),re.S)[1].replace('\n','').split(',')if x.strip()]
 def s32(v):return (v+2**31)%2**32-2**31
 def phase_sin(a):a&=65535;i=a>>8;return sintab[i]+((sintab[i+1]-sintab[i])*(a&255)>>8)
@@ -64,6 +64,11 @@ def marker(_):
  x=int.from_bytes(state[72:76],'little',signed=True);y=int.from_bytes(state[76:80],'little',signed=True)
  want=(s32(x+hx*256),s32(y+hy*256),cs,sn)
  got=(int.from_bytes(state[88:92],'little',signed=True),int.from_bytes(state[92:96],'little',signed=True),n('got_cs',2,True),n('got_sn',2,True))
+ def scaled(v, factor): return (v*factor+(1<<23))>>24
+ ax,ay,bx,by=scaled(cs,228170138),scaled(sn,161061274),scaled(sn,228170138),scaled(cs,161061274)
+ want+=(-scaled(sn,7381975),scaled(cs,7381975),ay-ax,ay+ax,-bx-by,bx-by)
+ for symbol,fmt in [('_riding_pose_rest','<2h'),('_riding_pose_anchor','<4i')]:
+  at=symbols[symbol]; got+=struct.unpack(fmt,bytes(emu.memory[at:at+struct.calcsize(fmt)]))
  if want!=got and len(oracle_failures)<10:oracle_failures.append(dict(phase=phase,want=want,got=got))
  oracle_seen[0]+=1
 def n(name,size=4,signed=False):return int.from_bytes(bytes(emu.memory[symbols['_'+name]:symbols['_'+name]+size]),'little',signed=signed)
@@ -73,7 +78,7 @@ try:
   emu.tick(100,False)
   if emu.memory[symbols['_done']]:break
  report={name:n(name)for name in('failures','cache_failures','guards','count','banks_bad')};report.update(boundary_coordinates=16,all_phase_values=65536,turn_values=[0,255],discarded_angle_bits='varied high9 and low7',done=n('done',1),oracle_seen=oracle_seen[0],oracle_failures=oracle_failures,cycles={name:dict(min=min(v),max=max(v),mean=sum(v)/len(v),count=len(v))for name,v in cycles.items()})
- if len(cycles['assembly'])==len(cycles['reference']):
-  savings=[a-b for a,b in zip(cycles['reference'],cycles['assembly'])];report['savings']=dict(min=min(savings),max=max(savings),mean=sum(savings)/len(savings))
+ if len(cycles['geometry'])==len(cycles['reference']):
+  savings=[a-b for a,b in zip(cycles['reference'],cycles['geometry'])];report['savings']=dict(min=min(savings),max=max(savings),mean=sum(savings)/len(savings))
  (O/'cycles.json').write_text(json.dumps(cycles)+'\n');(O/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2));assert report['done']and report['count']==131072 and not oracle_failures and not any(report[x]for x in('failures','cache_failures','guards','banks_bad'))
 finally:emu.stop(save=False)

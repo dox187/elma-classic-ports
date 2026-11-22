@@ -21,32 +21,18 @@ _riding_rider_response32::
  call _riding_rider_vectors32
  add sp,#6
 ; X: relative velocity at the rider.
- ld a,#14
- push af
- inc sp
- ldhl sp,#7
+ ldhl sp,#6
  ld e,(hl)
  inc hl
  ld d,(hl)
  xor a
  sub a,e
- ld e,a
+ ld c,a
  ld a,#0
  sbc a,d
- ld d,a
- push de
- ldhl sp,#25
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
+ ld b,a
+ ldhl sp,#22
+ call _riding_mulq14_regs
  ld b,h
  ld c,l
  ld hl,#_Bike+8
@@ -151,26 +137,12 @@ _riding_rider_response32::
  inc hl
  ld (hl),b
 ; Y: relative velocity at the rider.
- ld a,#14
- push af
- inc sp
- ldhl sp,#5
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#25
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
+ ldhl sp,#4
  ld c,(hl)
  inc hl
  ld b,(hl)
- push bc
- push de
- call _riding_mulq32
- add sp,#7
+ ldhl sp,#22
+ call _riding_mulq14_regs
  ld b,h
  ld c,l
  ld hl,#_Bike+12
@@ -277,4 +249,165 @@ _riding_rider_response32::
  add sp,#8
  call _riding_rider_move32
  add sp,#8
+ ret
+
+; A 101 x 101 box near body-local (0,416) lies completely inside the
+; seat, side and ellipse limits for both turns and every Q14 phase.
+; The high trig byte selects a box center in each world axis. The test
+; uses the same wrapped rider-body differences and byte drop as rider_limit.
+; Bounds for the complete box are checked by check_physics_rider_reject.py.
+rider_box_radius = 50
+.macro rider_delta rider,body,done
+ ld hl,#_Bike+body
+ ld a,(#_Bike+rider)
+ sub a,(hl)
+ inc hl
+ ld a,(#_Bike+rider+1)
+ sbc a,(hl)
+ ld e,a
+ inc hl
+ ld a,(#_Bike+rider+2)
+ sbc a,(hl)
+ ld d,a
+ inc hl
+ ld a,(#_Bike+rider+3)
+ sbc a,(hl)
+ ld c,a
+ ld a,d
+ add a,a
+ sbc a,a
+ cp c
+ jr z,done
+ ld de,#0x7fff
+ bit 7,c
+ jr z,done
+ inc de
+done:
+ push de
+.endm
+
+; Args are ABI1 DE=cosine, BC=sine, stack=output pair. The stack frame
+; holds dy,dx,sn,cs. Reuse the same full-width deltas on a box miss.
+_riding_rider_local::
+ push de
+ push bc
+ rider_delta 72,0,rider_saved_x
+ rider_delta 76,4,rider_saved_y
+ ldhl sp,#5
+ ld a,(hl)
+ call rider_box_bias
+ ldhl sp,#2
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ add hl,de
+ ld a,h
+ or a,a
+ jr nz,rider_local_project
+ ld a,l
+ cp #2*rider_box_radius+1
+ jr nc,rider_local_project
+ ldhl sp,#7
+ ld a,(hl)
+ cpl
+ call rider_box_bias
+ pop hl
+ push hl
+ add hl,de
+ ld a,h
+ or a,a
+ jr nz,rider_local_project
+ ld a,l
+ cp #2*rider_box_radius+1
+ jr nc,rider_local_project
+ ld a,#1
+ jr rider_local_return
+
+rider_local_project:
+ ldhl sp,#4
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ push de
+ push bc
+ ldhl sp,#4
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ call _dotq14
+ ldhl sp,#10
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld (hl),c
+ inc hl
+ ld (hl),b
+
+ ldhl sp,#4
+ xor a
+ sub a,(hl)
+ ld e,a
+ inc hl
+ ld a,#0
+ sbc a,(hl)
+ ld d,a
+ inc hl
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ push de
+ push bc
+ ldhl sp,#4
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ call _dotq14
+ ldhl sp,#10
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ inc hl
+ inc hl
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ xor a
+rider_local_return:
+ add sp,#8
+ pop hl
+ pop bc
+ jp (hl)
+
+; DE = floor(13 * signed high byte / 2) + 3 + radius.
+; Adding this to the world delta gives an unsigned interval [0,2*radius].
+rider_box_bias:
+ ld l,a
+ ld e,a
+ add a,a
+ sbc a,a
+ ld h,a
+ ld d,a
+ add hl,hl
+ add hl,de
+ add hl,hl
+ add hl,hl
+ add hl,de
+ sra h
+ rr l
+ ld de,#3+rider_box_radius
+ add hl,de
+ ld d,h
+ ld e,l
  ret
