@@ -314,6 +314,8 @@ static void apply_push(circle_t *k, contact_t *c, contact_t *other, int32_t push
  * accepted contact proven to need no push. */
 int32_t riding_contact_push(circle_t *, const contact_t *);
 
+static void remember_prepared_pair(circle_t *k);
+
 /* One or two coarse candidates arrive in record order. Filter both against
  * the original center. The first push changes both the center fractions and
  * the other contact's length, so recompute its push only in that case. */
@@ -326,6 +328,10 @@ uint8_t riding_prepare_contacts(circle_t *k, uint8_t n) {
                 if (first > 0) {
                     apply_push(k, &Ct[0], &Ct[1], first);
                     second = riding_contact_push(k, &Ct[1]);
+                } else if (second <= 0) {
+                    /* Both contacts survived at the original Q18 center. */
+                    remember_prepared_pair(k);
+                    return 2;
                 }
                 if (second > 0)
                     apply_push(k, &Ct[1], 0, second);
@@ -442,14 +448,33 @@ void riding_wheel_contact(const wheel_input_t *input,uint8_t n);
  * Modes 0..4 are invalid, empty, interior, clipped interior and general.
  * Modes 8..5 count down to classification; fast-moving wheels normally use
  * the original query throughout. Entries own their geometry across eviction
- * of the three collision-reader slots. */
+ * of the three collision-reader slots. Mode 9 holds a prepared pair at one
+ * exact center in a square already known to have multiple candidates. */
 typedef struct {
     uint16_t x,y;
     uint8_t kind;
-    int16_t base_x,base_y,nx,ny;
-    uint8_t x0,x1,y0,y1;
+    union {
+        struct {
+            int16_t base_x,base_y,nx,ny;
+            uint8_t x0,x1,y0,y1;
+        } plane;
+        struct {
+            uint16_t low_x,low_y;
+            contact_t contacts[2];
+        } pair;
+    };
 } surface_cache_t;
 surface_cache_t wheel_surface_cache[2];
+/* The square key contains the upper half of each position. Keep the lower
+ * halves and both complete records before the motion resolver can edit Ct. */
+static void remember_prepared_pair(circle_t *k) {
+    surface_cache_t *w=&wheel_surface_cache[k==&Bike.wheel[1]];
+    w->kind=9;
+    w->pair.low_x=(uint16_t)k->rx;
+    w->pair.low_y=(uint16_t)k->ry;
+    w->pair.contacts[0]=Ct[0];
+    w->pair.contacts[1]=Ct[1];
+}
 void riding_surface_reset(void) __nonbanked {
     wheel_surface_cache[0].kind=wheel_surface_cache[1].kind=0;
 }
@@ -541,14 +566,14 @@ static void wheel_classify(surface_cache_t *w,uint16_t qx,uint16_t qy){
      * tangent projection can change by at most 256u. Strictly exclude the
      * far endpoint to preserve ownership of artificial subdivision joins. */
     if(t<256 || t>=(one->len&0x3fff)-256){w->kind=4;return;}
-    w->base_x=(qx&0xf00)-one->px;
-    w->base_y=(qy&0xf00)-one->py;
-    w->nx=-one->ey;
-    w->ny=one->ex;
-    w->x0=one->x0<=bx ? 0 : (one->x0-bx)*64;
-    w->x1=one->x1>=bx+3u ? 255 : (one->x1-bx)*64+63;
-    w->y0=one->y0<=by ? 0 : (one->y0-by)*64;
-    w->y1=one->y1>=by+3u ? 255 : (one->y1-by)*64+63;
+    w->plane.base_x=(qx&0xf00)-one->px;
+    w->plane.base_y=(qy&0xf00)-one->py;
+    w->plane.nx=-one->ey;
+    w->plane.ny=one->ex;
+    w->plane.x0=one->x0<=bx ? 0 : (one->x0-bx)*64;
+    w->plane.x1=one->x1>=bx+3u ? 255 : (one->x1-bx)*64+63;
+    w->plane.y0=one->y0<=by ? 0 : (one->y0-by)*64;
+    w->plane.y1=one->y1>=by+3u ? 255 : (one->y1-by)*64+63;
     w->kind=one->x0<=bx && one->x1>=bx+3u && one->y0<=by && one->y1>=by+3u ? 2 : 3;
 }
 uint8_t riding_wheel_surface(circle_t *k) {
@@ -562,12 +587,14 @@ uint8_t riding_wheel_surface(circle_t *k) {
     wheel_classify(w,qx,qy);
     return riding_contacts_loop(qx,qy);
 }
-typedef char wheel_cache_layout[sizeof(surface_cache_t)==17 &&
-    offsetof(surface_cache_t,kind)==4 && offsetof(surface_cache_t,base_x)==5 &&
-    offsetof(surface_cache_t,nx)==9 && offsetof(surface_cache_t,x0)==13 ? 1 : -1];
+typedef char wheel_cache_layout[sizeof(surface_cache_t)==29 &&
+    offsetof(surface_cache_t,kind)==4 && offsetof(surface_cache_t,plane.base_x)==5 &&
+    offsetof(surface_cache_t,plane.nx)==9 && offsetof(surface_cache_t,plane.x0)==13 &&
+    offsetof(surface_cache_t,pair.low_x)==5 && offsetof(surface_cache_t,pair.low_y)==7 &&
+    offsetof(surface_cache_t,pair.contacts)==9 ? 1 : -1];
 /* ABI1 DE is the wheel. A=255 falls through to the existing full query.
- * An interior hit writes exactly the normal and length produced by the
- * original iterator. Filtering, pushout, landing and audio follow as usual. */
+ * A=254 restores an already filtered, ordered pair. An interior hit writes
+ * the iterator's normal and length for the ordinary filter and pushout. */
 uint8_t riding_cert_hit(circle_t *k) __naked {
     k;
     __asm
@@ -575,7 +602,7 @@ uint8_t riding_cert_hit(circle_t *k) __naked {
     ld a,e
     cp #<(_Bike+48)
     jr nz,ws_slot
-    ld hl,#(_wheel_surface_cache+17)
+    ld hl,#(_wheel_surface_cache+29)
 ws_slot:
     push de
     push hl
@@ -612,6 +639,8 @@ ws_slot:
     cp #5
     jr z,ws_build
     jr c,ws_kind_low
+    cp #9
+    jr z,ws_pair
     dec (hl)
     jr ws_fallback
 ws_kind_low:
@@ -646,6 +675,49 @@ ws_change:
     ld a,(de)
     ld (hl+),a
     ld (hl),#8
+    ld a,#255
+    ret
+ws_pair:
+    ; The upper halves already matched. Compare every remaining center byte.
+    pop bc
+    pop de
+    push hl   ; kind, reset to general on a miss within this square
+    inc hl
+    ld a,(de)
+    cp (hl)
+    jr nz,ws_pair_miss
+    inc de
+    inc hl
+    ld a,(de)
+    cp (hl)
+    jr nz,ws_pair_miss
+    inc de
+    inc de
+    inc de
+    inc hl
+    ld a,(de)
+    cp (hl)
+    jr nz,ws_pair_miss
+    inc de
+    inc hl
+    ld a,(de)
+    cp (hl)
+    jr nz,ws_pair_miss
+    inc hl
+    pop bc
+    ld de,#_Ct
+    ld b,#20
+ws_pair_copy:
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    dec b
+    jr nz,ws_pair_copy
+    ld a,#254
+    ret
+ws_pair_miss:
+    pop hl
+    ld (hl),#4
     ld a,#255
     ret
 ws_empty:
@@ -797,8 +869,9 @@ void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED __na
     ld d,(hl)
     ld e,a
     call _riding_cert_hit
-    cp #255
-    jr nz,ws_have_answer
+    cp #254
+    jr c,ws_have_answer
+    jr z,wheel_prepared_pair
     ldhl sp,#6
     ld a,(hl+)
     ld h,(hl)
@@ -823,6 +896,7 @@ ws_have_answer:
     call _riding_prepare_contacts
     or a,a
     jr z,wheel_no_contact
+wheel_resolve:
     ldhl sp,#6
     ld d,h
     ld e,l
@@ -838,6 +912,9 @@ wheel_query_position:
     sbc a,a
     ld d,a
     ret
+wheel_prepared_pair:
+    ld a,#2
+    jr wheel_resolve
 wheel_no_contact:
     ; Clear every reported field, even on the first airborne substep.
     ldhl sp,#6
