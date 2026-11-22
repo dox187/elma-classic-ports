@@ -2088,3 +2088,102 @@ and the ratio of elapsed display time to target game time. The full timing,
 fidelity and arithmetic reports are under `build/v096-test8/`, including
 `catalog`, `route-cost`, `spike-test7`, `spike-test8`,
 `native-with-support`, `native-speed-with-support` and `rider-signed`.
+
+### Test8 optimization experiments
+
+The 54-level controller catalog spends a weighted mean of 373,181 SM83
+T-cycles in `physics_step` and 427,400 T in the whole active update before
+the GDMA timing correction (427,427 T with it). The two-display-frame budget
+is 280,896 T. These experiments used the test8 cartridge identified above.
+
+**Terrain classification at build time.** Read-only hooks on levels 1, 7,
+27, 39, 44 and 45 with neutral, gas, brake and seeded controls captured
+2,185 completed updates. The timed routes reproduced their reference states
+and cadence. At 1 m resolution the following original calls could be
+replaced by an exact lookup or a shorter geometric test. The last column
+is the original cost divided by all 2,185 updates. It is an upper bound
+before lookup, bank changes, remaining arithmetic and misses.
+
+| Test8 path | Eligible calls | Gross T/update |
+| --- | ---: | ---: |
+| Head sweep after a cache miss, all tiles in the swept bounds proven clear | 1,048 / 1,647 | 5,006 |
+| Wheel segment scan, tile proven empty or limited to the interior of one edge | 1,165 empty + 1,437 single-edge / 7,237 | 5,055 |
+
+The head mask uses the minimum distance from a closed tile to each finite
+terrain segment and the solver's 244-unit radius. Keep the original enlarged
+radius path for sweeps over 8 m. Wheel classification must respect rounded
+Q14 projections, endpoint ownership and segment order. Ambiguous tiles use
+the original scan. Each level's plain head mask fits in one 4 KiB bank
+(maximum 3,256 bytes). The 54 levels share 1,636 distinct 16-bit head masks.
+Per-level dictionaries combining head and wheel classifications need 78,800
+bytes of patterns, plus indexing. Banked WRAM is an option for per-level
+data, but the current stack descends from $E000 and `Bike` spans $D000.
+Any switch must preserve the stack, interrupt handlers and live solver data.
+Test8 has ten unused 16 KiB ROM banks below bank 508 (477–480 and 502–507).
+The tile generator, classification inputs and per-path cycle counts are in
+`build/v096-test8/optimization-audit/terrain/`.
+
+**Repeated wheel queries.** On Shelf Life with braking, the same wheel
+returned to exactly the previous Q18 center on 250 of 600 wheel calls. Both
+queries accepted two contacts without moving the center. All 20 bytes of
+the ordered contacts matched on every repeat. The repeated work before the
+resolver cost 60,212 T per update across the 100 updates. Haircut neutral
+had 25 such calls in 99 updates (6,730 T/update), Double Trouble gas had
+none. A per-wheel cache would have to retain both center fractions and
+ordered post-filter contacts, invalidate on level change or reset, and still
+compute support, friction, braking and impact from the current motion.
+The complete spring displacement and relative-speed inputs never repeated
+on consecutive intervals in the six-route sample. The capture and per-route
+counts are in `build/v096-test8/optimization-audit/repeat/verifylog`.
+
+**Exact table for common terrain normals.** A separate ROM trained on all
+54 neutral routes selected 80 frequent signed Q14 projection coefficients.
+Tables indexed by the high and low bytes reconstruct each signed16 product
+exactly. All other
+operands fall back to the test8 multiplier. The model reproduced all
+5,242,880 table products. A native check verified 18,886 raw results and
+restoration of the caller's bank. Initializing the directory at boot saved
+8,721 T per complete update across the catalog (2.04%) and raised cadence
+to 17.67 updates/s. All 19,885 gameplay updates matched test8 at both state
+boundaries. Shelf Life braking saved 20,931 T per update. Four additional
+individual updates missed the deadline, and three routes met it throughout.
+The prototype requires 125,760 additional linked ROM bytes and 825 bytes
+of WRAM including alignment. Only 38 bytes of fixed ROM and 766 bytes
+between static data and the initial stack remain. The stack high-water mark
+still needs measuring. This experiment is independent of test9. The output
+directory `build/v096-test8-numeric-audit/` contains `boot-summary.json`,
+`product.py`, `fastdir.py` and `bootdir/native-raw.log`.
+
+### 0.96 test9 — single-contact support
+
+In test8, 1,929 of 1,979 single-contact tests on six controller routes could
+accept the wheel from the sign of the projected impulse. Their baseline
+velocity projections used 9,556 T per update across those 549 updates.
+Test9 checks that impulse first for single contacts. For two contacts it
+keeps the original test order and removes the exact incoming normal
+velocity when required. No lookup data or extra persistent state is needed.
+
+| Matched workload | Test8 | Test9 |
+| --- | ---: | ---: |
+| All 216 routes, aggregate updates/s | 17.341 | 17.655 |
+| Mean active update / mean physics T | 427,400 / 373,181 | 418,598 / 364,301 |
+| Highest active update T | 817,412 | 690,936 |
+| Active updates over budget / 19,885 | 18,698 | 18,695 |
+| Routes within budget throughout / 216 | 3 | 5 |
+| Freefall input sampling, updates/s | 18.499 | 18.673 |
+
+The mean active cost fell on 209 of 216 routes. The maximum includes
+scrolling and display scheduling. All 19,885 controller updates matched
+test8 after physics and after the whole update. All 12,380 packed 238-byte
+states in the ordinary and extended-speed fixtures matched the frozen test5
+host model. The 45 PC rebound and braking checks passed. The 20 seeded spin
+cases reproduced the test8 comparisons. A separate raw-ROM oracle checked
+1,984 support inputs including the −231 boundary, outward and inward
+impulses, signed extremes, both removal modes, memory guards and stack
+cleanup. Freefall still misses its deadline on all 439 active updates.
+
+The benchmark cartridge and the playable test9 have the same SHA-256,
+`5a4256efbc0a1cc7de019efc9d0ba5b5001b9ee9c2f5e816aaa0abb3d37aad04`.
+The benchmark reports are in `build/v096-test8/optimization-audit/` under
+`support-catalog`, `native`, `native-speed`, `fullfall`, `freefall`, `rebound`
+and `spin-240` through `spin-280`. The isolated test used `support_oracle.py`.

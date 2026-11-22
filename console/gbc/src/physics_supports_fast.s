@@ -25,6 +25,24 @@ _riding_supports32::
  ld (hl),c
  inc hl
  ld (hl),b
+ ldhl sp,#20
+ ld a,(hl)
+ or a
+ jr nz,supports_velocity
+ ; A single contact accepts immediately for any non-outward impulse.
+ ldhl sp,#12
+ ld d,h
+ ld e,l
+ ldhl sp,#0
+ call _riding_dotq14_regs
+ bit 7,h
+ jp nz,supports_true
+ ld a,h
+ or a,l
+ or a,d
+ or a,e
+ jp z,supports_true
+supports_velocity:
  ldhl sp,#4
  ld a,(hl+)
  ld h,(hl)
@@ -61,6 +79,10 @@ _riding_supports32::
  cp c
  jr c,supports_accept
 supports_dv:
+ ldhl sp,#20
+ ld a,(hl)
+ or a
+ jr z,supports_reject
  ldhl sp,#12
  ld d,h
  ld e,l
@@ -73,6 +95,7 @@ supports_dv:
  or a,d
  or a,e
  jr z,supports_accept
+supports_reject:
  xor a
  jr supports_return
 supports_accept:

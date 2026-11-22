@@ -3,10 +3,10 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test8 — 8 MiB](build/elma-gbc-v0.96-test8-8m.gbc)**.
-Freefall now averages **18.50 physics updates per real second** in the
+**[0.96 test9 — 8 MiB](build/elma-gbc-v0.96-test9-8m.gbc)**.
+Freefall now averages **18.67 physics updates per real second** in the
 emulator. Across 216 short controller runs on all 54 courses, the aggregate
-rate is **17.34**, up from **10.99** in test5. The target is **29.86**.
+rate is **17.65**, up from **17.34** in test8. The target is **29.86**.
 All 19,885 compared gameplay updates reproduce test5.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
@@ -57,6 +57,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test9 — single wheel contact
+
+A wheel touching one surface can accept a supporting impulse immediately
+when its projection on the surface normal is zero or inward. This saves a
+second projection of the wheel velocity. Across 19,885 gameplay updates,
+mean active cost fell from 427,400 to 418,598 T-cycles. Five of 216 routes
+stayed within the two-display-frame budget throughout. All compared gameplay
+states matched test8 and all 12,380 native states matched the frozen test5
+host model. Physical cartridge timing is pending. See the [performance log](PERFORMANCE.md#096-test9--single-contact-support).
 
 ## 0.96 test8 — grounded wheels, terrain vertices and rider motion
 
