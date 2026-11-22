@@ -25,6 +25,26 @@ def array(name,data):
     return 'const uint8_t '+name+'[]={\n'+',\n'.join(rows)+'\n};\n'
 
 
+def paired_metadata(gen):
+    """Fold two source visibility bits into each physical 8x16 sprite."""
+    source = (gen / 'riding_meta.c').read_text()
+    pattern = r'const uint16_t riding_masks\[\]\s*=\s*\{([^}]*)\};'
+    match = re.search(pattern, source)
+    if match is None:
+        raise ValueError('Missing original 8x8 body visibility masks')
+    masks = [int(v.strip(), 0) for v in match[1].split(',') if v.strip()]
+    if len(masks) != 192 or any(not 0 <= v <= 0xffff for v in masks):
+        raise ValueError('Expected a 16-sprite visibility mask for each of the 192 body frames')
+    pairs = [sum(bool(mask & ((1 << top) | (1 << bottom))) << bit
+                 for bit, (top, bottom) in enumerate(zip(BODY_ORDER[::2], BODY_ORDER[1::2])))
+             for mask in masks]
+    dst = gen / 'riding16_meta.c'
+    data = source[:match.start()] + array('riding_body_pair_masks', pairs) + source[match.end():]
+    if not dst.exists() or dst.read_text() != data:
+        dst.write_text(data)
+    return dst
+
+
 def reorder(data,order):
     stride=len(order)*16
     if len(data)%stride:raise ValueError('Incomplete tile frame')

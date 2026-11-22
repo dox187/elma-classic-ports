@@ -46,11 +46,18 @@ void service(void) BANKED {
    e.tick(1,False)
    if get('ready','B')[0]:break
   assert get('ready','B')[0]
-  for i in range(8192):
+  for i in range(9216):
    axis=i&1;prior=rng.randrange(-10*Q,10*Q)
    terms=[(rng.randrange(-(1<<31),1<<31),rng.randrange(-Q//2,Q//2) if j<4 else 0) for j in range(6)]
    if i<1024:terms=[(rng.choice((-2147483648,-1,0,1,2147483647)),rng.choice((-Q//2,-1,0,1,Q//2-1)) if j<4 else 0) for j in range(6)]
    if i>=6144:terms=[(rng.randrange(-1000000,1000000),f) for _,f in terms]
+   if i>=8192:
+    # Exercise all five numerator bytes, including quotients beyond int32.
+    # Leave space for the existing half-divisor rounding bias.
+    edges=(-2**39,-2**39+1,-2**31*20-1,-2**31*20,2**31*20-1,2**31*20,2**39-12)
+    whole=edges[i-8192] if i-8192<len(edges) else rng.randrange(-2**39,2**39-10)
+    prior=whole*Q+rng.randrange(Q)
+    terms=[(0,0)]*6
    initial=[3456,7890];initial[axis]=prior
    put('force_residual','2q',*initial);put('units','6i',*[q for q,f in terms]);put('fractions','6i',*[f for q,f in terms]);put('axis','B',axis);put('request','B',1)
    for _ in range(10):
@@ -59,6 +66,7 @@ void service(void) BANKED {
    assert not get('request','B')[0], 'native force fixture timed out'
    total=prior-sum(q*Q+f for q,f in terms);expected=(total+10*Q)//(20*Q)
    wanted=list(initial);wanted[axis]=total-expected*20*Q
+   expected=(expected+2**31)%2**32-2**31
    got=get('answer','i')[0];res=get('force_residual','2q')
    count+=1
    if got!=expected or list(res)!=wanted:
@@ -66,5 +74,5 @@ void service(void) BANKED {
  finally:e.stop(save=False)
  report=dict(cases=count,failures=failures,oracle='Complete Python integers; nearest positive ties, exact residual')
  (out/'report.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report))
- assert count==8192 and not failures
+ assert count==9216 and not failures
 if __name__=='__main__':main()

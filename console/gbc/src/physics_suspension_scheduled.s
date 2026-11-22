@@ -4,6 +4,8 @@
 ; contribute before the complete spring and damping moments are narrowed.
 .module physics_suspension_scheduled
 .area _DATA
+; 1 carries Oms and arms, 2 also carries spin, 3 also carries wheel inputs.
+_riding_spring_ready:: .ds 1
 ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
 ss_spin_mid: .ds 16
 ss_spin_top: .ds 16
@@ -270,6 +272,112 @@ positive:
  ld b,h
  ld c,l
 .endm
+; Load a signed24 anchor and signed16 displacement as magnitudes B:DE and
+; L:C. Save the product sign and reject either unrepresentable input before
+; publishing it. The byte rows are exact at both negative endpoints.
+.macro ss_spring_digits arm,disp,wide,have_arm,have_disp
+ ld hl,#(disp)
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld e,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jp nz,wide
+ inc hl
+ cp a,(hl)
+ jp nz,wide
+ ld hl,#(arm+2)
+ ld a,(hl+)
+ ld b,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jp nz,wide
+ xor a,e
+ ldh (ss_force_products+6),a
+ ld hl,#(arm)
+ ld a,(hl+)
+ ld d,(hl)
+ ld l,e
+ ld e,a
+ bit 7,b
+ jr z,have_arm
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+have_arm:
+ bit 7,l
+ jr z,have_disp
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,l
+ ld l,a
+have_disp:
+.endm
+
+; Keep one wheel's two exact unsigned magnitudes until their common
+; subtraction. A zero second displacement needs only the first product.
+.macro ss_spring_pair ax,ay,dx,dy,?wide,?second_wide,?second_term,?first_arm,?first_disp,?second_arm,?second_disp,?second_zero,?done
+ ss_spring_digits ax,dy,wide,first_arm,first_disp
+ call ss_spring_rows
+ ; Check the horizontal displacement while the first magnitude is live.
+ push hl
+ ld hl,#(dx)
+ ld a,(hl+)
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ pop hl
+ jr z,second_zero
+ ld a,e
+ ldh (ss_force_products+0),a
+ ld a,d
+ ldh (ss_force_products+1),a
+ ld a,l
+ ldh (ss_force_products+2),a
+ ld a,h
+ ldh (ss_force_products+3),a
+ ld a,c
+ ldh (ss_force_products+4),a
+ ldh a,(ss_force_products+6)
+ ldh (ss_force_products+5),a
+ ss_spring_digits ay,dx,second_wide,second_arm,second_disp
+ call ss_spring_rows
+ call ss_spring_combine
+ jr done
+second_zero:
+ call ss_spring_single
+ jr done
+second_wide:
+ call ss_spring_restore_product
+ jr second_term
+wide:
+ ld hl,#(ax)
+ ld de,#(dy)
+ call ss_spring_product
+second_term:
+ push bc
+ push hl
+ push de
+ ld hl,#(ay)
+ ld de,#(dx)
+ call ss_spring_product
+ call ss_spring_difference
+ add sp,#6
+done:
+.endm
 ; The four spring displacements occupy the future damper-product rows.
 ; The spring batch consumes all four before the damper batch fills its rows.
 .macro ss_wheel_inputs wheel,offset
@@ -279,17 +387,7 @@ positive:
  ss_read _riding_pose_anchor+8+offset
  ss_sub ss_damping+24+offset
  ss_write ss_force_products+36+offset
- ld hl,#_riding_pose_anchor+offset
- ld de,#ss_force_products+36+offset
- call ss_spring_product
- push bc
- push hl
- push de
- ld hl,#_riding_pose_anchor+8+offset
- ld de,#ss_force_products+28+offset
- call ss_spring_product
- call ss_spring_difference
- add sp,#6
+ ss_spring_pair _riding_pose_anchor+offset,_riding_pose_anchor+8+offset,ss_force_products+28+offset,ss_force_products+36+offset
  .if offset
  ss_accumulate ss_ts
  .else
@@ -359,14 +457,130 @@ have_reaction:
 .endm
 
 .area _CODE_8
-_riding_suspension_scheduled::
+; The source state belongs to the single main-thread Bike. Reset, turn and
+; level/menu transitions revoke the prefix. Between two completed updates
+; controls only set wheel torque before suspension. Volts run afterwards.
+; The producer writes private suspension scratch. The consumer owns all
+; state updates, including Q24 fractions, wheel torques and audio flags.
+.globl b_physics_prepare_spring
+b_physics_prepare_spring = 8
+_physics_prepare_spring::
+ ldhl sp,#6                      ; GBDK banked stack ABI
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a                         ; next-input deadline is start + 2
+ ld a,#12                       ; complete lines required by geometry
+ call ss_prepare_budget
+ ret nc
+ push de
+ call _riding_spring_geometry
+ ld a,#1
+ jr c,ss_prepared_wide
+ inc a
+ ld (#_riding_spring_ready),a
+ pop de
+ ld a,#40                       ; complete lines required by both wheel inputs
+ call ss_prepare_budget
+ ret nc
+ call _riding_spring_inputs
+ ld a,#3
+ ld (#_riding_spring_ready),a
+ ret
+ss_prepared_wide:
+ ld (#_riding_spring_ready),a
+ pop de
+ ret
+
+; CGB runs 912 CPU T-cycles per LCD line. A visible LY below the cutoff
+; leaves the complete lines through 143. LY=144..153 leaves a full visible
+; frame. Refuse pending VBlank or a changing LY during the epoch snapshot.
+; check_spring_prepare.py walks every reachable SM83 branch of each block.
+; Both budgets reserve two full lines for guard, bank return, frame counter
+; and entry to the normal wait. Only VBlank interrupts run during gameplay.
+ss_prepare_budget:
+ ld b,a
+ ldh a,(#0x44)
+ ld c,a
+ ld a,(#_sys_time)
+ sub a,e
+ ld l,a
+ ld a,(#_sys_time+1)
+ sbc a,d
+ ld h,a
+ ldh a,(#0x0f)
+ rra
+ jr c,ss_prepare_late
+ ldh a,(#0x44)
+ cp a,c
+ jr nz,ss_prepare_late
+ ld a,h
+ or a
+ ret nz
+ ld a,l
+ or a
+ jr z,ss_prepare_ok
+ dec a
+ jr nz,ss_prepare_late
+ ld a,c
+ cp a,#144
+ jr nc,ss_prepare_ok
+ ld a,#143
+ sub a,c
+ cp a,b
+ jr c,ss_prepare_late
+ss_prepare_ok:
+ scf
+ ret
+ss_prepare_late:
+ or a
+ ret
+
+_riding_spring_geometry::
+ ld e,#b_body_oms
+ ld hl,#_body_oms
+ call ___sdcc_bcall_ehl
+ ld hl,#_riding_suspension_state+4
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ld a,e
+ ld (hl+),a
+ ld (hl),d
  ss_arm 0,24,ss_damping+16
  ss_arm 0,48,ss_damping+20
  ss_arm 4,28,ss_damping+24
  ss_arm 4,52,ss_damping+28
- call ss_spin_four
+ jp ss_spin_narrow
+
+_riding_spring_inputs::
  ss_wheel_inputs 24,0
  ss_wheel_inputs 48,4
+ ret
+
+_riding_suspension_scheduled::
+ ld hl,#_riding_spring_ready
+ ld a,(hl)
+ or a
+ jr z,ss_need_geometry
+ ld (hl),#0
+ ld b,a
+ ld a,(#_riding_subphase)
+ or a
+ jr nz,ss_need_geometry
+ dec b
+ jr z,ss_need_wide
+ dec b
+ jr z,ss_need_inputs
+ jr ss_have_inputs
+ss_need_geometry:
+ call _riding_spring_geometry
+ jr nc,ss_need_inputs
+ss_need_wide:
+ call ss_spin_full
+ss_need_inputs:
+ call _riding_spring_inputs
+ss_have_inputs:
  ld hl,#_q24_index_C_SPRING_FW
  ld a,(#_riding_subphase)
  or a
@@ -394,18 +608,12 @@ ss_wheel1:
  ss_wheel_reaction 4,ss_wheel_stride,ss_wheels_done,ss_reaction1_index,ss_ordinary1,ss_reaction_ready1
 ss_wheels_done:
  xor a
- push af
- inc sp
- call _riding_force_finish
- inc sp
+ call _riding_force_finish_axis
  ld b,h
  ld c,l
  ss_write _riding_suspension_state+36
  ld a,#1
- push af
- inc sp
- call _riding_force_finish
- inc sp
+ call _riding_force_finish_axis
  ld b,h
  ld c,l
  ss_write _riding_suspension_state+40
@@ -452,6 +660,163 @@ ss_spring_rounded:
  ss_write _riding_suspension_state+44
  ret
 
+.macro ss_join_nibbles low,high,out
+ ld a,low
+ xor a,high
+ and a,#0x0f
+ xor a,low
+ swap a
+ ld out,a
+.endm
+; Positive magnitudes use five bytes C:HL:DE. Keep the signs separate
+; until the ordered sum/subtraction so the common paths discard the low
+; byte as soon as its carry/borrow is known.
+ss_spring_single:
+ ldh a,(ss_force_products+6)
+ bit 7,a
+ jr nz,ss_spring_negative_single
+ ld e,d
+ ld d,l
+ ld b,c
+ ld c,h
+ jp ss_spring_extract
+ss_spring_negative_single:
+ xor a
+ sub a,e
+ ld a,#0
+ sbc a,d
+ ld e,a
+ ld a,#0
+ sbc a,l
+ ld d,a
+ ld a,#0
+ sbc a,h
+ ld h,a
+ ld a,#0
+ sbc a,c
+ ld b,a
+ ld c,h
+ jp ss_spring_extract
+
+ss_spring_combine:
+ ldh a,(ss_force_products+5)
+ ld b,a
+ ldh a,(ss_force_products+6)
+ bit 7,b
+ jr z,ss_spring_first_positive
+ bit 7,a
+ jr nz,ss_spring_reverse
+ ; Both terms contribute negatively. Negate the second magnitude before
+ ; subtracting the first. The sign of a zero term also works here.
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,l
+ ld l,a
+ ld a,#0
+ sbc a,h
+ ld h,a
+ ld a,#0
+ sbc a,c
+ ld c,a
+ss_spring_reverse:
+ ldh a,(ss_force_products+0)
+ ld b,a
+ ld a,e
+ sub a,b
+ ldh a,(ss_force_products+1)
+ ld b,a
+ ld a,d
+ sbc a,b
+ ld e,a
+ ldh a,(ss_force_products+2)
+ ld b,a
+ ld a,l
+ sbc a,b
+ ld d,a
+ ldh a,(ss_force_products+3)
+ ld b,a
+ ld a,h
+ sbc a,b
+ ld l,a
+ ldh a,(ss_force_products+4)
+ ld b,a
+ ld a,c
+ sbc a,b
+ ld b,a
+ ld c,l
+ jr ss_spring_extract
+ss_spring_first_positive:
+ bit 7,a
+ jr z,ss_spring_subtract
+ ldh a,(ss_force_products+0)
+ add a,e
+ ldh a,(ss_force_products+1)
+ adc a,d
+ ld e,a
+ ldh a,(ss_force_products+2)
+ adc a,l
+ ld d,a
+ ldh a,(ss_force_products+3)
+ adc a,h
+ ld l,a
+ ldh a,(ss_force_products+4)
+ adc a,c
+ ld b,a
+ ld c,l
+ jr ss_spring_extract
+ss_spring_subtract:
+ ldh a,(ss_force_products+0)
+ sub a,e
+ ldh a,(ss_force_products+1)
+ sbc a,d
+ ld e,a
+ ldh a,(ss_force_products+2)
+ sbc a,l
+ ld d,a
+ ldh a,(ss_force_products+3)
+ sbc a,h
+ ld l,a
+ ldh a,(ss_force_products+4)
+ sbc a,c
+ ld b,a
+ ld c,l
+ss_spring_extract:
+ ; The determinant of signed24 and signed16 pairs fits signed40: the two
+ ; products cannot simultaneously reach equal and opposite magnitude 2^38.
+ ld a,b
+ add a,a
+ sbc a,a
+ ld h,a
+ ss_join_nibbles e,d,e
+ ss_join_nibbles d,c,d
+ ss_join_nibbles c,b,c
+ ss_join_nibbles b,h,b
+ ret
+
+; The second term can exceed the common width after the first has already
+; been computed. Expand its saved signed magnitude to the fallback ABI.
+ss_spring_restore_product:
+ ldh a,(ss_force_products+0)
+ ld e,a
+ ldh a,(ss_force_products+1)
+ ld d,a
+ ldh a,(ss_force_products+2)
+ ld l,a
+ ldh a,(ss_force_products+3)
+ ld h,a
+ ldh a,(ss_force_products+4)
+ ld c,a
+ ld b,#0
+ ldh a,(ss_force_products+5)
+ bit 7,a
+ ret z
+ jp ss_spring_negate_product
+
 ; The returned spring impulse uses only bits 12..43 of the difference,
 ; so six low product bytes suffice for every signed input.
 ss_spring_difference:
@@ -478,14 +843,6 @@ ss_spring_difference:
  ld b,a
  pop af
  ld h,a
-.macro ss_join_nibbles low,high,out
- ld a,low
- xor a,high
- and a,#0x0f
- xor a,low
- swap a
- ld out,a
-.endm
  ss_join_nibbles h,e,h
  ss_join_nibbles e,d,e
  ss_join_nibbles d,c,d
@@ -738,6 +1095,7 @@ ss_spring_arm_pos:
  pop af
  bit 7,a
  ret z
+ss_spring_negate_product:
  xor a
  sub a,e
  ld e,a
@@ -767,7 +1125,16 @@ ss_spring_fallback:
 ; The four products share omega. For signed24 operands write it as
 ; lo + 256*mid + 65536*top, with a signed top byte. Each byte selects a
 ; multiplication-table bank just once for all four independent arms.
+; A wide operand falls back synchronously. No wide spin is ever started
+; during the optional geometry block. Carry reports the deferred work.
 ss_spin_four:
+ call ss_spin_narrow
+ ret nc
+ jp ss_spin_full
+ss_spin_defer:
+ scf
+ ret
+ss_spin_narrow:
  ld hl,#_riding_suspension_state+4
  ld a,(hl+)
  or a,(hl)
@@ -780,6 +1147,7 @@ ss_spin_four:
  .rept 16
  ld (hl+),a
  .endm
+ or a
  ret
 ss_spin_nonzero:
  dec hl
@@ -787,14 +1155,14 @@ ss_spin_nonzero:
  add a,a
  sbc a,a
  cp a,(hl)
- jp nz,ss_spin_full
+ jp nz,ss_spin_defer
 .macro ss_arm_width offset
  ld hl,#ss_damping+16+offset+2
  ld a,(hl+)
  add a,a
  sbc a,a
  cp a,(hl)
- jp nz,ss_spin_full
+ jp nz,ss_spin_defer
 .endm
  ss_arm_width 0
  ss_arm_width 4
@@ -892,6 +1260,7 @@ label:
  ss_spin_merge ss_merge_4,4,28
  ss_spin_merge ss_merge_8,8,16
  ss_spin_merge ss_merge_12,12,20
+ or a
  ret
 ss_spin_byte:
  ; For omega in 1..255 each first row is the complete signed32 product.
@@ -919,6 +1288,7 @@ label:
  ss_spin_byte_shift ss_spin_byte_y1,4
  ss_spin_byte_shift ss_spin_byte_x0,8
  ss_spin_byte_shift ss_spin_byte_x1,12
+ or a
  ret
 ss_spin_full:
 .macro ss_spin_fallback offset,arm
@@ -1565,6 +1935,34 @@ ss_spin_rows_mapped:
  ss_spin_row ss_spin_row_y1,28
  ss_spin_row ss_spin_row_x0,16
  ss_spin_row ss_spin_row_x1,20
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+
+; A unit high byte contributes the arm directly at byte offset one.
+; All larger magnitudes use the existing unsigned two-row table kernel.
+ss_spring_rows:
+ ld a,l
+ dec a
+ jp nz,ss_mt_product_low
+ push bc
+ push de
+ call _riding_product24x8_row
+ pop hl
+ ld a,d
+ add a,l
+ ld d,a
+ ld a,c
+ adc a,h
+ ld c,a
+ pop hl
+ ld a,b
+ adc a,h
+ ld h,a
+ ld l,c
+ ld a,#0
+ adc a,#0
+ ld c,a
  ld a,(#__current_bank)
  ld (#0x2000),a
  ret

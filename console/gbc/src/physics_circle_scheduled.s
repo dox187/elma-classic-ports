@@ -46,26 +46,33 @@ _riding_body_translate::
  ld h,(hl)
  ld l,a
 circle_translate:
+ ; Derive the X residual once. Y's signed Q24 residual follows four
+ ; bytes later, and neither public velocity nor the circle pointer moves.
+ ld a,b
+ add a,a
+ add a,a
+ add a,#<(_move_residual+2)
+ ld c,a
+ ld a,#>(_move_residual+2)
+ adc a,#0
+ ld b,a
+circle_axes:
  push bc
- push hl
- ld de,#8
- add hl,de
- ld c,#2
- push bc
- call circle_load
- call _phase_advance
- pop hl
- call circle_add
- ; HL now points to ry. Both axes retain their own signed Q24 residual.
+ call circle_axis
  pop bc
+ inc bc
+ inc bc
+ inc bc
+ inc bc
+circle_axis:
+ ; HL points to the position, BC to byte 2 of its residual.
  push hl
+ push bc
  ld de,#8
  add hl,de
- inc b
- ld c,#2
- push bc
  call circle_load
- call _phase_advance
+ pop hl
+ call _riding_phase_advance_hl
  pop hl
  jp circle_add
 circle_load:
@@ -92,3 +99,10 @@ circle_add:
  ld (hl+),a
  ret
 _riding_circle_scheduled_end::
+
+
+.area _CODE_8
+_riding_translate_body_state::
+ ld hl,#_Bike
+ ld bc,#(_move_residual+2)
+ jp circle_axes

@@ -16,12 +16,20 @@ def main():
     (OUT/'screen.s').write_bytes(assembly)
     rng=random.Random(0x5c3ee)
     values=[-2147483648,-16777217,-16777216,-65536,-1,0,1,65535,65536,16777215,16777216,2147483647]
+    # Every transition of floor(12*f/65536), including carries across a full metre.
+    boundaries=[(whole<<16)+(pixel*65536+11)//12+offset
+                for whole in (-32768,-257,-256,-1,0,1,255,256,32767)
+                for pixel in range(13) for offset in (-1,0,1)]
     vectors=[]
     for n in range(1024):
         coordinates=[rng.choice(values) if n<256 else rng.randrange(-2**31,2**31) for _ in range(8)]
         origin=[rng.choice(values) if n<256 else rng.randrange(-2**31,2**31) for _ in range(2)]
         if n>=512:
             coordinates=[signed(origin[i&1]+rng.randrange(-16777217,16777218)) for i in range(8)]
+        if 512<=n<512+len(boundaries):
+            # Give every part and the camera body every boundary on both axes.
+            coordinates=[signed(origin[i&1]+(-1 if i&1 else 1)*
+                                boundaries[(n-512+31*i)%len(boundaries)]) for i in range(8)]
         camera=[rng.randrange(65536) for _ in range(2)]
         parts=[]
         # Source order: riderXY,headXY,wheel0XY,wheel1XY.

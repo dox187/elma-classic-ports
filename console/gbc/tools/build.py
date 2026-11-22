@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 
+import bike_frames16
 import head_clearance
 import head_refinement
 import projection_tables
@@ -280,6 +281,7 @@ def main():
     if not scheduled:sources.append(a.gen/'physics_coefficient_calls.s')
     sources += [a.gen/name for name in ('level_catalogue.c','menu_assets.c','splash_assets.c','physics_level_data.c','riding16_parts.c','riding_meta.c')]
     if scheduled:
+        sources[sources.index(a.gen/'riding_meta.c')] = bike_frames16.paired_metadata(a.gen)
         # Native graphics pointers require their original bank base. Place
         # each linked terrain row after the graphics payload in its bank.
         sources += [BASE/'src/wheel_terrain.s', wheel_terrain.generate(a.gen), head_refinement.generate(a.gen)]
@@ -295,6 +297,7 @@ def main():
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
     def source_flags(path):
+        if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
         if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN']
         if scheduled and path==sweep_path:return ['-DRIDING_HEAD_TERRAIN']

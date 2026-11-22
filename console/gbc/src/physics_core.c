@@ -138,14 +138,14 @@ static int32_t body_oms(void) {
 #ifdef __SDCC
 void riding_partial_body_angle(void) __banked;
 void riding_full_angle(void) __sdcccall(0);
-void riding_body_translate(circle_t *k,uint8_t slot) __sdcccall(0);
+void riding_translate_body_state(void) __sdcccall(0);
 #endif
 
 static void move_body(void) {
 #ifdef __SDCC
     if (riding_subphase) riding_partial_body_angle();
     else riding_full_angle();
-    riding_body_translate(&Bike.body,0);
+    riding_translate_body_state();
 #else
     int32_t omega=Bike.body.omega;
     uint32_t phase;
@@ -244,6 +244,7 @@ static void rider( int32_t gx, int32_t gy ) {
 
 void ph_init( int32_t x, int32_t y ) {
 #ifdef __SDCC
+    riding_spring_ready=0;
     riding_suspension_state.wheel[0].k=&Bike.wheel[0];
     riding_suspension_state.wheel[1].k=&Bike.wheel[1];
 #endif
@@ -269,6 +270,9 @@ void ph_init( int32_t x, int32_t y ) {
 }
 
 void ph_turn( void ) {
+#ifdef __SDCC
+    riding_spring_ready=0;
+#endif
 	Bike.turned = !Bike.turned;
 	head_position();
 }
@@ -417,8 +421,8 @@ uint8_t ph_step( uint8_t input ) {
 #ifndef __SDCC
 	int32_t previous_head_x=Bike.head_x,previous_head_y=Bike.head_y;
     angle();
+    Oms = body_oms();
 #endif
-	Oms = body_oms();
 
 	// Gas and brake:
 	uint8_t brake = input & IN_BRAKE;

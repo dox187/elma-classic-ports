@@ -41,6 +41,56 @@ roll_start:
  push bc
  push de
  ; Stack: tangent 0, impulses pointer 4, wheel pointer 6.
+ ; An exact unit tangent uses one coordinate on both projections.
+ ld a,c
+ or a,e
+ jr nz,roll_input_dots
+ ld a,b
+ or a
+ jr nz,roll_try_vertical
+ ld a,d
+ and #0x7f
+ cp #0x40
+ jr nz,roll_input_dots
+ ld a,d
+ and #0x80
+ jr roll_axis_inputs
+roll_try_vertical:
+ ld a,d
+ or a
+ jr nz,roll_input_dots
+ ld a,b
+ and #0x7f
+ cp #0x40
+ jr nz,roll_input_dots
+ ld a,b
+ and #0x80
+ or #4
+roll_axis_inputs:
+ ; Bit 2 selects Y and bit 7 requests saturated negation. Keep the
+ ; pointer to the pending impulse until the projected velocity is stacked.
+ ldhl sp,#4
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ push af
+ ldhl sp,#10
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ pop af
+ push af
+ call roll_axis_value
+ pop af
+ pop hl
+ push de
+ push bc
+ call roll_axis_value
+ jr roll_projected_inputs
+roll_input_dots:
  ldhl sp,#6
  ld a,(hl+)
  ld d,(hl)
@@ -64,6 +114,7 @@ roll_start:
  ld c,e
  ld d,h
  ld e,l
+roll_projected_inputs:
  .ifdef RIDING_ROLL_TABLES
  ; For a bounded tangential impulse and the three constant wheel torques,
  ; one lookup returns exactly the two separately rounded Q24 operations.
@@ -150,6 +201,49 @@ roll_have_delta:
  add sp,#10
  pop hl
  jp _riding_wheel_move_hl
+
+; HL points at two signed32 values. Return the selected Q14 cardinal
+; projection in DEBC. Negative INT32_MIN rounds to saturated INT32_MAX.
+roll_axis_value:
+ bit 2,a
+ jr z,roll_axis_load
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+roll_axis_load:
+ bit 7,a
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ ret z
+ ld a,d
+ xor #0x80
+ or a,e
+ or a,b
+ or a,c
+ jr nz,roll_axis_negate
+ ld de,#0x7fff
+ ld bc,#0xffff
+ ret
+roll_axis_negate:
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ ld a,#0
+ sbc a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ret
 
 ; HL -> two phase indices. The Q24 entry consumes its reserved argument byte
 ; and returns DEBC, including its normal fraction and saturation side effects.

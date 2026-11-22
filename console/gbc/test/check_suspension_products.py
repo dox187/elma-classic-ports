@@ -39,6 +39,24 @@ def vectors():
         yield omega, [half - 1, half, half + 1, -half]
         yield omega, [-half - 1, -half, -half + 1, 3 * half]
 
+    # Equal products at every width cancel before the per-wheel floor.
+    for x in edges:
+        for y in edges:
+            yield 0, [x, y, x, y]
+            if x < 2**31 - 1:
+                yield 0, [x + 1, y, x, y]
+    # Differences immediately on either side of the 12-bit floor.
+    for k in (-(1 << 31), -32768, -1, 0, 1, 32767, (1 << 31) - 1):
+        for addend in (-1, 0, 1):
+            yield 0, [addend, k, -4096, 1]
+            yield 0, [k, 1, -addend, 4096]
+    # Every combination of product signs, with 0xff and unit upper digits.
+    for ax in (-2**23, -222822, 0, 222822, 2**23 - 1):
+        for ay in (-2**23, -157286, 0, 157286, 2**23 - 1):
+            for dx in (-32768, -512, -511, -256, -255, -1, 0, 1, 255, 256, 511, 512, 32767):
+                for dy in (-32768, -511, -256, -1, 0, 1, 256, 511, 32767):
+                    yield 0, [ax, ay, dx, dy]
+
 
 def fixture(native, source, out):
     compiler = Path(__file__).resolve().parents[1] / '.toolchain/gbdk/bin/lcc'
@@ -79,17 +97,7 @@ _fixture_products::
  ld (de),a
  inc de
  .endm
- ld hl,#_fixture_input+4
- ld de,#_fixture_input+16
- call ss_spring_product
- push bc
- push hl
- push de
- ld hl,#_fixture_input+8
- ld de,#_fixture_input+12
- call ss_spring_product
- call ss_spring_difference
- add sp,#6
+ ss_spring_pair _fixture_input+4,_fixture_input+8,_fixture_input+12,_fixture_input+16
  ss_write _fixture_answer+16
  ld a,(#fixture_bank_marker)
  ld (#_fixture_marker),a

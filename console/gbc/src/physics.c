@@ -110,6 +110,9 @@ void physics_turn(void) GBC_BANKED {
 }
 
 uint8_t physics_select_level(uint8_t index) GBC_BANKED {
+#ifdef __SDCC
+    riding_spring_ready=0;
+#endif
     return physics_collision_select(index);
 }
 

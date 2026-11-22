@@ -141,6 +141,12 @@ static inline uint8_t seg_cell( int32_t c ) {
 
 // The start object is where the left wheel stands (x, y in F):
 void ph_init( int32_t x, int32_t y );
+#ifdef __SDCC
+/* One-use prefix of the next full spring solve. ph_init, ph_turn and
+ * level/menu transitions discard it before the normal input path resumes. */
+extern uint8_t riding_spring_ready;
+void physics_prepare_spring(uint16_t start) PH_BANKED;
+#endif
 // Returns 0 if the head of the rider hit the ground:
 uint8_t ph_step( uint8_t input );
 // Turns the bike around (the space key of the game):

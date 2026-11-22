@@ -44,10 +44,8 @@ void riding_force_sub(uint8_t axis,int32_t units,int32_t fraction) {
 
 #endif
 
+#ifndef __SDCC
 static int32_t divide40(const force_sum_t *p)
-#ifdef __SDCC
-__sdcccall(0)
-#endif
 {
     uint32_t low=p->units,result=0;
     uint8_t high=(uint8_t)p->upper,negative=p->upper<0;
@@ -67,7 +65,6 @@ __sdcccall(0)
     return (int32_t)(negative ? 0-result-(remainder!=0) : result);
 }
 
-#ifndef __SDCC
 int32_t riding_force_finish(uint8_t axis) {
     force_sum_t *p=&forces[axis];
     int32_t carry=(p->fraction>>24)+10;
@@ -294,6 +291,7 @@ int32_t riding_force_finish(uint8_t axis) __sdcccall(0) __naked {
  __asm
  ldhl sp,#2
  ld a,(hl)
+_riding_force_finish_axis::
  or a,a
  ld hl,#_riding_force_sums
  ld de,#_force_residual
@@ -301,115 +299,56 @@ int32_t riding_force_finish(uint8_t axis) __sdcccall(0) __naked {
  ld hl,#(_riding_force_sums+9)
  ld de,#(_force_residual+8)
 force_finish_axis:
+ ; Commit the unchanged fractional low bytes now. Preserve a pointer to
+ ; the upper five signed residual bytes through the register division.
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ ld a,(hl+)
+ ld (de),a
+ inc de
  push de
- push hl
- inc hl
- inc hl
- inc hl
  ld a,(hl+)
  add a,#10
+ add a,(hl)
+ ld e,a
+ inc hl
+ ld a,(hl+)
+ adc a,#0
+ ld d,a
+ ld a,(hl+)
+ adc a,#0
+ ld c,a
+ ld a,(hl+)
+ adc a,#0
  ld b,a
  ld a,(hl)
- add a,b
- ld (hl+),a
- ld a,(hl)
  adc a,#0
- ld (hl+),a
- ld a,(hl)
- adc a,#0
- ld (hl+),a
- ld a,(hl)
- adc a,#0
- ld (hl+),a
- ld a,(hl)
- adc a,#0
- ld (hl-),a
- ld b,a
- ld a,(hl)
- add a,a
- sbc a,a
- cp a,b
- jr nz,force_finish_wide
- pop hl
+ call _riding_force_divmod20
+ ; The rounded residual has high part r-10, including negative values.
+ ; Its low three bytes were copied before division.
+ sub a,#10
  push hl
- inc hl
- inc hl
- inc hl
- inc hl
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
+ ldhl sp,#2
  ld c,(hl)
  inc hl
  ld b,(hl)
- push bc
- push de
- call _riding_floor_div20
- add sp,#4
- jr force_finish_store
-force_finish_wide:
- pop hl
- push hl
- push hl
- call _divide40
- add sp,#2
-force_finish_store:
- push hl
- push de
- ld a,e
- add a,a
- add a,a
- ld b,a
- add a,a
- add a,a
- add a,b
- ld b,a
- ldhl sp,#4
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- inc hl
- inc hl
- inc hl
- inc hl
- ld a,(hl)
- sub a,b
- sub a,#10
- dec hl
- ld (hl),a
- ldhl sp,#6
- ld e,(hl)
- inc hl
- ld d,(hl)
- ldhl sp,#4
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld a,(hl+)
- ld (de),a
- inc de
- ld a,(hl+)
- ld (de),a
- inc de
- ld a,(hl+)
- ld (de),a
- inc de
- ld a,(hl)
- ld (de),a
- inc de
+ ld (bc),a
+ inc bc
  add a,a
  sbc a,a
- ld (de),a
- inc de
- ld (de),a
- inc de
- ld (de),a
- inc de
- ld (de),a
- pop de
+ ld (bc),a
+ inc bc
+ ld (bc),a
+ inc bc
+ ld (bc),a
+ inc bc
+ ld (bc),a
  pop hl
- add sp,#4
+ add sp,#2
  ret
  __endasm;
 }

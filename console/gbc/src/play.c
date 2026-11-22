@@ -419,6 +419,12 @@ static void prepare_next_view(uint16_t start) BANKED {
     }
     if((x>>3)!=(game_camera_x>>3) || (y>>3)!=(game_camera_y>>3))
         world_prepare(game_camera_x,game_camera_y,(uint16_t)x,(uint16_t)y,start);
+#if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
+    /* Scenery has first claim on the existing wait. Its 3K caller margin
+     * covers a declined spring guard. Accepted blocks reserve their own
+     * return margin and recheck the same deadline between stages. */
+    physics_prepare_spring(start);
+#endif
 }
 
 void game_wait_first_frame(uint16_t start) NONBANKED {
@@ -465,6 +471,9 @@ void main(void) NONBANKED {
         }
         if(pressed&J_SELECT || ((game_state==DEAD || game_state==FINISHED) && (pressed&J_B))) {
             action=game_state==RIDING;
+#ifdef RIDING_PC_SCHEDULE
+            riding_spring_ready=0;
+#endif
             game_state=action?PAUSED:MENU;
             audio_update(0,0,0,0);audio_effect(FX_MENU);
             menu_open(game_level_index,action);++game_frames;continue;

@@ -73,6 +73,10 @@ def run(rom, gen, out, speed, pc, level, seed_step=260):
                 if '_angular_residual' in d.symbols:
                     residual = d.symbols['_angular_residual']
                     d.p.memory[residual:residual+4] = bytes(4)
+                # The debugger replaced Bike after the previous frame's idle
+                # preparation. Recompute spring inputs from the injected spin.
+                if '_riding_spring_ready' in d.symbols:
+                    d.p.memory[d.symbols['_riding_spring_ready']] = 0
                 pc.reset(level, pc_seed(d, settings), d.bike()['turned'])
                 for _ in range(25):
                     pc.step(0, settings['dt'])

@@ -424,17 +424,25 @@ void bike_render_prepare(const gbc_bike_t *bike) {
 void bike_render_draw(const gbc_bike_t *bike,const bike_screen_t *s) {
     uint8_t i,row,col,x,y;
     volatile OAM_item_t *o;
+#ifdef RIDING_PAIRED_MASKS
+    extern const uint8_t riding_body_pair_masks[];
+#else
     uint16_t original_mask;
+#endif
     uint8_t mask;
     if(!prepared)bike_render_prepare(bike);
     prepared=0;
     if(positions_valid && !prepared_changed && !memcmp(s,&last_screen,sizeof(last_screen)))return;
     memcpy(&last_screen,s,sizeof(last_screen));
     positions_valid=1;
+#ifdef RIDING_PAIRED_MASKS
+    mask=riding_body_pair_masks[last_body];
+#else
     original_mask=riding_masks[last_body];
     /* A vertical pair is visible when either original 8x8 tile was used. */
     mask=(uint8_t)((original_mask|(original_mask>>4))&15)
         |(uint8_t)(((original_mask>>4)|(original_mask>>8))&240);
+#endif
     if(s->body_x>=16 && s->body_x<=144 && s->body_y>=16 && s->body_y<=120) {
         body16((uint8_t)s->body_x-8,(uint8_t)s->body_y,mask);
     } else {

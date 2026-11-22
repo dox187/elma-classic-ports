@@ -3,11 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test13 — 8 MiB](build/elma-gbc-v0.96-test13-8m.gbc)**.
-Across 216 routes on all 54 courses this ROM averages **21.20 physics
-updates per emulated second**, up from **20.74** in test12. Freefall
-averages **21.37**. The two-display-frame target is **29.86**.
-All 19,885 compared gameplay updates reproduce test12.
+**[0.96 test14 — 8 MiB](build/elma-gbc-v0.96-test14-8m.gbc)**.
+Across 216 routes on all 54 courses this ROM averages **22.12 physics
+updates per emulated second**, up from **21.20** in test13. Freefall
+averages **22.33**. The two-display-frame target is **29.86**.
+All 19,885 compared gameplay updates reproduce test13.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +57,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test14 — suspension and display preparation
+
+During spare display time the game can prepare the geometry and inputs for
+the next suspension step. A reset, turn or menu transition discards that
+work. The wheel and body updates share integer force calculations, and
+the renderer converts all five bike positions together. Fourteen of 216
+routes stayed within the two-frame budget throughout. The original-PC
+landing, braking and seeded spin comparisons reproduce test13.
+[Full timings and validation](PERFORMANCE.md#096-test14--combined-cartridge)
 
 ## 0.96 test13 — terrain and wheel updates
 

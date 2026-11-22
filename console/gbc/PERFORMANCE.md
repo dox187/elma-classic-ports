@@ -2332,3 +2332,40 @@ build/gen-v096-test13-8m/riding_constants.h --out build/gen-v096-test13-8m
 --first-bank 481`, then run `tools/build.py --gen build/gen-v096-test13-8m
 --rom-mib 8 --out build/elma-gbc-v0.96-test13-8m.gbc` with the project Python.
 Reports are in `build/v096-test13/`. Physical cartridge timing is pending.
+
+### 0.96 test14 — combined cartridge
+
+| Full-game PyBoy workload | Test13 | Test14 |
+| --- | ---: | ---: |
+| Aggregate updates/s on 216 routes | 21.203 | 22.118 |
+| Freefall input samples/s, full descent | 21.374 | 22.333 |
+| Mean active update / timed physics call, SM83 T-cycles | 330,304 / 275,936 | 322,657 / 261,652 |
+| Maximum active update T-cycles | 659,912 | 658,224 |
+| Active updates over budget / 19,885 | 15,283 | 13,159 |
+| Entire routes within budget / 216 | 11 | 14 |
+
+The main loop uses spare LCD lines for up to two stages of the next
+suspension solve. The measured input cadence includes that work. The
+timed physics call excludes work already performed during the preceding
+display wait. Both stages have a conservative instruction bound and a
+two-line scheduling reserve. The solver also combines two spring moment
+products, divides force and residual together, and handles axis-aligned
+rolling impulses directly. The renderer batches five screen conversions
+and uses precomputed masks for all 192 bike frames.
+
+All 19,885 controller updates matched test13 at both comparison points.
+All 12,380 native physics states matched test5. The 45 PC landing and brake
+cases passed. All 20 extreme spin cases matched the previous PC comparison,
+including survival and death timing. The spin fixture clears the prepared
+spring inputs when it overwrites angular velocity directly in emulator RAM.
+The deadline guard passed 9,856 cases. The 9,216 full-width force cases and
+11,239 suspension product cases matched their independent integer oracles.
+Menu, sound, restart, timer, player and battery checks passed.
+
+The ROM SHA-256 is
+`1e7ed2b05d35f147522550c172e7c373620deffd9b001e51f0b394786b150b1e`.
+Fixed ROM has 325 bytes free. Banks 508–511 are erased. Use a copy of the
+test13 generated profile at `build/gen-v096-test14-8m` and run
+`tools/build.py --gen build/gen-v096-test14-8m --rom-mib 8
+--out build/elma-gbc-v0.96-test14-8m.gbc` with the project Python.
+Reports are in `build/v096-test14/`. Physical cartridge timing is pending.
