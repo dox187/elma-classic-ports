@@ -8,8 +8,10 @@ import re
 import subprocess
 
 import bike_frames16
+import brake_dispatch
 import head_clearance
 import head_refinement
+import normal_atlas
 import projection_tables
 import rolling_tables
 import wheel_terrain
@@ -58,6 +60,8 @@ def validate_linked_layout(symbol_path,rom_mib):
             raise ValueError('Head-clearance reader requires caller bank 4 and fixed-ROM bank switching')
     if '_riding_head_quarters' in symbols:
         head_refinement.validate_layout(symbols)
+    if '_riding_normal_ring' in symbols:
+        normal_atlas.validate_layout(symbols)
     if '_riding_wheel_lookup' in symbols:
         wheel_terrain.validate_layout(symbols)
     if '_riding_projection_bank_477' in symbols:
@@ -263,8 +267,18 @@ def main():
             a.gen, suspension, BASE.parent/'nes/src/recip.inc')
         free_source = BASE/'src/physics_free_fast.s'
         sources[sources.index(free_source)] = rolling_tables.generate_free(a.gen, free_source)
+        brake_source = BASE/'src/physics_brake_fast.s'
+        sources[sources.index(brake_source)] = brake_dispatch.generate(a.gen, brake_source)
         roll_source = BASE/'src/physics_roll_fast.s'
         sources[sources.index(roll_source)] = rolling_tables.generate(a.gen, roll_source)
+        for name in ('physics_contact_loop', 'physics_normal_fast'):
+            source = BASE/'src'/(name+'.s')
+            game_source = a.gen/(name+'_game.s')
+            text = 'RIDING_NORMAL_ATLAS = 1\n'+source.read_text()
+            if name == 'physics_normal_fast':
+                text += '\n'+(BASE/'src/physics_normal_atlas.s').read_text()
+            head_clearance.write_if_changed(game_source,text)
+            sources[sources.index(source)] = game_source
         geometry_math = BASE/'src/physics_math.s'
         geometry_game = a.gen/'physics_math_game.s'
         head_clearance.write_if_changed(geometry_game, 'RIDING_GEOMETRY_PRODUCTS = 1\n'+geometry_math.read_text())
@@ -284,7 +298,9 @@ def main():
         sources[sources.index(a.gen/'riding_meta.c')] = bike_frames16.paired_metadata(a.gen)
         # Native graphics pointers require their original bank base. Place
         # each linked terrain row after the graphics payload in its bank.
-        sources += [BASE/'src/wheel_terrain.s', wheel_terrain.generate(a.gen), head_refinement.generate(a.gen)]
+        wheel_rows = wheel_terrain.generate(a.gen)
+        sources += [BASE/'src/wheel_terrain.s', wheel_rows, head_refinement.generate(a.gen),
+                    normal_atlas.generate(a.gen, BASE.parent/'nes/src/rsqrt.inc', wheel_rows)]
     validate_profile(a.gen,rom_mib,sources)
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
@@ -299,7 +315,7 @@ def main():
     def source_flags(path):
         if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
-        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN']
+        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS']
         if scheduled and path==sweep_path:return ['-DRIDING_HEAD_TERRAIN']
         return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []
     def source_key(path):

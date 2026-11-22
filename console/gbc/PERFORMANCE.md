@@ -2369,3 +2369,44 @@ test13 generated profile at `build/gen-v096-test14-8m` and run
 `tools/build.py --gen build/gen-v096-test14-8m --rom-mib 8
 --out build/elma-gbc-v0.96-test14-8m.gbc` with the project Python.
 Reports are in `build/v096-test14/`. Physical cartridge timing is pending.
+
+### 0.96 test15 — combined cartridge
+
+| Full-game PyBoy workload | Test14 | Test15 |
+| --- | ---: | ---: |
+| Aggregate updates/s on 216 routes | 22.118 | 22.387 |
+| Freefall input samples/s, full descent | 22.333 | 22.567 |
+| Mean active update / timed physics call, SM83 T-cycles | 322,657 / 261,652 | 317,209 / 257,950 |
+| Maximum active update T-cycles | 658,224 | 557,592 |
+| Active updates over budget / 19,885 | 13,159 | 12,825 |
+| Entire routes within budget / 216 | 14 | 15 |
+
+The cartridge stores exact terrain-vertex normals for 4,440 coordinate
+pairs in 36,680 spare bytes across 32 graphics banks. All 35,520 signed
+axis permutations matched the previous integer kernel. Strict interval
+checks can decide the sign of a shallow-slope impulse directly. On 21
+powered and braking starts they resolved 1,796 of 2,288 former fallbacks.
+The remaining cases retain the full projection. Each wheel keeps the
+exact normal velocity for first-contact audio.
+
+Brake products pass through registers with indices derived from the
+generated coefficient profile. Gas and brake select the final torques
+once, and gravity retains the fractional carry in each substep. Both the
+shipping and differing-coefficient profiles passed 1,500 brake fixtures.
+The renderer reuses the projected body and camera from the preceding
+display wait whenever that projection was ready.
+
+All 19,885 controller updates matched test14 at both observation points.
+All 12,380 native physics states matched test5. The 45 original-PC landing
+and braking checks passed and the 20 injected spins reproduced the test14
+results. The cartridge passed 9,582 impulse signs, 2,400 wheel comparisons,
+900 two-wheel comparisons and VBlank injection in all 32 atlas banks.
+The menu, player, battery, HUD, audio and full-descent functional checks passed.
+
+The ROM SHA-256 is
+`0222cafd1ce708a7cdf5154cf51f9a4376b7fc047930f320d7a35ed3928440a0`.
+Fixed ROM has 349 bytes free. Banks 508–511 are erased. Rebuild from a
+copy of the test14 generated profile at `build/gen-v096-test15-8m` using
+`tools/build.py --gen build/gen-v096-test15-8m --rom-mib 8
+--out build/elma-gbc-v0.96-test15-8m.gbc` with the project Python. Reports
+are in `build/v096-test15/`. Physical cartridge timing is pending.

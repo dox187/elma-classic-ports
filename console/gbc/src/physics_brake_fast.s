@@ -1,9 +1,27 @@
-; Exact two-wheel brake spring and angular damping in bank8.
-; ABI0 tq*: replace both signed32 torques. Bike is read-only here.
-; Full wrapping angle subtraction precedes the signed8 shift; angular
-; damping and spring results retain all 32 bits. No scratch RAM.
+; Exact two-wheel brake spring and angular damping in bank 8.
+; Both torque outputs wrap to signed32. Bike is read-only.
 .module physics_brake_fast
 .area _CODE_8
+; HL points at the pair of generated phase indices.
+.macro brake_phase_index ready
+ ld a,(#_riding_subphase)
+ or a,a
+ jr z,ready
+ inc hl
+ready:
+ ld a,(hl)
+.endm
+
+.macro brake_store
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ inc hl
+ ld (hl),e
+ inc hl
+ ld (hl),d
+.endm
+
 _riding_brake32::
  ldhl sp,#2
  ld a,(hl+)
@@ -17,34 +35,30 @@ _riding_brake32::
 _riding_brake_fields::
  push bc
  push de
+ .ifndef brake_damping_index
  ld a,(#_riding_landing_contact)
+ .endif
  ld hl,#_Bike+40
  ld de,#_Bike+101
  call brake_one
  pop hl
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
+ brake_store
+ .ifndef brake_damping_index
  ld a,(#_riding_landing_contact+1)
+ .endif
  ld hl,#_Bike+64
  ld de,#_Bike+105
  call brake_one
  pop hl
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
+ brake_store
  ret
-; HL wheel.alfa, DE dbrake; signed32 result BCDE, low byte E.
+
+; HL wheel.alfa, DE dbrake, A contact when the damping indices differ.
+; Q24 operates on DEBC throughout (low byte C).
 brake_one:
+ .ifndef brake_damping_index
  push af
+ .endif
  push hl
  ld h,d
  ld l,e
@@ -54,110 +68,110 @@ brake_one:
  inc hl
  ld a,(#_Bike+17)
  adc a,(hl)
- ld d,a
+ ld c,a
  inc hl
  ld a,(#_Bike+18)
  adc a,(hl)
- ld c,a
+ ld b,a
  inc hl
  ld a,(#_Bike+19)
  adc a,(hl)
- ld b,a
+ ld d,a
  pop hl
+ ; Subtract all four angle bytes. Discard the low result after its borrow.
  ld a,(hl+)
  sub a,e
- ld e,a
- ld a,(hl+)
- sbc a,d
- ld d,a
  ld a,(hl+)
  sbc a,c
  ld c,a
  ld a,(hl+)
  sbc a,b
  ld b,a
-; HL now wheel.omega; preserve its address across exact coefficient call.
- push hl
- ld e,d
- ld d,c
- ld l,b
- ld a,b
+ ld a,(hl+)
+ sbc a,d
+ ld e,a
  add a,a
  sbc a,a
- ld h,a
- push hl
+ ld d,a
+ push hl                     ; wheel.omega immediately follows alfa
+ .ifdef brake_angle_index
+ ld a,#brake_angle_index
+ .else
+ ld hl,#_q24_index_C_BRAKE_A
+ brake_phase_index brake_angle_ready
+ .endif
+ dec sp                      ; _q24_apply_a consumes its one-byte ABI slot
+ call _q24_apply_a
+ pop hl
+
+ ; Save spring-1 modulo 2^32. Complementing the sum with damping later
+ ; gives -(spring+damping), with one carry chain over the result.
+ ld a,b
+ or a,c
+ jr nz,brake_spring_low
+ dec de
+brake_spring_low:
+ dec bc
  push de
- call _riding_coeff32_C_BRAKE_A
- add sp,#4
- push hl
- push de
- ldhl sp,#4
+ push bc
  ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld e,(hl)
- inc hl
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
  ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
  ld hl,#_Bike+20
- ld a,e
+ ld a,c
  sub a,(hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc a,(hl)
+ ld b,a
+ inc hl
+ ld a,e
+ sbc a,(hl)
  ld e,a
  inc hl
  ld a,d
  sbc a,(hl)
  ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- ; Saved contact count is above the spring result and wheel pointer.
- ldhl sp,#7
+ .ifdef brake_damping_index
+ ld a,#brake_damping_index
+ .else
+ ldhl sp,#5                  ; saved contact above the four spring bytes
  ld a,(hl)
  or a,a
- push bc
- push de
- jr z,brake_free_damping
- call _riding_coeff32_C_BRAKE_GW
- jr brake_damping_done
-brake_free_damping:
- call _riding_coeff32_C_BRAKE_W
-brake_damping_done:
- add sp,#4
- ld b,h
- ld c,l
- ldhl sp,#0
- ld a,(hl+)
- add a,e
- ld e,a
- ld a,(hl+)
- adc a,d
- ld d,a
- ld a,(hl+)
- adc a,c
+ ld hl,#_q24_index_C_BRAKE_W
+ jr z,brake_damping_phase
+ ld hl,#_q24_index_C_BRAKE_GW
+brake_damping_phase:
+ brake_phase_index brake_damping_ready
+ .endif
+ dec sp
+ call _q24_apply_a
+
+ ; CPL preserves the carry between bytes.
+ pop hl
+ ld a,c
+ add a,l
+ cpl
  ld c,a
- ld a,(hl)
- adc a,b
+ ld a,b
+ adc a,h
+ cpl
  ld b,a
-; -(spring+friction), with the same wrapping32 result as -spring-friction.
- xor a
- sub a,e
+ pop hl
+ ld a,e
+ adc a,l
+ cpl
  ld e,a
- ld a,#0
- sbc a,d
+ ld a,d
+ adc a,h
+ cpl
  ld d,a
- ld a,#0
- sbc a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
- add sp,#8
+ .ifndef brake_damping_index
+ pop af
+ .endif
  ret

@@ -325,6 +325,17 @@ contact_loop_endpoint_ready:
  ld a,h
  sbc a,#3
  jp nc,contact_loop_next
+ .ifdef RIDING_NORMAL_ATLAS
+ ; Coordinates are bounded to [-409,409]. An atlas hit proves d2 < 410^2.
+ ld hl,#contact_loop_k
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call _riding_normal_ring
+ or a
+ jr nz,contact_loop_accept
+ call contact_loop_xy
+ .endif
  ; Existing exact multiply kernel, with its register entry avoiding ABI spills.
  ld hl,#contact_loop_k
  ld a,(hl+)

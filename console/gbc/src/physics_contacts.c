@@ -105,6 +105,9 @@ static const seg_t *segment_next_box(uint8_t bx,uint8_t by) {
 int16_t riding_contact_qx, riding_contact_qy;
 uint8_t riding_contacts_loop(int16_t,int16_t);
 typedef char equal_contact_merge_radius[MERGE>0?1:-1];
+#ifdef RIDING_NORMAL_ATLAS
+uint8_t riding_normal_merge_ring(int16_t x,int16_t y);
+#endif
 uint8_t riding_contact_merge(void) {
  int16_t qx=riding_contact_qx,qy=riding_contact_qy;
 	contact_point( &Ct[0], qx, qy );
@@ -113,6 +116,9 @@ uint8_t riding_contact_merge(void) {
  if(Ct[0].nx==Ct[1].nx && Ct[0].ny==Ct[1].ny && Ct[0].l==Ct[1].l) {
   int16_t ax=qx-Ct[0].tx, ay=qy-Ct[0].ty;
   Ct[1].tx=Ct[0].tx;Ct[1].ty=Ct[0].ty;
+#ifdef RIDING_NORMAL_ATLAS
+  if (riding_normal_merge_ring(ax,ay)) return 0;
+#endif
   normalize(ax,ay,mul16(ax,ax)+mul16(ay,ay),&Ct[0]);
   return 0;
  }
@@ -123,6 +129,9 @@ uint8_t riding_contact_merge(void) {
 		// Merged into their average:
 		int16_t ax = qx-Ct[0].tx-(dx >> 1);
 		int16_t ay = qy-Ct[0].ty-(dy >> 1);
+#ifdef RIDING_NORMAL_ATLAS
+  if (riding_normal_merge_ring(ax,ay)) return 0;
+#endif
 		normalize( ax, ay, mul16( ax, ax )+mul16( ay, ay ), &Ct[0] );
 	}
 	else
@@ -1107,49 +1116,44 @@ wheel_prepared_pair:
 #endif
 
 wheel_single:
-    ; If both impulse products are nonpositive, their rounded Q14 sum is
-    ; also nonpositive. Opposite signs or a zero normal prove each term.
+    ; Keep the wheel in DE and the input record on the stack throughout the
+    ; common case. The xor sign tests also accept an exact zero coefficient.
     pop de
     pop hl
     push hl
-    push de
-    inc hl
-    inc hl
-    ld d,h
-    ld e,l  ; dvx,dvy for the exact dot
-    ld bc,#3
+    ld bc,#5
     add hl,bc
     ld a,(#_Ct+1)
     ld b,a
     xor (hl)
-    bit 7,a
-    jr nz,wheel_single_y
+    rlca
+    jr c,wheel_single_y
     ld a,(#_Ct)
     or b
-    jr nz,wheel_single_dot
+    jr nz,wheel_single_test_impulse
 wheel_single_y:
     ld bc,#4
     add hl,bc
     ld a,(#_Ct+3)
     ld b,a
     xor (hl)
-    bit 7,a
-    jr nz,wheel_single_accepted
+    rlca
+    jr c,wheel_single_accepted
     ld a,(#_Ct+2)
     or b
     jr z,wheel_single_accepted
-wheel_single_dot:
-    ld hl,#_Ct
-    call _riding_dotq14_regs
-    bit 7,h
-    jr nz,wheel_single_accepted
-    ld a,h
-    or l
-    or d
-    or e
+wheel_single_test_impulse:
+    pop hl
+    push hl
+    push de
+    inc hl
+    inc hl
+    ld d,h
+    ld e,l
+    call _riding_single_impulse_outward
+    pop de
     jr z,wheel_single_accepted
     ; Outward impulse: accept exactly when normal velocity <= -ELSZ.
-    pop de
     push de
     call wheel_normal_velocity
     bit 7,h
@@ -1158,15 +1162,23 @@ wheel_single_dot:
     and l
     and d
     inc a
-    jr nz,wheel_single_accepted
+    jr nz,wheel_single_known_velocity
     ld a,(#_riding_supports_threshold)
     or a
-    jr z,wheel_single_accepted
+    jr z,wheel_single_known_velocity
     cp e
     jp c,wheel_no_contact
     jp z,wheel_no_contact
-wheel_single_accepted:
+wheel_single_known_velocity:
+    ; This velocity already passed the support test. Its impact bit can
+    ; serve a first contact before rolling changes the wheel velocity.
+    call wheel_single_impact_value
     pop de
+    ld h,a
+    jr wheel_single_record
+wheel_single_accepted:
+    ld h,#2                     ; first contact must sample velocity
+wheel_single_record:
     ld a,e
     ld bc,#0
     cp #<(_Bike+48)
@@ -1177,29 +1189,19 @@ wheel_single_accepted:
     inc c
 wheel_single_slot:
     push bc
+    ld a,h
     ld hl,#_riding_audio_contact
     add hl,bc
+    ld b,a
     ld a,(hl)
     ld (hl),#1
     or a
     jr nz,wheel_single_quiet
-    ; First supported contact samples the velocity before rolling changes it.
+    ld a,b
+    cp #2
+    jr c,wheel_single_impact
     call wheel_normal_velocity
-    bit 7,h
-    jr z,wheel_single_quiet
-    ld a,h
-    and l
-    inc a
-    ld a,#1
-    jr nz,wheel_single_impact
-    ld hl,#_riding_impact_low
-    ld a,e
-    sub (hl)
-    inc hl
-    ld a,d
-    sbc (hl)
-    rla
-    and #1
+    call wheel_single_impact_value
     jr wheel_single_impact
 wheel_single_quiet:
     xor a
@@ -1227,6 +1229,26 @@ wheel_single_impact:
     pop hl
     ld bc,#_Ct
     jp _riding_roll_inputs
+wheel_single_impact_value:
+    bit 7,h
+    jr nz,wheel_single_impact_negative
+    xor a
+    ret
+wheel_single_impact_negative:
+    ld a,h
+    and l
+    inc a
+    ld a,#1
+    ret nz
+    ld hl,#_riding_impact_low
+    ld a,e
+    sub (hl)
+    inc hl
+    ld a,d
+    sbc (hl)
+    rla
+    and #1
+    ret
 wheel_normal_velocity:
     ld hl,#8
     add hl,de
@@ -1264,6 +1286,81 @@ wheel_air_left:
     ld (#_riding_landing_ny+1),a
 wheel_air_move:
     jp _riding_free_inputs
+
+; DE points to two signed 32-bit impulses. Z means the single rounded Q14
+; projection is <= 0 (raw sum <8192). Ct supplies the fallback coefficients.
+_riding_single_impulse_outward::
+    ld a,(#_Ct+3)
+    sub #33
+    cp #95
+    jr nc,wheel_impulse_exact  ; ny outside [8448,32767]
+    ld a,(#_Ct+1)
+    add #32
+    cp #64
+    jr nc,wheel_impulse_exact  ; nx outside [-8192,8191]
+    sub #28
+    cp #8                      ; carry if nx in [-1024,1023]
+    push af
+    ld hl,#3
+    add hl,de
+    ld a,(hl-)
+    ld c,a
+    inc a
+    cp #2
+    jr nc,wheel_impulse_wide_x
+    ld a,(hl-)
+    xor c
+    jr nz,wheel_impulse_wide_x
+    ; U(v) is v for v>=0, ~v for v<0, so U<=abs(v)<=U+1.
+    ; X=floor(U(dx)/256) fits a byte after both upper bytes agree.
+    ld a,(hl)
+    xor c
+    ld b,a
+    pop af
+    jr nc,wheel_impulse_y_bound
+    srl b
+    srl b
+    srl b
+wheel_impulse_y_bound:
+    ld hl,#7
+    add hl,de
+    ld a,(hl-)
+    ld c,a
+    inc a
+    cp #2
+    jr nc,wheel_impulse_y_dominates
+    ld a,(hl-)
+    xor c
+    jr nz,wheel_impulse_y_dominates
+    ld a,(hl)
+    xor c
+    cp b
+    jr c,wheel_impulse_exact
+    jr z,wheel_impulse_exact
+wheel_impulse_y_dominates:
+    ; In the broad nx band Y>X proves abs(dy)>=abs(dx), with Y>=1.
+    ; In the narrow band Y>floor(X/8) proves 8*abs(dy)>=abs(dx).
+    ; Both give abs(dy*ny)-abs(dx*nx)>=256*256, above the half-Q14
+    ; rounding threshold. This proof also covers a wider y against byte X.
+    ld a,c
+    cpl
+    and #128                   ; Z when the dominant y is negative
+    ret
+wheel_impulse_wide_x:
+    pop af
+wheel_impulse_exact:
+    ld hl,#_Ct
+    call _riding_dotq14_regs
+    bit 7,h
+    jr nz,wheel_impulse_inward
+    ld a,h
+    or l
+    or d
+    or e
+    ret
+wheel_impulse_inward:
+    xor a
+    ret
     __endasm;
 }
 

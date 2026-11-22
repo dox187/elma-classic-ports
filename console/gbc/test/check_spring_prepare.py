@@ -31,7 +31,8 @@ def symbols(rom):
 
 class Replay:
     def __init__(self,rom,prepare,stage_limit=None,wide=False):
-        self.script=SCRIPT[:7] if wide else SCRIPT
+        self.script=SCRIPT[:16] if wide else SCRIPT
+        self.prepare=prepare
         self.wide=wide
         self.seeded=False
         self.sy=symbols(rom)
@@ -39,7 +40,7 @@ class Replay:
         # Match real joypad's ABI1 unsigned-char result in A.
         joy=self.sy['_joypad']
         image[joy:joy+3]=b'\x3e\x00\xc9'
-        if not prepare and '_physics_prepare_spring' in self.sy:
+        if not prepare and not wide and '_physics_prepare_spring' in self.sy:
             s=self.sy['_physics_prepare_spring']
             image[(s>>16)*0x4000+(s&0x3fff)]=0xc9
         elif stage_limit==2:
@@ -64,6 +65,8 @@ class Replay:
         self.hook('_joypad',self.input)
         if prepare or wide:
             self.hook('_physics_prepare_spring',self.enter_prepare)
+        if wide:
+            self.hook('_riding_spring_geometry',self.seed_wide_geometry)
         if prepare:
             self.hook('_riding_suspension_scheduled',self.consume)
             self.hook('_ph_turn',self.check_before_turn)
@@ -120,10 +123,6 @@ class Replay:
         # Compare state at entry and at the banked call return before the
         # current frame can publish its completion or sample the next input.
         assert self.producer is None
-        if self.wide and not self.seeded:
-            omega=self.sy['_Bike']+20
-            self.mem[omega:omega+4]=(0x03ffffff).to_bytes(4,'little')
-            self.seeded=True
         sp=self.emu.register_file.SP
         ret=self.mem[sp]+256*self.mem[sp+1]
         start=int.from_bytes(bytes(self.mem[sp+6:sp+8]),'little')
@@ -132,6 +131,17 @@ class Replay:
             self.return_pc=ret
             self.install(ret,self.leave_prepare)
         assert ret==self.return_pc
+
+    def seed_wide_geometry(self,_):
+        # Both wide replays use the first admitted geometry block. A call
+        # entering on a scanline transition may legitimately decline work.
+        if self.producer is None or self.seeded:return
+        omega=self.sy['_Bike']+20
+        value=(0x03ffffff).to_bytes(4,'little')
+        self.mem[omega:omega+4]=value
+        before=self.producer[1]
+        before['_Bike']=before['_Bike'][:20]+value+before['_Bike'][24:]
+        self.seeded=True
 
     def video(self):
         # Banked VRAM and shadow OAM. The preceding scenery call has finished.
@@ -152,6 +162,9 @@ class Replay:
             bank=self.sy['_physics_prepare_spring']>>16
             assert self.mem[self.sy['__current_bank']]==bank
             assert self.mem[0x4000]==self.mem[bank,0x4000]
+        if self.wide and not self.prepare:
+            # Recompute on demand in the reference after the same injection.
+            self.mem[ready]=0
 
     def run(self):
         try:

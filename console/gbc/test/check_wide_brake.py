@@ -13,10 +13,14 @@ import random
 import re
 import struct
 import subprocess
+import sys
 
 from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BASE / 'tools'))
+import brake_dispatch
+
 SEED = 96
 
 DRIVER = '''#include <gb/gb.h>
@@ -30,41 +34,42 @@ typedef char circle_abi[sizeof(circle_t)==24 && offsetof(circle_t,alfa)==16 &&
 typedef char bike_abi[sizeof(bike_t)==119 && offsetof(bike_t,body)==0 &&
  offsetof(bike_t,wheel)==24 && offsetof(bike_t,dbrake)==101 &&
  sizeof(((bike_t*)0)->dbrake[0])==4 ? 1 : -1];
-typedef char row_abi[sizeof(row_t)==130 && offsetof(row_t,contacts)==119 &&
- offsetof(row_t,phase)==121 && offsetof(row_t,expected)==122 ? 1 : -1];
+typedef char row_abi[sizeof(row_t)==135 && offsetof(row_t,contacts)==119 &&
+ offsetof(row_t,phase)==121 && offsetof(row_t,expected)==122 &&
+ offsetof(row_t,fraction)==130 && offsetof(row_t,saturated)==134 ? 1 : -1];
 bike_t Bike;
 uint8_t riding_landing_contact[2],riding_subphase;
 row_t row;uint8_t arena[16];
 volatile uint8_t done;
-volatile uint16_t failures,guards,state_bad,banks_bad,count;
+extern int32_t q24_fraction;extern uint8_t q24_saturated;
+volatile uint16_t failures,guards,state_bad,banks_bad,q24_bad,count;
 volatile int32_t first_actual,first_expected;volatile uint16_t first_case;
 void riding_brake32(int32_t*) __sdcccall(0);
+void riding_brake_fields(int32_t*,int32_t*);
 void check(void) {
- uint8_t k;
+ uint8_t k,left=4,right=8;
  memcpy(&Bike,row.bike,sizeof(Bike));
  memcpy(riding_landing_contact,row.contacts,2);riding_subphase=row.phase;
- memset(arena,0xa5,16);SWITCH_ROM(8);riding_brake32((int32_t*)(arena+4));
+ memset(arena,0xa5,16);SWITCH_ROM(8);
+ if(count & 2) {
+  left=9;right=2;
+  riding_brake_fields((int32_t*)(arena+left),(int32_t*)(arena+right));
+ } else riding_brake32((int32_t*)(arena+left));
+ if(q24_fraction!=row.fraction || q24_saturated!=row.saturated)++q24_bad;
  if(CURRENT_BANK!=8)++banks_bad;
- for(k=0;k<2;k++)if(((int32_t*)(arena+4))[k]!=row.expected[k]) {
+ for(k=0;k<2;k++)if((*(int32_t*)(arena+(k?right:left)))!=row.expected[k]) {
   if(!failures) {
-   first_actual=((int32_t*)(arena+4))[k];first_expected=row.expected[k];first_case=count;
+   first_actual=(*(int32_t*)(arena+(k?right:left)));first_expected=row.expected[k];first_case=count;
   }
   failures++;
  }
- for(k=0;k<16;k++)if((k<4||k>=12)&&arena[k]!=0xa5)guards++;
+ for(k=0;k<16;k++)if((k<left||k>=left+4)&&(k<right||k>=right+4)&&arena[k]!=0xa5)guards++;
  if(memcmp(&Bike,row.bike,sizeof(Bike)))state_bad++;
  count++;
 }
 void main(void) {
  uint16_t i;disable_interrupts();DISPLAY_OFF;cpu_fast();
 '''
-
-WRAPPER = '''#include "physics_math.h"
-int32_t riding_coeff32_C_BRAKE_A(int32_t v) __sdcccall(0) {return Q24_MUL(v,C_BRAKE_A);}
-int32_t riding_coeff32_C_BRAKE_W(int32_t v) __sdcccall(0) {return Q24_MUL(v,C_BRAKE_W);}
-int32_t riding_coeff32_C_BRAKE_GW(int32_t v) __sdcccall(0) {return Q24_MUL(v,C_BRAKE_GW);}
-'''
-
 
 def s32(value):
     return (value + 2**31) % 2**32 - 2**31
@@ -111,17 +116,23 @@ def main():
             damping = 'C_BRAKE_GW' if contacts[k] else 'C_BRAKE_W'
             expected.append(s32(-q24(da, constants['C_BRAKE_A'][phase])
                                 - q24(dw, constants[damping][phase])))
-        rows.append(bytes(state) + contacts + bytes([phase]) + struct.pack('<ii', *expected))
+        # Q24 leaves the last wheel's damping residual and saturation flag live.
+        raw = dw * constants[damping][phase]
+        rounded = (raw + 2**23) >> 24
+        saturated = rounded != q24(dw, constants[damping][phase])
+        fraction = 0 if saturated else raw - (rounded << 24)
+        rows.append(bytes(state) + contacts + bytes([phase])
+                    + struct.pack('<iiiB', *expected, fraction, saturated))
     header = ('#include <stdint.h>\n'
-              'typedef struct {uint8_t bike[119],contacts[2],phase;int32_t expected[2];} row_t;\n')
+              'typedef struct {uint8_t bike[119],contacts[2],phase;int32_t expected[2],fraction;uint8_t saturated;} row_t;\n')
     sources = []
     driver = DRIVER
     for bank, start in enumerate(range(0, len(rows), 80), 10):
         block = rows[start:start+80]
-        header += f'extern const uint8_t rows{bank}[{len(block)}][130];\n'
+        header += f'extern const uint8_t rows{bank}[{len(block)}][135];\n'
         path = out / f'vec{bank}.c'
         path.write_text(f'#pragma bank {bank}\n#include "vectors.h"\n'
-                        f'const uint8_t rows{bank}[{len(block)}][130]={{\n'
+                        f'const uint8_t rows{bank}[{len(block)}][135]={{\n'
                         + ',\n'.join('{' + ','.join(map(str, row)) + '}' for row in block)
                         + '\n};\n')
         sources.append(path)
@@ -129,10 +140,11 @@ def main():
                    f'memcpy(&row,rows{bank}[i],sizeof(row));check();}}\n')
     (out / 'vectors.h').write_text(header)
     (out / 'driver.c').write_text(driver + 'done=1;while(1){}}\n')
-    (out / 'wrapper.c').write_text(WRAPPER)
-    common = [src / 'physics_brake_fast.s', src / 'physics_q24.s']
+    brake_source = src / 'physics_brake_fast.s'
+    brake = brake_dispatch.generate(gen, brake_source, out / 'physics_brake_game.s')
+    common = [brake, src / 'physics_q24.s']
     tables = [gen / 'physics_q24_dispatch.c', *sorted(gen.glob('physics_q24_table_*.c'))]
-    inputs = [out / 'driver.c', out / 'wrapper.c', *common, *tables, *sources]
+    inputs = [out / 'driver.c', *common, *tables, *sources]
     rom = out / 'check.gbc'
     command = [BASE / '.toolchain/gbdk/bin/lcc', '-msm83:gb', '-Wf--opt-code-size',
                '-Wm-yC', '-Wm-yt0x19', '-Wm-yoA', '-Wl-m', '-Wl-j',
@@ -143,7 +155,7 @@ def main():
         raise RuntimeError(f'Build failed; see {out / "compile.log"}')
     hashes = {}
     for prefix, paths in (('fixture', list(out.glob('*.c')) + list(out.glob('*.h'))),
-                          ('source', common + list(src.glob('*.h'))),
+                          ('source', common + [brake_source, Path(brake_dispatch.__file__)] + list(src.glob('*.h'))),
                           ('generated', tables + list(gen.glob('*.h')))):
         for path in paths:
             hashes[f'{prefix}/{path.name}'] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -161,7 +173,7 @@ def main():
         address = symbols['_'+name]
         return int.from_bytes(bytes(emulator.memory[address:address+size]), 'little', signed=signed)
 
-    failures = ('failures', 'guards', 'state_bad', 'banks_bad')
+    failures = ('failures', 'guards', 'state_bad', 'banks_bad', 'q24_bad')
     try:
         for _ in range(200):
             emulator.tick(50, False)

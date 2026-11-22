@@ -5,7 +5,7 @@
 
 ; Carry if the signed position at HL is below the limit at DE. Both point at
 ; the most significant byte. Only exact ties need the lower coordinate bytes.
-bounds_before:
+_riding_bounds_before::
  ld a,(de)
  xor #0x80
  ld b,a
@@ -31,7 +31,7 @@ bounds_before:
 .macro bounds_compare pos,limit
  ld hl,#(_Bike+pos+3)
  ld de,#(_riding_level+limit+3)
- call bounds_before
+ call _riding_bounds_before
 .endm
 
 _wheels_in_grid::

@@ -44,7 +44,9 @@ void riding_step_wheels(void) __sdcccall(0);
 uint8_t riding_step_head(void);
 typedef char scheduled_step_layout[
     sizeof(circle_t)==24 && offsetof(bike_t,body.omega)==20 &&
-    offsetof(bike_t,head_x)==88 && offsetof(bike_t,gravity)==97 &&
+    offsetof(bike_t,head_x)==88 && offsetof(bike_t,turned)==96 && offsetof(bike_t,gravity)==97 &&
+    offsetof(bike_t,brake_was)==98 && offsetof(bike_t,steps)==99 &&
+    offsetof(bike_t,gfrac)==100 && offsetof(bike_t,dbrake)==101 && IN_GAS==1 && IN_BRAKE==2 &&
     GRAV_UP==0 && GRAV_DOWN==1 && GRAV_LEFT==2 && GRAV_RIGHT==3 ? 1 : -1];
 #endif
 
@@ -108,7 +110,10 @@ static void angle( void ) {
 #ifdef __SDCC
 extern int16_t riding_pose_rest[2];
 void riding_step_head_position(void) __sdcccall(0);
-void riding_brake_fields(int32_t *left, int32_t *right);
+void riding_step_controls(uint8_t input);
+int16_t riding_step_gravity(const int32_t *whole, const int32_t *fraction);
+const int32_t riding_drive_bounds[2]={WHEEL_MAXW,-WHEEL_MAXW};
+const int32_t riding_drive_torque[2]={GAS_TQ,-GAS_TQ};
 #define head_position riding_step_head_position
 #else
 static void head_position(void) {
@@ -418,11 +423,14 @@ static void step_volts(uint8_t input) {
 }
 
 uint8_t ph_step( uint8_t input ) {
-#ifndef __SDCC
+#ifdef __SDCC
+    riding_step_controls(input);
+    riding_suspension_scheduled();
+    riding_step_fraction();
+#else
 	int32_t previous_head_x=Bike.head_x,previous_head_y=Bike.head_y;
     angle();
     Oms = body_oms();
-#endif
 
 	// Gas and brake:
 	uint8_t brake = input & IN_BRAKE;
@@ -431,25 +439,16 @@ uint8_t ph_step( uint8_t input ) {
 		Bike.dbrake[1] = Bike.wheel[1].alfa-Bike.body.alfa;
 	}
 	Bike.brake_was = brake;
-#ifdef __SDCC
-#define STEP_TORQUE(slot) riding_suspension_state.wheel[slot].tq
-#else
-    int32_t tq[2];
-#define STEP_TORQUE(slot) tq[slot]
-#endif
-	STEP_TORQUE(0) = 0; STEP_TORQUE(1) = 0;
+    int32_t tq[2]={0,0};
 	if( input & IN_GAS ) {
 		if( Bike.turned ) {
 			if( Bike.wheel[0].omega > -WHEEL_MAXW )
-				STEP_TORQUE(0) = -GAS_TQ;
+				tq[0] = -GAS_TQ;
 		}
 		else if( Bike.wheel[1].omega < WHEEL_MAXW )
-			STEP_TORQUE(1) = GAS_TQ;
+			tq[1] = GAS_TQ;
 	}
 	if( brake ) {
-#ifdef __SDCC
-        riding_brake_fields(&STEP_TORQUE(0), &STEP_TORQUE(1));
-#else
 		for( uint8_t k = 0; k < 2; k++ ) {
 			// Brake deflection accumulates: wrapping at half a turn reverses
 			// the spring torque during hard landings (Hi Flyer's final pipe).
@@ -460,14 +459,8 @@ uint8_t ph_step( uint8_t input ) {
 			int32_t dw = Bike.wheel[k].omega-Bike.body.omega;
 			tq[k] = -spring-(riding_landing_contact[k]?KMUL32(dw,C_BRAKE_GW):KMUL32(dw,C_BRAKE_W));
 		}
-#endif
 	}
 
-#undef STEP_TORQUE
-#ifdef __SDCC
-    riding_suspension_scheduled();
-    riding_step_fraction();
-#else
 	// Forces between the wheels and the body (erokszamitasa). The anchors
 	// of the springs, from the rotation of (K_X, -K_Y):
 	int32_t a = q24_apply(Cs,Q24_ANCHOR_X), b = q24_apply(Sn,Q24_ANCHOR_Y);
@@ -535,20 +528,20 @@ uint8_t ph_step( uint8_t input ) {
     if ((input & (IN_VOLT_RIGHT | IN_VOLT_LEFT)) || Bike.volt[0] || Bike.volt[1])
         step_volts(input);
 
-	// Gravity, with its fraction carried over:
-	int16_t g = G_INT;
-	uint8_t f = Bike.gfrac;
-	Bike.gfrac = f+G_FRAC;
-	if( Bike.gfrac < f )
-		g++;
-    ++Bike.steps;
+    // Gravity, with its fraction carried over:
 #ifdef __SDCC
+    int16_t g=riding_step_gravity(phase_G_INT,phase_G_FRAC);
     rider_limit();
     riding_step_apply(g);
     move_body();
     riding_step_wheels();
     return riding_step_head();
 #else
+    int16_t g = G_INT;
+    uint8_t f = Bike.gfrac;
+    Bike.gfrac = f+G_FRAC;
+    if( Bike.gfrac < f )g++;
+    ++Bike.steps;
 	int16_t gx = 0, gy = 0;
 	switch( Bike.gravity ) {
 		case GRAV_UP: gy = g; break;

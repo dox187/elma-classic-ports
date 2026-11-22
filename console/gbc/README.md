@@ -3,11 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test14 — 8 MiB](build/elma-gbc-v0.96-test14-8m.gbc)**.
-Across 216 routes on all 54 courses this ROM averages **22.12 physics
-updates per emulated second**, up from **21.20** in test13. Freefall
-averages **22.33**. The two-display-frame target is **29.86**.
-All 19,885 compared gameplay updates reproduce test13.
+**[0.96 test15 — 8 MiB](build/elma-gbc-v0.96-test15-8m.gbc)**.
+Across 216 routes on all 54 courses this ROM averages **22.39 physics
+updates per emulated second**, up from **22.12** in test14. Freefall
+averages **22.57**. The two-display-frame target is **29.86**.
+All 19,885 compared gameplay updates reproduce test14.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +57,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test15 — terrain vertices, braking and camera
+
+Wheel contact with a terrain vertex can look up the exact integer normal.
+On shallow slopes the solver can often decide the sign of the impulse
+directly. The brake, throttle and gravity paths use the same physics units
+and cutoffs. The camera retains a projection already calculated during
+scenery preparation. The worst complete update fell from 658,224 to
+557,592 CPU cycles across the 216 controller routes.
+[Full timings and validation](PERFORMANCE.md#096-test15--combined-cartridge)
 
 ## 0.96 test14 — suspension and display preparation
 

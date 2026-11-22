@@ -74,7 +74,8 @@ static uint8_t volt_wait,objects_valid,objects_apples,objects_used,object_phase;
 static uint8_t visible_objects[LEVEL_OBJECT_MAX],visible_count;
 static uint16_t objects_camera_x,objects_camera_y;
 static bike_screen_t screen;
-static int16_t body_world[2];
+static int16_t body_world[2],next_camera_x,next_camera_y;
+static uint8_t camera_prepared;
 #define body_world_x body_world[0]
 #define body_world_y body_world[1]
 static uint16_t clock_fraction;
@@ -89,7 +90,7 @@ const uint8_t game_hud_font_advance=4;
 
 void gbc_video_body_world(int16_t *dest) __sdcccall(0);
 
-static void position_camera(uint8_t jump) {
+static void project_camera(uint8_t jump) {
     int16_t x,y;
     gbc_video_body_world(body_world);
     x=body_world_x-80;y=body_world_y-68;
@@ -103,7 +104,13 @@ static void position_camera(uint8_t jump) {
         if(y>(int16_t)game_camera_y+8)y=game_camera_y+8;
         if(y<(int16_t)game_camera_y-8)y=game_camera_y-8;
     }
-    game_camera_x=x;game_camera_y=y;
+    next_camera_x=x;next_camera_y=y;
+}
+
+static void position_camera(uint8_t jump) {
+    if(jump || !camera_prepared)project_camera(jump);
+    game_camera_x=next_camera_x;game_camera_y=next_camera_y;
+    camera_prepared=0;
 }
 
 void gbc_video_parts_screen(bike_screen_t *dest) __sdcccall(0);
@@ -331,7 +338,7 @@ static void video_init(void) {
 
 static void restore_game(void) BANKED {
     game_ready=0;DISPLAY_OFF;
-    objects_valid=0;objects_used=40;
+    camera_prepared=0;objects_valid=0;objects_used=40;
     video_init();world_begin(game_camera_x,game_camera_y);
     gbc_video_body_world(body_world);
     bike_screen();bike_render_draw(&gbc_bike,&screen);draw_objects();draw_hud();
@@ -379,17 +386,12 @@ void game_present(void) BANKED {
  * its offscreen map cells during otherwise idle time; camera publication keeps
  * the existing presentation/input schedule. */
 static void prepare_next_view(uint16_t start) BANKED {
-    int16_t body[2],x,y;
+    int16_t x,y;
     uint8_t ahead_x,ahead_y,dx,dy,tx,ty;
-    gbc_video_body_world(body);x=body[0]-80;y=body[1]-68;
-    if(x<0)x=0;
-    if(y<0)y=0;
-    if(x>WORLD_WIDTH-160)x=WORLD_WIDTH-160;
-    if(y>WORLD_HEIGHT-144)y=WORLD_HEIGHT-144;
-    if(x>(int16_t)game_camera_x+8)x=game_camera_x+8;
-    if(x<(int16_t)game_camera_x-8)x=game_camera_x-8;
-    if(y>(int16_t)game_camera_y+8)y=game_camera_y+8;
-    if(y<(int16_t)game_camera_y-8)y=game_camera_y-8;
+    /* Physics finished this pose. The next presentation uses these same
+     * pixels even if the scenery prediction looks one tile farther ahead. */
+    project_camera(0);camera_prepared=1;
+    x=next_camera_x;y=next_camera_y;
     if((x>>3)==(game_camera_x>>3) && (y>>3)==(game_camera_y>>3)) {
         /* Fine scrolling leaves the same ring cells visible. Prepare the
          * next tile in the current direction while those cells stay pinned. */

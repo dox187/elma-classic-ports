@@ -76,6 +76,7 @@ endif
 check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/check_wheel_pair.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_wheel_terrain.py --gen $(GEN) --rom $(GAME_ROM)
+	$(PYTHON) test/check_normal_atlas.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_physics_rider.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_projection_tables.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_roll_table.py --rom $(GAME_ROM)

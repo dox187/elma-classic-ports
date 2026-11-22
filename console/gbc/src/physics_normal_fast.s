@@ -27,12 +27,16 @@ _riding_normal_fast::
  ld a,(hl+)
  ld d,(hl)
  ld e,a
+normal_cache_copy:
  ld hl,#normal_cache_value
  .rept 6
  ld a,(hl+)
  ld (de),a
  inc de
  .endm
+ .ifdef RIDING_NORMAL_ATLAS
+ ld a,#1
+ .endif
  ret
 normal_cache_miss:
  ldhl sp,#2

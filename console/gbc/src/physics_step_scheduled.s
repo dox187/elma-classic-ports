@@ -64,6 +64,110 @@ step_fraction = 48
  push de
 .endm
 
+; Set both torques once. Braking supersedes throttle in the PC solver.
+; On the first brake substep, capture each angle relative to the body.
+.macro step_brake_origin wheel_angle,destination
+ ld hl,#(_Bike+16)
+ ld de,#(_Bike+destination)
+ .irp offset,0,1,2,3
+ ld a,(#(_Bike+wheel_angle+offset))
+ .if offset
+ sbc a,(hl)
+ .else
+ sub a,(hl)
+ .endif
+ ld (de),a
+ inc de
+ inc hl
+ .endm
+.endm
+_riding_step_controls::
+ bit 1,a
+ jr z,step_drive
+ ld hl,#(_Bike+98)
+ ld a,(hl)
+ ld (hl),#2
+ or a
+ jr nz,step_brake
+ step_brake_origin 40,101
+ step_brake_origin 64,105
+step_brake:
+ ld de,#(_riding_suspension_state+18)
+ ld bc,#(_riding_suspension_state+32)
+ jp _riding_brake_fields
+step_drive:
+ ld b,a
+ xor a
+ ld (#(_Bike+98)),a
+ ld hl,#(_riding_suspension_state+18)
+ .rept 3
+ ld (hl+),a
+ .endm
+ ld (hl),a
+ ld hl,#(_riding_suspension_state+32)
+ .rept 3
+ ld (hl+),a
+ .endm
+ ld (hl),a
+ bit 0,b
+ ret z
+ ld a,(#(_Bike+96))
+ or a
+ jr nz,step_left_drive
+ ld hl,#(_Bike+68+3)
+ ld de,#(_riding_drive_bounds+3)
+ call _riding_bounds_before
+ ret nc
+ ld hl,#_riding_drive_torque
+ ld de,#(_riding_suspension_state+32)
+ jr step_store_torque
+step_left_drive:
+ ld hl,#(_riding_drive_bounds+7)
+ ld de,#(_Bike+44+3)
+ call _riding_bounds_before
+ ret nc
+ ld hl,#(_riding_drive_torque+4)
+ ld de,#(_riding_suspension_state+18)
+step_store_torque:
+ .rept 3
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ ld a,(hl)
+ ld (de),a
+ ret
+
+; DE and BC point to the two generated int32 rows for gravity. Its integer
+; part fits int16, its fraction fits uint8. Return the magnitude in BC.
+_riding_step_gravity::
+ ld a,(#_riding_subphase)
+ or a
+ jr z,step_gravity_row
+ ld hl,#4
+ add hl,de
+ ld d,h
+ ld e,l
+ ld hl,#4
+ add hl,bc
+ ld b,h
+ ld c,l
+step_gravity_row:
+ ld hl,#(_Bike+99)
+ inc (hl)
+ inc hl
+ ld a,(bc)
+ add a,(hl)
+ ld (hl),a
+ ld a,(de)
+ adc a,#0
+ ld c,a
+ inc de
+ ld a,(de)
+ adc a,#0
+ ld b,a
+ ret
+
 ; Before the volt/rider paths can overwrite q24_fraction, combine both
 ; sub-unit torque terms. Store the new signed24 residual in the consumed
 ; spring field. The rider still observes the previous angular_residual.
