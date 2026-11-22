@@ -2223,3 +2223,41 @@ The ROM SHA-256 is `4292c81fe0d77059560940a3144d6bdfb9d2922dc639d5865f16487cdea3
 Rebuild with `tools/build.py --gen build/gen-v096-test4-8m --rom-mib 8
 --out build/elma-gbc-v0.96-test10-8m.gbc` using the project's Python
 environment. Reports are in `build/v096-test10/`.
+
+### 0.96 test11 — combined cartridge
+
+The build uses empty and single-edge certificates for half-metre wheel
+squares and retains the ordered contact iterator where the geometry is
+ambiguous. The row data occupies 170,859 bytes in the tails of graphics
+banks. Grounded motion reads prepared contact inputs directly. The
+suspension shares the angular-speed rows across four lever products and
+uses a signed24 path with a full-width fallback. Rider displacement and
+scheduled movement use the original signed floors, saturation and Q24
+residuals. Adjacent raw graphics cells with the same pattern share a pinned
+slot while retaining their individual palette, flip and reference.
+
+| Full-game PyBoy workload | Test10 | Test11 |
+| --- | ---: | ---: |
+| Aggregate updates/s on 216 routes | 18.061 | 19.569 |
+| Freefall input samples/s, full descent | 18.768 | 19.652 |
+| Mean whole active update / physics T-cycles | 409,130 / 355,098 | 368,361 / 314,430 |
+| Maximum active T-cycles | 690,444 | 684,488 |
+| Active updates over budget / 19,885 | 18,692 | 18,071 |
+| Entire routes within deadline / 216 | 5 | 6 |
+
+All 19,885 controller updates matched test10 at both comparison points.
+The native fixtures reproduced all 12,380 frozen test5 states. The 45
+PC landing and braking checks passed and the 20 seeded spins reproduced
+the test10 PC comparisons. The linked wheel maps passed 1,683,776 checks,
+5,184 cold and warm native queries, and two VBlank interruptions. Other
+checks covered 2,400 grounded wheel cases, 6,381 spring and spin arithmetic
+cases, 4,889 rider displacements, 9,778 scheduled rider movements,
+48,816 head sweeps, and the player and save flow. The raw scrolling
+fixtures covered 3,199 views plus 3,031 mixed-pattern views.
+
+The ROM SHA-256 is
+`1d85dbc3bbf849e3c62c8bc4a0038459526b7d84bf38b18f4ba645a7044bd938`.
+It has 20 bytes free in fixed ROM and keeps banks 508–511 empty for FlashMaster.
+Run `tools/build.py --gen build/gen-v096-test4-8m --rom-mib 8 --out
+build/elma-gbc-v0.96-test11-8m.gbc` with the project Python environment.
+The combined reports are in `build/v096-test11/`. These are emulator results.

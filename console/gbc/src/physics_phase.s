@@ -3,12 +3,6 @@
 .module physics_phase
 .area _CODE
 _phase_advance::
- ld a,(#_riding_subphase)
- or a,a
- jr nz,phase_second
- ; A full substep adds only the low velocity nibble at bit 20.
- ; Bias the signed residual by half a unit: the byte addition's carry
- ; is exactly the extra position unit, and its low 16 bits stay intact.
  ldhl sp,#3
  ld a,(hl)
  add a,a
@@ -18,6 +12,20 @@ _phase_advance::
  ld a,#>(_move_residual+2)
  adc a,#0
  ld h,a
+ call _riding_phase_advance_hl
+ pop hl
+ inc sp
+ inc sp
+ jp (hl)
+
+; Native entry. HL is the address of byte 2 of the coordinate's residual.
+_riding_phase_advance_hl::
+ ld a,(#_riding_subphase)
+ or a,a
+ jr nz,phase_second
+ ; A full substep adds only the low velocity nibble at bit 20.
+ ; Bias the signed residual by half a unit: the byte addition's carry
+ ; is exactly the extra position unit, and its low 16 bits stay intact.
  push bc
  ld a,(hl)
  xor a,#0x80
@@ -47,83 +55,43 @@ _phase_advance::
  rr c
  .endm
  pop af
- jp z,phase_done
- jp phase_increment
+ jr z,phase_done
+ jr phase_increment
 phase_second:
+ push hl
  ld a,(#_riding_move_index)
- push af
- inc sp
- call _q24_apply
+ dec sp
+ call _q24_apply_a
+ pop hl
  push de
  push bc
- ld hl,#_q24_fraction
- ld c,(hl)
- inc hl
- ld b,(hl)
- inc hl
- ld e,(hl)
- inc hl
- ld d,(hl)
-phase_residual:
- ldhl sp,#7
+ ; Bias the old signed residual by half a Q24 unit. In unsigned
+ ; arithmetic the correction is carry + sign_extension(fraction).
+ ; q24_apply publishes a canonical signed 24-bit fraction in HRAM.
  ld a,(hl)
- add a,a
- add a,a
- ld l,a
- ld h,#0
- push de
- ld de,#_move_residual
- add hl,de
- pop de
- ld a,(hl)
- add a,c
- ld c,a
- inc hl
- ld a,(hl)
+ xor a,#0x80
+ ld b,a
+ dec hl
+ dec hl
+ ldh a,(#_q24_fraction)
+ add a,(hl)
+ ld (hl+),a
+ ldh a,(#_q24_fraction+1)
+ adc a,(hl)
+ ld (hl+),a
+ ldh a,(#_q24_fraction+2)
  adc a,b
  ld b,a
- inc hl
- ld a,(hl)
- adc a,e
- ld e,a
- inc hl
- ld a,(hl)
- adc a,d
- ld d,a
- bit 7,d
- jr nz,phase_negative
- ld a,d
- or a,a
- jr nz,phase_carry_positive
- bit 7,e
- jr nz,phase_carry_positive
- xor a
- jr phase_store
-phase_negative:
- ld a,d
- cp #255
- jr nz,phase_carry_negative
- bit 7,e
- jr z,phase_carry_negative
- xor a
- jr phase_store
-phase_carry_positive:
- dec d
- ld a,#1
- jr phase_store
-phase_carry_negative:
- inc d
- ld a,#255
-phase_store:
- push af
- ld (hl),d
- dec hl
- ld (hl),e
- dec hl
- ld (hl),b
- dec hl
- ld (hl),c
- pop af
+ ldh a,(#_q24_fraction+3)
+ adc a,#0
+ ld c,a
+ ld a,b
+ xor a,#0x80
+ ld (hl+),a
+ rlca
+ sbc a,a
+ ld (hl),a
+ ld a,c
  pop bc
  pop de
  or a,a
@@ -131,32 +99,21 @@ phase_store:
  bit 7,a
  jr nz,phase_decrement
 phase_increment:
- inc c
+ inc bc
+ ld a,b
+ or a,c
  jr nz,phase_done
- inc b
- jr nz,phase_done
- inc e
- jr nz,phase_done
- inc d
+ inc de
  jr phase_done
 phase_decrement:
- ld a,c
- sub a,#1
- ld c,a
+ dec bc
  ld a,b
- sbc a,#0
- ld b,a
- ld a,e
- sbc a,#0
- ld e,a
- ld a,d
- sbc a,#0
- ld d,a
+ and a,c
+ inc a
+ jr nz,phase_done
+ dec de
 phase_done:
- pop hl
- inc sp
- inc sp
- jp (hl)
+ ret
 
 _phase_move::
  ld a,(#_riding_subphase)
@@ -167,12 +124,25 @@ _phase_move::
  ld (hl),a
  jp _q24_apply
 angle_first:
- .rept 5
- sla c
- rl b
- rl e
- rl d
+ .macro shift_five upper,lower
+ ld a,upper
+ xor a,lower
+ and a,#7
+ xor a,lower
+ rrca
+ rrca
+ rrca
+ ld upper,a
  .endm
+ shift_five d,e
+ shift_five e,b
+ shift_five b,c
+ ld a,c
+ rrca
+ rrca
+ rrca
+ and a,#0xe0
+ ld c,a
  pop hl
  inc sp
  jp (hl)

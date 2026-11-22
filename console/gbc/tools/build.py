@@ -9,6 +9,7 @@ import subprocess
 
 import head_clearance
 import projection_tables
+import wheel_terrain
 
 BASE=Path(__file__).resolve().parents[1]
 
@@ -48,6 +49,8 @@ def validate_linked_layout(symbol_path,rom_mib):
                 raise ValueError(f'Head-clearance directory requires bank {bank} at 0x4000')
         if symbols['_riding_head_cell_mask'] >> 16 != 4 or symbols['_riding_head_read_map'] >= 0x4000:
             raise ValueError('Head-clearance reader requires caller bank 4 and fixed-ROM bank switching')
+    if '_riding_wheel_lookup' in symbols:
+        wheel_terrain.validate_layout(symbols)
     if '_riding_projection_bank_477' in symbols:
         projection_tables.validate_layout(symbols)
     return {'rom0_end':fixed_end,'rom0_free_bytes':0x4000-fixed_end}
@@ -254,6 +257,10 @@ def main():
         sources+=sorted(a.gen.glob(pattern))
     if not scheduled:sources.append(a.gen/'physics_coefficient_calls.s')
     sources += [a.gen/name for name in ('level_catalogue.c','menu_assets.c','splash_assets.c','physics_level_data.c','riding16_parts.c','riding_meta.c')]
+    if scheduled:
+        # Native graphics pointers require their original bank base. Place
+        # each linked terrain row after the graphics payload in its bank.
+        sources += [BASE/'src/wheel_terrain.s', wheel_terrain.generate(a.gen)]
     validate_profile(a.gen,rom_mib,sources)
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
@@ -266,6 +273,7 @@ def main():
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
     def source_flags(path):
+        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN']
         if scheduled and path==sweep_path:return ['-DRIDING_HEAD_TERRAIN']
         return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []
     def source_key(path):

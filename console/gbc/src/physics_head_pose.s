@@ -7,6 +7,30 @@ _riding_pose_phase:: .ds 2
 
 .area _CODE_8
 _riding_head_pose32::
+ call _riding_step_head_position
+ ; Stack ABI0: publish cosine and sine to the calling physics context.
+ ldhl sp,#2
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(#_riding_pose_trig)
+ ld (bc),a
+ inc bc
+ ld a,(#_riding_pose_trig+1)
+ ld (bc),a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ ld a,(#_riding_pose_trig+2)
+ ld (bc),a
+ inc bc
+ ld a,(#_riding_pose_trig+3)
+ ld (bc),a
+ ret
+
+; The game reads the cached trig pair directly.
+_riding_step_head_position::
  ; Rounded Q16 phase, discarding the high turn bits.
  ld hl,#_Bike+16
  ld a,(hl+)
@@ -42,26 +66,6 @@ pose_refresh:
  ld hl,#_riding_refresh_geometry
  call ___sdcc_bcall_ehl
 pose_ready:
- ; Stack ABI0: publish cosine and sine to the calling physics context.
- ldhl sp,#2
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld b,a
- ld a,(#_riding_pose_trig)
- ld (bc),a
- inc bc
- ld a,(#_riding_pose_trig+1)
- ld (bc),a
- ld a,(hl+)
- ld c,a
- ld b,(hl)
- ld a,(#_riding_pose_trig+2)
- ld (bc),a
- inc bc
- ld a,(#_riding_pose_trig+3)
- ld (bc),a
-
  ; DE and BC hold the two facing-dependent head displacements.
  ld hl,#_riding_pose_cosine
  ld a,(hl+)

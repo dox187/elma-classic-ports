@@ -77,13 +77,13 @@ free_velocity:
  .endm
  .endm
  pop hl
- jr wheel_move_hl
+ jr _riding_wheel_move_hl
 _riding_wheel_move::
  ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
  ld l,a
-wheel_move_hl:
+_riding_wheel_move_hl::
  ld a,l
  cp a,#<(_Bike+24)
  jr nz,wheel_move_other

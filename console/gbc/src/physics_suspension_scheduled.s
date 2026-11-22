@@ -6,6 +6,8 @@
 .area _DATA
 ss_g: .ds 8
 ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
+ss_spin_mid: .ds 16
+ss_spin_top: .ds 16
 ss_product_upper: .ds 2
 ss_moment: .ds 9
 ss_ts: .ds 4
@@ -190,13 +192,13 @@ selected:
  ss_spring 1,_riding_pose_anchor+8+offset,ss_damping+24+offset,ss_g+4,_riding_suspension_state+24+offset
  ld hl,#_riding_pose_anchor+offset
  ld de,#ss_g+4
- call ss_lever_product
+ call ss_spring_product
  push bc
  push hl
  push de
  ld hl,#_riding_pose_anchor+8+offset
  ld de,#ss_g
- call ss_lever_product
+ call ss_spring_product
  call ss_spring_difference
  add sp,#6
  .if offset
@@ -204,19 +206,11 @@ selected:
  .else
  ss_write ss_ts
  .endif
- ld hl,#ss_damping+24+offset
- ld de,#_riding_suspension_state+4
- call ss_lever_spin18
- ld b,h
- ld c,l
+ ss_read ss_damping+offset
  ss_add _Bike+wheel+8
  ss_reverse_sub _Bike+8
  ss_damper 0,ss_damping+offset,_riding_suspension_state+16+offset
- ld hl,#ss_damping+16+offset
- ld de,#_riding_suspension_state+4
- call ss_lever_spin18
- ld b,h
- ld c,l
+ ss_read ss_damping+8+offset
  ss_add _Bike+12
  ss_sub _Bike+wheel+12
  ss_damper 1,ss_damping+8+offset,_riding_suspension_state+24+offset
@@ -269,6 +263,7 @@ _riding_suspension_scheduled::
  ss_arm 0,48,ss_damping+20
  ss_arm 4,28,ss_damping+24
  ss_arm 4,52,ss_damping+28
+ call ss_spin_four
  ; Each coefficient is used on both axes of both wheels.
  ld de,#0
  ld a,(#_riding_subphase)
@@ -374,17 +369,22 @@ ss_spring_difference:
  sbc a,b
  ld b,a
  pop af
- .rept 4
- srl b
- rr c
- rr d
- rr e
- rra
- .endm
- ld b,c
+ ld h,a
+.macro ss_join_nibbles low,high,out
+ ld a,low
+ xor a,high
+ and a,#0x0f
+ xor a,low
+ swap a
+ ld out,a
+.endm
+ ss_join_nibbles h,e,h
+ ss_join_nibbles e,d,e
+ ss_join_nibbles d,c,d
+ ss_join_nibbles c,b,b
  ld c,d
  ld d,e
- ld e,a
+ ld e,h
  ret
 
 ; floor(angular_residual * 27007 / 2^24). The normalized residual limits
@@ -553,6 +553,287 @@ ss_combine_products:
  ld l,e
  pop de
  add sp,#10
+ ret
+
+; Spring needs just the low 48 bits even when the signed result is wider.
+; A narrow displacement goes straight to the existing single product. A
+; signed24 pair uses three byte rows rather than two signed32x16 products.
+ss_spring_product:
+ push hl
+ ld h,d
+ ld l,e
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jr nz,ss_spring_check24
+ inc hl
+ cp a,(hl)
+ jr nz,ss_spring_fallback
+ pop hl
+ jp _riding_product32x16_regs
+ss_spring_check24:
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ add a,a
+ sbc a,a
+ cp a,h
+ jr nz,ss_spring_fallback
+ push de
+ bit 7,h
+ jr z,ss_spring_speed_pos
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ ld a,#0
+ sbc a,l
+ ld l,a
+ss_spring_speed_pos:
+ ; Keep the sign and speed's upper two magnitude bytes on the stack.
+ ld a,h
+ ld h,l
+ ld l,b
+ push hl
+ push af
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jr nz,ss_spring_arm_wide
+ pop af
+ xor a,b
+ bit 7,b
+ jr z,ss_spring_arm_pos
+ push af
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ pop af
+ss_spring_arm_pos:
+ pop hl
+ add sp,#4
+ push af
+ call ss_magnitude_product
+ pop af
+ bit 7,a
+ ret z
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,l
+ ld l,a
+ ld a,#0
+ sbc a,h
+ ld h,a
+ ld a,#0
+ sbc a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ ret
+ss_spring_arm_wide:
+ add sp,#4
+ pop de
+ss_spring_fallback:
+ pop hl
+ jp ss_lever_product
+
+; The four products share omega. For signed24 operands write it as
+; lo + 256*mid + 65536*top, with a signed top byte. Each byte selects a
+; multiplication-table bank just once for all four independent arms.
+ss_spin_four:
+ ld hl,#_riding_suspension_state+4
+ ld a,(hl+)
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ inc hl
+ or a,(hl)
+ jr nz,ss_spin_nonzero
+ ld hl,#ss_damping
+ .rept 16
+ ld (hl+),a
+ .endm
+ ret
+ss_spin_nonzero:
+ dec hl
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jp nz,ss_spin_full
+.macro ss_arm_width offset
+ ld hl,#ss_damping+16+offset+2
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jp nz,ss_spin_full
+.endm
+ ss_arm_width 0
+ ss_arm_width 4
+ ss_arm_width 8
+ ss_arm_width 12
+ ld a,(#_riding_suspension_state+4)
+ ld de,#ss_damping
+ call ss_spin_rows
+ ld hl,#_riding_suspension_state+5
+ ld a,(hl+)
+ or a,(hl)
+ jp z,ss_spin_byte
+ ld a,(#_riding_suspension_state+5)
+ ld de,#ss_spin_mid
+ call ss_spin_rows
+ ld a,(#_riding_suspension_state+6)
+ or a
+ jr z,ss_spin_top_ready
+ inc a
+ jr z,ss_spin_top_ready
+ dec a
+ bit 7,a
+ jr z,ss_spin_top_digit
+ cpl
+ inc a
+ss_spin_top_digit:
+ ld de,#ss_spin_top
+ call ss_spin_rows
+ss_spin_top_ready:
+ ; L and M are signed32 rows. Their first two product bytes affect only
+ ; the carry into floor((L + 256*M) / 65536). The remaining result of
+ ; this unsigned16 by signed24 product fits signed24, including minima.
+.macro ss_spin_merge label,offset,arm
+label:
+ ld hl,#ss_spin_mid+offset
+ ld a,(#ss_damping+offset+1)
+ add a,(hl)
+ inc hl
+ ld a,(#ss_damping+offset+2)
+ adc a,(hl)
+ ld e,a
+ inc hl
+ ld a,(#ss_damping+offset+3)
+ adc a,(hl)
+ ld d,a
+ inc hl
+ ; Sign of L equals sign of its arm when lo is nonzero. Use the
+ ; actual high bit of L to cover a zero low row as well.
+ ld a,(#ss_damping+offset+3)
+ bit 7,a
+ ld a,#0
+ jr z,001$
+ dec a
+001$:
+ adc a,(hl)
+ ld c,a
+ add a,a
+ sbc a,a
+ ld b,a
+ ld a,(#_riding_suspension_state+6)
+ or a
+ jr z,004$
+ inc a
+ jr nz,002$
+ ss_sub ss_damping+arm
+ jr 004$
+002$:
+ ld a,(#_riding_suspension_state+6)
+ bit 7,a
+ jr z,005$
+ ss_sub ss_spin_top+offset
+ jr 004$
+005$:
+ ss_add ss_spin_top+offset
+004$:
+ ; Round the full signed product once after the Q18 shift.
+ sra b
+ rr c
+ rr d
+ rr e
+ sra b
+ rr c
+ rr d
+ rr e
+ jr nc,006$
+ inc de
+ ld a,d
+ or a,e
+ jr nz,006$
+ inc bc
+006$:
+ ss_write ss_damping+offset
+.endm
+ ss_spin_merge ss_merge_0,0,24
+ ss_spin_merge ss_merge_4,4,28
+ ss_spin_merge ss_merge_8,8,16
+ ss_spin_merge ss_merge_12,12,20
+ ret
+ss_spin_byte:
+ ; For omega in 1..255 each first row is the complete signed32 product.
+.macro ss_spin_byte_shift label,offset
+label:
+ ld hl,#ss_damping+offset+2
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ sra d
+ rr e
+ sra d
+ rr e
+ jr nc,001$
+ inc de
+001$:
+ ld a,d
+ add a,a
+ sbc a,a
+ ld b,a
+ ld c,a
+ ss_write ss_damping+offset
+.endm
+ ss_spin_byte_shift ss_spin_byte_y0,0
+ ss_spin_byte_shift ss_spin_byte_y1,4
+ ss_spin_byte_shift ss_spin_byte_x0,8
+ ss_spin_byte_shift ss_spin_byte_x1,12
+ ret
+ss_spin_full:
+.macro ss_spin_fallback offset,arm
+ ld hl,#ss_damping+arm
+ ld de,#_riding_suspension_state+4
+ call ss_lever_spin18
+ ld b,h
+ ld c,l
+ ss_write ss_damping+offset
+.endm
+ ss_spin_fallback 0,24
+ ss_spin_fallback 4,28
+ ss_spin_fallback 8,16
+ ss_spin_fallback 12,20
  ret
 
 ; Return clamp32((speed * arm + 2^17) >> 18) in HLDE.
@@ -1005,10 +1286,84 @@ ss_magnitude_sub:
  dec (hl)
  ret
 
+; A is an unsigned omega digit, DE points to four signed32 row results.
+ss_spin_rows:
+ or a
+ jr nz,ss_spin_select
+ ld h,d
+ ld l,e
+ .rept 16
+ ld (hl+),a
+ .endm
+ ret
+ss_spin_select:
+ ld c,a
+ and a,#31
+ add a,a
+ or a,#>_physics_scale_planes_36
+ ld h,a
+ ld a,c
+ rlca
+ rlca
+ rlca
+ and a,#7
+ add a,#36
+ jp ss_spin_rows_mapped
+
 .area _CODE
+; Read the same two pages for all four arms. B is the carry byte between
+; successive digits, and C retains the row multiplier for sign correction.
+.macro ss_spin_row label,arm
+ ld a,(#ss_damping+arm)
+ ld l,a
+ ld a,(hl)
+ ld (de),a
+ inc de
+ inc h
+ ld b,(hl)
+ ld a,(#ss_damping+arm+1)
+ ld l,a
+ dec h
+ ld a,(hl)
+ add a,b
+ ld (de),a
+ inc de
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld b,a
+ ld a,(#ss_damping+arm+2)
+ ld l,a
+ dec h
+ ld a,(hl)
+ add a,b
+ ld (de),a
+ inc de
+ inc h
+ ld a,(hl)
+ adc a,#0
+ bit 7,l
+ jr z,label
+ ; A negative arm is unsigned_low24 - 2^24.
+ sub a,c
+label:
+ ld (de),a
+ inc de
+ dec h
+.endm
+ss_spin_rows_mapped:
+ ld (#0x2000),a
+ ss_spin_row ss_spin_row_y0,24
+ ss_spin_row ss_spin_row_y1,28
+ ss_spin_row ss_spin_row_x0,16
+ ss_spin_row ss_spin_row_x1,20
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+
 ; Multiply B:DE (arm magnitude) by H:L:C (speed magnitude). Combine the
 ; complete byte-table rows before returning the unsigned product in BC:HL:DE.
-; ss_g is free after both spring torques have been accumulated.
+; The spin rows are free by the time the spring and damping products run.
 .macro ss_mt_two_rows
  ; A is the middle speed digit. Save its row while looking up the low digit.
  push bc
@@ -1063,7 +1418,7 @@ ss_mt_three:
  ld c,a
  call ss_mt_row
  ; Store top partial at byte offset 2, then compute the two lower rows.
- ld hl,#ss_g+4
+ ld hl,#ss_spin_mid
  ld (hl),e
  inc hl
  ld (hl),d
@@ -1076,16 +1431,16 @@ ss_mt_three:
  pop hl
  ld a,l
  ss_mt_two_rows
- ld a,(#ss_g+4)
+ ld a,(#ss_spin_mid+0)
  add a,l
  ld l,a
- ld a,(#ss_g+5)
+ ld a,(#ss_spin_mid+1)
  adc a,h
  ld h,a
- ld a,(#ss_g+6)
+ ld a,(#ss_spin_mid+2)
  adc a,c
  ld c,a
- ld a,(#ss_g+7)
+ ld a,(#ss_spin_mid+3)
  adc a,b
  ld b,a
  jr ss_mt_done

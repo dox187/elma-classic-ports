@@ -33,8 +33,7 @@ uint8_t world_cache_free_bits[FREE_BYTES];
 #define free_bits world_cache_free_bits
 static const uint8_t slot_masks[8]={1,2,4,8,16,32,64,128};
 static uint8_t strip_low[21],strip_high[21],strip_attrs[21];
-static uint8_t output_tiles[21],output_attrs[21];
-static uint16_t output_slots[21];
+static uint8_t output_tiles[21];
 static uint8_t tile_buffer[16];
 static uint16_t palettes[28];
 static uint16_t retired[40];
@@ -269,12 +268,12 @@ static void load_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
     fetch_strip(x,y,vertical,count,0,0);
     for(i=0;i<count;++i) {
         id=strip_low[i]|((uint16_t)strip_high[i]<<8);slot=acquire(id);
-        output_slots[i]=slot;
-        if(slot<252U){output_tiles[i]=(uint8_t)slot;output_attrs[i]=strip_attrs[i];}
-        else {output_tiles[i]=(uint8_t)(slot+4U);output_attrs[i]=strip_attrs[i]|8;}
+        prepare_added[i]=slot;
+        if(slot<252U)output_tiles[i]=(uint8_t)slot;
+        else {output_tiles[i]=(uint8_t)(slot+4U);strip_attrs[i]|=8;}
     }
-    world_slot_strip_set(x,y,vertical,count,output_slots);
-    gbc_video_strip_pair(x,y,vertical,count,output_tiles,output_attrs);
+    world_slot_strip_set(x,y,vertical,count,prepare_added);
+    gbc_video_strip_pair(x,y,vertical,count,output_tiles,strip_attrs);
 }
 
 static void release_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
@@ -413,9 +412,9 @@ static void prepare_begin(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) {
 static void prepare_acquire(void) {
     uint8_t i=prepare_index;
     uint16_t id=strip_low[i]|((uint16_t)strip_high[i]<<8),slot=acquire(id);
-    output_slots[i]=slot;prepare_added[prepare_added_count++]=slot;
-    if(slot<252U){output_tiles[i]=(uint8_t)slot;output_attrs[i]=strip_attrs[i];}
-    else{output_tiles[i]=(uint8_t)(slot+4U);output_attrs[i]=strip_attrs[i]|8;}
+    prepare_added[prepare_added_count++]=slot;
+    if(slot<252U)output_tiles[i]=(uint8_t)slot;
+    else{output_tiles[i]=(uint8_t)(slot+4U);strip_attrs[i]|=8;}
     ++prepare_index;
 }
 #else
@@ -429,10 +428,31 @@ static void prepare_acquire(void) __naked {
         ld b,#0
         ld hl,#_strip_low
         add hl,bc
-        ld e,(hl)
+        ld a,(hl-)
+        ld e,a
+        ld a,c
+        or a
+        jr z,fpa_read_high
+        ld a,(hl)
+        cp e
+        jr nz,fpa_read_high
+        ld hl,#_strip_high
+        add hl,bc
+        ld a,(hl-)
+        ld d,a
+        cp (hl)
+        jr nz,fpa_lookup
+        ; A failed acquire returns a placeholder without pinning a slot.
+        ld a,(#_world_cache_failures)
+        ld hl,#_world_cache_failures+1
+        or (hl)
+        jp z,fpa_repeat
+        jr fpa_lookup
+fpa_read_high:
         ld hl,#_strip_high
         add hl,bc
         ld d,(hl)
+fpa_lookup:
         push de
         call _world_lookup_get
         ld a,d
@@ -568,17 +588,6 @@ fpa_outputs:
         ld a,(#_prepare_index)
         ld c,a
         ld b,#0
-        ld a,c
-        add a,a
-        add a,#<(_output_slots)
-        ld l,a
-        ld a,#>(_output_slots)
-        adc a,#0
-        ld h,a
-        ld a,e
-        ld (hl+),a
-        ld (hl),d
-
         ld hl,#_prepare_added_count
         ld a,(hl)
         inc (hl)
@@ -599,25 +608,121 @@ fpa_outputs:
         ld a,e
         jr c,00110$
         add a,#4
-        ld e,a
         ld hl,#_strip_attrs
         add hl,bc
-        ld a,(hl)
-        or #8
-        jr 00111$
+        set 3,(hl)
 00110$:
-        ld hl,#_strip_attrs
-        add hl,bc
-        ld a,(hl)
-00111$:
         ld hl,#_output_tiles
-        add hl,bc
-        ld (hl),e
-        ld hl,#_output_attrs
         add hl,bc
         ld (hl),a
         ld hl,#_prepare_index
         inc (hl)
+        ret
+fpa_repeat:
+        ; The preceding cell pinned this ID and is still in the rollback log.
+        ; Find the identical prefix in each ID plane. The palette and flips
+        ; are independent per cell. BC starts as the current 0-based index.
+        ld hl,#_strip_low
+        add hl,bc
+        ld a,(#_prepare_count)
+        sub c
+        ld b,a
+        push bc
+fpa_same_low:
+        ld a,(hl+)
+        cp e
+        jr nz,fpa_low_end
+        dec b
+        jr nz,fpa_same_low
+fpa_low_end:
+        ld e,b
+        pop bc
+        ld a,b
+        sub e
+        ld e,a
+        ld b,#0
+        ld hl,#_strip_high
+        add hl,bc
+        ld b,e
+fpa_same_high:
+        ld a,(hl+)
+        cp d
+        jr nz,fpa_high_end
+        dec b
+        jr nz,fpa_same_high
+fpa_high_end:
+        ld a,e
+        sub b
+        ld b,a
+        add c
+        ld (#_prepare_index),a
+        ld hl,#_prepare_added_count
+        ld a,(hl)
+        ld e,a
+        add b
+        ld (hl),a
+        ld a,e
+        add a,a
+        add a,#<(_prepare_added-2)
+        ld l,a
+        ld a,#>(_prepare_added-2)
+        adc a,#0
+        ld h,a
+        ld a,(hl+)
+        ld e,a
+        ld a,(hl+)
+        ld d,a
+        push bc
+fpa_log_repeats:
+        ld a,e
+        ld (hl+),a
+        ld a,d
+        ld (hl+),a
+        dec b
+        jr nz,fpa_log_repeats
+        pop bc
+        ld h,d
+        ld l,e
+        add hl,hl
+        push bc
+        ld bc,#_world_cache_references
+        add hl,bc
+        pop bc
+        ld a,(hl)
+        add b
+        ld (hl+),a
+        jr nc,fpa_repeat_tiles
+        inc (hl)
+fpa_repeat_tiles:
+        ld a,e
+        cp #252
+        ld a,d
+        sbc a,#0
+        ld a,e
+        jr c,fpa_tile_run
+        add a,#4
+        push af
+        ld hl,#_strip_attrs
+        ld e,b
+        ld b,#0
+        add hl,bc
+        ld b,e
+fpa_bank_run:
+        set 3,(hl)
+        inc hl
+        dec b
+        jr nz,fpa_bank_run
+        ld b,e
+        pop af
+fpa_tile_run:
+        ld hl,#_output_tiles
+        ld e,b
+        ld b,#0
+        add hl,bc
+fpa_store_run:
+        ld (hl+),a
+        dec e
+        jr nz,fpa_store_run
         ret
 fpa_clear_free:
  push de
@@ -648,7 +753,7 @@ fpa_clear_masks:
     __endasm;
 }
 #else
-/* Near bank6 bookkeeping keeps both slot lists and the acquisition order.
+/* Near bank6 bookkeeping keeps the rollback slots in acquisition order.
  * Indices remain bounded by the staged caller; no scratch RAM is needed. */
 static void prepare_acquire(void) __naked {
     __asm
@@ -666,17 +771,6 @@ static void prepare_acquire(void) __naked {
         call _world_acquire_fast
         pop hl
         pop bc
-
-        ld a,c
-        add a,a
-        add a,#<(_output_slots)
-        ld l,a
-        ld a,#>(_output_slots)
-        adc a,#0
-        ld h,a
-        ld a,e
-        ld (hl+),a
-        ld (hl),d
 
         ld hl,#_prepare_added_count
         ld a,(hl)
@@ -698,21 +792,11 @@ static void prepare_acquire(void) __naked {
         ld a,e
         jr c,00110$
         add a,#4
-        ld e,a
         ld hl,#_strip_attrs
         add hl,bc
-        ld a,(hl)
-        or #8
-        jr 00111$
+        set 3,(hl)
 00110$:
-        ld hl,#_strip_attrs
-        add hl,bc
-        ld a,(hl)
-00111$:
         ld hl,#_output_tiles
-        add hl,bc
-        ld (hl),e
-        ld hl,#_output_attrs
         add hl,bc
         ld (hl),a
         ld hl,#_prepare_index
@@ -724,8 +808,10 @@ static void prepare_acquire(void) __naked {
 #endif
 
 static void prepare_publish(uint8_t vertical) {
-    world_slot_strip_set(prepare_strip_x,prepare_strip_y,vertical,prepare_count,output_slots);
-    gbc_video_strip_pair(prepare_strip_x,prepare_strip_y,vertical,prepare_count,output_tiles,output_attrs);
+    /* The rollback log already holds this strip's complete ordered slots. */
+    world_slot_strip_set(prepare_strip_x,prepare_strip_y,vertical,prepare_count,
+                         prepare_added+(prepare_added_count-prepare_count));
+    gbc_video_strip_pair(prepare_strip_x,prepare_strip_y,vertical,prepare_count,output_tiles,strip_attrs);
 }
 
 #ifdef WORLD_GRAPHICS_ZX0

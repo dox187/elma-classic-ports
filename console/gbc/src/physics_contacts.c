@@ -659,6 +659,10 @@ ws_build:
 ws_change:
     pop hl
     pop de
+#ifdef RIDING_WHEEL_TERRAIN
+    push hl
+    push de
+#endif
     inc de
     inc de
     ld a,(de)
@@ -675,8 +679,14 @@ ws_change:
     ld a,(de)
     ld (hl+),a
     ld (hl),#8
+#ifdef RIDING_WHEEL_TERRAIN
+    pop de
+    pop bc
+    jp _riding_compiled_surface
+#else
     ld a,#255
     ret
+#endif
 ws_pair:
     ; The upper halves already matched. Compare every remaining center byte.
     pop bc
@@ -726,6 +736,9 @@ ws_empty:
     xor a,a
     ret
 ws_interior:
+#ifdef RIDING_WHEEL_TERRAIN
+_riding_wheel_cached_plane::
+#endif
     pop de
     pop hl
     inc hl
@@ -773,7 +786,49 @@ ws_compute:
     adc a,(hl)
     inc hl
     ld b,a
-    ; HL points at the immutable normal. Save it across the rounded dot.
+    ; The Q14 dot is the signed coordinate on exact unit axes.
+    push hl
+    ld a,(hl+)
+    or a
+    jr nz,ws_full_dot
+    ld a,(hl+)
+    or a
+    jr z,ws_plane_y
+    cp #0x40
+    jr z,ws_plane_x
+    cp #0xc0
+    jr nz,ws_full_dot
+ws_plane_x:
+    ld a,(hl+)
+    or (hl)
+    jr nz,ws_full_dot
+    dec hl
+    dec hl
+    ld c,e
+    ld b,d
+    bit 7,(hl)
+    jr z,ws_plane_distance
+    jr ws_plane_neg
+ws_plane_y:
+    ld a,(hl+)
+    or a
+    jr nz,ws_full_dot
+    ld a,(hl)
+    cp #0x40
+    jr z,ws_plane_distance
+    cp #0xc0
+    jr nz,ws_full_dot
+ws_plane_neg:
+    ; Both signed extremes are rejected by the radius test below.
+    xor a
+    sub c
+    ld c,a
+    sbc a,a
+    sub b
+    ld b,a
+    jr ws_plane_distance
+ws_full_dot:
+    pop hl
     push hl
     push bc
     ld a,(hl+)
@@ -791,6 +846,7 @@ ws_compute:
     ld b,(hl)
     call _dotq14
     pop hl  ; discard saved point Y
+ws_plane_distance:
     pop hl  ; normal at offset 9
     ; BC is d. Wheel radius is 410, inclusive max length 409.
     ld a,c
@@ -888,15 +944,17 @@ void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED __na
     call _contacts
 ws_have_answer:
     or a,a
-    jr z,wheel_no_contact
+    jp z,wheel_no_contact
     ldhl sp,#6
     ld e,(hl)
     inc hl
     ld d,(hl)
     call _riding_prepare_contacts
     or a,a
-    jr z,wheel_no_contact
+    jp z,wheel_no_contact
 wheel_resolve:
+    cp #1
+    jp z,wheel_single
     ldhl sp,#6
     ld d,h
     ld e,l
@@ -915,6 +973,132 @@ wheel_query_position:
 wheel_prepared_pair:
     ld a,#2
     jr wheel_resolve
+
+wheel_single:
+    ; If both impulse products are nonpositive, their rounded Q14 sum is
+    ; also nonpositive. Opposite signs or a zero normal prove each term.
+    ld a,(#_Ct+1)
+    ldhl sp,#11
+    xor (hl)
+    bit 7,a
+    jr nz,wheel_single_y
+    ld hl,#_Ct
+    ld a,(hl+)
+    or (hl)
+    jr nz,wheel_single_dot
+wheel_single_y:
+    ld a,(#_Ct+3)
+    ldhl sp,#15
+    xor (hl)
+    bit 7,a
+    jr nz,wheel_single_accepted
+    ld hl,#_Ct+2
+    ld a,(hl+)
+    or (hl)
+    jr z,wheel_single_accepted
+wheel_single_dot:
+    ldhl sp,#8
+    ld d,h
+    ld e,l
+    ld hl,#_Ct
+    call _riding_dotq14_regs
+    bit 7,h
+    jr nz,wheel_single_accepted
+    ld a,h
+    or l
+    or d
+    or e
+    jr z,wheel_single_accepted
+    ; Outward impulse: accept exactly when normal velocity <= -ELSZ.
+    ldhl sp,#6
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    call wheel_normal_velocity
+    bit 7,h
+    jp z,wheel_no_contact
+    ld a,h
+    and l
+    and d
+    inc a
+    jr nz,wheel_single_accepted
+    ld a,(#_riding_supports_threshold)
+    or a
+    jr z,wheel_single_accepted
+    cp e
+    jp c,wheel_no_contact
+    jp z,wheel_no_contact
+wheel_single_accepted:
+    ldhl sp,#6
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    ld bc,#0
+    cp #<(_Bike+48)
+    jr nz,wheel_single_slot
+    ld a,d
+    cp #>(_Bike+48)
+    jr nz,wheel_single_slot
+    inc c
+wheel_single_slot:
+    push bc
+    ld hl,#_riding_audio_contact
+    add hl,bc
+    ld a,(hl)
+    ld (hl),#1
+    or a
+    jr nz,wheel_single_quiet
+    ; First supported contact samples the velocity before rolling changes it.
+    call wheel_normal_velocity
+    bit 7,h
+    jr z,wheel_single_quiet
+    ld a,h
+    and l
+    inc a
+    ld a,#1
+    jr nz,wheel_single_impact
+    ld hl,#_riding_impact_low
+    ld a,e
+    sub (hl)
+    inc hl
+    ld a,d
+    sbc (hl)
+    rla
+    and #1
+    jr wheel_single_impact
+wheel_single_quiet:
+    xor a
+wheel_single_impact:
+    pop bc
+    ld hl,#_riding_audio_impact
+    add hl,bc
+    ld (hl),a
+    ld hl,#_riding_landing_contact
+    add hl,bc
+    ld (hl),#1
+    sla c
+    ld hl,#_riding_landing_nx
+    add hl,bc
+    ld a,(#_Ct)
+    ld (hl+),a
+    ld a,(#_Ct+1)
+    ld (hl),a
+    ld hl,#_riding_landing_ny
+    add hl,bc
+    ld a,(#_Ct+2)
+    ld (hl+),a
+    ld a,(#_Ct+3)
+    ld (hl),a
+    ldhl sp,#6
+    ld bc,#_Ct
+    jp _riding_roll_inputs
+wheel_normal_velocity:
+    ld hl,#8
+    add hl,de
+    ld d,h
+    ld e,l
+    ld hl,#_Ct
+    jp _riding_dotq14_regs
 wheel_no_contact:
     ; Clear every reported field, even on the first airborne substep.
     ldhl sp,#6

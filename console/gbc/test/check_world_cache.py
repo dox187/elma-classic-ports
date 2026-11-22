@@ -35,10 +35,13 @@ def pattern(value):
     return bytes((value&255,value>>8))+bytes(((value*37)+(i*19)+(value>>(i&7)))&255 for i in range(2,16))
 
 
-def logical(level,x,y):
+def logical(level,x,y,mixed_runs=False):
     if x>=64 or y>=48:return 0,0
     value=0 if level==0 else y*64+x if level==1 else 28000+(y*64+x)%410
-    attribute=0 if level==0 else ((x+2*y)%7)|((x&1)<<5)|((y&1)<<6)|(128 if (x+y)%5==0 else 0)
+    if mixed_runs and level==2 and (x//8+y//8)%3:
+        # Neighbouring 4x4 runs share a low ID byte and differ in the high byte.
+        value=28000+256*((x//4+y//4)&1)+(y//8)*8+x//8
+    attribute=0 if level==0 and not mixed_runs else ((x+2*y)%7)|((x&1)<<5)|((y&1)<<6)|(128 if (x+y)%5==0 else 0)
     return value,attribute
 
 
@@ -50,6 +53,7 @@ def main():
     parser.add_argument('--world-source',type=Path,default=BASE/'src/world.c')
     parser.add_argument('--helper-dir',type=Path,help='private assembly snapshot; missing files use production sources')
     parser.add_argument('--compressed',action='store_true',help='exercise the production WORLD_GRAPHICS_ZX0 path')
+    parser.add_argument('--mixed-runs',action='store_true',help='vary attributes within repeated IDs and cross high-byte-only ID changes')
     parser.add_argument('--launch-observer',action='store_true',help='observe DMA launches and guards only; avoid PyBoy instruction-hook IRQ stalls')
     args=parser.parse_args()
     OUT=args.out
@@ -95,7 +99,7 @@ def main():
         chunks=[]
         for cy in range(3):
             for cx in range(2):
-                pairs=[logical(level,cx*32+x,cy*16+y)for y in range(16)for x in range(32)]
+                pairs=[logical(level,cx*32+x,cy*16+y,args.mixed_runs)for y in range(16)for x in range(32)]
                 chunks.append(bytes(v&255 for v,a in pairs)+bytes(v>>8 for v,a in pairs)+bytes(a for v,a in pairs))
         level_chunks.append(chunks)
     if args.compressed:
@@ -194,7 +198,12 @@ volatile uint8_t bad_expected,bad_actual;
 +  if(tx>=64 || ty>=48){id=0;expected=0;}
 +  else {
 +   id=level==0?0:level==1?ty*64+tx:28000U+(ty*64+tx)%410U;
-+   expected=level==0?0:(uint8_t)(((tx+2*ty)%7)|((tx&1)<<5)|((ty&1)<<6)|((tx+ty)%5==0?128:0));
++   expected=(uint8_t)(((tx+2*ty)%7)|((tx&1)<<5)|((ty&1)<<6)|((tx+ty)%5==0?128:0));
++#ifdef FIXTURE_MIXED_RUNS
++   if(level==2 && ((tx>>3)+(ty>>3))%3)id=28000U+256U*(((tx>>2)+(ty>>2))&1)+(ty>>3)*8+(tx>>3);
++#else
++   if(level==0)expected=0;
++#endif
 +  }
 +  if((attribute&247)!=expected || cached_ids[slot]!=id)map_failures=1;
 +  VBK_REG=target>=256;
@@ -474,6 +483,7 @@ volatile uint8_t bad_expected,bad_actual;
 +}
 +'''.replace('\n+','\n'))
     flags=[str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x1a','-Wm-yo512','-Wm-ya4','-Wl-m','-Wl-j','-I'+str(OUT),'-I'+str(BASE/'src')]
+    if args.mixed_runs:flags.append('-DFIXTURE_MIXED_RUNS=1')
     # Keep linked instruction listings for executable code only. Looking for
     # opcode bytes across ROM data would corrupt fixtures when hooks replace
     # a coincidentally matching graphics byte with the breakpoint opcode.
@@ -604,7 +614,7 @@ volatile uint8_t bad_expected,bad_actual;
         if fine_phased:expected_views+=89
         if split_units:expected_views+=word('split_extra_views')
         report={'status':'passed','fixture':'synthetic source maps; production bank6 module, LCD-on scrolls, read-only counter inspection',
-            'graphics_codec':'zx0'if args.compressed else 'raw',
+            'graphics_codec':'zx0'if args.compressed else 'raw','mixed_runs':args.mixed_runs,
             'observer':'guards and DMA launches' if args.launch_observer else 'RAM writes, guards, DMA launches and safe completion sites',
             'cartridge':{'rom_bytes':len(rom),'ram_header_code':rom[0x149],'ram_bytes':32768,'ram_banks':4},
             'ram_bank_checks':{'observed':not args.launch_observer,'requested_banks':dict(ram_requests),'instruction_sites':ram_write_sites,

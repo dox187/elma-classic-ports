@@ -54,10 +54,13 @@ int32_t angular_residual;
 extern int16_t riding_landing_nx[2], riding_landing_ny[2];
 extern uint8_t riding_landing_contact[2];
 
-static int16_t Cs, Sn;   // cos and sin of the body's angle
 #ifdef __SDCC
+extern int16_t riding_pose_trig[2];
+#define Cs riding_pose_trig[0]
+#define Sn riding_pose_trig[1]
 #define Oms riding_suspension_state.oms
 #else
+static int16_t Cs, Sn;   // cos and sin of the body's angle
 static int32_t Oms;      // body angular velocity, see C_OMS
 #endif
 
@@ -102,9 +105,8 @@ static void angle( void ) {
 /* Rider, renderer and head collision all observe the same completed step. */
 #ifdef __SDCC
 extern int16_t riding_pose_rest[2];
-void riding_head_pose32(int16_t*,int16_t*) __sdcccall(0);
+void riding_step_head_position(void) __sdcccall(0);
 void riding_brake32(int32_t*) __sdcccall(0);
-void riding_step_head_position(void) {riding_head_pose32(&Cs,&Sn);}
 #define head_position riding_step_head_position
 #else
 static void head_position(void) {

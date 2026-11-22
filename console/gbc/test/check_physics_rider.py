@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 import random
@@ -93,13 +94,76 @@ def rows():
     return cases
 
 
+def check_scheduled_rom(rom):
+    """Exercise the shipped rider entry points with independently rounded movement."""
+    symbols = {name: int(value, 16) for name, value in re.findall(
+        r'^DEF (\S+) 0x([0-9a-fA-F]+)', rom.with_suffix('.noi').read_text(), re.M)}
+    image = bytearray(rom.read_bytes())
+    image[0x100:0x102] = bytes([0x18, 0xfe])
+    emu = PyBoy(BytesIO(image), cgb=True, window='null', sound_emulated=False)
+    emu.set_emulation_speed(0)
+    emu.tick(190, False)
+    mem, regs = emu.memory, emu.register_file
+    code = symbols['s__HEAP'] + 32
+    out, stack = code + 32, 0xdfa0
+    assert out + 12 < stack - 64
+    bike, residual = symbols['_Bike'], symbols['_move_residual']
+    mem[0xffff] = mem[0xff0f] = 0
+    mem[0x3000] = 0
+    mem[0x2000] = mem[symbols['__current_bank']] = 8
+
+    def invoke(name, arguments):
+        address = symbols[name]
+        assert address >> 16 == 8
+        mem[code:code+5] = [0xcd, address & 255, address >> 8 & 255, 0x18, 0xfe]
+        mem[stack:stack+len(arguments)] = arguments
+        regs.SP, regs.PC = stack, code
+        emu.tick(1, False)
+        assert (regs.SP, regs.PC) == (stack, code+3)
+        assert bytes(mem[stack:stack+len(arguments)]) == arguments
+        assert mem[symbols['__current_bank']] == 8
+
+    rng = random.Random(0x9611)
+    cases = rows()
+    try:
+        for i, row in enumerate(cases):
+            bx, by, x, y, vx, vy, ax, ay, rx, ry = row
+            mem[bike:bike+8] = struct.pack('<ii', bx, by)
+            mem[bike+72:bike+80] = struct.pack('<ii', x, y)
+            mem[out-1:out+9] = bytes([0xa5])*10
+            invoke('_riding_rider_vectors32', struct.pack('<hhH', rx, ry, out))
+            assert bytes(mem[out-1:out+9]) == b'\xa5'+expected(row)[:8]+b'\xa5', i
+            for phase, coefficient in enumerate((262144, 172845)):
+                rs = [rng.randrange(-2**23, 2**23) for _ in range(8)]
+                rs[6 + (i & 1)] = (-2**23, -1, 0, 1, 2**23-1)[i % 5]
+                mem[residual:residual+32] = struct.pack('<8i', *rs)
+                mem[bike+72:bike+88] = struct.pack('<4i', x, y, vx, vy)
+                mem[symbols['_riding_subphase']] = phase
+                invoke('_riding_rider_move32', struct.pack('<ii', ax, ay))
+                velocity = [s32(vx+ax), s32(vy+ay)]
+                position = [x, y]
+                for axis in range(2):
+                    total = velocity[axis]*4*coefficient + rs[6+axis]
+                    travel = (total + 2**23) >> 24
+                    position[axis] = s32(position[axis]+travel)
+                    rs[6+axis] = total - travel*2**24
+                assert bytes(mem[residual:residual+32]) == struct.pack('<8i', *rs), (i, phase)
+                assert bytes(mem[bike+72:bike+88]) == struct.pack('<4i', *position, *velocity), (i, phase)
+    finally:
+        emu.stop(save=False)
+    print(f'{len(cases)} rider vector and {2*len(cases)} scheduled movement cases passed')
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--rom", type=Path, help="validate the scheduled production ROM directly")
     parser.add_argument("--assembly", type=Path, default=BASE / "src/physics_rider_fast.s")
     parser.add_argument("--out", type=Path, default=BASE / "build/rider-check")
     parser.add_argument("--gen", type=Path, default=BASE / "build/gen")
     parser.add_argument("--lcc", type=Path, default=BASE / ".toolchain/gbdk/bin/lcc")
     args = parser.parse_args()
+    if args.rom:
+        return check_scheduled_rom(args.rom)
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     source_hash = hashlib.sha256(args.assembly.read_bytes()).hexdigest()

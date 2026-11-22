@@ -1,156 +1,146 @@
-; Exact rolling response: ABI0 k*,contact*,dvx32,dvy32,tq32, bank9.
-; Existing helpers preserve all projections, coefficient rounding and saturation.
-; Local stack: tangent0..3, projected velocity4..7, torque/speed8..11.
-; No shared scratch; circle_t offsets are compile-time checked by the caller.
+; Exact grounded rolling, bank 9. The public ABI0 entry takes
+; k*, contact*, dvx32, dvy32, tq32. The resolver already owns those inputs.
 .module physics_roll_fast
 .area _CODE_9
 _riding_roll32::
- add sp,#-12
-; Tangent is (-ny,nx), with the original signed16 negation.
- ldhl sp,#16
+ ldhl sp,#2
  ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld c,(hl)
- inc hl
- ld b,(hl)
- inc hl
- ld e,(hl)
- inc hl
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ jr roll_start
+; HL -> k*,dvx32,dvy32,tq32. BC -> contact normal.
+_riding_roll_inputs::
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+roll_start:
+ push de
+ push hl
+ ld h,b
+ ld l,c
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
  ld d,(hl)
+ ld e,a
  xor a
  sub a,e
  ld e,a
  ld a,#0
  sbc a,d
  ld d,a
- ldhl sp,#0
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; vn = dotq32(vx,vy,tangent,14).
- ldhl sp,#14
+ ; Tangent (-ny,nx), signed16 negation including INT16_MIN.
+ push bc
+ push de
+ ; Stack: tangent 0, impulses pointer 4, wheel pointer 6.
+ ldhl sp,#6
  ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld de,#8
+ ld d,(hl)
+ ld e,a
+ ld hl,#8
  add hl,de
- ld d,h
- ld e,l
- ldhl sp,#0
- call _riding_dotq14_regs
- ld b,h
- ld c,l
- ldhl sp,#4
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; dvn = dotq32(dvx,dvy,tangent,14).
- ldhl sp,#18
  ld d,h
  ld e,l
  ldhl sp,#0
  call _riding_dotq14_regs
  push hl
  push de
- call _riding_wheel_roll_t
- add sp,#4
-; t = tq + coefficient(dvn), wrapping32.
- ld b,h
- ld c,l
- ldhl sp,#26
- ld a,(hl+)
- add a,e
- ld e,a
- ld a,(hl+)
- adc a,d
- ld d,a
- ld a,(hl+)
- adc a,c
- ld c,a
- ld a,(hl)
- adc a,b
- ld b,a
+ ; Stack: vn 0, tangent 4, impulses pointer 8, wheel pointer 10.
  ldhl sp,#8
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; sp = vn + Q24(t,C_ROLL_DV), before angular quantization.
- ldhl sp,#10
- ld e,(hl)
- inc hl
+ ld a,(hl+)
  ld d,(hl)
- push de
- ldhl sp,#10
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_wheel_roll_dv
- add sp,#4
- ld b,h
- ld c,l
+ ld e,a
  ldhl sp,#4
- ld a,(hl+)
- add a,e
- ld e,a
- ld a,(hl+)
- adc a,d
- ld d,a
- ld a,(hl+)
- adc a,c
- ld c,a
- ld a,(hl)
- adc a,b
- ld b,a
+ call _riding_dotq14_regs
+ ld b,d
+ ld c,e
+ ld d,h
+ ld e,l
+ ld hl,#_q24_index_C_ROLL_T
+ dec sp
+ call roll_coefficient
+ ; t = tq + Q24(dvn, C_ROLL_T), modulo 2^32.
  ldhl sp,#8
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; omega = Q24(sp,C_ROLL_W); keep the full signed32 angular state.
- push bc
- push de
- call _riding_wheel_roll_w
- add sp,#4
- ld b,h
- ld c,l
- ldhl sp,#14
  ld a,(hl+)
  ld h,(hl)
  ld l,a
  push de
- ld de,#20
+ ld de,#8
  add hl,de
  pop de
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; vx = mulq32(sp,tangent,14).
+ ld a,(hl+)
+ add a,c
+ ld c,a
+ ld a,(hl+)
+ adc a,b
+ ld b,a
+ ld a,(hl+)
+ adc a,e
+ ld e,a
+ ld a,(hl)
+ adc a,d
+ ld d,a
+ ld hl,#_q24_index_C_ROLL_DV
+ dec sp
+ call roll_coefficient
+ ; Update vn in place to the tangential speed and keep it in DEBC for omega.
  ldhl sp,#0
+ ld a,(hl)
+ add a,c
+ ld (hl+),a
+ ld c,a
+ ld a,(hl)
+ adc a,b
+ ld (hl+),a
+ ld b,a
+ ld a,(hl)
+ adc a,e
+ ld (hl+),a
+ ld e,a
+ ld a,(hl)
+ adc a,d
+ ld (hl),a
+ ld d,a
+ ld hl,#_q24_index_C_ROLL_W
+ dec sp
+ call roll_coefficient
+ ldhl sp,#10
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ push bc
+ ld bc,#20
+ add hl,bc
+ pop bc
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ld a,e
+ ld (hl+),a
+ ld (hl),d
+ ; Form vy first and save it so both components can be written consecutively.
+ ldhl sp,#6
  ld c,(hl)
  inc hl
  ld b,(hl)
+ ldhl sp,#0
+ call _riding_mulq14_regs
+ push hl
+ push de
  ldhl sp,#8
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#4
  call _riding_mulq14_regs
  ld b,h
  ld c,l
@@ -162,42 +152,34 @@ _riding_roll32::
  ld de,#8
  add hl,de
  pop de
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
-; vy = mulq32(sp,tangent,14).
- ldhl sp,#2
- ld c,(hl)
- inc hl
- ld b,(hl)
- ldhl sp,#8
- call _riding_mulq14_regs
- ld b,h
- ld c,l
- ldhl sp,#14
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- push de
- ld de,#12
- add hl,de
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
  pop de
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
+ pop bc
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
  ld (hl),b
- ldhl sp,#14
- ld e,(hl)
+ add sp,#10
+ pop hl
+ jp _riding_wheel_move_hl
+
+; HL -> two phase indices. The Q24 entry consumes its reserved argument byte
+; and returns DEBC, including its normal fraction and saturation side effects.
+roll_coefficient:
+ ld a,(#_riding_subphase)
+ or a
+ jr z,roll_coefficient_ready
  inc hl
- ld d,(hl)
- push de
- call _riding_wheel_move
- add sp,#14
- ret
+roll_coefficient_ready:
+ ld a,(hl)
+ jp _q24_apply_a
