@@ -39,28 +39,74 @@ _riding_close_reaction32::
  sbc a,d
  ld d,a
 cr_magnitude_ready:
+ ; If N < D the whole-number part is zero and N is already the
+ ; remainder. Otherwise only the bottom nine quotient bits can survive
+ ; the signed clamp after multiplying by 2^22. Seed with N >> 9 and
+ ; feed the remaining nine numerator bits to the original division.
+ ldhl sp,#12
+ ld a,c
+ sub (hl)
+ inc hl
+ ld a,b
+ sbc (hl)
+ inc hl
+ ld a,e
+ sbc (hl)
+ inc hl
+ ld a,d
+ sbc (hl)
+ jr nc,cr_integer_needed
  ldhl sp,#0
- ld (hl),c
- inc hl
- ld (hl),b
- inc hl
- ld (hl),e
- inc hl
- ld (hl),d
- ; Explicit zero-denominator contract; caller may preserve its old fallback.
+ xor a
+ ld (hl+),a
+ ld (hl+),a
+ ld (hl+),a
+ ld (hl),a
+ jr cr_fraction_start
+cr_integer_needed:
+ ; Includes 0/0. A zero denominator retains its public result of zero.
  ldhl sp,#12
  ld a,(hl+)
- or a,(hl)
+ or (hl)
  inc hl
- or a,(hl)
+ or (hl)
  inc hl
- or a,(hl)
- jr z,cr_zero
- ; Divide the magnitude by distance2; quotient overwrites its input.
- ld bc,#0
- ld de,#0
+ or (hl)
+ jp z,cr_zero
+ ldhl sp,#3
+ ld a,b
+ rrca
+ ld a,c
+ rra
+ ld (hl-),a
+ ld a,#0
+ rra
+ ld (hl-),a
+ xor a
+ ld (hl-),a
+ ld (hl),a
+ ld c,b
+ ld b,e
+ ld e,d
+ ld d,#0
+ srl e
+ rr b
+ rr c
+ ldhl sp,#12
+ ld a,c
+ sub (hl)
+ inc hl
+ ld a,b
+ sbc (hl)
+ inc hl
+ ld a,e
+ sbc (hl)
+ inc hl
+ ld a,#0
+ sbc (hl)
+ jp nc,cr_saturate
  ldhl sp,#5
- ld (hl),#32
+ ld (hl),#9
 cr_integer_loop:
  ldhl sp,#0
  sla (hl)
@@ -78,16 +124,7 @@ cr_integer_loop:
  ldhl sp,#5
  dec (hl)
  jr nz,cr_integer_loop
- ; q >= 512 means q*2^22 >= 2^31, hence the signed result saturates.
- ; This also includes the exactly representable negative minimum.
- ldhl sp,#3
- ld a,(hl-)
- or a,(hl)
- jr nz,cr_saturate
- dec hl
- ld a,(hl)
- and a,#0xfe
- jr nz,cr_saturate
+cr_fraction_start:
  ; Emit 22 exact fractional quotient bits, feeding zeros into remainder.
  ldhl sp,#5
  ld (hl),#22

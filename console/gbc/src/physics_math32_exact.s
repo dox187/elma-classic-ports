@@ -86,6 +86,8 @@ exact_dot_general:
  call exact_finish
  add sp,#7
  ret
+; The scheduled cartridge uses its fused four-product damping moment.
+ .ifndef RIDING_PROJECTION_TABLES
 _riding_torque_input32::
  add sp,#-7
  ldhl sp,#0
@@ -170,6 +172,7 @@ _riding_torque_input32::
  call exact_finish
  add sp,#7
  ret
+ .endif
 ; HL -> signed32 x, BC = signed16 y. Return BC:HL:DE signed48.
 _riding_product32x16_regs::
 exact_product:
@@ -913,17 +916,39 @@ math32_projection_product:
  or a
  jr z,math32_projection_byte
  .ifdef RIDING_PROJECTION_TABLES
- ; DE is signed16 x. OR A above cleared carry to select a narrow result.
+ ; These callers have already verified the signed16 width.
+_riding_projection_signed16::
+ ld a,d
+ or a
+ jp z,math32_projection_byte
 math32_projection_lookup:
- ld a,#<477
+ push af
+ ld a,b
+ rrca
+ rrca
+ sub c
+ add a,#<_riding_projection_directory
+ ld l,a
+ ld a,#>_riding_projection_directory
+ adc a,#0
+ ld h,a
+ ld a,(hl)
+ cp b
+ jr nz,math32_lookup_miss
+ inc h
+ ld a,(hl)
+ or a
+ jr z,math32_lookup_miss
  ld (#0x2000),a
  ld a,#1
  ld (#0x3000),a
- jp _riding_projection_bank_477
-_riding_projection_miss16::
- xor a
- ld (#0x3000),a
- ; The original multiplier selects its own low bank and restores the caller.
+ inc h
+ ld h,(hl)
+ pop af
+ jp _riding_projection_fetch
+math32_lookup_miss:
+ pop af
+ jp c,math32_projection_full_fallback
  .endif
  ; Compute the unsigned product. If x or y is negative, subtract the
  ; opposite operand from its upper word to recover signed x*y modulo 2^32.
@@ -992,12 +1017,8 @@ math32_projection_wide:
  ; HL points to the high word. Keep it across the coefficient check.
  push hl
  scf
- jr math32_projection_lookup
-_riding_projection_miss32::
- xor a
- ld (#0x3000),a
- ld a,(#__current_bank)
- ld (#0x2000),a
+ jp math32_projection_lookup
+math32_projection_full_fallback:
  pop hl
  .endif
  dec hl

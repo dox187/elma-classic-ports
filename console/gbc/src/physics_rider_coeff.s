@@ -28,11 +28,20 @@ rider_check_input:
  ld a,#2
  ld (#0x2000),a
  call rider_lookup
+rider_restore:
  ld a,(#__current_bank)
  ld (#0x2000),a
  ret
 rider_wide:
  ret                          ; tail-call the saved full-width entry
+
+; DE is the signed16 relative velocity and HL points to the signed16
+; spring displacement. Both products use the same physical ROM bank.
+_riding_rider_pair16::
+ ld a,#2
+ ld (#0x2000),a
+ call rider_pair_lookup
+ jr rider_restore
 
 .area _CODE_2
 rider_lookup:
@@ -42,6 +51,7 @@ rider_lookup:
  ld a,#7
 rider_full:
  add a,c
+rider_lookup_page:
  ld hl,#_riding_rider_rows
  add a,h
  ld h,a
@@ -80,3 +90,57 @@ rider_full:
  sbc a,a
  ld h,a                       ; signed24 result extended to ABI0 HL:DE
  ret
+
+rider_pair_lookup:
+ push hl
+ ld a,(#_riding_subphase)
+ or a
+ jr z,rider_pair_phase
+ ld a,#7
+rider_pair_phase:
+ ld c,a
+ ld a,d
+ or e
+ jr z,rider_pair_spring_only
+ ld a,c
+ push af
+ add a,#14
+ call rider_lookup_page       ; signed24 damper in HL:DE
+ ld b,h
+ ld c,l
+ pop af
+ pop hl
+ push bc
+ push de
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ call rider_lookup_page       ; signed24 spring in HL:DE
+ ld b,h
+ ld c,l
+ ldhl sp,#0
+ ld a,e
+ sub (hl)
+ ld e,a
+ inc hl
+ ld a,d
+ sbc (hl)
+ ld d,a
+ inc hl
+ ld a,c
+ sbc (hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc (hl)
+ ld h,a
+ ld l,c
+ add sp,#4
+ ret
+rider_pair_spring_only:
+ pop hl
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ ld a,c
+ jp rider_lookup_page

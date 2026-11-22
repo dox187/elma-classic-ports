@@ -310,42 +310,161 @@ static void apply_push(circle_t *k, contact_t *c, contact_t *other, int32_t push
 
 #if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
 #define NATIVE_FINE_CONTACTS
+#if RIDING_PC_SCHEDULE && !defined(RIDING_COEFFICIENT_LOOKUP)
+#define NATIVE_ORDERED_PAIR
+#endif
 /* The native kernel uses 103547-distance. It may return zero for an
  * accepted contact proven to need no push. */
+typedef char fine_contact_constants[FINE_PUSH_TARGET==103547L && FINE_REJECT_PUSH==-1311L ? 1 : -1];
 int32_t riding_contact_push(circle_t *, const contact_t *);
 
 static void remember_prepared_pair(circle_t *k);
+#ifdef NATIVE_ORDERED_PAIR
+/* 0 = unknown, 1 = rounded zero, 2 = positive, 128 = negative.
+ * Each row belongs to one ordered pair at its exact cached center. */
+static uint8_t pair_separation[2][2];
+#endif
 
 /* One or two coarse candidates arrive in record order. Filter both against
  * the original center. The first push changes both the center fractions and
  * the other contact's length, so recompute its push only in that case. */
-uint8_t riding_prepare_contacts(circle_t *k, uint8_t n) {
-    int32_t first = riding_contact_push(k, &Ct[0]), second;
-    if (n == 2) {
-        second = riding_contact_push(k, &Ct[1]);
-        if (second > FINE_REJECT_PUSH) {
-            if (first > FINE_REJECT_PUSH) {
-                if (first > 0) {
-                    apply_push(k, &Ct[0], &Ct[1], first);
-                    second = riding_contact_push(k, &Ct[1]);
-                } else if (second <= 0) {
-                    /* Both contacts survived at the original Q18 center. */
-                    remember_prepared_pair(k);
-                    return 2;
-                }
-                if (second > 0)
-                    apply_push(k, &Ct[1], 0, second);
-                return 2;
-            }
-            Ct[0] = Ct[1];
-            first = second;
-        }
-    }
-    if (first <= FINE_REJECT_PUSH)
-        return 0;
-    if (first > 0)
-        apply_push(k, &Ct[0], 0, first);
-    return 1;
+uint8_t riding_prepare_contacts(circle_t *k, uint8_t n) __naked {
+    k;n;
+    __asm
+    ; The filter returns A=0 reject, 1 accepted and clear, 2 positive push.
+    ; DE:BC always carries the exact positive push. Keep the sole candidate
+    ; in registers from the filter through the common single-contact return.
+    push de
+    cp #2
+    jr z,prepare_pair
+    ld bc,#_Ct
+    call _riding_contact_push
+prepare_single:
+    cp #2
+    jr z,prepare_single_push
+    pop de
+    ret
+prepare_single_push:
+    ld a,d
+    or e
+    or b
+    jr nz,prepare_single_wide
+    ld a,c
+    ld bc,#_Ct
+    pop de
+    call _riding_push_byte
+    ld a,#1
+    ret
+prepare_single_wide:
+    push de
+    push bc
+    ld hl,#0
+    push hl
+    ld bc,#_Ct
+    call prepare_apply
+    pop de
+    ld a,#1
+    ret
+prepare_pair:
+    ld bc,#_Ct
+    call _riding_contact_push
+    push de
+    push bc
+    push af
+    ldhl sp,#6
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    ld bc,#(_Ct+10)
+    call _riding_contact_push
+    ld h,a
+    pop af
+    ld l,a
+    ld a,h
+    or a
+    jr z,prepare_first_only
+    ld a,l
+    or a
+    jr z,prepare_second_only
+    cp #2
+    jr z,prepare_first_push
+    add sp,#4
+    ld a,h
+    cp #2
+    jr z,prepare_second_push
+    pop de
+    call _remember_prepared_pair
+    ld a,#2
+    ret
+prepare_first_push:
+    ; The first push is already on the stack as the last argument.
+    ld hl,#(_Ct+10)
+    push hl
+    ld bc,#_Ct
+    call prepare_apply
+    ; Recompute the second push at the moved center and updated length.
+    ; The acceptance of both contacts was already decided before moving.
+    pop de
+    push de
+    ld bc,#(_Ct+10)
+    call _riding_contact_push
+    cp #2
+    jr nz,prepare_two
+prepare_second_push:
+    ld a,d
+    or e
+    or b
+    jr nz,prepare_second_wide
+    ld a,c
+    ld bc,#(_Ct+10)
+    pop de
+    call _riding_push_byte
+    ld a,#2
+    ret
+prepare_second_wide:
+    push de
+    push bc
+    ld hl,#0
+    push hl
+    ld bc,#(_Ct+10)
+    call prepare_apply
+prepare_two:
+    pop de
+    ld a,#2
+    ret
+prepare_first_only:
+    ld a,l
+    pop bc
+    pop de
+    jp prepare_single
+prepare_second_only:
+    add sp,#4
+    push de
+    push bc
+    push hl
+    ld hl,#(_Ct+10)
+    ld de,#_Ct
+    ld b,#10
+prepare_copy:
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    dec b
+    jr nz,prepare_copy
+    pop hl
+    pop bc
+    pop de
+    ld a,h
+    jp prepare_single
+prepare_apply:
+    ; _apply_push takes DE=wheel, BC=contact, then other and push on
+    ; the stack. Tail-call so it removes those six argument bytes.
+    ldhl sp,#8
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    jp _apply_push
+    __endasm;
 }
 #else
 static void pushout(circle_t *k, contact_t *c, contact_t *other) {
@@ -382,6 +501,7 @@ static uint8_t supports( circle_t* k, const contact_t* c, int32_t dvx, int32_t d
 #endif
 
 
+#ifndef NATIVE_ORDERED_PAIR
 static uint8_t same_side( int32_t d, int32_t m ) {
 	return !((d < 0 && m > 0) || (d > 0 && m < 0));
 }
@@ -406,6 +526,8 @@ static uint8_t sure_old(const contact_t *t1,const contact_t *t2,int32_t dvx,int3
  m=(int32_t)tq+KMUL32(p,C_OLD);
  return same_side(d,m);
 }
+
+#endif
 
 static uint8_t faster_1ms( const circle_t* k ) {
 	if( k->vx >= VEL_1MS || k->vx <= -VEL_1MS || k->vy >= VEL_1MS || k->vy <= -VEL_1MS )
@@ -469,6 +591,10 @@ surface_cache_t wheel_surface_cache[2];
  * halves and both complete records before the motion resolver can edit Ct. */
 static void remember_prepared_pair(circle_t *k) {
     surface_cache_t *w=&wheel_surface_cache[k==&Bike.wheel[1]];
+#ifdef NATIVE_ORDERED_PAIR
+    uint8_t *signs=pair_separation[k==&Bike.wheel[1]];
+    signs[0]=signs[1]=0;
+#endif
     w->kind=9;
     w->pair.low_x=(uint16_t)k->rx;
     w->pair.low_y=(uint16_t)k->ry;
@@ -971,8 +1097,16 @@ wheel_query_position:
     ld d,a
     ret
 wheel_prepared_pair:
+#ifdef NATIVE_ORDERED_PAIR
+    ; 254 carries the exact prepared-geometry proof to the ordered resolver.
+    ldhl sp,#6
+    ld d,h
+    ld e,l
+    jp _riding_wheel_contact
+#else
     ld a,#2
     jr wheel_resolve
+#endif
 
 wheel_single:
     ; If both impulse products are nonpositive, their rounded Q14 sum is
@@ -1132,6 +1266,43 @@ wheel_air_move:
     __endasm;
 }
 
+#ifdef NATIVE_ORDERED_PAIR
+/* Like Ct, this state is private to the active serial wheel query. The two
+ * support tests reread the wheel velocity after the previous removal. */
+int32_t *riding_pair_velocity;
+const int32_t *riding_pair_impulse;
+const int32_t *riding_pair_vector, *riding_pair_moment;
+uint8_t riding_pair_shift, riding_pair_coefficient, riding_pair_stopped;
+uint8_t riding_pair_sure(const contact_t *pivot,uint8_t *separation);
+uint8_t riding_pair_supports(const contact_t *contact);
+
+static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
+    circle_t *k=input->k;
+    riding_pair_velocity=&k->vx;
+    riding_pair_impulse=&input->dvx;
+    riding_pair_stopped=!(k->vx || k->vy);
+    if(!riding_pair_stopped && faster_1ms(k)) {
+        riding_pair_vector=riding_pair_velocity;
+        riding_pair_moment=&k->omega;
+        riding_pair_shift=10;
+        riding_pair_coefficient=q24_index_C_NEW[riding_subphase];
+    } else {
+        riding_pair_vector=riding_pair_impulse;
+        riding_pair_moment=&input->tq;
+        riding_pair_shift=6;
+        riding_pair_coefficient=q24_index_C_OLD[riding_subphase];
+    }
+    if(!riding_pair_sure(&Ct[1],signs)) {
+        Ct[0]=Ct[1];
+    } else if(riding_pair_sure(&Ct[0],signs+1) && riding_pair_supports(&Ct[1])) {
+        if(riding_pair_supports(&Ct[0])) return 2;
+        Ct[0]=Ct[1];
+        return 1;
+    }
+    return riding_pair_supports(&Ct[0]);
+}
+#endif
+
 void riding_wheel_contact(const wheel_input_t *input,uint8_t n) {
     circle_t *k=input->k;
     int32_t dvx=input->dvx,dvy=input->dvy,tq=input->tq;
@@ -1145,7 +1316,11 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
     }
     n=valid;
 #endif
+#ifdef NATIVE_ORDERED_PAIR
+    uint8_t two = n == 2 || n == 254;
+#else
     uint8_t two = n == 2;
+#endif
 	uint8_t wheel = k==&Bike.wheel[1];
 #ifndef NATIVE_FINE_CONTACTS
 	if( n > 0 )
@@ -1153,6 +1328,13 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
 	if( two )
 		pushout( k, &Ct[1], 0 );
 #endif
+#ifdef NATIVE_ORDERED_PAIR
+    if(two) {
+        uint8_t local_signs[2]={0,0};
+        n=resolve_ordered_pair(input,n==254?pair_separation[wheel]:local_signs);
+    } else if(n && !supports(k,&Ct[0],dvx,dvy,0))
+        n=0;
+#else
 	if( two ) {
 		if( faster_1ms( k ) ) {
 			if( !sure_new( &Ct[0], &Ct[1], k ) ) {
@@ -1181,6 +1363,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
 		else
 			n = 0;
 	}
+#endif
     /* Audio observes a new supported collision before its response changes
      * velocity. Tangential speed and suspension travel do not imply impact.
      * This event does not alter native bike state or collision decisions. */

@@ -51,39 +51,74 @@ USED = ('C_ELLIPSE','C_NEW','C_BRAKE_GW','C_OMS','C_FRIC_W','C_OLD',
         'C_SEAT_NX','C_ROLL_DV','C_BRAKE_W','C_SEAT_NY')
 
 def write_pose_tables(out, coefficients, fixed):
-    # On the Q14 sine domain every 1600 inputs add the same integer vector.
-    # Prove the decomposition for these exact generated constants, including
-    # negative half ties, before using the small table on the cartridge.
-    period = 1600
     names = ('C_H_X', 'C_H_Y', 'C_RREST')
     if any(coefficients[name][0] != coefficients[name][1] for name in names):
         raise ValueError('Pose coefficients vary between substeps')
-    factors = [coefficients[name][0] for name in names] + [fixed['Q24_ANCHOR_X'], fixed['Q24_ANCHOR_Y']]
+    factors = [coefficients[name][0] for name in names]
+    factors.extend((fixed['Q24_ANCHOR_X'], fixed['Q24_ANCHOR_Y']))
+
     def products(value):
-        return tuple((value * factor + (1 << 23)) >> 24 for factor in factors)
-    rows = [products(value) for value in range(period)]
-    blocks = [products(block * period) for block in range(16384 // period + 1)]
-    def array(type_name, name, records):
-        body = ',\n'.join('{' + ','.join(map(str, record)) + '}' for record in records)
-        return f'static const {type_name} {name}[]={{\n{body}\n}};\n'
-    # Extend only far enough for a low byte of 255 on the last page.
-    pages = [divmod(high * 256, period) for high in range(65)]
-    end = max(row for _, row in pages) + 256
-    extended = rows + [products(i) for i in range(period, end)]
-    if any(not 0 <= n <= limit for row in extended for n, limit in zip(row, (255, 255, 65535, 65535, 65535))):
-        raise ValueError('Pose coefficient exceeds the packed row width')
-    for value in range(-16384, 16385):
-        mag = abs(value)
-        block, first = pages[mag >> 8]
-        row = extended[first + (mag & 255)]
-        decoded = tuple((a + b) * (-1 if value < 0 else 1) for a, b in zip(row, blocks[block]))
-        if decoded != products(value):
-            raise ValueError(f'Pose table loses precision at {value}')
-    (out / 'physics_pose_rows.h').write_text(
-        array('pose_row_t', 'pose_rows', extended) + array('pose_values_t', 'pose_blocks', blocks)
-        + 'const pose_page_t riding_pose_pages[]={\n'
-        + ',\n'.join(f'{{pose_rows+{row},pose_blocks+{block}}}' for block, row in pages)
-        + '\n};\n')
+        return tuple((value * scale + (1 << 23)) >> 24 for scale in factors)
+
+    # A 1600-unit head period includes a half tie at either endpoint.
+    # Use the negative endpoint on negative pages and the positive one on
+    # positive pages. The interior rows work for both signs. Rest and both
+    # anchor products each advance by an integer every 25 trig units.
+    pages = []
+    for high in range(-64, 65):
+        start = high * 256
+        head = (start + 800) % 1600 - 800
+        if high < 0 and head + 255 >= 800:
+            head -= 1600
+        rest = start % 25
+        pages.append((head, rest, products(start - head)[:2], products(start - rest)[2:]))
+    first_head = min(page[0] for page in pages)
+    last_head = max(page[0] for page in pages) + 255
+    heads = [(hx + 8, hy + 64) for hx, hy, *_ in map(products, range(first_head, last_head + 1))]
+    # Both signs here are unsigned residuals against their own signed bases.
+    # The sine uses -rest and +ay. The cosine uses +rest and -ay.
+    suspension = [(rest, 128 - rest, ax, ay, 4096 - ay)
+                  for _, _, rest, ax, ay in map(products, range(25 + 255))]
+
+    def array(kind, name, records):
+        body = ',\n'.join('{' + ','.join(map(str, row)) + '}' for row in records)
+        return f'const {kind} {name}[]={{\n{body}\n}};\n'
+
+    if any(not (0 <= hx <= 255 and 0 <= hy <= 255) for hx, hy in heads):
+        raise ValueError('Pose head residual exceeds its unsigned byte')
+    for rest, neg_rest, ax, ay, neg_ay in suspension:
+        if (min(rest, neg_rest, ax, ay, neg_ay) < 0 or max(rest, neg_rest) > 255 or
+                max(ax, ay, neg_ay) > 65535):
+            raise ValueError('Pose suspension residual exceeds its packed width')
+
+    text = 'static ' + array('pose_head_row_t', 'pose_heads', heads)
+    text += 'static ' + array('pose_suspension_row_t', 'pose_suspension', suspension)
+    for sine in (False, True):
+        output = []
+        for high, (head, row, (hx, hy), (rest, ax, ay)) in enumerate(pages, -64):
+            x_bias, y_bias = hx - 8, hy - 64
+            rest_bias = -rest - 128 if sine else rest
+            ay_bias = ay if sine else -ay - 4096
+            if not all(-32768 <= n <= 32767 for n in (x_bias, y_bias, rest_bias)):
+                raise ValueError('Pose head or rider base exceeds signed16')
+            if not all(-(1 << 23) <= n < (1 << 23) for n in (ax, ay_bias)):
+                raise ValueError('Pose anchor base exceeds signed24')
+            output.append((f'pose_heads+{head-first_head}', f'pose_suspension+{row}',
+                           x_bias, y_bias, rest_bias, ax & 65535, ax >> 16,
+                           ay_bias & 65535, ay_bias >> 16))
+            for low in range(256):
+                value = high * 256 + low
+                if value > 16384:
+                    break
+                dx, dy = heads[head - first_head + low]
+                rp, rn, xa, yp, yn = suspension[row + low]
+                decoded = (x_bias + dx, y_bias + dy, rest_bias + (rn if sine else rp),
+                           ax + xa, ay_bias + (yp if sine else yn))
+                hxq, hyq, rq, axq, ayq = products(value)
+                if decoded != (hxq, hyq, -rq if sine else rq, axq, ayq if sine else -ayq):
+                    raise ValueError(f'Pose table loses precision at {value}')
+        text += array('pose_page_t', 'riding_pose_' + ('sin' if sine else 'cos') + '_pages', output)
+    (out / 'physics_pose_rows.h').write_text(text)
 
 
 def write_rider_tables(out, coefficients):

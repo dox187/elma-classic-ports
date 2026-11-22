@@ -2261,3 +2261,37 @@ It has 20 bytes free in fixed ROM and keeps banks 508–511 empty for FlashMaste
 Run `tools/build.py --gen build/gen-v096-test4-8m --rom-mib 8 --out
 build/elma-gbc-v0.96-test11-8m.gbc` with the project Python environment.
 The combined reports are in `build/v096-test11/`. These are emulator results.
+
+### 0.96 test12 — combined cartridge
+
+| Full-game PyBoy workload | Test11 | Test12 |
+| --- | ---: | ---: |
+| Aggregate updates/s on 216 routes | 19.569 | 20.742 |
+| Freefall input samples/s, full descent | 19.652 | 20.823 |
+| Mean active update / physics SM83 T-cycles | 368,361 / 314,430 | 339,535 / 285,073 |
+| Maximum active T-cycles | 684,488 | 664,280 |
+| Active updates over the 280,896-cycle budget / 19,885 | 18,071 | 16,215 |
+| Entire routes within budget / 216 | 6 | 8 |
+
+The scheduled spring solver processes four spring and four damping products
+in batches and combines their signed moment before rounding. The contact
+solver caches ordered contact geometry and reapplies wheel load and braking
+each time. Finite lookup tables handle common throttle reactions, rolling
+coefficients, rider clearance and pose refresh. The general arithmetic and
+collision paths handle all other inputs.
+
+All 19,885 controller steps matched test11 at both comparison points. All
+12,380 native states matched test5. All 45 PC landing and braking checks
+passed, and 20 seeded spin comparisons reproduced the previous PC errors.
+The linked image passed 5,600 ordered wheel comparisons, 37,120 rolling
+and 3,584 throttle comparisons, 48,816 head sweeps, and menu and save checks.
+Freefall registered 371 late display updates. Physical cartridge timing is pending.
+
+ROM SHA-256: `40f1a85104d9a2cd956c91e5c7c4639ee7483b85bddf208360eb06181f741bf5`.
+Fixed ROM has 395 bytes free. Banks 508–511 remain erased. The generated
+profile is `build/gen-v096-test12-8m`. When starting from the test11 profile,
+copy it to this path and run `tools/math_q24_coefficients.py --constants
+build/gen-v096-test12-8m/riding_constants.h --out build/gen-v096-test12-8m
+--first-bank 481`. Build with `tools/build.py --gen build/gen-v096-test12-8m
+--rom-mib 8 --out build/elma-gbc-v0.96-test12-8m.gbc` in the project's Python
+environment. The full reports are in `build/v096-test12/`.

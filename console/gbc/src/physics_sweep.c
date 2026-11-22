@@ -17,8 +17,48 @@ extern uint8_t Seg_subcell;
 #define absolute(x) ((int16_t)((x)<0?-(x):(x)))
 static int32_t cross(int16_t ax,int16_t ay,int16_t bx,int16_t by){return mul16(ax,by)-mul16(ay,bx);}
 static uint8_t straddles(int32_t a,int32_t b){return(a<=0&&b>=0)||(a>=0&&b<=0);}
+#if defined(__SDCC) && R_HEAD == 244
+/* Largest |y| strictly inside the circle, at every possible |x|. The
+ * ordinary sweep and the subdivided sweep use radii 244 and 246. */
+static const uint8_t circle_y[2][246]={
+    {
+        243,243,243,243,243,243,243,243,243,243,243,243,243,243,243,243,243,243,243,243,
+        243,243,243,242,242,242,242,242,242,242,242,242,241,241,241,241,241,241,241,240,
+        240,240,240,240,239,239,239,239,239,239,238,238,238,238,237,237,237,237,237,236,
+        236,236,235,235,235,235,234,234,234,234,233,233,233,232,232,232,231,231,231,230,
+        230,230,229,229,229,228,228,227,227,227,226,226,225,225,225,224,224,223,223,223,
+        222,222,221,221,220,220,219,219,218,218,217,217,216,216,215,215,214,214,213,213,
+        212,211,211,210,210,209,208,208,207,207,206,205,205,204,203,203,202,201,201,200,
+        199,199,198,197,196,196,195,194,193,193,192,191,190,190,189,188,187,186,185,185,
+        184,183,182,181,180,179,178,177,176,175,175,174,173,172,171,170,168,167,166,165,
+        164,163,162,161,160,159,157,156,155,154,153,151,150,149,147,146,145,143,142,141,
+        139,138,136,135,133,132,130,129,127,125,124,122,120,119,117,115,113,111,109,107,
+        105,103,101,99,96,94,91,89,86,84,81,78,75,72,69,65,61,58,53,49,
+        43,38,31,22,
+    },
+    {
+        245,245,245,245,245,245,245,245,245,245,245,245,245,245,245,245,245,245,245,245,
+        245,245,245,244,244,244,244,244,244,244,244,244,243,243,243,243,243,243,243,242,
+        242,242,242,242,242,241,241,241,241,241,240,240,240,240,239,239,239,239,239,238,
+        238,238,238,237,237,237,236,236,236,236,235,235,235,234,234,234,233,233,233,232,
+        232,232,231,231,231,230,230,230,229,229,228,228,228,227,227,226,226,226,225,225,
+        224,224,223,223,222,222,221,221,221,220,220,219,219,218,217,217,216,216,215,215,
+        214,214,213,213,212,211,211,210,210,209,208,208,207,206,206,205,204,204,203,202,
+        202,201,200,200,199,198,197,197,196,195,194,194,193,192,191,191,190,189,188,187,
+        186,185,185,184,183,182,181,180,179,178,177,176,175,174,173,172,171,170,169,168,
+        167,166,165,164,163,162,160,159,158,157,156,155,153,152,151,149,148,147,145,144,
+        143,141,140,138,137,135,134,132,131,129,128,126,124,123,121,119,117,115,113,112,
+        110,108,105,103,101,99,97,94,92,89,87,84,81,78,75,72,69,65,62,58,
+        53,49,44,38,31,22,
+    },
+};
+#endif
 static uint8_t close_point(int16_t x,int16_t y,uint16_t radius,uint32_t radius2){
     if(x>=(int16_t)radius||x<=-(int16_t)radius||y>=(int16_t)radius||y<=-(int16_t)radius)return 0;
+#if defined(__SDCC) && R_HEAD == 244
+    if(radius==244 || radius==246)
+        return (uint8_t)absolute(y)<=circle_y[radius==246][(uint8_t)absolute(x)];
+#endif
     return(uint32_t)(mul16(x,x)+mul16(y,y))<radius2;
 }
 
@@ -70,6 +110,7 @@ static uint8_t behind(int16_t p,int16_t q,int16_t direction){
 static uint8_t close_vertex(int16_t x,int16_t y,int16_t dx,int16_t dy,uint16_t radius){
     int16_t xq=x-dx,yq=y-dy;
     uint32_t r2=(uint32_t)mul16(radius,radius);
+    if(!(dx|dy))return close_point(x,y,radius,r2);
     int32_t dot=mul16(xq,dx)+mul16(yq,dy);
     uint32_t d2;
     if(dot>=0)return close_point(xq,yq,radius,r2);
@@ -87,6 +128,20 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
     int16_t ax=s->px,ay=s->py,ex=s->dx,ey=s->dy;
     int16_t bx=ax+ex,by=ay+ey,dx=qx-px,dy=qy-py,x=px-ax,y=py-ay;
     uint32_t d2,e2,r2;
+    /* A sweep whose endpoints project inside a horizontal or vertical
+     * edge stays above its finite span. The exact test then needs only
+     * the transverse interval, including a strict miss at tangency. */
+    if(!ey && ex){
+        int16_t y1=qy-ay;
+        if((y>=(int16_t)radius && y1>=(int16_t)radius) ||
+           (y<=-(int16_t)radius && y1<=-(int16_t)radius))return 0;
+        if(minimum(px,qx)>=minimum(ax,bx) && maximum(px,qx)<=maximum(ax,bx))return 1;
+    }else if(!ex && ey){
+        int16_t x1=qx-ax;
+        if((x>=(int16_t)radius && x1>=(int16_t)radius) ||
+           (x<=-(int16_t)radius && x1<=-(int16_t)radius))return 0;
+        if(minimum(py,qy)>=minimum(ay,by) && maximum(py,qy)<=maximum(ay,by))return 1;
+    }
     int32_t c0=cross(x,y,ex,ey),cd=0,ca=0;
     /* Stored length is nearest-integer; len+1 bounds its exact length. */
     int32_t limit=mul16((int16_t)radius,SEG_LENGTH(s)+1);

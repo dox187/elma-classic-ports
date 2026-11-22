@@ -16,32 +16,10 @@ COEFFICIENTS = (
     -14037, 4677, 10, -10611, 16362, 14955, -75, 14140, 15821, 13123,
 )
 
-# After the low-bank write, instruction fetch continues at the same address
-# in the selected bank. The generator repeats the complete reader in each
-# reserved bank. The high MBC5 bit stays set until execution returns to ROM0.
+# Code stays in fixed ROM while it reads the numeric tables in any high bank.
 READER = """\
- push af
- ld a,b
- rrca
- rrca
- sub a,c
- ld l,a
- ld h,#0x41
- ld a,(hl)
- cp a,b
- jr nz,10$
- inc h
- ld a,(hl)
- or a
- jr z,10$
- ld c,a
- inc h
- ld h,(hl)
- pop af
- ld a,c
- ld (#0x2000),a
+_riding_projection_fetch::
  jr c,30$
- ; Biased low-byte and signed high-byte products add to the exact signed32.
  call 50$
  ld a,h
  add a,a
@@ -49,11 +27,6 @@ READER = """\
  ld b,a
  ld c,a
  jp _riding_projection_hit
-10$:
- pop af
- jp c,_riding_projection_miss32
- jp _riding_projection_miss16
-
 30$:
  ; For x wider than signed16, combine unsigned low16*y with signed high16*y
  ; shifted left by 16. The low product's upper word must be sign extended.
@@ -154,7 +127,7 @@ READER = """\
 
 
 def row_page(index):
-    return (0x44 if index < 10 else 0x41) + 6 * (index % 10)
+    return 0x40 + 6 * (index % 10)
 
 
 def directory():
@@ -187,13 +160,12 @@ def byte_lines(data):
 def generate(source, destination):
     """Enable the cart reader. Standalone native fixtures assemble source directly."""
     output = ['RIDING_PROJECTION_TABLES = 1', source.read_text()]
+    output.extend(('.area _CODE', '_riding_projection_directory::'))
+    for page in directory():
+        output.extend(byte_lines(page))
+    output.append(READER)
     for group, bank in enumerate(BANKS):
-        label = f'_riding_projection_bank_{bank}'
-        output.extend((f'.area _CODE_{bank}', f'{label}::', READER,
-                       f' .ds 256-(.-{label})'))
-        if group == 0:
-            for page in directory():
-                output.extend(byte_lines(page))
+        output.extend((f'.area _CODE_{bank}', f'_riding_projection_bank_{bank}::'))
         for y in COEFFICIENTS[group * 10:(group + 1) * 10]:
             for page in planes(y):
                 output.extend(byte_lines(page))
@@ -211,10 +183,12 @@ def generate(source, destination):
 
 
 def validate_layout(symbols):
-    """The in-bank reader and all page indices require a dedicated aligned bank."""
-    for group, bank in enumerate(BANKS):
+    """Every indexed product plane starts at its expected physical bank address."""
+    if not 0 <= symbols['_riding_projection_directory'] <= 0x4000 - 768:
+        raise ValueError('Projection directory must be in fixed ROM')
+    for bank in BANKS:
         start = (bank << 16) | 0x4000
-        expected_size = (0x4000 if group == 0 else 0x3d00)
+        expected_size = 0x3c00
         if (symbols.get(f'_riding_projection_bank_{bank}') != start or
                 symbols.get(f's__CODE_{bank}') != start or
                 symbols.get(f'l__CODE_{bank}') != expected_size):

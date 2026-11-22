@@ -24,6 +24,24 @@ def vectors():
     yield [-25533, -3674, -27204, 7205, -195628, 223407, -116755, -116755]
     yield [-6818, -64, -10623, -1471, -165966, 233614, -138150, -138150]
     yield [-801053270, -807214358, 910186697, -893176796, -93731681, -89003737, 84218705, -90711199]
+    # Equal full-width products cancel down to a single raw Q18 bit.
+    # Each nonzero limb can occur above or below a run of zero digits.
+    for bit in (0, 8, 16, 24, 30):
+        for arm in (MIN32, MAX32, -(1 << bit), 1 << bit):
+            for speed in (MIN32, MAX32, -(1 << bit), 1 << bit):
+                for tail in (-(1 << 18) - 1, -1, 0, 1, (1 << 18) + 1):
+                    yield [speed, 1, speed, 0, arm, MAX32, arm, tail]
+    # The two positive products carry into bit 63, then a large negative
+    # pair cancels most of the subtotal. Exercise both signs of the remainder.
+    for limb in (0, 1, 255, 256, 65535, 65536):
+        yield [MIN32 + limb, MIN32, MIN32, MIN32, MIN32, MIN32, MIN32, MIN32]
+        yield [MIN32, MIN32, MIN32 + limb, MIN32, MIN32, MIN32, MIN32, MIN32]
+    # A zero arm must discard even the widest speed, in any term position.
+    for pair in ((2, 4), (0, 6), (3, 5), (1, 7)):
+        for speed in (MIN32, MIN24, -65536, 65536, MAX24, MAX32):
+            values = [1, -1, 1, -1, 1 << 18, -(1 << 18), 1, -1]
+            values[pair[0]], values[pair[1]] = speed, 0
+            yield values
     # Exercise every late transfer to the nine-byte accumulator, including
     # partial sums of either sign and cancellation back into signed32.
     for position in range(8):

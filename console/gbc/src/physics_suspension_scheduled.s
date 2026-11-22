@@ -1,10 +1,9 @@
-; Both wheels use the full Q18 arms for damping; only the reciprocal
-; reaction uses rounded Q10 arms. All force products consume their Q24
-; fraction immediately. The complete spring and damping moments are
-; narrowed only after the two wheels have contributed.
+; Damping uses full Q18 arms. The reciprocal reaction uses rounded Q10 arms.
+; Each force coefficient bank supplies four Q24 products. The wheels receive
+; rounded impulses while the body retains their signed fractions. Both wheels
+; contribute before the complete spring and damping moments are narrowed.
 .module physics_suspension_scheduled
 .area _DATA
-ss_g: .ds 8
 ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
 ss_spin_mid: .ds 16
 ss_spin_top: .ds 16
@@ -13,8 +12,6 @@ ss_moment: .ds 9
 ss_ts: .ds 4
 ss_coarse: .ds 4
 ss_tr: .ds 4
-ss_spring_index: .ds 1
-ss_damper_index: .ds 1
 
 ; Scheduled register convention is BC:DE, high word first.
 .macro ss_read address
@@ -150,23 +147,106 @@ selected:
  ss_reverse_sub _Bike+wheel
  ss_write destination
 .endm
-.macro ss_spring axis,anchor,arm,displacement,force
- ss_read anchor
- ss_sub arm
- ss_write displacement
- ld a,(#ss_spring_index)
- ss_q24
- ss_write force
- ld a,#axis
- call _riding_force_sub_q24_regs
+; The native table products are (raw + 2^23) = integer*2^24 + biased.
+; The wheel uses only the integer. The body gets both pieces, and four
+; such biased fractions per axis account for exactly two whole units.
+.macro ss_sub_fraction product
+ ld hl,#(ss_force_products+product)
+ ld a,e
+ sub a,(hl)
+ ld e,a
+ inc hl
+ ld a,d
+ sbc a,(hl)
+ ld d,a
+ inc hl
+ ld a,c
+ sbc a,(hl)
+ ld c,a
+ ld a,b
+ sbc a,#0
+ ld b,a
 .endm
-.macro ss_damper axis,relative,force
- ss_write relative
- ld a,(#ss_damper_index)
- ss_q24
- ss_accumulate force
- ld a,#axis
- call _riding_force_sub_q24_regs
+
+; Return a full signed33 spring+damper in A:BCDE and publish its wrapped
+; low 32 bits for the wheel. Carry out of bit 31 and both operand signs
+; determine byte 4, including for oppositely signed products.
+.macro ss_force_pair product,wheel,positive
+ ld hl,#(ss_force_products+product+3)
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ ld a,b
+ add a,a
+ sbc a,a
+ push af
+ ss_add ss_force_products+28+product+3
+ bit 7,(hl)
+ pop hl
+ ld a,h
+ jr z,positive
+ dec a
+positive:
+ adc a,#0
+ ss_write _riding_suspension_state+16+wheel
+.endm
+
+.macro ss_force_axis pair,wheel,axis,first_pos,second_pos
+ ld hl,#(_force_residual+axis*8)
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld c,(hl)
+ ld b,#2
+ ss_sub_fraction pair
+ ss_sub_fraction pair+7
+ ss_sub_fraction pair+28
+ ss_sub_fraction pair+35
+ ss_write _riding_force_sums+axis*9
+
+ ss_force_pair pair,wheel,first_pos
+ ld h,a
+ ld a,(#_force_residual+axis*8+7)
+ sub a,h
+ push af
+ ss_reverse_sub _force_residual+axis*8+3
+ pop hl
+ ld a,h
+ sbc a,#0
+ push af
+ push bc
+ push de
+
+ ss_force_pair pair+7,wheel+4,second_pos
+ push af
+ ; Stack now has the second sign, the first difference in two words,
+ ; and its fifth byte in the A slot of the final saved AF.
+ ldhl sp,#2
+ ld a,(hl+)
+ sub a,e
+ ld e,a
+ ld a,(hl+)
+ sbc a,d
+ ld d,a
+ ld a,(hl+)
+ sbc a,c
+ ld c,a
+ ld a,(hl+)
+ sbc a,b
+ ld b,a
+ inc hl
+ ld a,(hl)
+ sbc a,#0
+ pop hl
+ sub a,h
+ ld (#_riding_force_sums+axis*9+8),a
+ ss_write _riding_force_sums+axis*9+4
+ add sp,#6
 .endm
 .macro ss_reaction_product arm
  ld a,#14
@@ -187,17 +267,21 @@ selected:
 .endm
 ; wheel is the position offset in Bike; offset selects the wheel's 32-bit
 ; entry in the paired suspension arrays. The lookup pose holds gsx[2],gsy[2].
-.macro ss_wheel wheel,offset,next_wheel,reaction_index
- ss_spring 0,_riding_pose_anchor+offset,ss_damping+16+offset,ss_g,_riding_suspension_state+16+offset
- ss_spring 1,_riding_pose_anchor+8+offset,ss_damping+24+offset,ss_g+4,_riding_suspension_state+24+offset
+.macro ss_wheel_inputs wheel,offset
+ ss_read _riding_pose_anchor+offset
+ ss_sub ss_damping+16+offset
+ ss_write _riding_suspension_state+16+offset
+ ss_read _riding_pose_anchor+8+offset
+ ss_sub ss_damping+24+offset
+ ss_write _riding_suspension_state+24+offset
  ld hl,#_riding_pose_anchor+offset
- ld de,#ss_g+4
+ ld de,#_riding_suspension_state+24+offset
  call ss_spring_product
  push bc
  push hl
  push de
  ld hl,#_riding_pose_anchor+8+offset
- ld de,#ss_g
+ ld de,#_riding_suspension_state+16+offset
  call ss_spring_product
  call ss_spring_difference
  add sp,#6
@@ -209,11 +293,13 @@ selected:
  ss_read ss_damping+offset
  ss_add _Bike+wheel+8
  ss_reverse_sub _Bike+8
- ss_damper 0,ss_damping+offset,_riding_suspension_state+16+offset
+ ss_write ss_damping+offset
  ss_read ss_damping+8+offset
  ss_add _Bike+12
  ss_sub _Bike+wheel+12
- ss_damper 1,ss_damping+8+offset,_riding_suspension_state+24+offset
+ ss_write ss_damping+8+offset
+.endm
+.macro ss_wheel_reaction offset,next_wheel,reaction_index,ordinary,have_reaction
  ; Round coarse arms only when this wheel has a reaction torque.
  ld hl,#_riding_suspension_state+8+offset
  ld a,(hl+)
@@ -240,11 +326,21 @@ selected:
  ss_read _riding_suspension_state+8+offset
  push bc
  push de
+ .ifdef RIDING_GAS_REACTION
+ call _riding_gas_reaction
+ jr nc,ordinary
+ add sp,#8
+ jr have_reaction
+ordinary:
+ .endif
  call _riding_reaction_input32
  add sp,#8
  ld b,h
  ld c,l
  ss_q24_phase _q24_index_C_REACT,reaction_index
+ .ifdef RIDING_GAS_REACTION
+have_reaction:
+ .endif
  ss_write ss_tr
  ss_reaction_product 2
  ss_accumulate _riding_suspension_state+16+offset
@@ -264,26 +360,33 @@ _riding_suspension_scheduled::
  ss_arm 4,28,ss_damping+24
  ss_arm 4,52,ss_damping+28
  call ss_spin_four
- ; Each coefficient is used on both axes of both wheels.
- ld de,#0
+ ss_wheel_inputs 24,0
+ ss_wheel_inputs 48,4
+ ld hl,#_q24_index_C_SPRING_FW
  ld a,(#_riding_subphase)
  or a
- jr z,ss_force_indices
- inc e
-ss_force_indices:
- ld hl,#_q24_index_C_SPRING_FW
- add hl,de
+ jr z,ss_spring_selected
+ inc hl
+ss_spring_selected:
  ld a,(hl)
- ld (#ss_spring_index),a
+ ld hl,#_riding_suspension_state+16
+ ld de,#ss_force_products
+ call ss_force_four
  ld hl,#_q24_index_C_FRIC_W
- add hl,de
+ ld a,(#_riding_subphase)
+ or a
+ jr z,ss_damper_selected
+ inc hl
+ss_damper_selected:
  ld a,(hl)
- ld (#ss_damper_index),a
- call _riding_force_begin
-
- ss_wheel 24,0,ss_wheel1,ss_reaction0_index
+ ld hl,#ss_damping
+ ld de,#ss_force_products+28
+ call ss_force_four
+ ss_force_axis 0,0,0,ss_x0_pos,ss_x1_pos
+ ss_force_axis 14,8,1,ss_y0_pos,ss_y1_pos
+ ss_wheel_reaction 0,ss_wheel1,ss_reaction0_index,ss_ordinary0,ss_reaction_ready0
 ss_wheel1:
- ss_wheel 48,4,ss_wheels_done,ss_reaction1_index
+ ss_wheel_reaction 4,ss_wheels_done,ss_reaction1_index,ss_ordinary1,ss_reaction_ready1
 ss_wheels_done:
  xor a
  push af
@@ -929,7 +1032,11 @@ label:
  ld a,c
  or a,b
  or a,d
+ .if partial
  jr z,006$
+ .else
+ jp z,ss_mt_first_zero
+ .endif
  bit 7,d
  jr z,001$
  xor a
@@ -956,6 +1063,17 @@ label:
  cp a,(hl)
  jr nz,003$
  pop hl
+ ld a,b
+ or a
+ jr nz,007$
+ ld a,d
+ or a,e
+ .if partial
+ jr z,006$
+ .else
+ jp z,ss_mt_first_zero
+ .endif
+007$:
  ld a,(#ss_damping+speed+3)
  xor a,b
  push af
@@ -971,7 +1089,7 @@ label:
  sbc a,b
  ld b,a
 002$:
- call ss_magnitude_product
+ call ss_mt_product
  pop af
  bit 7,a
  .if subtract
@@ -979,7 +1097,11 @@ label:
  .else
  jr nz,005$
  .endif
+ .if partial
  call ss_magnitude_add
+ .else
+ call ss_mt_seed_positive
+ .endif
  jr 006$
 003$:
  pop hl
@@ -994,9 +1116,66 @@ label:
  .endif
  jp wide
 005$:
+ .if partial
  call ss_magnitude_sub
+ .else
+ call ss_mt_seed_negative
+ .endif
 006$:
 .endm
+
+; The first product seeds all seven accumulator bytes, including its sign.
+ss_mt_first_zero:
+ xor a
+ ld hl,#ss_moment
+ .rept 7
+ ld (hl+),a
+ .endm
+ jp ss_mt_y0
+ss_mt_seed_positive:
+ push hl
+ ld hl,#ss_moment
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ pop de
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ xor a
+ ld (hl),a
+ ret
+ss_mt_seed_negative:
+ push hl
+ ld hl,#ss_moment
+ xor a
+ sub a,e
+ ld (hl+),a
+ ld a,#0
+ sbc a,d
+ ld (hl+),a
+ pop de
+ ld a,#0
+ sbc a,e
+ ld (hl+),a
+ ld a,#0
+ sbc a,d
+ ld (hl+),a
+ ld a,#0
+ sbc a,c
+ ld (hl+),a
+ ld a,#0
+ sbc a,b
+ ld (hl+),a
+ sbc a,a
+ ld (hl),a
+ ret
 
 ; Return clamp32(sum(arm_x * rely - arm_y * relx) >> 18) in HLDE.
 ; The signed24 path preserves every fractional bit. A wider operand transfers
@@ -1068,11 +1247,6 @@ ss_mt_vertical:
 ss_mt_general:
  ; Four signed24 products of magnitude at most 2^46 fit a signed56
  ; accumulator, and their Q18 result fits signed32 without saturation.
- xor a
- ld hl,#ss_moment
- .rept 7
- ld (hl+),a
- .endm
  ss_moment_term ss_mt_x0,8,16,0,0,ss_moment_wide
  ss_moment_term ss_mt_y0,0,24,1,1,ss_mt_wide_term1
  ss_moment_term ss_mt_x1,12,20,0,1,ss_mt_wide_term2
@@ -1090,47 +1264,29 @@ ss_moment_shift:
  ld a,(#ss_moment+6)
  jp ss_shift18
 
+; A wide operand still uses at most four byte-table rows. Fold each exact
+; magnitude into the signed nine-byte sum before moving to the next term.
 ss_moment_wide:
- ld hl,#ss_damping+16
- ld de,#ss_damping+8
- call ss_lever_product
- push hl
+ xor a
  ld hl,#ss_moment
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- pop de
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- inc hl
- ld a,(#ss_product_upper)
+ .rept 9
  ld (hl+),a
- ld a,(#ss_product_upper+1)
- ld (hl+),a
- add a,a
- sbc a,a
- ld (hl),a
-ss_mt_wide_term1:
- ld hl,#ss_damping+24
- ld de,#ss_damping
- call ss_lever_product
- call ss_sub_product
-ss_mt_wide_term2:
- ld hl,#ss_damping+20
- ld de,#ss_damping+12
- call ss_lever_product
- call ss_add_product
-ss_mt_wide_term3:
- ld hl,#ss_damping+28
- ld de,#ss_damping+4
- call ss_lever_product
- call ss_sub_product
+ .endm
+.macro ss_mt_wide label,speed,arm,subtraction
+label:
+ ld hl,#ss_damping+speed
+ ld de,#ss_damping+arm
+ .if subtraction
+ ld a,#0x80
+ .else
+ xor a
+ .endif
+ call ss_mt_wide_mac
+.endm
+ ss_mt_wide ss_mt_wide_term0,8,16,0
+ ss_mt_wide ss_mt_wide_term1,0,24,1
+ ss_mt_wide ss_mt_wide_term2,12,20,0
+ ss_mt_wide ss_mt_wide_term3,4,28,1
  ld hl,#ss_moment+2
  ld e,(hl)
  inc hl
@@ -1212,24 +1368,6 @@ ss_max32:
  adc a,b
  ld (hl+),a
 .endm
-ss_add_product:
- ss_add_low48
- ld a,(#ss_product_upper)
- adc a,(hl)
- ld (hl+),a
- ld a,(#ss_product_upper+1)
- ld b,a
- adc a,(hl)
- ld (hl+),a
- bit 7,b
- ld a,#0
- jr z,ss_add_sign
- dec a
-ss_add_sign:
- adc a,(hl)
- ld (hl),a
- ret
-
 .macro ss_sub_low48
  push hl
  ld hl,#ss_moment
@@ -1253,26 +1391,100 @@ ss_add_sign:
  sbc a,b
  ld (hl+),a
 .endm
-ss_sub_product:
- ss_sub_low48
- ld a,(#ss_product_upper)
+
+; Source pointers are consumed while copying their unsigned magnitudes.
+; Zero and INT32_MIN both fit this representation.
+ss_mt_abs_copy:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ bit 7,b
+ ret z
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ ret
+
+ss_mt_skip_arm:
+ add sp,#4
+ ret
+
+ss_mt_wide_mac:
+ push af
+ push de
+ call ss_mt_abs_copy
+ ld a,(hl)
+ ss_write ss_spin_mid+4
+ ld h,a
+ ld a,b
+ or a,c
+ or a,d
+ or a,e
+ jr z,ss_mt_skip_arm
+ ld a,h
+ pop hl
+ push af
+ call ss_mt_abs_copy
+ ld a,(hl)
+ ld l,a
+ ld a,b
+ or a,c
+ or a,d
+ or a,e
+ jr z,ss_mt_skip_arm
+ ld a,l
+ pop hl
+ xor a,h
+ pop hl
+ xor a,h
+ push af
+ ss_write ss_spin_mid
+ xor a
+ ld hl,#ss_spin_top
+ .rept 8
+ ld (hl+),a
+ .endm
+ call ss_mt_wide_rows
+ pop af
+ bit 7,a
+ ld de,#ss_spin_top
+ ld hl,#ss_moment
+ jr nz,ss_mt_fold_sub
+ or a
+ .rept 8
+ ld a,(de)
+ adc a,(hl)
+ ld (hl+),a
+ inc de
+ .endm
+ ret nc
+ inc (hl)
+ ret
+ss_mt_fold_sub:
+ or a
+ .rept 8
+ ld a,(de)
  ld c,a
  ld a,(hl)
  sbc a,c
  ld (hl+),a
- ld a,(#ss_product_upper+1)
- ld b,a
- ld a,(hl)
- sbc a,b
- ld (hl+),a
- bit 7,b
- ld b,#0
- jr z,ss_sub_sign
- dec b
-ss_sub_sign:
- ld a,(hl)
- sbc a,b
- ld (hl),a
+ inc de
+ .endm
+ ret nc
+ dec (hl)
  ret
 
 ss_magnitude_add:
@@ -1468,3 +1680,547 @@ ss_mt_row_one:
  ld c,b
  ld b,#0
  ret
+
+; B:DE and H:L:C are unsigned 24-bit magnitudes. Preserve the three
+; arm digits across the upper row, so the low row uses the same registers.
+ss_mt_product:
+ ld a,h
+ or a
+ jr z,ss_mt_product_low
+ dec a
+ jr nz,ss_mt_product_upper
+ ; A top digit of one contributes the unchanged arm at byte offset two.
+ ld a,e
+ ld (#ss_spin_mid),a
+ ld a,d
+ ld (#ss_spin_mid+1),a
+ ld a,b
+ ld (#ss_spin_mid+2),a
+ call ss_mt_product_low
+ ld a,(#ss_spin_mid)
+ add a,l
+ ld l,a
+ ld a,(#ss_spin_mid+1)
+ adc a,h
+ ld h,a
+ ld a,(#ss_spin_mid+2)
+ adc a,c
+ ld c,a
+ ret nc
+ inc b
+ ret
+ss_mt_product_upper:
+ jp ss_magnitude_product
+ss_mt_product_low:
+ ld a,l
+ or a
+ jr z,ss_mt_product_single
+ ld l,a
+ rlca
+ rlca
+ rlca
+ and a,#7
+ add a,#36
+ ld (#0x2000),a
+ ld a,l
+ and a,#31
+ add a,a
+ or a,#>_physics_scale_planes_36
+ ld h,a
+ ld l,e
+ ld a,(hl)
+ ld (#ss_spin_top),a
+ inc h
+ ld a,(hl)
+ ld l,d
+ dec h
+ add a,(hl)
+ ld (#ss_spin_top+1),a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld l,b
+ dec h
+ add a,(hl)
+ ld (#ss_spin_top+2),a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld (#ss_spin_top+3),a
+ call _riding_product24x8_row
+ ld hl,#ss_spin_top
+ ld a,(hl+)
+ add a,d
+ ld d,a
+ ld a,(hl+)
+ adc a,c
+ ld c,a
+ ld a,(hl+)
+ adc a,b
+ ld h,a
+ ld a,(#ss_spin_top+3)
+ adc a,#0
+ ld l,c
+ ld c,a
+ ld b,#0
+ jr ss_mt_product_done
+ss_mt_product_single:
+ call _riding_product24x8_row
+ ld h,b
+ ld l,c
+ ld bc,#0
+ss_mt_product_done:
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+
+; Each row leaves DE at the next byte of the product. A 24-by-8 table
+; product also covers a full-width arm by reading its last digit from the
+; same table pages. Restore ROMB0 only after the last nonzero speed digit.
+ss_mt_wide_rows:
+ ld de,#ss_spin_top
+ ld a,(#ss_spin_mid+4)
+ call ss_mt_wide_row
+ ld a,(#ss_spin_mid+5)
+ call ss_mt_wide_row
+ ld a,(#ss_spin_mid+6)
+ or a
+ jr z,001$
+ call ss_mt_wide_row
+ jr 002$
+001$:
+ inc de
+002$:
+ ld a,(#ss_spin_mid+7)
+ or a
+ call nz,ss_mt_wide_row
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+ss_mt_wide_row:
+ or a
+ jr nz,003$
+ inc de
+ ret
+003$:
+ push de
+ push de
+ ld c,a
+ ld hl,#ss_spin_mid
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld b,(hl)
+ call _riding_product24x8_row
+ ld a,(#ss_spin_mid+3)
+ or a
+ jr z,ss_mt_accum4
+ ld l,a
+ dec h
+ ld a,(hl)
+ add a,b
+ ld b,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+
+.macro ss_mt_accum_low4
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl+),a
+.endm
+ss_mt_accum5:
+ pop hl
+ push af
+ ss_mt_accum_low4
+ pop de
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ jr ss_mt_carry
+ss_mt_accum4:
+ pop hl
+ ss_mt_accum_low4
+ss_mt_carry:
+ jr nc,ss_mt_row_done
+ss_mt_carry_loop:
+ inc (hl)
+ jr nz,ss_mt_row_done
+ inc hl
+ jr ss_mt_carry_loop
+ss_mt_row_done:
+ pop de
+ inc de
+ ret
+
+; The caller supplies four signed inputs in HL, seven-byte output records in
+; DE, and a coefficient index in A. All four products share one bank mapping.
+; For the positive suspension scales at most one, the low byte contributes
+; only one quotient byte and an unsigned 16-bit prefix contributes at most
+; two. Inputs of every width retain the table's full biased low 24 bits.
+.area _HRAM
+; One HRAM page holds all eight records. C can advance through the records
+; independently of the table pointers DE/HL and the third input digit in B.
+ss_force_products: .ds 56
+ss_force_page: .ds 1
+ss_force_byte2: .ds 1
+ss_force_byte3: .ds 1
+ss_force_index: .ds 1
+
+.area _CODE
+ss_force_four:
+ push hl
+ ld b,d
+ ld c,e
+ ldh (#ss_force_index),a
+ srl a
+ ld d,a
+ ld e,#0x40
+ jr nc,ss_force_page_set
+ ld e,#0x60
+ss_force_page_set:
+ ld a,(#_q24_first_bank_low)
+ add a,d
+ ld (#0x2000),a
+ ld a,#1
+ ld (#0x3000),a
+ ld a,e
+ ldh (#ss_force_page),a
+ add a,#26
+ ld h,a
+ ; The metadata flags cover coefficients that saturate or have negative sign.
+ ; Keep the scalar path available to different generated coefficient sets.
+ ld l,#14
+ ld a,(hl)
+ ld l,#23
+ or a,(hl)
+ pop hl
+ jp nz,ss_force_generic
+ call ss_force_lane
+ call ss_force_lane
+ call ss_force_lane
+ call ss_force_lane
+ss_force_restore:
+ xor a
+ ld (#0x3000),a
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+
+; DE and HL walk rows for byte zero and byte one. Emit the biased fraction
+; and the first two quotient bytes. INC rr, INC r and LD preserve carry.
+.macro ss_force_emit_low
+ ld a,(de)
+ ldh (c),a
+ inc c
+ inc d
+ ld a,(de)
+ add a,(hl)
+ ldh (c),a
+ inc c
+ inc d
+ inc h
+ .rept 2
+ ld a,(de)
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ inc d
+ inc h
+ .endm
+ ld a,(hl)
+ adc a,#0
+ ldh (c),a
+ inc c
+.endm
+ss_force_lane:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ push hl
+ or a
+ jr z,ss_force_positive
+ inc a
+ jr nz,ss_force_wide_dec
+ ld a,b
+ inc a
+ jr nz,ss_force_negative24
+ ld a,d
+ inc a
+ jr z,ss_force_negative8
+ ld l,d
+ ldh a,(#ss_force_page)
+ ld d,a
+ add a,#11
+ jr ss_force_narrow16
+ss_force_positive:
+ ld a,b
+ or a
+ jr nz,ss_force_positive24
+ ld a,d
+ or a
+ jr z,ss_force_positive8
+ ld l,d
+ ldh a,(#ss_force_page)
+ ld d,a
+ add a,#5
+ss_force_narrow16:
+ ld h,a
+ ss_force_emit_low
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ldh (c),a
+ inc c
+ ldh (c),a
+ inc c
+ pop hl
+ ret
+ss_force_negative8:
+ ldh a,(#ss_force_page)
+ add a,#27
+ jr ss_force_narrow8
+ss_force_positive8:
+ ldh a,(#ss_force_page)
+ss_force_narrow8:
+ ld h,a
+ ld l,e
+ .rept 4
+ ld a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ .endm
+ ld a,(hl)
+ .rept 3
+ ldh (c),a
+ inc c
+ .endm
+ pop hl
+ ret
+
+ss_force_wide_dec:
+ dec a
+ jr ss_force_wide
+ss_force_negative24:
+ ld a,#255
+ jr ss_force_wide
+ss_force_positive24:
+ xor a
+ss_force_wide:
+ ldh (#ss_force_byte3),a
+ ld l,d
+ ldh a,(#ss_force_page)
+ ld d,a
+ add a,#5
+ ld h,a
+ ss_force_emit_low
+ ; Add the third table digit starting at product byte two. No upper
+ ; prefix bytes exist yet: its quotient fits unsigned16 for both phases.
+ dec c
+ dec c
+ dec c
+ ldh a,(#ss_force_byte3)
+ inc a
+ ldh a,(#ss_force_page)
+ jr nz,ss_force_unsigned2
+ add a,#11
+ jr ss_force_row2
+ss_force_unsigned2:
+ add a,#17
+ss_force_row2:
+ ld h,a
+ ld a,b
+ ld l,a
+ ldh a,(c)
+ add a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ .rept 2
+ ldh a,(c)
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ .endm
+ .rept 2
+ ld a,(hl)
+ adc a,#0
+ ldh (c),a
+ inc c
+ inc h
+ .endm
+ ldh a,(#ss_force_byte3)
+ inc a
+ jr z,ss_force_lane_done
+ dec a
+ jr z,ss_force_lane_done
+ ld l,a
+ ldh a,(#ss_force_page)
+ add a,#22
+ ld h,a
+ dec c
+ dec c
+ dec c
+ dec c
+ ldh a,(c)
+ add a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ .rept 3
+ ldh a,(c)
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ .endm
+ss_force_lane_done:
+ pop hl
+ ret
+
+; Unsupported generated scales use the scalar saturation and fractional rules.
+ss_force_generic:
+ call ss_force_restore
+ call ss_force_generic_lane
+ call ss_force_generic_lane
+ call ss_force_generic_lane
+ss_force_generic_lane:
+ push bc
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ push hl
+ dec sp
+ ldh a,(#ss_force_index)
+ call _q24_apply_a
+ ; Stack holds the next input and the destination for this record.
+ pop hl
+ ld a,l
+ ldh (#ss_force_byte2),a
+ ld a,h
+ ldh (#ss_force_byte3),a
+ pop hl
+ ldh a,(#_q24_fraction)
+ ld (hl+),a
+ ldh a,(#_q24_fraction+1)
+ ld (hl+),a
+ ldh a,(#_q24_fraction+2)
+ xor a,#128
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld b,h
+ ld c,l
+ ldh a,(#ss_force_byte2)
+ ld l,a
+ ldh a,(#ss_force_byte3)
+ ld h,a
+ ret
+
+.ifdef RIDING_GAS_REACTION
+.area _CODE_8
+; Stack ABI0 tq32,kx16,ky16. The generated row includes both rounding
+; operations. Close separation keeps its full distance-squared division.
+_riding_gas_reaction::
+ ldhl sp,#2
+ ld a,(hl+)
+ cp #<reaction_gas
+ jr z,gas_positive
+ cp #<(-reaction_gas)
+ jr nz,gas_other
+ ld a,(hl+)
+ cp #>(-reaction_gas)
+ jr nz,gas_other
+ ld a,(hl+)
+ and (hl)
+ inc a
+ jr nz,gas_other
+ ld a,#3
+ jr gas_mode
+gas_positive:
+ ld a,(hl+)
+ cp #>reaction_gas
+ jr nz,gas_other
+ ld a,(hl+)
+ or (hl)
+ jr nz,gas_other
+gas_mode:
+ ld c,a
+ ld a,(#_riding_subphase)
+ or a
+ ld a,c
+ jr z,gas_page
+ add a,#6
+gas_page:
+ push af
+ ldhl sp,#8
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ push bc
+ push de
+ call _riding_recip_index
+ add sp,#4
+ ld c,e
+ pop af
+ ld b,a
+ ld a,c
+ cp #16
+ jr nc,gas_read
+gas_other:
+ and a
+ ret
+gas_read:
+ jp gas_read_fixed
+
+.area _CODE
+gas_read_fixed:
+ ld hl,#_riding_gas_rows
+ add hl,bc                    ; B is the phase/sign page, C the distance index
+ ld a,#7
+ ld (#0x2000),a
+ ld e,(hl)
+ inc h
+ ld d,(hl)
+ inc h
+ ld c,(hl)
+ ld a,c
+ add a,a
+ sbc a,a
+ ld b,a
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ scf
+ ret
+.endif

@@ -3,11 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test11 — 8 MiB](build/elma-gbc-v0.96-test11-8m.gbc)**.
-Freefall now averages **19.65 physics updates per real second** in the
-emulator. Across 216 short controller runs on all 54 courses, the aggregate
-rate is **19.57**, up from **18.06** in test10. The target is **29.86**.
-All 19,885 compared gameplay updates reproduce test5.
+**[0.96 test12 — 8 MiB](build/elma-gbc-v0.96-test12-8m.gbc)**.
+On 216 controller routes across all 54 courses, the emulator averages
+**20.74 physics updates per real second**, up from **19.57** in test11.
+Freefall averages **20.82** over the full descent. The target is **29.86**.
+All 19,885 compared gameplay updates reproduce test11.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +57,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test12 — suspension forces and contact geometry
+
+The 8 MiB build combines spring and damping products, reuses the geometry
+of ordered wheel contacts, and looks up common rolling and rider responses
+with their original rounding. Eight of the 216 controller routes stayed
+within the two-frame budget throughout. The 12,380 native physics states
+matched the frozen test5 reference. All 45 PC landing and braking checks
+passed and all 20 seeded spin comparisons reproduced test11.
+[Full timings and arithmetic checks](PERFORMANCE.md#096-test12--combined-cartridge)
 
 ## 0.96 test11 — suspension, wheel contacts and rider movement
 

@@ -2,6 +2,7 @@
 ; Stack ABI0 x@sp+2,m@sp+4,e@sp+5; returns DE. Reentrant, no scratch RAM.
 .module gbc_physics_math
 .area _CODE
+ .ifndef RIDING_GEOMETRY_PRODUCTS
 _riding_kmul_serial::
  ldhl sp,#4
  ld c,(hl)
@@ -223,9 +224,48 @@ _riding_kmul_serial::
 207$:
  ret
 
+ .endif
 ; Exact scaled vector products. SDCC register ABI1; dot callee cleans stack c,d.
 _mulq14::
+ .ifdef RIDING_GEOMETRY_PRODUCTS
+ ld a,c
+ or a
+ jr nz,geometry_scaled_product
+ ld a,b
+ cp #64
+ jr z,geometry_identity
+ cp #192
+ jr z,geometry_negative
+ or a
+ jr nz,geometry_scaled_product
+ ld bc,#0
+ ret
+geometry_negative:
+ xor a
+ sub e
+ ld c,a
+ ld a,#0
+ sbc d
+ ld b,a
+ ; The only overflowing signed16 negation is -(-32768).
+ jr nc,geometry_scaled_done
+ cp #128
+ ret nz
+ ld a,c
+ or a
+ ret nz
+ dec bc
+geometry_scaled_done:
+ ret
+geometry_identity:
+ ld b,d
+ ld c,e
+ ret
+geometry_scaled_product:
+ call _riding_projection_signed16
+ .else
  call _riding_mul16_regs
+ .endif
  ld a,d
  add a,#32
  ld d,a
@@ -259,6 +299,7 @@ scale_mulq14_pos:
  ld bc,#0x7fff
 scale_mulq14_done:
  ret
+ .ifndef RIDING_GEOMETRY_PRODUCTS
 _mulq10::
  call _riding_mul16_regs
  ld a,d
@@ -301,13 +342,50 @@ scale_mulq10R:
  ld b,d
  ld c,e
  ret
+ .endif
 _dotq14::
+ .ifdef RIDING_GEOMETRY_PRODUCTS
+ ldhl sp,#2
+ ld a,(hl+)
+ or (hl)
+ jr z,geometry_dot_second
+ inc hl
+ ld a,(hl+)
+ or (hl)
+ jr z,geometry_dot_first
+ ld a,d
+ or e
+ jr z,geometry_dot_second
+ ld a,b
+ or c
+ jr nz,geometry_dot_both
+geometry_dot_first:
+ ldhl sp,#2
+ jr geometry_dot_single
+geometry_dot_second:
+ ld d,b
+ ld e,c
+ ldhl sp,#4
+geometry_dot_single:
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ call _mulq14
+ pop hl
+ add sp,#4
+ jp (hl)
+geometry_dot_both:
+ .endif
  push bc
  ldhl sp,#4
  ld c,(hl)
  inc hl
  ld b,(hl)
+ .ifdef RIDING_GEOMETRY_PRODUCTS
+ call _riding_projection_signed16
+ .else
  call _riding_mul16_regs
+ .endif
  push hl
  push de
  ldhl sp,#10
@@ -318,7 +396,11 @@ _dotq14::
  ld e,(hl)
  inc hl
  ld d,(hl)
+ .ifdef RIDING_GEOMETRY_PRODUCTS
+ call _riding_projection_signed16
+ .else
  call _riding_mul16_regs
+ .endif
  ld b,h
  ld c,l
  ldhl sp,#0

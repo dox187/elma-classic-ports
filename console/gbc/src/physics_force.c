@@ -16,9 +16,12 @@ typedef struct {
 } force_sum_t;
 /* Native assembly uses the packed SDCC layout: fraction[4], units[4],
  * upper[1]. The persistent residual retains its original signed Q24 format. */
-static force_sum_t forces[2];
 #ifdef __SDCC
+/* Bank 8's scheduled suspension writes a complete sum for each axis. */
+force_sum_t riding_force_sums[2];
 typedef char force_sum_layout[sizeof(force_sum_t)==9 ? 1 : -1];
+#else
+static force_sum_t forces[2];
 #endif
 
 #ifndef __SDCC
@@ -86,7 +89,7 @@ int32_t riding_force_finish(uint8_t axis) {
 void riding_force_begin(void) __sdcccall(0) __naked {
  __asm
  ld hl,#(_force_residual+0)
- ld de,#(_forces+0)
+ ld de,#(_riding_force_sums+0)
  ld a,(hl+)
  ld (de),a
  inc de
@@ -115,7 +118,7 @@ void riding_force_begin(void) __sdcccall(0) __naked {
  ld (de),a
  inc de
  ld hl,#(_force_residual+8)
- ld de,#(_forces+9)
+ ld de,#(_riding_force_sums+9)
  ld a,(hl+)
  ld (de),a
  inc de
@@ -155,9 +158,9 @@ void riding_force_sub(uint8_t axis,int32_t units,int32_t fraction) __sdcccall(0)
  ldhl sp,#2
  ld a,(hl)
  or a,a
- ld de,#_forces
+ ld de,#_riding_force_sums
  jr z,force_sub_axis
- ld de,#(_forces+9)
+ ld de,#(_riding_force_sums+9)
 force_sub_axis:
  push de
  inc de
@@ -254,9 +257,9 @@ void riding_force_sub_q24_regs(void) __sdcccall(0) __naked {
 void riding_force_sub_integer_regs(void) __sdcccall(0) __naked {
  __asm
  or a,a
- ld hl,#(_forces+4)
+ ld hl,#(_riding_force_sums+4)
  jr z,force_sub_regs_axis
- ld hl,#(_forces+13)
+ ld hl,#(_riding_force_sums+13)
 force_sub_regs_axis:
  ld a,(hl)
  sub a,e
@@ -292,10 +295,10 @@ int32_t riding_force_finish(uint8_t axis) __sdcccall(0) __naked {
  ldhl sp,#2
  ld a,(hl)
  or a,a
- ld hl,#_forces
+ ld hl,#_riding_force_sums
  ld de,#_force_residual
  jr z,force_finish_axis
- ld hl,#(_forces+9)
+ ld hl,#(_riding_force_sums+9)
  ld de,#(_force_residual+8)
 force_finish_axis:
  push de

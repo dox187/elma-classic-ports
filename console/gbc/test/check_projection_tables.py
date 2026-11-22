@@ -14,12 +14,11 @@ sys.path.insert(0, str(BASE / 'tools'))
 from projection_tables import BANKS, COEFFICIENTS, row_page, validate_layout
 
 
-def verify_table_bytes(image):
-    prefix = image[BANKS[0] << 14:(BANKS[0] << 14) + 256]
-    table = BANKS[0] << 14
-    tags = image[table + 256:table + 512]
-    banks = image[table + 512:table + 768]
-    pages = image[table + 768:table + 1024]
+def verify_table_bytes(image, symbols):
+    table = symbols['_riding_projection_directory']
+    tags = image[table:table+256]
+    banks = image[table+256:table+512]
+    pages = image[table+512:table+768]
     accepted = {}
     for y in range(-32768, 32768):
         high = (y >> 8) & 255
@@ -28,8 +27,6 @@ def verify_table_bytes(image):
             accepted[y] = (banks[slot] + 256, pages[slot])
     expected = {y: (BANKS[i // 10], row_page(i)) for i, y in enumerate(COEFFICIENTS)}
     assert expected == accepted
-    for bank in BANKS:
-        assert image[bank << 14:(bank << 14) + 256] == prefix, bank
     for y, (bank, page) in accepted.items():
         start = (bank << 14) + (page - 0x40) * 256
         planes = image[start:start + 1536]
@@ -114,21 +111,52 @@ def check_native(image, symbols):
             assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank], (x, y, bank)
             hits += y in COEFFICIENTS and not 0 <= x <= 255
             started += 1
+        dots = 0
+        rng = random.Random(0x96d07)
+        raw = [-32768,-32767,-16384,-8192,-256,-1,0,1,255,8192,16384,32767]
+        geom = symbols['_dotq14']
+        p.memory[code:code+len(routine)] = [0xf3,0xcd,geom & 255,geom >> 8,0x18,0xfe]
+        for i in range(9600):
+            a,b,c,d = [rng.randint(-32768,32767) for _ in range(4)]
+            if i < len(raw)**2*7:
+                a,b = raw[(i//7) % len(raw)],raw[i//7//len(raw)]
+                c,d = ((0,-16384),(16384,0),(0,0),(-16384,0),(0,16384),
+                       (-32768,-32768),(32767,32767))[i%7]
+            elif i % 3:
+                c,d = rng.choice(COEFFICIENTS),rng.choice(COEFFICIENTS)
+            p.memory[stack:stack+6] = (int(c).to_bytes(2,'little',signed=True)
+                                      + int(d).to_bytes(2,'little',signed=True) + guards)
+            reg.SP,reg.PC = stack,code
+            reg.D,reg.E,reg.B,reg.C = (a>>8)&255,a&255,(b>>8)&255,b&255
+            p.tick(1, False)
+            # This older ABI specifies a wrapped 32-bit sum before saturation.
+            fixed = ((a*c+b*d+8192+2**31) % 2**32)-2**31
+            want = max(-32768,min(32767,fixed >> 14))
+            assert (reg.B<<8 | reg.C) == want & 65535, (a,b,c,d,want)
+            assert (reg.SP,reg.PC) == (stack+4,code+4)
+            assert bytes(p.memory[stack+4:stack+6]) == guards
+            assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank]
+            dots += 1
     finally:
         p.stop(save=False)
-    return {'native_products': started, 'table_path_vectors': hits, 'fallback_vectors': started - hits}
+    return {'native_products': started, 'table_path_vectors': hits, 'fallback_vectors': started - hits, 'native_geometry_dots': dots}
 
 
 def check_interrupts(image, symbols):
     # Start the real cartridge once, then use its installed GBDK VBlank handler.
-    # PyBoy's 9-bit bank hooks need a fresh registration for each invocation.
+    # Interrupt once at dispatch and once inside the selected product reader.
     code, source, stack = 0xc900, 0xc930, 0xcff0
     entry = symbols['_riding_projection_product_regs']
     current = symbols['__current_bank']
     # EI; NOP; CALL product; DI; JR -2
     driver = [0xfb, 0, 0xcd, entry & 255, entry >> 8, 0xf3, 0x18, 0xfe]
-    prefix = image[BANKS[0] << 14:(BANKS[0] << 14) + 256]
-    after_switch = prefix.index(bytes((0xea, 0, 0x20))) + 3
+    fetch = symbols['_riding_projection_fetch']
+    # The first conditional branch enters the wide product. Its fall-through
+    # calls the narrow product. Both targets execute from fixed ROM.
+    signed = lambda b: b - 256 if b >= 128 else b
+    assert image[fetch] == 0x38 and image[fetch+2] == 0xcd
+    wide = fetch + 2 + signed(image[fetch+1])
+    narrow = int.from_bytes(image[fetch+3:fetch+5], 'little')
     bios = PyBoy(BytesIO(image), window='null', sound_emulated=False, cgb=True)
     bios.set_emulation_speed(0)
     snapshot = BytesIO()
@@ -141,7 +169,7 @@ def check_interrupts(image, symbols):
     for i, bank in enumerate(BANKS):
         y = COEFFICIENTS[10*i]
         for x in (-32768, 0x73ef01fd, -0x72340123):
-            for target_bank, target in ((BANKS[0], 0x4000), (bank, 0x4000 + after_switch)):
+            for target in (fetch, narrow if x == -32768 else wide):
                 p = PyBoy(BytesIO(image), window='null', sound_emulated=False, cgb=True)
                 p.set_emulation_speed(0)
                 try:
@@ -151,16 +179,17 @@ def check_interrupts(image, symbols):
                     reg = p.register_file
 
                     def inject(_):
-                        irq['requested'] = reg.PC
-                        p.memory[0xff0f] = 1
+                        if 'requested' not in irq:
+                            irq['requested'] = reg.PC
+                            p.memory[0xff0f] = 1
 
                     def vblank(_):
                         s = reg.SP
                         pc = p.memory[s] + (p.memory[s+1] << 8)
-                        if 0x4000 <= pc < 0x4100:
+                        if fetch <= pc < fetch+256:
                             irq['interrupted'] = pc
 
-                    p.hook_register(target_bank, target, inject, None)
+                    p.hook_register(0, target, inject, None)
                     p.hook_register(0, 0x40, vblank, None)
                     caller = (5, 9, 14)[checked % 3]
                     p.memory[current] = caller
@@ -175,7 +204,7 @@ def check_interrupts(image, symbols):
                     p.tick(1, False)
                     got = reg.B << 40 | reg.C << 32 | reg.HL << 16 | reg.D << 8 | reg.E
                     assert irq.get('requested') == target and 'interrupted' in irq, (bank, x, irq)
-                    assert got == (x*y) & ((1 << 48)-1)
+                    assert got == (x*y) & ((1 << 48)-1), (x, y, bank, caller, hex(target), hex(got), hex((x*y) & ((1<<48)-1)), irq, reg.PC)
                     assert (reg.SP, reg.PC) == (stack, code+6)
                     assert p.memory[current] == caller
                     assert bytes(p.memory[0x4000:0x4020]) == image[caller << 14:(caller << 14)+32]
@@ -193,7 +222,7 @@ def main():
                                                     args.rom.with_suffix('.noi').read_text(), re.M)}
     validate_layout(symbols)
     image = args.rom.read_bytes()
-    checks = {'exact_narrow_table_products': verify_table_bytes(image), 'checked_directory_inputs': 65536}
+    checks = {'exact_narrow_table_products': verify_table_bytes(image, symbols), 'checked_directory_inputs': 65536}
     checks.update(check_native(image, symbols))
     checks['VBlank_interrupts_in_reader'] = check_interrupts(image, symbols)
     print(json.dumps(checks))

@@ -164,12 +164,12 @@ static void move_body(void) {
 
 // vezeto_hatarolas: keeps the rider over the seat.
 #if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
-uint8_t riding_rider_local(int16_t cs, int16_t sn, int16_t *xy);
+uint8_t riding_rider_phase_local(int16_t *xy);
 #endif
 static void rider_limit( void ) {
 #if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
     int16_t xy[2];
-    if (riding_rider_local(Cs, Sn, xy)) return;
+    if (riding_rider_phase_local(xy)) return;
     int16_t x = xy[0], y = xy[1];
 #else
 	int16_t dx = sat16( riding_sra8(Bike.rider_x-Bike.body.rx) );

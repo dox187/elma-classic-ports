@@ -26,6 +26,12 @@ class LinkedLayout(unittest.TestCase):
     def test_exact_fixed_boundary(self):
         self.assertEqual(self.check(),{'rom0_end':0x4000,'rom0_free_bytes':0})
 
+    def test_hram_boundary(self):
+        self.areas['_HRAM']=(0xff80,127)
+        self.check()
+        self.areas['_HRAM']=(0xff80,128)
+        with self.assertRaisesRegex(ValueError,'HRAM'):self.check()
+
     def test_startup_byte_beyond_boundary(self):
         self.areas['_GSFINAL']=(0x3fff,2)
         with self.assertRaisesRegex(ValueError,'ROM0 overflow'):self.check()

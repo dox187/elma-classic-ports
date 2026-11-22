@@ -149,9 +149,36 @@ def check_scheduled_rom(rom):
                     rs[6+axis] = total - travel*2**24
                 assert bytes(mem[residual:residual+32]) == struct.pack('<8i', *rs), (i, phase)
                 assert bytes(mem[bike+72:bike+88]) == struct.pack('<4i', *position, *velocity), (i, phase)
+                # Exercise both rounded rider forces together. Include narrow and wide
+                # relative speeds, the zero damper shortcut and overflow on wrap32.
+                omega = (0, 1, -1, 32768, -32769, 2**31-1, -2**31, s32(ax))[i % 8]
+                gx, gy = ax, ay
+                dx, dy = struct.unpack('<hh', expected(row)[4:8])
+                directions = struct.unpack('<hh', expected(row)[:4])
+                tangent = [((-dy+32768) % 65536)-32768, dx]
+                angular = [max(-2**31, min(2**31-1, (omega*t+8192) >> 14)) for t in tangent]
+                bounds = (-32769, -32768, -32767, -1, 0, 1, 32766, 32767, 32768)
+                target = (bounds[i % len(bounds)], bounds[(i+3) % len(bounds)]) if i % 2 else (vx, vy)
+                body = [s32(v-a-r) for v, a, r in zip((vx,vy), angular, target)]
+                mem[bike+8:bike+16] = struct.pack('<ii', *body)
+                mem[bike+72:bike+88] = struct.pack('<4i', x, y, vx, vy)
+                mem[residual:residual+32] = struct.pack('<8i', *rs)
+                invoke('_riding_rider_response32', struct.pack('<hhiii', rx, ry, omega, gx, gy))
+                position = [x, y]
+                velocity = [vx, vy]
+                for axis, gravity in enumerate((gx, gy)):
+                    spring = (directions[axis]*(32480690,21416162)[phase]+2**23) >> 24
+                    damping = (target[axis]*(1384120,912621)[phase]+2**23) >> 24
+                    velocity[axis] = s32(velocity[axis]+spring-damping+gravity)
+                    total = velocity[axis]*4*coefficient + rs[6+axis]
+                    travel = (total + 2**23) >> 24
+                    position[axis] = s32(position[axis]+travel)
+                    rs[6+axis] = total - travel*2**24
+                assert bytes(mem[residual:residual+32]) == struct.pack('<8i', *rs), ('response', i, phase)
+                assert bytes(mem[bike+72:bike+88]) == struct.pack('<4i', *position, *velocity), ('response', i, phase)
     finally:
         emu.stop(save=False)
-    print(f'{len(cases)} rider vector and {2*len(cases)} scheduled movement cases passed')
+    print(f'{len(cases)} rider vector and {2*len(cases)} scheduled movement and response cases passed')
 
 
 def main():

@@ -78,6 +78,7 @@ check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/check_wheel_terrain.py --gen $(GEN) --rom $(GAME_ROM)
 	$(PYTHON) test/check_physics_rider.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_projection_tables.py --rom $(GAME_ROM)
+	$(PYTHON) test/check_roll_table.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_level_exits.py --gen $(GEN) --res "$(ELMA_RES)" --out $(SCHEDULE_CHECK_DIR)/level-exits
 	$(PYTHON) test/check_wide_brake.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-brake
 	$(PYTHON) test/check_wide_wheels.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-wheels
@@ -90,6 +91,7 @@ check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/check_q24.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/q24-signed --signed-edges
 	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/native
 	$(PYTHON) test/check_suspension_products.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/suspension-products
+	$(PYTHON) test/check_suspension_forces.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/suspension-forces
 	$(PYTHON) test/check_damping_moment.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/damping-moment
 	$(PYTHON) test/check_rider_coefficients.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/rider-coefficients
 	$(PYTHON) test/check_rebound_schedule.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/pc --max-rebound-error-percent 0.1 --max-airtime-error-percent 0.1

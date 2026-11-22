@@ -9,6 +9,7 @@ import subprocess
 
 import head_clearance
 import projection_tables
+import rolling_tables
 import wheel_terrain
 
 BASE=Path(__file__).resolve().parents[1]
@@ -23,6 +24,10 @@ def validate_linked_layout(symbol_path,rom_mib):
     """Include library/startup areas when checking the physical ROM windows."""
     symbols={name:int(value,16) for name,value in
              re.findall(r'^DEF (\S+) 0x([0-9A-Fa-f]+)$',symbol_path.read_text(),re.M)}
+    if 's__HRAM' in symbols:
+        start = symbols['s__HRAM']
+        if start < 0xff80 or start + symbols['l__HRAM'] > 0xffff:
+            raise ValueError('Linked HRAM overlaps I/O registers or interrupt enable')
     fixed_end=0
     for area in ('_CODE','_HOME','_INITIALIZER','_GSINIT','_GSFINAL'):
         if 's_'+area not in symbols or 'l_'+area not in symbols:
@@ -224,7 +229,7 @@ def main():
                    '-I'+str(a.gen),'-I'+str(BASE/'src')]
     link_flags=['-msm83:gb','-Wm-yC','-Wm-yt0x1B','-Wm-ya4','-Wm-yo%d'%(rom_mib*64),'-Wm-ynELMA-GBC','-Wl-m','-Wl-j']
     names=['play.c','splash.c','audio.c','save.c','world.c','world_dma.c','world_memory.s','world_retire_fast.s','world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','menu.c','result.c','bike_render16.c','physics.c','physics_core.c',
-           'physics_contacts.c','physics_collision.c','physics_sweep.c','physics_math.c','physics_math32.c','mul16.s','video.s','video_screen_fast.s','video_strip_pair.s','object16.s','objects_touch_fast.s','objects_draw_fast.s','objects_bounds_fast.s','objects_visible_fast.s']
+           'physics_contacts.c','physics_collision.c','physics_sweep.c','mul16.s','video.s','video_screen_fast.s','video_strip_pair.s','object16.s','objects_touch_fast.s','objects_draw_fast.s','objects_bounds_fast.s','objects_visible_fast.s']
     sources=[BASE/'src'/name for name in names]
     sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
     if rom_mib==4:
@@ -236,20 +241,30 @@ def main():
         sources=[a.collision_source.resolve() if path.name=='physics_collision.c' else path for path in sources]
     if scheduled:
         sources += [BASE/'src'/name for name in ('physics_q24.c','physics_force.c','physics_q24.s',
-            'physics_mul_fast.s','physics_mul16u8.s','physics_math32_bounds.s','physics_math32_exact.s',
+            'physics_mul_fast.s','physics_mul16u8.s','physics_math32_exact.s',
             'physics_math.s','physics_contact_loop.s','physics_segment_scan.s',
             'physics_normal_fast.s','physics_shift_fast.s','physics_sqrt_fast.s',
-            'physics_div_fast.s','physics_sin_fast.s','physics_spring_torque.s',
+            'physics_div_fast.s','physics_sin_fast.s',
             'physics_div20.s','physics_export_fast.s','physics_bounds.s',
             'physics_rider_fast.s','physics_rider_response.s','physics_phase.s','physics_circle_scheduled.s',
-            'physics_supports_fast.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
+            'physics_supports_fast.s','physics_ordered_pair.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
             'physics_angle.c','physics_body_angle.s','physics_geometry.c','physics_pose_lookup.s','physics_head_pose.s','physics_brake_fast.s',
             'physics_suspension_scheduled.s','physics_step_scheduled.s','physics_level_bounds.s','physics_recip_fast.s','physics_contact_filter.s','physics_reaction_division.s')]
         sources.extend((BASE/'src/physics_rider_coeff.s', a.gen/'physics_rider_rows.c', a.gen/'physics_q24_dispatch.c'))
         sources.extend((BASE/'src/head_clearance.s', a.gen/'physics_head_map.c'))
+        suspension = BASE/'src/physics_suspension_scheduled.s'
+        sources[sources.index(suspension)] = rolling_tables.generate_reaction(
+            a.gen, suspension, BASE.parent/'nes/src/recip.inc')
+        roll_source = BASE/'src/physics_roll_fast.s'
+        sources[sources.index(roll_source)] = rolling_tables.generate(a.gen, roll_source)
+        geometry_math = BASE/'src/physics_math.s'
+        geometry_game = a.gen/'physics_math_game.s'
+        head_clearance.write_if_changed(geometry_game, 'RIDING_GEOMETRY_PRODUCTS = 1\n'+geometry_math.read_text())
+        sources[sources.index(geometry_math)] = geometry_game
         math_source = BASE/'src/physics_math32_exact.s'
         sources[sources.index(math_source)] = projection_tables.generate(math_source, a.gen/'physics_projection_game.s')
     else:
+        sources.extend((BASE/'src/physics_math.c', BASE/'src/physics_math32.c'))
         sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name!='physics_mul16.s' and not x.name.startswith('physics_q24'))
     for pattern in ('physics_quarter_*.c','physics_scale_*.c','physics_sine_*.c',
                     'physics_q24_table_*.c' if scheduled else 'physics_coefficient_*.c',

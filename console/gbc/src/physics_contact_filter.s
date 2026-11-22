@@ -1,21 +1,143 @@
-; ABI1 DE=circle, BC=contact. Return signed32 push in DE:BC. A proven
-; accepted contact that needs no push can return zero (see the guard below).
+; ABI1 DE=circle, BC=contact. DE:BC is the signed32 push. A also
+; classifies the result: 0 rejected, 1 accepted without push, 2 push.
+; A proven accepted contact that needs no push may return DE:BC=0.
 .module physics_contact_filter
 .area _CODE
-; The unsigned 16x8 table reader temporarily selects a lookup bank.
-; This short ROM0 call restores the caller's bank before returning to bank9.
-fine_unsigned_product:
- call _riding_mul16u8_unsigned
+; DE: fractional Y,X. HL: contact. Keep execution in ROM0 across both
+; table reads, including the adjustment for each signed coefficient.
+fine_fraction:
+ ld c,e
+ push de
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ push hl
+ call fine_product
+ pop bc
+ push hl
+ push de
+ ld h,b
+ ld l,c
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ push hl             ; length
+ ldhl sp,#7
+ ld c,(hl)
+ call fine_product
  ld a,(#__current_bank)
  ld (#0x2000),a
+ jp fine_sum
+
+fine_product:
+ ld a,c
+ or a,a
+ jr z,fine_product_zero
+ ld a,d
+ or a,e
+ jr z,fine_product_zero
+ bit 7,d
+ jp z,_riding_mul16u8_unsigned
+ call _riding_mul16u8_unsigned
+ ld a,l
+ sub a,c             ; unsigned16 minus 65536, times the coordinate
+ ld l,a
+ ld h,#255
  ret
+fine_product_zero:
+ ld de,#0
+ ld hl,#0
+ ret
+
+; Positive push 1..255, no other contact. DE=wheel, BC=contact, A=push.
+; Both rounded projections share the same unsigned-byte-product table row.
+; The low product byte cannot reach the rounding bit and is never fetched.
+_riding_push_byte::
+ push de
+ ld d,b
+ ld e,c
+ ld c,a
+ rlca
+ rlca
+ rlca
+ and a,#7
+ add a,#36
+ ld (#0x2000),a
+ ld a,c
+ and a,#31
+ add a,a
+ or a,#>_physics_scale_planes_36
+ ld b,a
+ call fine_push_component
+ push hl
+ call fine_push_component
+ bit 7,c
+ jr z,fine_push_length_done
+ ld a,(de)
+ inc a
+ ld (de),a
+ jr nz,fine_push_length_done
+ inc de
+ ld a,(de)
+ inc a
+ ld (de),a
+fine_push_length_done:
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ pop bc
+ pop de
+ push hl
+ ld h,d
+ ld l,e
+ call fine_add_position
+ pop bc
+ jp fine_add_position
+
+; B=table page, C=push, DE advances over each signed normal, HL=result.
+fine_push_component:
+ ld a,(de)
+ inc de
+ ld l,a
+ ld h,b
+ inc h
+ ld a,(de)
+ inc de
+ push de
+ ld d,(hl)
+ ld l,a
+ dec h
+ ld a,(hl)
+ add a,d
+ ld d,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ bit 7,l
+ jr z,fine_push_unsigned
+ sub a,c
+fine_push_unsigned:
+ ld l,a
+ add a,a
+ sbc a,a
+ ld h,a
+ ld a,d
+ add a,#0x20
+ jr nc,fine_push_round
+ inc hl
+fine_push_round:
+ add a,a
+ rl l
+ rl h
+ add a,a
+ rl l
+ rl h
+ pop de
+ ret
+
 .area _CODE_9
 _riding_contact_push::
- ; For lengths 405..408, an exact distance in [103547,104857] is
- ; accepted and needs no push. With both normals in [-4096,16639]
- ; and one <=8191, every possible pair of fractional bytes gives a
- ; rounded dot in [-128,386]. Thus 405*256-128 >= 103547 and
- ; 408*256+386 < 104858. Zero has the same two comparisons here.
  ld h,b
  ld l,c
  inc hl
@@ -23,13 +145,19 @@ _riding_contact_push::
  inc hl
  inc hl
  ld a,(hl+)
- sub a,#149
- cp a,#4
- jr nc,fine_calculate
+ sub a,#148
+ cp a,#5
+ jp nc,fine_calculate
  ld a,(hl-)
  dec a
- jr nz,fine_calculate
- dec hl
+ jp nz,fine_calculate
+ ld a,(hl-)
+ cp a,#148
+ jr z,fine_surface
+
+ ; For 405..408, both normals in [-4096,16639] and one <=8191 bound
+ ; the rounded fraction to [-128,386]. Every such combination is inside
+ ; the accepted, no-push band [103547,104857].
  ld a,(hl-)
  add a,#16
  cp a,#81
@@ -51,7 +179,73 @@ fine_check_wider_x:
 fine_in_band:
  ld de,#0
  ld bc,#0
+ ld a,#1
  ret
+
+fine_surface:
+ ; At length 404 even the full signed16 maximum dot cannot reject.
+ ; If a major normal >=16368 and the other >=-512, the rounded dot
+ ; is >= major_byte-floor((other_byte+23)/32), since major_byte<=255.
+ ; Check either major direction. Equality at 123 needs no push.
+ ld a,(hl-)
+ bit 7,a
+ jr nz,fine_surface_x
+ cp a,#0x3f
+ jr c,fine_surface_x
+ jr nz,fine_surface_y_high
+ ld a,(hl)
+ cp a,#0xf0
+ jr c,fine_surface_x
+fine_surface_y_high:
+ dec hl
+ ld a,(hl)
+ add a,#2
+ cp a,#130
+ jr nc,fine_calculate
+ ld h,d
+ ld l,e
+ ld a,(hl)
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+ jr fine_surface_bound
+fine_surface_x:
+ ; HL points to ny low. The high byte bounds the complete signed minor.
+ inc hl
+ ld a,(hl-)
+ add a,#2
+ cp a,#130
+ jr nc,fine_calculate
+ dec hl
+ ld a,(hl-)
+ bit 7,a
+ jr nz,fine_calculate
+ cp a,#0x3f
+ jr c,fine_calculate
+ jr nz,fine_surface_x_high
+ ld a,(hl)
+ cp a,#0xf0
+ jr c,fine_calculate
+fine_surface_x_high:
+ ld hl,#4
+ add hl,de
+ ld a,(hl)
+ ld h,d
+ ld l,e
+fine_surface_bound:
+ ; floor((byte+23)/32) including the ninth bit.
+ add a,#23
+ rra
+ rrca
+ rrca
+ rrca
+ rrca
+ and a,#15
+ add a,#123
+ cp a,(hl)
+ jr c,fine_in_band
+ jr z,fine_in_band
 fine_calculate:
  ld h,d
  ld l,e
@@ -61,33 +255,14 @@ fine_calculate:
  inc hl
  inc hl
  ld d,(hl)
- push de  ; fractional Y,X
  ld h,b
  ld l,c
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- push hl  ; ny, followed by length
- ldhl sp,#2
- ld c,(hl)
- call fine_product
- push hl
- push de
- ldhl sp,#4
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- push hl
- ldhl sp,#9
- ld c,(hl)
- call fine_product
- ; Both raw products are signed32. Byte 0 only contributes its carry
- ; into byte 1. Add the half-unit before extracting bits 14..29.
+ jp fine_fraction
+
+fine_sum:
+ ; Stack: length pointer, raw X product low and high words, fractions.
+ ; Both signed products fit signed24. Sum before rounding, including the
+ ; carry from their low bytes. BC will hold the rounded Q14 fraction.
  ld b,h
  ld c,l
  ldhl sp,#2
@@ -98,14 +273,14 @@ fine_calculate:
  ld d,a
  ld a,(hl+)
  adc a,c
- ld e,a
+ ld c,a
  ld a,(hl)
  adc a,b
  ld b,a
  ld a,d
  add a,#0x20
  ld d,a
- ld a,e
+ ld a,c
  adc a,#0
  ld c,a
  ld a,b
@@ -117,9 +292,8 @@ fine_calculate:
  sla d
  rl c
  rl b
- ; push=(404-length)*256 + (123-fraction). For all signed16 normals
- ; the rounded fraction fits [-1020,1020]. Its remainder's high byte
- ; is in [-4,4], so adding it to 0x0194 only changes the low byte.
+ ; push=(404-length)*256 + (123-fraction). For all signed16 normals,
+ ; 123-fraction is in [-897,1143]. Its high byte is in [-4,4].
  ld a,#123
  sub a,c
  ld c,a
@@ -141,29 +315,51 @@ fine_length_positive:
  ld a,#0
  sbc a,d
  ld d,a
- add sp,#8
+ add sp,#6
+ bit 7,d
+ jr nz,fine_negative
+ or a,e
+ or a,b
+ or a,c
+ ld a,#2
+ ret nz
+ dec a
+ ret
+fine_negative:
+ ; The strict acceptance boundary is push > -1311 (0xfffffae1).
+ and a,e
+ inc a
+ jr nz,fine_reject
+ ld a,b
+ cp a,#0xfa
+ jr c,fine_reject
+ jr nz,fine_no_push
+ ld a,#0xe1
+ cp a,c
+ jr nc,fine_reject
+fine_no_push:
+ ld a,#1
+ ret
+fine_reject:
+ xor a,a
  ret
 
-; DE=signed normal, C=unsigned coordinate. Convert the unsigned table
-; product to signed by subtracting C from its high byte for a negative
-; normal. Each positive or negative product fits signed24.
-fine_product:
- ld a,c
- or a,a
- jr z,fine_product_zero
- bit 7,d
- jr z,fine_unsigned_product_jump
- push bc
- call fine_unsigned_product
- pop bc
- ld a,l
- sub a,c
- ld l,a
- ld h,#255
- ret
-fine_unsigned_product_jump:
- jp fine_unsigned_product
-fine_product_zero:
- ld hl,#0
- ld de,#0
+; Add signed16 BC to the signed32 position and leave HL at the next axis.
+fine_add_position:
+ ld a,b
+ add a,a
+ sbc a,a
+ ld d,a
+ ld a,(hl)
+ add a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
  ret
