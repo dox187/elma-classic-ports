@@ -13,7 +13,7 @@ ss_spin_mid: .ds 16
 ss_spin_top: .ds 16
 ss_product_upper: .ds 2
 ss_moment: .ds 9
-ss_ts: .ds 4
+ss_ts: .ds 5                       ; low 36 bits of (floored spring sum << 4)
 ss_coarse: .ds 4
 ss_tr: .ds 4
 ss_reaction_high: .ds 1
@@ -654,13 +654,25 @@ upper_disp:
 
 .endm
 
-.macro ss_join_nibbles low,high,out
- ld a,low
- xor a,high
- and a,#0x0f
- xor a,low
- swap a
- ld out,a
+; Fixtures can inspect the unrounded canonical sum between private stages.
+; Cartridge code consumes the aligned sum directly at ss_angular_forces.
+.macro ss_read_spring_sum
+ ld hl,#ss_ts+4
+ ld a,(hl-)
+ ld b,(hl)
+ dec hl
+ ld c,(hl)
+ dec hl
+ ld d,(hl)
+ dec hl
+ ld e,(hl)
+ .rept 4
+ rra
+ rr b
+ rr c
+ rr d
+ rr e
+ .endm
 .endm
 
 .macro ss_spring_pair first,second
@@ -690,13 +702,10 @@ upper_disp:
  sbc a,d
  ld d,a
  pop af
- ld h,a
- ss_join_nibbles e,d,l
- ss_join_nibbles c,b,d
- ss_join_nibbles b,e,b
- ss_join_nibbles h,c,e
- ld c,b
- ld b,l
+ ; Each wheel floors at bit 12. Byte zero contributed only its borrow.
+ ; Clear the low nibble of byte one before adding the wheels, so their
+ ; discarded fractions can never carry into the retained sum.
+ and a,#0xf0
  add sp,#6
 .endm
 ; The four spring displacements occupy the future damper-product rows.
@@ -727,9 +736,21 @@ upper_disp:
  ss_spring_pair ss_spring_x0,ss_spring_y0
  .endif
  .if offset
- ss_accumulate ss_ts
+ ld hl,#ss_ts
+ add a,(hl)
+ ld (hl+),a
+ .irp digit,c,b,e,d
+ ld a,digit
+ adc a,(hl)
+ ld (hl+),a
+ .endm
  .else
- ss_write ss_ts
+ ld hl,#ss_ts
+ ld (hl+),a
+ .irp digit,c,b,e,d
+ ld a,digit
+ ld (hl+),a
+ .endm
  .endif
 .endm
 .macro ss_wheel_relative_velocity wheel,offset
@@ -839,7 +860,7 @@ _physics_prepare_spring::
  jr z,ss_prepared_moments
  ld a,#3
  ld (#_riding_spring_ready),a
- ld a,#7                        ; 4,504 T plus two reserved LCD lines
+ ld a,#7                        ; 4,372 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
  push de
@@ -847,7 +868,7 @@ _physics_prepare_spring::
  pop de
  ld a,#4
  ld (#_riding_spring_ready),a
- ld a,#7                        ; 4,528 T plus two reserved LCD lines
+ ld a,#7                        ; 4,412 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
  push de
@@ -883,7 +904,7 @@ ss_prepared_moments:
  ld a,(#ss_damp_long)
  or a
  ret nz
- ld a,#9                        ; 6,144 T plus two reserved LCD lines
+ ld a,#7                        ; 4,428 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
  push de
@@ -1059,10 +1080,13 @@ ss_try_mirrored:
 ss_spring_mirror_fraction:
  ld a,#0xff
 ss_spring_mirror_write:
- ld hl,#ss_ts
+ ld hl,#ss_ts+4
  .rept 4
- ld (hl+),a
+ ld (hl-),a
  .endm
+ and a,#0xf0
+ ld (hl),a
+
  ; The spring displacements are (0,0,y,y) and the actual X arms equal
  ; their opposite pose anchors. Matching damping speeds give the same
  ; vertical impulse to both wheels and an exactly cancelling damping moment.
@@ -1225,19 +1249,33 @@ ss_wheels_done:
  ss_read _angular_residual
  jp _riding_step_commit_fraction_regs
 ss_angular_forces:
+ ; Bits 4..35 contain the original wrapped signed32 sum. Shift the
+ ; signed high nibble before applying the rounding bit, including the
+ ; carry from the positive endpoint into the otherwise unused bit 21.
  ld hl,#ss_ts+1
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- sra c
- rr d
- rr e
- sra c
- rr d
- rr e
- jr nc,ss_spring_rounded
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl)
+ and a,#15
+ xor a,#8
+ sub a,#8
+ ld h,d
+ ld l,e
+ add hl,hl
+ rl c
+ rla
+ add hl,hl
+ rl c
+ rla
+ ld e,h
+ ld d,c
+ ld c,a
+ bit 7,l
+ jr z,ss_spring_rounded
  inc de
  ld a,d
  or a,e
@@ -2600,55 +2638,58 @@ ss_damping_scheduled:
  ld h,b
  ld l,c
  ret
+; Add one signed arm at bit 16. Bytes above bit 39 are outside the
+; signed40 accumulator, including when adding a negative arm.
+.macro ss_damp_add_high_unit arm
+ ld h,a
+ ld a,(#ss_damping+arm)
+ add a,c
+ ld c,a
+ ld a,(#ss_damping+arm+1)
+ adc a,b
+ ld b,a
+ ld a,(#ss_damping+arm+2)
+ adc a,h
+.endm
+
 ss_damp_cert_entry:
  ; Each axis of a rotated pose anchor has magnitude at most
  ; 222822 + 157286 + 2. Adding the certified spring displacement
  ; (magnitude <= 2^17) leaves a signed20 wheel arm. Each individual
  ; product has magnitude below 2^36. The exact four-term sum fits
- ; signed40 even when the two horizontal speeds are merged.
- ld hl,#ss_damping+28
- .irp j,0,1,2,3
- ld a,(#ss_damping+24+j)
- cp a,(hl)
- jr nz,ss_cert_normal
- .if j-3
- inc hl
- .endif
- .endm
- ld hl,#ss_damping
- .irp j,0,1,2,3
- ld a,(#ss_damping+4+j)
- .ifeq j
- add a,(hl)
- .else
- adc a,(hl)
- .endif
- ld (hl+),a
- .endm
- xor a
- .rept 4
- ld (hl+),a
- .endm
-ss_cert_normal:
-.macro ss_damp_term label,speed,arm,minus,first,next,word,last,?ready,?fold,?reverse,?zero,?large,?absolute
+ ; signed40. Keep each certified speed within its individual signed18
+ ; range. Its unsigned magnitude has at most one high unit unless the
+ ; entire speed is -131072, in which case the low word is exactly zero.
+.macro ss_damp_term label,speed,arm,minus,first,next,word,last,?positive,?fold,?reverse,?zero,?large,?negative,?double,?whole
 label:
  ld hl,#ss_damping+speed+2
  ld a,(hl-)
+ or a
+ jr z,positive
  inc a
- cp #2
- jp nc,large
- dec a
+ jp nz,large
  ld a,(hl-)
- ld c,(hl)
- jr z,ready
  ld d,a
  xor a
- sub a,c
+ sub a,(hl)
  ld c,a
  ld a,#0
  sbc a,d
- jp nc,large
-ready:
+ jp nc,whole                    ; magnitude is exactly 65536
+ ld l,a
+ call word
+reverse:
+ .if minus
+ ss_damp_fold add,adc,first,0,last
+ .else
+ ss_damp_fold sub,sbc,first,1,last
+ .endif
+ .ifeq last
+ jp next
+ .endif
+positive:
+ ld a,(hl-)
+ ld c,(hl)
  ld l,a
  or c
  .if first
@@ -2658,19 +2699,11 @@ ready:
  .endif
  call word
 fold:
- ld hl,#ss_damping+speed+2
- bit 7,(hl)
  .if minus
- jr z,reverse
- .else
- jr nz,reverse
- .endif
- ss_damp_fold add,adc,first,0,last
- .ifeq last
- jp next
- .endif
-reverse:
  ss_damp_fold sub,sbc,first,1,last
+ .else
+ ss_damp_fold add,adc,first,0,last
+ .endif
  .ifeq last
  jp next
  .endif
@@ -2684,36 +2717,51 @@ zero:
  jr next
  .endif
 large:
- ; The certified speed magnitude has at most four units at bit 16,
- ; including the sum of two horizontal lanes on equal arms.
- ld hl,#ss_damping+speed
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld e,a
- ld a,(hl)
- bit 7,a
- jr z,absolute
+ ; The remaining high bytes are 1 and 0xfe. A low word of zero
+ ; on the negative path is the exact lower endpoint -131072.
+ bit 7,a                      ; normalized high digit is 2 or 0xff
+ jr nz,negative
+ ld a,(hl-)
+ ld c,(hl)
+ ld l,a
+ call word
+ ss_damp_add_high_unit arm
+ jp fold
+negative:
+ ld a,(hl-)
  ld d,a
  xor a
- sub a,c
+ sub a,(hl)
  ld c,a
  ld a,#0
- sbc a,e
- ld e,a
- ld a,#0
  sbc a,d
-absolute:
- push af
- ld l,e
+ ld l,a
+ jr nc,double                 ; magnitude is exactly 131072
  call word
- pop hl
- ld l,a                       ; signed product byte four
- push de
- ld de,#ss_damping+arm
- call ss_damp_upper_units
- pop de
- jp fold
+ ss_damp_add_high_unit arm
+ jp reverse
+whole:
+ ld hl,#ss_damping+arm
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl)
+ ld de,#0
+ jp reverse
+double:
+ ld hl,#ss_damping+arm
+ ld a,(hl+)
+ add a,a
+ ld c,a
+ ld a,(hl+)
+ rla
+ ld b,a
+ ld a,(hl)
+ rla
+ ld de,#0
+ jp reverse
+
 .endm
  ss_damp_term ss_damp_x0,8,16,0,1,ss_damp_y0,ss_damp_word0,0
  ss_damp_term ss_damp_y0,0,24,1,0,ss_damp_x1,ss_damp_word1,0
@@ -2721,59 +2769,6 @@ absolute:
  ss_damp_term ss_damp_y1,4,28,1,0,ss_damp_terms_done,ss_damp_word3,1
 ss_damp_terms_done:
  jp ss_short_finish
-; Add the low 24 bits of H * arm to the three retained upper bytes.
-; The merged speed magnitude can contain two, three or four high units.
-ss_damp_upper_units:
- dec h
- jr nz,ss_damp_upper_multiple
- ld a,(de)
- add a,c
- ld c,a
- inc de
- ld a,(de)
- adc a,b
- ld b,a
- inc de
- ld a,(de)
- adc a,l
- ret
-ss_damp_upper_multiple:
- push bc                     ; existing middle word
- ld c,h                      ; units minus one
- ld b,l                      ; existing top byte
- ld a,(de)
- ld l,a
- inc de
- ld a,(de)
- ld h,a
- inc de
- ld a,(de)
- dec c
- jr z,ss_damp_upper_double
- dec c
- jr z,ss_damp_upper_triple
- add hl,hl
- rla
-ss_damp_upper_double:
- add hl,hl
- rla
- jr ss_damp_upper_add
-ss_damp_upper_triple:
- ld d,h
- ld e,l
- ld c,a
- add hl,hl
- rla
- add hl,de
- adc a,c
-ss_damp_upper_add:
- pop de
- add hl,de
- adc a,b
- ld b,h
- ld c,l
- ret
-
 ; Return clamp32(sum(arm_x * rely - arm_y * relx) >> 18) in HLDE.
 ; The signed24 path preserves every fractional bit. A wider operand transfers
 ; the existing partial sum to the nine-byte accumulator before its product.

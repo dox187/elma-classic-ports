@@ -124,7 +124,11 @@ slope_original_inputs:
 rom_slope_legacy_inputs:
  .endif
  call slope_find
+ .ifdef ROLL_DIRECTORY_BANK
+ jp nc,slope_word_inputs
+ .else
  jp nc,slope_fallback_dots
+ .endif
  ld a,h
  ldh (#slope_descriptor+1),a
  ld a,l
@@ -196,6 +200,7 @@ slope_dot:
  add hl,de
  call slope_y_product
  jr nc,slope_drop_product
+slope_dot_sum:
  ; Add the five signed product bytes before applying the one Q14 half.
  ld c,b
  ld b,h
@@ -659,6 +664,8 @@ near_project_select:
  .ifdef ROLL_DIRECTORY_BANK
  cp #4
  jp z,rom_slope_cached
+ cp #5
+ jp z,slope_word_project_entry
  .endif
  jp near_project_map
 .area _CODE
@@ -1001,6 +1008,120 @@ slope_extra_miss:
  ret
 
 .ifdef ROLL_DIRECTORY_BANK
+
+; The missing terrain tangent still has exact products when its vector inputs
+; fit signed words. Resolve the input type once, then use the two universal
+; byte rows directly for both dots and the final projection.
+.area _DATA
+slope_word_tangent: .ds 4
+
+.area _CODE
+slope_word_raw:
+ call _riding_projection_plain_word
+ ld a,#35
+ ld (#0x2000),a
+ scf
+ ret
+slope_word_project_entry:
+ push hl
+ ld a,#35
+ ld (#0x2000),a
+ jp slope_word_project
+
+.area _CODE_35
+slope_word_inputs:
+ ldhl sp,#0
+ ld de,#slope_word_tangent
+ .rept 4
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ call slope_word_dot
+ jp nc,slope_fallback_dots
+ push de
+ push bc
+ ldhl sp,#8
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call slope_word_dot
+ jr nc,slope_word_wide
+ ld a,#5
+ ldh (#near_page),a
+ jp ground_resume_deltas
+slope_word_wide:
+ add sp,#4
+ jp slope_fallback_dots
+
+slope_word_dot:
+ push hl
+ ld bc,#slope_word_tangent
+ call slope_word_component
+ jr nc,slope_word_first_miss
+ push bc
+ push hl
+ push de
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#4
+ add hl,de
+ ld bc,#(slope_word_tangent+2)
+ call slope_word_component
+ jp c,slope_dot_sum
+ add sp,#6
+slope_word_first_miss:
+ add sp,#2
+ and a
+ ret
+
+slope_word_component:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ add a
+ sbc a
+ cp (hl)
+ jr nz,slope_word_miss
+ inc hl
+ cp (hl)
+ jr nz,slope_word_miss
+ ld h,b
+ ld l,c
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ jp slope_word_raw
+slope_word_miss:
+ and a
+ ret
+
+slope_word_project:
+ ldhl sp,#4
+ ld bc,#slope_word_tangent
+ call slope_word_component
+ jp nc,slope_pair_miss
+ call slope_round
+ pop hl
+ call slope_store
+ push hl
+ ldhl sp,#4
+ ld bc,#(slope_word_tangent+2)
+ call slope_word_component
+ call slope_round
+ pop hl
+ call slope_store
+ jp ground_return
+
 .area _CODE
 .globl ground_projection_bank
 .globl slope_descriptor

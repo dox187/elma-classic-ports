@@ -3318,3 +3318,33 @@ SHA-256 `abeab964d8e0a802f5fcebfa6bad5a1d4fcbd11ebb8c6272edf10869cf2bf3af`.
 Fixed ROM has 44 bytes free. Build the generated 8 MiB profile with
 `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test36-8m.gbc`.
 Reports are in `build/v096-test36/`. Timings were measured in emulation.
+
+## 0.96 test37 — wheel projection, suspension and background transfers
+
+The rolling solver shares coefficient lookups across two signed-word dot
+products. The suspension solver uses a shorter exact path for signed
+18-bit damping inputs. The renderer keeps two background map planes and
+transfers complete horizontal strips using CGB DMA. The timer writes five
+glyph rows in one LCD access window. Periodic sine and head-pose lookup
+tables preserve all 65,536 phase values and both rider directions.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.411 | 227,421 | 417,652 | 608 | 117/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.076 | 241,192 | 491,852 | 281 | 6/24 |
+| Full Freefall neutral descent | 439 | 29.796 | 236,479 | 415,200 | 2 | 0/1 |
+
+Timing was measured in emulation. The two-refresh budget is 280,896 T.
+Test37 reproduced test36 on all 75,252 physics substeps, 25,112 updates
+and the separate 439-update descent. The PC comparisons retained the
+results of all 45 landing/braking cases and 20 extreme-spin cases.
+Native checks passed for 42,038 damping cases, 12,769 suspension
+products, 23,377 force vectors, 131,072 poses and 21,340 wheel cases.
+PyBoy matched 1,216 presentations and 61,845 visible background cells.
+SameBoy matched 878 presentations. The idle timer fixture met every
+deadline. The frontend test passed with one display overrun.
+
+SHA-256 `76b16889b8a90617f5c4c6ad1d1176093f0f2fda4d6c1aa9dee3fa95b29c25a9`.
+ROM0 has 119 bytes free. Banks 508–511 remain erased for FlashMaster.
+Use `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test37-8m.gbc`.
+Reports are in `build/v096-test37/`.

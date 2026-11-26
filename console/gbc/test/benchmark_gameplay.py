@@ -187,6 +187,10 @@ class GameplayProfiler(Profiler):
         first, last = self.symbols.get("_bike_dma_begin"), self.symbols.get("_bike_dma_end")
         if first is not None and last is not None:
             sites.extend(self.observe_gdma_range(first, last))
+        for symbol in ("_world_row_dma_first", "_world_row_dma_second", "_world_row_dma_burst"):
+            address = self.symbols.get(symbol)
+            if address is not None:
+                sites.extend(self.observe_gdma_range(address, address + 2))
         start = self.symbols.get("_world_upload_tile")
         if start is None:
             return sites

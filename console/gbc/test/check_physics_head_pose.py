@@ -1,5 +1,5 @@
 """Exhaustive native head pose with frozen C and independent integer oracle."""
-import argparse,json,re,struct,subprocess
+import argparse,json,re,struct,subprocess,sys
 from pathlib import Path
 from pyboy import PyBoy
 B=Path(__file__).resolve().parents[1]
@@ -39,9 +39,16 @@ tables = [path for pattern in ('physics_quarter_*.c', 'physics_scale_*.c', 'phys
           for path in sorted(G.glob(pattern))]
 common = [B/'src'/name for name in ('physics_math.c', 'physics_math.s', 'physics_mul_fast.s',
           'physics_mul16u8.s', 'physics_sin_fast.s', 'physics_q24.c', 'physics_q24.s')]
+sys.path.insert(0, str(B/'tools'))
+import pose_products
+packed = pose_products.generate(G, B/'src', O)
+head = O/'physics_head_pose_game.s'
+head.write_text('RIDING_BIASED_HEAD = 1\n'+(B/'src/physics_head_pose.s').read_text())
+common[common.index(B/'src/physics_sin_fast.s')] = B/'src/pose_sine_packed.s'
+tables = [t for t in tables if not t.name.startswith('physics_sine_')]
 cmd = [B/'.toolchain/gbdk/bin/lcc', '-msm83:gb', '-Wf--opt-code-size', '-Wm-yC',
        '-Wm-yt0x19', '-Wm-yoA', '-Wl-m', '-Wl-j', '-I'+str(G), '-I'+str(B/'src'),
-       '-o', O/'check.gbc', O/'driver.c', O/'reference.c', B/'src/physics_geometry.c', B/'src/physics_pose_lookup.s', B/'src/physics_head_pose.s',
+       '-o', O/'check.gbc', O/'driver.c', O/'reference.c', O/'pose_geometry_packed.c', B/'src/pose_lookup_packed.s', head, packed,
        *common, *tables, G/'physics_q24_dispatch.c']
 r=subprocess.run(list(map(str,cmd)),capture_output=True,text=True);(O/'compile.log').write_text(r.stdout+r.stderr);assert r.returncode==0,(O/'compile.log').read_text()
 symbols={k:int(v,16)for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',(O/'check.noi').read_text())};emu=PyBoy(str(O/'check.gbc'),window='null',sound_emulated=False,cgb=True);emu.set_emulation_speed(0);started=[];cycles={'geometry':[],'reference':[]};returns=set();oracle_failures=[];oracle_seen=[0]

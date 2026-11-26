@@ -134,6 +134,7 @@ _world_far_gather::
 .area _CODE_6
 .endif
 
+.ifndef WORLD_RAW_STREAM_BANK6
 ; x@SP+2,y@3,vertical@4,count@5,WRAM slots@6. Bank0 B000 word map,32x32.
 _world_slot_strip_get::
  xor a,a
@@ -343,6 +344,7 @@ mirror_word_next:
  jr nz,mirror_word_next
  ret
 
+.endif
 .area _CODE
 ; Three independent destination arrays, map planes separated by 512 bytes.
 ; bank@2 source@4 low@6 high@8 attrs@10 count@12 stride@13.

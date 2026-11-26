@@ -67,6 +67,8 @@ def main():
     source_paths={name:(args.world_source if name=='world.c' else BASE/'src'/name)
                   for name in ('world.c','world.h','world_dma.c','world_memory.s','world_memory.h','world_retire_fast.s','video.s')}
     optional_helpers=('world_alloc_fast.s','world_acquire_fast.s','world_upload_raw.s','video_strip_pair.s','world_prepare_fast.s')
+    if not args.compressed and b'WORLD_MAP_PLANES' in args.world_source.read_bytes():
+        optional_helpers=tuple(n for n in optional_helpers if n!='video_strip_pair.s')+('world_map_planes.s',)
     if args.compressed:
         optional_helpers+=('world_decompress.c','world_zx0.s')
     lookup_memory=source_paths['world_memory.s']
@@ -199,7 +201,13 @@ volatile uint8_t bad_expected,bad_actual;
 +  VBK_REG=1;attribute=*(volatile uint8_t*)address;target=tile+(attribute&8?256:0);
 +  if((target>=252 && target<256) || target>=448){map_failures=1;continue;}
 +  slot=target<252?target:target-4;++expected_references[slot];
++#ifdef WORLD_MAP_PLANES
++  {uint16_t cell=(ty&31U)*32U+(tx&31U);
++   uint8_t mt=*(volatile uint8_t*)(0xb000U+cell),ma=*(volatile uint8_t*)(0xb400U+cell);
++   mirror=mt+(ma&8?252:0);if(mt!=tile || ma!=attribute)mirror_failures=1;}
++#else
 +  mirror=*(volatile uint16_t*)(0xb000U+2U*((ty&31U)*32U+(tx&31U)));
++#endif
 +  if(mirror!=slot)mirror_failures=1;
 +  if(tx>=64 || ty>=48){id=0;expected=0;}
 +  else {
@@ -573,6 +581,7 @@ volatile uint8_t bad_expected,bad_actual;
             instruction=re.match(r'\s*([0-9A-Fa-f]{8})\s+EA 00 40\s+\[.*\]\s+\d+\s+ld\b',line)
             if instruction:
                 address=int(instruction[1],16)&0xffff
+                bank=int(instruction[1],16)>>16
                 offset=bank*16384+(address&0x3fff)if bank else address
                 assert rom[offset:offset+3]==b'\xea\x00\x40',('linked RAM-write listing differs from ROM',obj.name,bank,address)
                 site=(bank,address);ram_write_sites.append(site)

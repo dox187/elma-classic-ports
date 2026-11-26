@@ -14,6 +14,7 @@ import head_clearance
 import head_refinement
 import mul_table
 import normal_atlas
+import pose_products
 import phase_tables
 import projection_tables
 import rolling_tables
@@ -60,6 +61,8 @@ def validate_linked_layout(symbol_path,rom_mib):
             fixed_end=max(fixed_end,start+size)
         elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
             raise ValueError(f'ROM bank {bank} exceeds its linked address window')
+    if 'pose_bank_18' in symbols:
+        pose_products.validate_layout(symbols)
     if '_riding_scale_directory' in symbols and (symbols.get('_riding_projection_hash'), symbols['_riding_scale_directory'], symbols.get('_riding_scale_pages')) != (0x200, 0x600, 0x700):
         raise ValueError('Fixed projection hash, scale banks and scale pages must start on pages 2, 6 and 7')
     if symbols.get('_bike_render_draw', 0) >> 16 == 13:
@@ -317,6 +320,7 @@ def main():
     sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
     graphics = json.loads((a.gen/'level_manifest.json').read_text())
     if rom_mib==8:
+        sources[sources.index(BASE/'src/video_strip_pair.s')] = BASE/'src/world_map_planes.s'
         # Only world.c and its near acquisition kernel call these SRAM helpers.
         # Keep the ROM-mapping readers fixed while the raw cart streams scenery.
         for name in ('world_memory', 'world_alloc_fast', 'world_lookup_raw'):
@@ -370,6 +374,10 @@ def main():
         sources[sources.index(scale)] = scale_game
         div = BASE/'src/physics_div20_scheduled.s'
         sources.insert(sources.index(div)+1, sqrt_tables.generate(a.gen))
+        bounds_source = BASE/'src/physics_bounds.s'
+        bounds_game = a.gen/'physics_bounds_game.s'
+        head_clearance.write_if_changed(bounds_game, 'RIDING_BANKED_BOUNDS = 1\n'+bounds_source.read_text())
+        sources[sources.index(bounds_source)] = bounds_game
         phase_source = BASE/'src/physics_phase.s'
         sources[sources.index(phase_source)] = phase_tables.generate(a.gen, phase_source)
         angle_source = BASE/'src/physics_body_angle.s'
@@ -442,6 +450,19 @@ def main():
     validate_profile(a.gen,rom_mib,profile_sources)
     # Validate the complete packed source first, then remove only verified
     # padding. The shortened object keeps its original place in link order.
+    if scheduled and rom_mib == 8:
+        packed = pose_products.generate(a.gen, BASE/'src')
+        for bank in (16, 17, 18, 19):
+            sources.remove(a.gen/f'physics_sine_{bank}.c')
+        sources.append(packed)
+        sources[sources.index(BASE/'src/physics_geometry.c')] = a.gen/'pose_geometry_packed.c'
+        for original, replacement in (('physics_pose_lookup.s', 'pose_lookup_packed.s'),
+                                      ('physics_sin_fast.s', 'pose_sine_packed.s')):
+            sources[sources.index(BASE/'src'/original)] = BASE/'src'/replacement
+        head = BASE/'src/physics_head_pose.s'
+        game = a.gen/'physics_head_pose_game.s'
+        head_clearance.write_if_changed(game, 'RIDING_BIASED_HEAD = 1\n'+head.read_text())
+        sources[sources.index(head)] = game
     if scheduled and 'brake_tables = 1\n' in brake_game.read_text():
         terrain = a.gen/'physics_bank_93.c'
         sources[sources.index(terrain)] = brake_dispatch.terrain_object(a.gen, brake_dispatch.terrain_prefix(a.gen))

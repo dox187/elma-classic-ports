@@ -3,15 +3,14 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test36 — 8 MiB](build/elma-gbc-v0.96-test36-8m.gbc)**.
-The 216 controller routes across all 54 courses average **29.36 updates per
-emulated second**. The 24 longer routes average **28.98**, and the complete
-neutral Freefall descent averages **29.80**. Against test35, the standard
-suite went from 770 to 682 late updates and the longer suite from 395 to
-314, including estimated GDMA stalls. All 75,252 physics substeps and
-25,112 published states matched test35. The longest measured update on
-the extended routes took 507,012 T. The two-refresh budget is 280,896 T.
-[Timing and verification](PERFORMANCE.md#096-test36--rolling-tables-and-shared-terrain-vertices)
+**[0.96 test37 — 8 MiB](build/elma-gbc-v0.96-test37-8m.gbc)**.
+Four controller routes on each of the 54 courses averaged **29.41 updates/s**.
+The 24 longer routes averaged **29.08**, and the neutral Freefall descent
+averaged **29.80**. Compared with test36, late updates fell from 682 to 608
+on the standard routes and from 314 to 281 on the longer routes. All 75,252
+physics substeps and 25,112 published states matched test36 on those routes.
+The longest update took 491,852 T against the 280,896 T two-refresh budget.
+[Timing and verification](PERFORMANCE.md#096-test37--wheel-projection-suspension-and-background-transfers)
 
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**

@@ -117,7 +117,7 @@ _fixture_products::
  ss_read _fixture_input+16
  ss_write ss_force_products+36
  call ss_first_moment
- ss_read ss_ts
+ ss_read_spring_sum
  ss_write _fixture_answer+16
  ld a,(#fixture_bank_marker)
  ld (#_fixture_marker),a

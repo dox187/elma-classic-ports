@@ -193,7 +193,7 @@ void main(void) {
 ''')
     assembly = out / 'physics_suspension_scheduled.s'
     assembly.write_text((source / assembly.name).read_text() + '''
-.area _CODE_8
+.area _CODE
 _fixture_moment::
  ld hl,#_fixture_inputs
  ld de,#ss_damping
@@ -228,6 +228,7 @@ _fixture_moment::
  ld a,(#fixture_bank_marker)
  ld (#_fixture_marker),a
  ret
+.area _CODE_8
 fixture_bank_marker: .db 0xa5
 ''')
     overrides = (driver, assembly, source / 'physics_math32_exact.s')

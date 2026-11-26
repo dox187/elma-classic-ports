@@ -1410,6 +1410,7 @@ math32_lookup_miss:
  jp c,math32_projection_full_fallback
  .endif
  .ifdef RIDING_PROJECTION_TABLES
+_riding_projection_plain_word::
  ; Multiply both bytes of X by the unchanged Y register pair. The
  ; high-byte row starts one byte later. Keep its carries in HRAM while
  ; selecting the low-byte row. No interrupt handler uses this workspace.

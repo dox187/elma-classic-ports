@@ -5,7 +5,12 @@
 .module riding_bounds
 WHEEL_BOUND_METRES = 8
 RIDER_BOUND_METRES = 3
+; The scheduled game calls this predicate only from the riding loop in bank 5.
+.ifdef RIDING_BANKED_BOUNDS
+.area _CODE_5
+.else
 .area _CODE
+.endif
 _gbc_bike_bounded::
  ld b,#WHEEL_BOUND_METRES
  ld hl,#_gbc_bike+10

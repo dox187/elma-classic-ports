@@ -68,7 +68,7 @@ ff_done:
 ff_bank: .db 0xa5
 _fixture_mirror::
  call ss_spring_total
- ss_read ss_ts
+ ss_read_spring_sum
  ret
 """
 

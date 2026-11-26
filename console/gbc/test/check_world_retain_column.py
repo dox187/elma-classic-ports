@@ -58,7 +58,11 @@ void fixture_retain_cases(void) BANKED {
    prepare_vertical=1;retain_reject(ox,oy,px,py,0,0);prepare_vertical=0;
    memcpy(retain_pending,prepare_added,38);memcpy(expected_references,references,888);
    --expected_references[retain_pending[dy>0?0:18]];next=next_slot;
+#ifdef WORLD_MAP_PLANES
+   world_plane_slots(dx>0?prepare_left:prepare_old_left,
+#else
    world_slot_strip_get(dx>0?prepare_left:prepare_old_left,
+#endif
                         dy>0?prepare_old_top:prepare_old_top+18,0,20,retain_row);
    while(LY_REG>=113);while(LY_REG<113);start=sys_time-1;
    if(!prepare_rebase_column(ox,oy,px,py,start,1))++retain_failures;

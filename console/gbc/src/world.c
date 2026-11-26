@@ -67,7 +67,14 @@ static uint16_t prepare_strip_x,prepare_strip_y;
 static uint16_t prepare_added[39];
 
 
+#ifndef WORLD_GRAPHICS_ZX0
+#define WORLD_MAP_PLANES 1
+void world_map_snapshot(void);
+void world_plane_slots(uint8_t x,uint8_t y,uint8_t vertical,uint8_t count,uint16_t *slots) __sdcccall(0);
+void gbc_video_world_strip_pair(uint8_t x,uint8_t y,uint8_t vertical,uint8_t count,const uint8_t *tiles,const uint8_t *attrs) __sdcccall(0);
+#else
 void gbc_video_strip_pair(uint8_t x,uint8_t y,uint8_t vertical,uint8_t count,const uint8_t *tiles,const uint8_t *attrs) __sdcccall(0);
+#endif
 void world_upload_tile(uint16_t bank,uint16_t source,uint16_t pattern) NONBANKED;
 void world_decompress(uint16_t bank,uint16_t source,uint8_t ram_bank,uint16_t dest) NONBANKED;
 uint16_t world_find_free(uint16_t next,uint8_t *bitmap) __sdcccall(0);
@@ -490,16 +497,26 @@ static void load_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
     fetch_strip(x,y,vertical,count,0,0);
     for(i=0;i<count;++i) {
         id=strip_low[i]|((uint16_t)strip_high[i]<<8);slot=acquire(id);
+#ifndef WORLD_MAP_PLANES
         prepare_added[i]=slot;
+#endif
         if(slot<252U)output_tiles[i]=(uint8_t)slot;
         else {output_tiles[i]=(uint8_t)(slot+4U);strip_attrs[i]|=8;}
     }
+#ifdef WORLD_MAP_PLANES
+    gbc_video_world_strip_pair(x,y,vertical,count,output_tiles,strip_attrs);
+#else
     world_slot_strip_set(x,y,vertical,count,prepare_added);
     gbc_video_strip_pair(x,y,vertical,count,output_tiles,strip_attrs);
+#endif
 }
 
 static void release_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
+#ifdef WORLD_MAP_PLANES
+    world_plane_slots(x,y,vertical,count,retired+retired_count);
+#else
     world_slot_strip_get(x,y,vertical,count,retired+retired_count);
+#endif
     retired_count+=count;
 }
 
@@ -528,6 +545,9 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
     if((uint16_t)game_world.chunks_x*game_world.chunks_y<=MAP_CACHE_COUNT)
         for(i=0;i<(uint16_t)game_world.chunks_x*game_world.chunks_y;++i)
             fetch_strip((i%game_world.chunks_x)*32U,(i/game_world.chunks_x)*16U,0,1,0,0);
+#endif
+#ifdef WORLD_MAP_PLANES
+    world_map_snapshot();
 #endif
     set_bkg_palette(0,7,palettes);
     for(i=y>>3;i<(y>>3)+19;++i)load_strip(x>>3,i,0,21);
@@ -1308,10 +1328,14 @@ static void prepare_acquire(void) __naked {
 #endif
 
 static void prepare_publish(uint8_t vertical) {
+#ifdef WORLD_MAP_PLANES
+    gbc_video_world_strip_pair(prepare_strip_x,prepare_strip_y,vertical,prepare_count,output_tiles,strip_attrs);
+#else
     /* The rollback log already holds this strip's complete ordered slots. */
     world_slot_strip_set(prepare_strip_x,prepare_strip_y,vertical,prepare_count,
                          prepare_added+(prepare_added_count-prepare_count));
     gbc_video_strip_pair(prepare_strip_x,prepare_strip_y,vertical,prepare_count,output_tiles,strip_attrs);
+#endif
 }
 
 #ifdef WORLD_GRAPHICS_ZX0

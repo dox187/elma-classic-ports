@@ -364,25 +364,38 @@ clock_upload_rows:
         ; Clock cells 236..239 occupy 0x8ec0..0x8eff.
         ld d,#0x8e
         ld e,c
-        ld b,#5
-clock_glyph_row:
+        ; Preload two rows. From a mode 0/1 STAT read through the final
+        ; write takes at most 148 T, inside the 160-T double-speed mode 2
+        ; that follows even the last accessible dot. E stays in this tile.
+        ld a,(hl+)
+        inc hl
+        ld b,a
         ld a,(hl+)
         inc hl
         ld c,a
-        ; STAT modes 0 and 1 permit a write. Even at their final dot,
-        ; mode 2 leaves enough time to write this byte before VRAM closes.
         di
 clock_glyph_window:
         ldh a,(#0x41)
         and a,#2
         jr nz,clock_glyph_window
+        ld a,b
+        ld (de),a
+        inc e
+        inc e
         ld a,c
         ld (de),a
+        inc e
+        inc e
+        .rept 2
+        ld a,(hl+)
+        inc hl
+        ld (de),a
+        inc e
+        inc e
+        .endm
+        ld a,(hl)
+        ld (de),a
         ei
-        inc e
-        inc e
-        dec b
-        jr nz,clock_glyph_row
         ret
     __endasm;
 }

@@ -340,10 +340,17 @@ class Driver:
                         address = 0xa000+(pattern&4095)*2
                         cached = self.p.memory[pattern>>12,address] | self.p.memory[pattern>>12,address+1]<<8
                     assert cached == (physical if physical<252 else physical-4), 'SRAM lookup disagrees with visible cache slot'
-                    if '_world_slot_strip_get' in self.symbols:
-                        compact=self.rom_constant('world_lookup_format',0)in(1,2)
-                        address=(0xb000 if compact else 0xa000)+2*((ty&31)*32+(tx&31))
-                        mirrored=self.p.memory[0 if compact else 8,address]|self.p.memory[0 if compact else 8,address+1]<<8
+                    if '_world_slot_strip_get' in self.symbols or '_world_plane_slots' in self.symbols:
+                        if '_world_plane_slots' in self.symbols:
+                            cell=(ty&31)*32+(tx&31)
+                            mt=self.p.memory[0,0xb000+cell]
+                            ma=self.p.memory[0,0xb400+cell]
+                            assert mt==tile and ma==attribute,'SRAM plane disagrees with displayed viewport'
+                            mirrored=mt+(252 if ma&8 else 0)
+                        else:
+                            compact=self.rom_constant('world_lookup_format',0)in(1,2)
+                            address=(0xb000 if compact else 0xa000)+2*((ty&31)*32+(tx&31))
+                            mirrored=self.p.memory[0 if compact else 8,address]|self.p.memory[0 if compact else 8,address+1]<<8
                         assert mirrored==cached,'SRAM slot mirror disagrees with displayed viewport'
                         self.slot_mirror_checks+=1
                     if tx < ids.shape[1] and ty < ids.shape[0]:

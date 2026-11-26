@@ -70,6 +70,44 @@ pose_ready:
  ld a,(#_Bike+96)
  or a
  jr z,pose_default_facing
+.ifdef RIDING_BIASED_HEAD
+ ; Stored head X and Y each include 128. Opposite facing adds or removes
+ ; one full byte from their sum, while the biases cancel in a difference.
+ ld hl,#_riding_pose_sine+2
+ ldh a,(#_riding_pose_cosine)
+ sub a,(hl)
+ ld e,a
+ inc hl
+ ld a,#0
+ sbc a,(hl)
+ ld d,a
+ ld hl,#_riding_pose_sine
+ ldh a,(#_riding_pose_cosine+2)
+ add a,(hl)
+ ld c,a
+ ldh a,(#_riding_pose_cosine+3)
+ adc a,#255
+ ld b,a
+ jr pose_facing_ready
+pose_default_facing:
+ ld hl,#_riding_pose_sine+2
+ ldh a,(#_riding_pose_cosine)
+ cpl
+ sub a,(hl)
+ ld e,a
+ inc hl
+ ld a,#0
+ sbc a,(hl)
+ ld d,a
+ inc de
+ ld hl,#_riding_pose_sine
+ ldh a,(#_riding_pose_cosine+2)
+ sub a,(hl)
+ ld c,a
+ ldh a,(#_riding_pose_cosine+3)
+ sbc a,#0
+ ld b,a
+.else
  ld hl,#_riding_pose_sine+2
  ldh a,(#_riding_pose_cosine)
  sub a,(hl)
@@ -107,6 +145,7 @@ pose_default_facing:
  ldh a,(#_riding_pose_cosine+3)
  sbc a,(hl)
  ld b,a
+.endif
 pose_facing_ready:
  ; Both offsets now fit in registers. Rider and head coordinates are
  ; consecutive, so one source pointer advances through both axes.
