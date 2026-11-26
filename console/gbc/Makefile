@@ -69,11 +69,18 @@ build/elma-gbc-viewer.gbc: assets src/main.c
 build/physics-probe.gbc: assets src/physics_probe.c src/suspension.c src/suspension.h src/mul16.s
 	$(LCC) $(filter-out -Wm-yt0x1B -Wm-ya4,$(FLAGS)) -Wm-yt0x19 -o $@ src/physics_probe.c src/suspension.c src/mul16.s
 
-# Preserve each native source snapshot; repeating this target creates a new run.
-ifndef SCHEDULE_CHECK_DIR
-SCHEDULE_CHECK_DIR := build/scheduled-check-$(shell date +%Y%m%d-%H%M%S)
-endif
+# A caller can name an output directory to retain an investigation.
+# Otherwise run the same recipe with a private directory for this invocation.
+define check_in_temp
+@set -e; scratch=$$(mktemp -d "$${TMPDIR:-/tmp}/elma-$@.XXXXXX"); \
+ trap 'rm -rf "$$scratch"' 0; trap 'exit 1' HUP INT TERM; \
+ $(MAKE) -o "$(GAME_ROM)" "$@" "$(1)=$$scratch"
+endef
+
 check-scheduled: $(GAME_ROM)
+ifndef SCHEDULE_CHECK_DIR
+	$(call check_in_temp,SCHEDULE_CHECK_DIR)
+else
 	$(PYTHON) test/check_wheel_pair.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_shallow_push.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_wheel_terrain.py --gen $(GEN) --rom $(GAME_ROM)
@@ -81,43 +88,45 @@ check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/check_physics_rider.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_projection_tables.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_roll_table.py --rom $(GAME_ROM)
-	$(PYTHON) test/check_level_exits.py --gen $(GEN) --res "$(ELMA_RES)" --out $(SCHEDULE_CHECK_DIR)/level-exits
-	$(PYTHON) test/check_wide_brake.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-brake
-	$(PYTHON) test/check_wide_wheels.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-wheels
-	$(PYTHON) test/check_close_reaction.py --out $(SCHEDULE_CHECK_DIR)/close-reaction
-	$(PYTHON) test/check_partial_motion.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/partial-motion
-	$(PYTHON) test/check_physics_move.py --out $(SCHEDULE_CHECK_DIR)/move
-	$(PYTHON) test/check_force_accumulator.py --out $(SCHEDULE_CHECK_DIR)/force
-	$(PYTHON) test/check_force_registers.py --out $(SCHEDULE_CHECK_DIR)/force-registers
-	$(PYTHON) test/check_physics_dot32.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/dot32
-	$(PYTHON) test/check_q24.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/q24
-	$(PYTHON) test/check_q24.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/q24-signed --signed-edges
-	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/native
-	$(PYTHON) test/check_suspension_products.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/suspension-products
-	$(PYTHON) test/check_suspension_forces.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/suspension-forces
-	$(PYTHON) test/check_damping_moment.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/damping-moment
-	$(PYTHON) test/check_rider_coefficients.py --native $(SCHEDULE_CHECK_DIR)/native --out $(SCHEDULE_CHECK_DIR)/rider-coefficients
-	$(PYTHON) test/check_rebound_schedule.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/pc --max-rebound-error-percent 0.1 --max-airtime-error-percent 0.1
-	$(PYTHON) test/check_audio.py --gen $(GEN)
-	$(PYTHON) test/check_riding_audio.py --gen $(GEN)
-	$(PYTHON) test/check_volt_input.py --rom $(GAME_ROM) --gen $(GEN)
-	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN)
-	$(PYTHON) test/check_players.py --rom $(GAME_ROM) --gen $(GEN)
-	$(PYTHON) test/all_levels.py --rom $(GAME_ROM) --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/all-levels --idle-updates 12
-	$(PYTHON) test/freefall.py --rom $(GAME_ROM) --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/freefall
+	$(PYTHON) test/check_level_exits.py --gen $(GEN) --res "$(ELMA_RES)" --out "$(SCHEDULE_CHECK_DIR)/level-exits"
+	$(PYTHON) test/check_wide_brake.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/wide-brake"
+	$(PYTHON) test/check_wide_wheels.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/wide-wheels"
+	$(PYTHON) test/check_close_reaction.py --out "$(SCHEDULE_CHECK_DIR)/close-reaction"
+	$(PYTHON) test/check_partial_motion.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/partial-motion"
+	$(PYTHON) test/check_physics_move.py --out "$(SCHEDULE_CHECK_DIR)/move"
+	$(PYTHON) test/check_force_accumulator.py --out "$(SCHEDULE_CHECK_DIR)/force"
+	$(PYTHON) test/check_force_registers.py --out "$(SCHEDULE_CHECK_DIR)/force-registers"
+	$(PYTHON) test/check_physics_dot32.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/dot32"
+	$(PYTHON) test/check_q24.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/q24"
+	$(PYTHON) test/check_q24.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/q24-signed" --signed-edges
+	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/native"
+	$(PYTHON) test/check_suspension_products.py --native "$(SCHEDULE_CHECK_DIR)/native" --out "$(SCHEDULE_CHECK_DIR)/suspension-products"
+	$(PYTHON) test/check_suspension_forces.py --native "$(SCHEDULE_CHECK_DIR)/native" --out "$(SCHEDULE_CHECK_DIR)/suspension-forces"
+	$(PYTHON) test/check_damping_moment.py --native "$(SCHEDULE_CHECK_DIR)/native" --out "$(SCHEDULE_CHECK_DIR)/damping-moment"
+	$(PYTHON) test/check_rider_coefficients.py --native "$(SCHEDULE_CHECK_DIR)/native" --out "$(SCHEDULE_CHECK_DIR)/rider-coefficients"
+	$(PYTHON) test/check_rebound_schedule.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/pc" --max-rebound-error-percent 0.1 --max-airtime-error-percent 0.1
+	$(PYTHON) test/check_audio.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/audio"
+	$(PYTHON) test/check_riding_audio.py --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/riding-audio"
+	$(PYTHON) test/check_volt_input.py --rom $(GAME_ROM) --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/volt"
+	$(PYTHON) test/check_frontend.py --rom $(GAME_ROM) --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/frontend"
+	$(PYTHON) test/check_players.py --rom $(GAME_ROM) --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/players"
+	$(PYTHON) test/all_levels.py --rom $(GAME_ROM) --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/all-levels" --idle-updates 12
+	$(PYTHON) test/freefall.py --rom $(GAME_ROM) --gen $(GEN) --out "$(SCHEDULE_CHECK_DIR)/freefall"
+endif
 
 # Numeric-limit findings are reported, not treated as passing PC fidelity.
 # Drive cutoff, extreme-spin survival and raw native/HOST equivalence are strict gates.
-ifndef SPEED_CHECK_DIR
-SPEED_CHECK_DIR := build/speed-check-$(shell date +%Y%m%d-%H%M%S)
-endif
 check-speed-limits: $(GAME_ROM)
-	$(PYTHON) test/check_freefall_volts.py --rom $(GAME_ROM) --gen $(GEN) --res "$(ELMA_RES)" --out $(SPEED_CHECK_DIR)/controller
+ifndef SPEED_CHECK_DIR
+	$(call check_in_temp,SPEED_CHECK_DIR)
+else
+	$(PYTHON) test/check_freefall_volts.py --rom $(GAME_ROM) --gen $(GEN) --res "$(ELMA_RES)" --out "$(SPEED_CHECK_DIR)/controller"
 	@for step in 240 250 260 270 280; do \
-		$(PYTHON) test/check_airborne_spin.py --rom $(GAME_ROM) --gen $(GEN) --res "$(ELMA_RES)" --seed-step $$step --out $(SPEED_CHECK_DIR)/spin-$$step || exit 1; \
+		$(PYTHON) test/check_airborne_spin.py --rom $(GAME_ROM) --gen $(GEN) --res "$(ELMA_RES)" --seed-step $$step --out "$(SPEED_CHECK_DIR)/spin-$$step" || exit 1; \
 	done
-	$(PYTHON) test/check_speed_limits.py --gen $(GEN) --out $(SPEED_CHECK_DIR)/pc --require-gas-cutoff --require-spin-survival
-	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --case-file $(SPEED_CHECK_DIR)/pc/cases.json --out $(SPEED_CHECK_DIR)/native
+	$(PYTHON) test/check_speed_limits.py --gen $(GEN) --out "$(SPEED_CHECK_DIR)/pc" --require-gas-cutoff --require-spin-survival
+	$(PYTHON) test/check_scheduled_native.py --gen $(GEN) --case-file "$(SPEED_CHECK_DIR)/pc/cases.json" --out "$(SPEED_CHECK_DIR)/native"
+endif
 
 check: all
 	$(PYTHON) test/check_build_layout.py

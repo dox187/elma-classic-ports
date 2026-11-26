@@ -951,6 +951,10 @@ removes its intermediate Intel HEX file after it verifies the cartridge.
 The gameplay benchmark writes its report and reference trace to the output
 directory. It deletes each route's emulator screenshots and driver logs when
 the route ends, including on interruption.
+`make check-scheduled` and `make check-speed-limits` use a temporary
+directory per run. To keep the native binaries and reports for debugging,
+pass `SCHEDULE_CHECK_DIR=path` or `SPEED_CHECK_DIR=path` to the respective
+target.
 
 Requirements: Make, Bash, Python 3, a host C compiler for tests, curl and tar,
 plus `elma.res` and `default.lgr` from your own copy of the game. The converters
