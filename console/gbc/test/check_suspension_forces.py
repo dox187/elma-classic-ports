@@ -66,6 +66,7 @@ ff_done:
  ret
 .area _CODE_8
 ff_bank: .db 0xa5
+.area _CODE
 _fixture_mirror::
  call ss_spring_total
  ss_read_spring_sum
@@ -208,7 +209,8 @@ def check_mirrored(emulator, symbols):
     code, stack = 0xc900, 0xcff0
     entry = symbols['_fixture_mirror']
     mem[0x3000] = 0
-    mem[0x2000] = mem[symbols['__current_bank']] = entry >> 16
+    # The fixed-ROM probe calls ss_spring_total in the gameplay bank.
+    mem[0x2000] = mem[symbols['__current_bank']] = 8
     mem[code:code+5] = [0xcd, entry & 255, (entry >> 8) & 255, 0x18, 0xfe]
     anchor = symbols['_riding_pose_anchor']
     displacement = symbols['_riding_spring_product_rows'] + 28
