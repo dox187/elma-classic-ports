@@ -3232,3 +3232,46 @@ SHA-256 `03dd29905d66179032b1d02c084b8bb17b76c6566cde4cab7bfa93e306246c99`.
 The 8 MiB MBC5 cartridge has 16 bytes free in fixed ROM. Build with
 `tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test34-8m.gbc`.
 Reports are in `build/v096-test34/`. All timing is emulated.
+
+## 0.96 test35 — rolling, contact merges and suspension
+
+The rolling projection reads exact products for 19 additional terrain
+directions. A wider bound on the contact normal identifies diagonal
+supports that require no pushout. The wheel solver can also prove the
+sign of a diagonal impulse from its dominant term. Other inputs retain
+the full projection. The native merge keeps the two projected contact
+points and their signed midpoint in registers, including the original
+rounding and normalization. The normal-cache readers share bank 9 with
+their callers. The suspension combines the middle digit of the angular
+velocity product and handles small upper digits by shifts and additions.
+The background writer copies up to five row tiles per safe LCD interval.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.296 | 231,265 | 417,944 | 770 | 99/216 |
+| Eight courses, three longer inputs each | 5,227 | 28.777 | 246,926 | 417,272 | 395 | 4/24 |
+| Full Freefall neutral descent | 439 | 29.762 | 242,613 | 415,656 | 3 | 0/1 |
+
+The standard suite gained 11 fully on-time routes. Two fewer extended routes
+met every deadline, even though the extended peak fell from 467,284 to
+417,272 T. All 75,252 substeps and 25,112 published updates on the two
+suites and all 439 Freefall updates matched test34. The PC comparisons
+passed 45 landing/braking cases and reproduced all 20 prior extreme-spin
+outcomes. The native solver matched 9,210 ordinary and 3,170 speed-limit
+states. Linked tests checked 26,412 contact classifications, 13,254
+impulse decisions, 15,016 wheel cases, 35,520 signed radial normals,
+35,520 equal contact pairs and 3,272 mixed pairs. All 39,424 suspension
+deadline checks passed. PyBoy matched 1,216 presentations and 61,845
+background cells. SameBoy matched 878 presentations. The frontend, save
+and result checks passed. The timer fixture recorded one missed deadline.
+
+A separate cartridge prototype stored shared terrain vertices in certified
+64-unit regions. All 15,653 extended substeps matched, but entering the
+native region lookup from the contact iterator raised extended misses to
+627. Restricting the lookup to unresolved terrain reduced this to 550,
+against 547 in test34. The playable ROM uses the register-based merge.
+
+SHA-256 `9c545d6b8afea77de3fa663d9a20ab135df40ff45cbdfb3d9d996ef18348bcd2`.
+The 8 MiB MBC5 cartridge has 207 bytes free in fixed ROM. Build with
+`tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test35-8m.gbc`.
+Reports are in `build/v096-test35/`. All timing is emulated.

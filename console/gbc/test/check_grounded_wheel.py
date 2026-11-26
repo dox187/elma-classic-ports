@@ -124,10 +124,10 @@ def main():
         delta = (torque*speed_scale + (1 << 23)) >> 24
         atlas_cases.append(((0, 16384), (1 << 31) + delta, 0, (9, 0, 0)))
     # The table reader switches independently between signed16, signed20,
-    # and full-width inputs. Probe both sides of its exact width checks
+    # signed24 and full-width inputs. Probe both sides of its exact width checks
     # in all four coordinates and force full-tag misses with aliased lows.
-    limits = (-524289, -524288, -524287, -32769, -32768, -1,
-              0, 32767, 32768, 524286, 524287, 524288)
+    limits = (-8388609, -8388608, -8388607, -524289, -524288, -524287, -32769, -32768, -1,
+              0, 32767, 32768, 524286, 524287, 524288, 8388606, 8388607, 8388608)
     for tx, ty in (*SLOPE_TANGENTS, VERTICAL_TANGENT):
         normal = (ty, -tx)
         for i, value in enumerate(limits):
@@ -137,6 +137,11 @@ def main():
         for _ in range(8):
             words = [rng.randint(-524288, 524287) for _ in range(4)]
             atlas_cases.append((normal, *words[:2], (*words[2:], rng.randint(-65536, 65535))))
+        # Four extreme components exercise carry from each product digit,
+        # mixed word widths and the final upper two quotient bits.
+        for x in (-8388608, 8388607):
+            for y in (-8388608, 8388607):
+                atlas_cases.append((normal, x, y, (-1-x, -1-y, 2400)))
         alias = (ty ^ 256, -tx)
         atlas_cases.append((alias, -12345, 67890, (33333, -22222, 0)))
     for x in (-1048576, -32768, -1, 0, 1, 32767, 1048575):

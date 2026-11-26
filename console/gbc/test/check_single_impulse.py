@@ -33,6 +33,23 @@ def vectors():
                 for ny in (8447, 8448, 16384):
                     yield x, y, nx, ny
                     yield x, ~y, nx, ny
+    # Diagonal dominance compares folded magnitude bytes, including carry
+    # from doubling, sign extension outside 16 bits, and positive Q14 ties.
+    for folded in (0, 1, 31, 126, 127, 128, 255):
+        threshold = 2 * (folded + 1) * 256
+        for x in (folded*256, (folded+1)*256-1, -(folded+1)*256):
+            for y in (threshold-1, threshold, -threshold, -threshold-1, 65536, -65537):
+                for nx in (-16385, -16384, -8193, -8192, 8191, 8192, 16383, 16384):
+                    for ny in (8447, 8448, 32767):
+                        yield x, y, nx, ny
+    for nx in (-4097, -4096, -1025, 1024, 4095, 4096):
+        for x in (-65536, -14336, -257, 255, 14335, 65535):
+            ybin = ((x if x >= 0 else ~x) >> 9) + 1
+            for offset in (-1, 0, 1):
+                y = 256*ybin + offset
+                for ny in (8447, 8448, 32767):
+                    yield x, y, nx, ny
+                    yield x, ~y, nx, ny
     for _ in range(3000):
         yield (rng.randint(-2**31, 2**31-1), rng.randint(-2**31, 2**31-1),
                rng.randint(-32768, 32767), rng.randint(-32768, 32767))

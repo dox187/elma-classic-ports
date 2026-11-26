@@ -288,7 +288,8 @@ ring_restore:
 ; a later merge, push or cache replacement may have changed any of them.
 ; Return A=1 for the original vector, 2 for a one-unit adjustment, 0 on miss.
 ; DE and BC are the exact rounded projections on success.
-.area _CODE
+; Both cache consumers and the radial normalizer execute in contact bank 9.
+.area _CODE_9
 ring_cached_vector:
  ld a,(#normal_cache_valid)
  and #0xc0

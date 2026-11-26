@@ -103,6 +103,9 @@ def validate_layout(symbols):
             symbols['_riding_normal_groups_end']-symbols['_riding_normal_groups'] != 4*GROUPS or
             symbols['_riding_normal_ring'] >> 16 != 9 or symbols['_riding_normal_ring_read'] >= 0x4000):
         raise ValueError('Vertex normal atlas requires bank 9 callers and a fixed-ROM reader')
+    for name in ('_riding_ring_equal_points', '_riding_ring_cached_point', '_riding_contact_merge'):
+        if symbols[name] >> 16 != 9:
+            raise ValueError(f'{name} requires the wheel contact solver in bank 9')
     for name, start in symbols.items():
         match = re.fullmatch(r'_normal_atlas_tail_(\d+)',name)
         if match:

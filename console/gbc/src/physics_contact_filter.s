@@ -204,31 +204,30 @@ _riding_contact_push::
  cp a,#148
  jr z,fine_surface
 
- ; For 405..408, both normals in [-4096,16639] and one <=8191 bound
- ; the rounded fraction to [-128,386]. Every such combination is inside
- ; the accepted, no-push band [103547,104857].
+ ; For lengths 405..408 the accepted no-push interval contains every
+ ; rounded fractional dot in [-133,409]. Each coordinate in [-4096,
+ ; 16639] contributes at least -64. If both coefficients are positive,
+ ; their high-byte sum <=100 bounds their sum by 26110 and the rounded
+ ; dot by 406. A negative term leaves at most one positive contribution.
  ld a,(hl-)
- add a,#16
- cp a,#81
+ add #16
+ cp #81
  jr nc,fine_calculate
- cp a,#48
- jr c,fine_check_wider_x
  dec hl
+ add (hl)                     ; ny high + 16 + signed nx high, modulo 256
+ cp #117
+ jr nc,fine_calculate
  ld a,(hl)
- add a,#16
- cp a,#48
- jr c,fine_in_band
- jr fine_calculate
-fine_check_wider_x:
- dec hl
- ld a,(hl)
- add a,#16
- cp a,#81
+ add #16
+ cp #81
  jr nc,fine_calculate
 fine_in_band:
- ld de,#0
- ld bc,#0
- ld a,#1
+ xor a
+ ld d,a
+ ld e,a
+ ld b,a
+ ld c,a
+ inc a
  ret
 
 fine_surface:
@@ -262,13 +261,9 @@ fine_surface_y_negative:
  add a,#2
  cp a,#130
  jr nc,fine_calculate
- ld h,d
- ld l,e
- ld a,(hl)
- inc hl
- inc hl
- inc hl
- inc hl
+ ld hl,#4
+ add hl,de
+ ld a,(de)
  jr fine_surface_bound
 fine_surface_x:
  ; HL points to ny low. The high byte bounds the complete signed minor.
@@ -309,13 +304,10 @@ fine_surface_bound:
 fine_calculate:
  call fine_shallow_fraction
  jr c,fine_length
- ld h,d
- ld l,e
- ld e,(hl)
- inc hl
- inc hl
- inc hl
- inc hl
+ ld hl,#4
+ add hl,de
+ ld a,(de)
+ ld e,a
  ld d,(hl)
  ld h,b
  ld l,c
@@ -336,13 +328,12 @@ fine_length:
  ld a,#1
  sbc a,(hl)
  ld e,a
- ld d,#0
+ ld a,#0
+ sbc a                         ; sign-extend the borrowed length high byte
  bit 7,(hl)
  jr z,fine_length_positive
- dec d
+ inc a                         ; subtracting a negative length adds 65536
 fine_length_positive:
- ld a,#0
- sbc a,d
  ld d,a
  bit 7,d
  jr nz,fine_negative

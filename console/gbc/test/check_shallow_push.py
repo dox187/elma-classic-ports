@@ -15,6 +15,17 @@ def cases():
             for fy in (0, 1, 121, 122, 123, 124, 125, 254, 255):
                 for length in (-32768, 403, 404, 405, 408, 409, 410, 32767):
                     yield nx, 16384, fx, fy, length
+    # Both signs and both sides of the high-byte sum certificate. Extreme
+    # fractions attain the minimum and maximum of each affine projection.
+    for xh in (-17, -16, -15, 31, 32, 49, 50, 51, 63, 64, 65):
+        for yh in {-17, -16, 64, 65, 99-xh, 100-xh, 101-xh}:
+            for low in (0, 255):
+                nx, ny = 256*xh+low, 256*yh+low
+                if not -32768 <= ny <= 32767:
+                    continue
+                for fx, fy in ((0, 255), (255, 0), (255, 255)):
+                    for length in (404, 405, 407, 408, 409):
+                        yield nx, ny, fx, fy, length
     for ny in (0, -16384, 16128, 16383, 16385, 32767):
         for nx in (-32768, -257, -256, -128, -61, -1, 0, 63, 32767):
             for length in (402, 404, 405, 409, 412):

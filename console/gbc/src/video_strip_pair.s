@@ -137,39 +137,44 @@ pair_column:
  jr pair_column_span
 
 ; Each span stays in one row/column of the hardware map. A poll accepts
-; mode 0/1, leaving at least 160 fast T-cycles before VRAM closes. Four
-; row writes use 124 T, or four column writes 156 T including the final
+; mode 0/1, leaving at least 160 fast T-cycles before VRAM closes. Five
+; row writes use 148 T, or four column writes 156 T including the final
 ; pointer advance. Loop control occurs before the next poll.
 pair_row_span:
- cp #4
+ cp #5
  jr c,pair_row_tail
- sub #4
- push af
+ sub #5
+ ld b,a
  stat_window
- .rept 4
+ .rept 5
  row_byte
  .endm
- pop af
+ ld a,b
  jr pair_row_span
 pair_row_tail:
  or a
  ret z
- dec a
+ ; The four-byte path branches once after polling. The three-byte path
+ ; takes the most control cycles, reaching its final store within 148 T.
+ ld b,a
+ stat_window
+ ld a,b
+ cp #4
+ jr nz,pair_row_tail_three
+ row_byte
+ row_byte
+ row_byte
+ row_byte
+ ret
+pair_row_tail_three:
+ dec b
  jr z,pair_row_one
- dec a
+ dec b
  jr z,pair_row_two
- stat_window
  row_byte
- row_byte
- row_byte
- ret
 pair_row_two:
- stat_window
  row_byte
- row_byte
- ret
 pair_row_one:
- stat_window
  row_byte
  ret
 

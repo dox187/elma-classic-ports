@@ -84,16 +84,19 @@ void main(void){uint16_t i,c,start;uint8_t bank,target;
     symbols={name:int(address,16)for name,address in re.findall(r'DEF (_\w+) 0x([0-9a-fA-F]+)',(out/'check.noi').read_text())};rom=(out/'check.gbc').read_bytes()
     start=symbols['_gbc_video_strip_pair'];end=symbols['_gbc_video_strip_pair_end'];assert start>>16==end>>16==6
     offset=6*16384+(start&65535)-0x4000;code=rom[offset:offset+(end-start)]
-    # A single accepted mode 0/1 read protects up to four sequential writes.
+    # The raw row copies five bytes after a mode 0/1 sample. The final
+    # row tail selects one through four writes while that window is open.
     poll=bytes.fromhex('f0 41 e6 02 20 fa')
-    row=bytes.fromhex('1a 13 22')
-    column=bytes.fromhex('1a 13 77 09')
-    assert all(code.count(poll+instruction*4)==1 for instruction in (row,column))
-    assert all(code.count(poll+instruction*count+b'\xc9')==1
-               for instruction in (row,column) for count in (1,2,3))
-    assert code.count(poll)==8
-    safe_window_cycles=12+8+8+4*(8+8+8+8)
-    assert safe_window_cycles==156<160
+    row=bytes.fromhex('1a 13 22');column=bytes.fromhex('1a 13 77 09')
+    assert code.count(poll+row*5)==1 and code.count(poll+column*4)==1
+    assert all(code.count(poll+column*n+b'\xc9')==1 for n in (1,2,3))
+    tail=(bytes.fromhex('78 fe 04 20 0d')+row*4+bytes.fromhex('c9 05 28 09 05 28 03')+row*3+b'\xc9')
+    assert code.count(poll+tail)==1 and code.count(poll)==6
+    sample=12+8+8
+    row_tail_cycles=[sample+4+8+12+4+12+24, sample+4+8+12+4+8+4+12+2*24,
+                     sample+4+8+12+4+8+4+8+3*24, sample+4+8+8+4*24]
+    safe_window_cycles=max(sample+5*24,sample+4*32,*row_tail_cycles)
+    assert safe_window_cycles==156<160 and max(row_tail_cycles)==148
     emulator=PyBoy(str(out/'check.gbc'),window='null',sound_emulated=False,cgb=True);emulator.set_emulation_speed(0);active=[];returns=set();timing={'pair':[],'baseline':[]}
     def completed(key):
         if not active or active[-1]['key']!=key or active[-1]['sp']+2!=emulator.register_file.SP:return

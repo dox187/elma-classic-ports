@@ -59,6 +59,11 @@ SLOPE_TANGENTS = (
     (-13007, 9963), (-16356, 956), (-11872, -11292), (-15965, 3680),
     (-9217, -13546), (-11181, 11975), (-16381, 402), (-497, 16376),
     (-16095, -3066), (-15580, -5069), (-13549, 9212),
+    (-10948, 12195), (-10689, 12417), (-15259, -5967), (-10914, 12198),
+    (-10682, 12416), (-2401, 16207), (-16364, -819), (-12167, 10973),
+    (-15654, 4835), (-15100, 6358), (-14454, 7715), (-16015, 3455),
+    (-14863, 6893), (-10706, 12397), (-14315, 7970), (-16383, -159),
+    (-15854, -4135), (-9147, 13593), (-16366, -807),
 )
 SLOPE_EXTRA = (-12731, -10313, -12538, 10529, 769)
 # Each group occupies unused product planes in its existing shallow bank.
@@ -81,11 +86,15 @@ def slope_rows(assembly):
     tangents = (*SLOPE_TANGENTS, VERTICAL_TANGENT)
     output = [assembly.with_name('roll_slopes.inc').read_text(), '.area _CODE_35',
               ' .bndry 256', 'slope_hash::']
+    if len(set(tangents)) != len(tangents) or len(tangents) > 127:
+        raise ValueError('Rolling tangent directory needs distinct two-byte slots')
     for i, (x, y) in enumerate(tangents, 1):
+        if abs(x) + abs(y) > 32767:
+            raise ValueError('Rolling tangent exceeds the signed24 input dot bound')
         mixed = (x ^ y) & 255
         low = (((mixed << 3) | (mixed >> 5)) ^ (x >> 8)) & 255
-        if directory[low] or i >= 128:
-            raise ValueError('Rolling tangent hash needs a distinct two-byte slot')
+        while directory[low]:
+            low = (low + 1) & 255
         directory[low] = 2*i
     output.extend(projection_tables.byte_lines(directory))
     output += ['slope_addresses::', ' .dw 0']
@@ -104,13 +113,9 @@ def slope_rows(assembly):
         row = []
         for coefficient in (x, y):
             bank, page = locations[coefficient]
+            if (bank >> 8) != ((bank >> 7) & 1):
+                raise ValueError('Rolling projection bank must encode its ninth bit in bit seven')
             row.extend((page, bank & 255))
-        # The top unsigned digit denotes the signed high byte plus 128.
-        # The three U planes additionally bias each byte product by 2^23.
-        # Both constants occupy whole upper words and survive low-byte carries.
-        biases = [-0x800000 * 0x010101 // 65536 - coefficient*128 for coefficient in (x, y)]
-        for correction in (sum(biases), *biases):
-            row.extend((correction >> shift) & 255 for shift in (0, 8, 16))
         output.append(' .db ' + ','.join(map(str, row)))
 
     # A signed16 input times 20 can cross one Q14 rounding threshold
@@ -125,6 +130,10 @@ def slope_rows(assembly):
     output += [' .bndry 256', 'slope_vertical_rows::']
     for row in (bases, thresholds, [n & 255 for n in correction], [(n >> 8) & 255 for n in correction]):
         output.extend(projection_tables.byte_lines(row))
+    output += ['.area _CODE_30', ' .bndry 16', 'slope_extra_bias:']
+    for coefficient in SLOPE_EXTRA:
+        correction = -(0x800000 * 0x010101 // 65536) - coefficient * 128
+        output.extend(projection_tables.byte_lines([(correction >> n) & 255 for n in (0, 8, 16)]))
     return output
 
 
@@ -166,6 +175,8 @@ def shallow_tangent_banks(assembly):
                     output.extend(projection_tables.byte_lines([(v >> shift) & 255 for v in upper]))
                 args = [f'local_product_{bank}_{index}', *holes[3*index:3*index+3], start+4]
                 output.append('local_product ' + ','.join(map(str, args)))
+            if bank == 29 and index == 11:
+                output.append('ground_select_kernel')
             extra = index - len(factors)
             if 0 <= extra < len(tangent_code)-3:
                 output.append(tangent_code[extra+3])

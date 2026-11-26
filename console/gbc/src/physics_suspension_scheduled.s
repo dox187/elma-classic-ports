@@ -819,7 +819,7 @@ _physics_prepare_spring::
  ld a,(hl+)
  ld d,(hl)
  ld e,a                         ; next-input deadline is start + 2
- ld a,#13                       ; complete lines required by geometry
+ ld a,#12                       ; geometry plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
  push de
@@ -1637,7 +1637,7 @@ ss_upper_disp_byte:
  adc a,b
  ld (hl),a
  ret
-.area _CODE
+ss_near_area
 ss_upper_disp_byte_row:
  ld a,(hl+)
  ld e,a
@@ -1880,11 +1880,23 @@ ss_spin_unsigned_rows:
  ; A negative high digit below 65536 in magnitude can be subtracted
  ; directly. This saves four full arm subtractions after the merge.
  ld a,(#_riding_suspension_state+6)
+ or a
+ jr nz,ss_spin_high_nonzero
+ ld a,(#_riding_suspension_state+5)
+ ld c,a
+ xor a
+ jp ss_spin_signed_middle
+ss_spin_high_nonzero:
  inc a
  jr nz,ss_spin_middle_unsigned
  ld a,(#_riding_suspension_state+5)
  or a
- jp nz,ss_spin_negative_middle
+ jr z,ss_spin_middle_unsigned
+ cpl
+ inc a
+ ld c,a
+ ld a,#1
+ jp ss_spin_signed_middle
 ss_spin_middle_unsigned:
  ld a,(#_riding_suspension_state+5)
  ld de,#ss_spin_mid
@@ -1900,6 +1912,17 @@ ss_spin_middle_unsigned:
  cpl
  inc a
 ss_spin_top_digit:
+ cp #1
+ jr z,ss_spin_top_ready
+ cp #2
+ jr nz,ss_spin_top_table
+ ld de,#ss_spin_top
+ ld hl,#ss_damping+24
+ call ss_spin_double_two
+ ld hl,#ss_damping+16
+ call ss_spin_double_two
+ jr ss_spin_top_ready
+ss_spin_top_table:
  ld de,#ss_spin_top
  call ss_spin_rows
 ss_spin_top_ready:
@@ -1934,8 +1957,6 @@ label:
  sbc a,a
  ld b,a
  ld a,(#_riding_suspension_state+6)
- or a
- jr z,004$
  inc a
  jr nz,002$
  ss_sub ss_damping+arm
@@ -1947,6 +1968,11 @@ label:
  ss_sub ss_spin_top+offset
  jr 004$
 005$:
+ dec a
+ jr nz,007$
+ ss_add ss_damping+arm
+ jr 004$
+007$:
  ss_add ss_spin_top+offset
 004$:
  ; Round the full signed product once after the Q18 shift.
@@ -1974,58 +2000,166 @@ label:
  or a
  ret
 
-ss_near_area
-ss_spin_negative_middle:
- cpl
- inc a
- ld de,#ss_spin_mid
- call ss_spin_rows
- ; P = lo*arm - 256*abs(mid)*arm. Byte zero cannot borrow.
- ; The signed24 floor(P/65536) fits because abs(omega)<65536.
- .macro ss_spin_subtract_lane offset,?nonnegative,?rounded
- ld hl,#ss_spin_mid+offset
- ld a,(#ss_damping+offset+1)
- sub (hl)
- inc hl
- ld a,(#ss_damping+offset+2)
- sbc (hl)
- ld e,a
- inc hl
- ld a,(#ss_damping+offset+3)
- sbc (hl)
- ld d,a
- inc hl
- ld a,(#ss_damping+offset+3)
- bit 7,a
- ld a,#0
- jr z,nonnegative
- dec a
-nonnegative:
- sbc (hl)
- ld c,a
- sra c
- rr d
- rr e
- sra c
- rr d
- rr e
- jr nc,rounded
+ss_spin_double_two:
+ .rept 2
+ ld a,(hl+)
+ add a,a
+ ld (de),a
  inc de
- ld a,d
- or e
- jr nz,rounded
- inc c
-rounded:
+ .rept 3
+ ld a,(hl+)
+ rla
+ ld (de),a
+ inc de
+ .endm
+ .endm
+ ret
+
+ss_spin_signed_middle:
+ ldh (ss_force_byte2),a             ; subtract the middle row for negative omega
  ld a,c
+ ldh (ss_force_byte3),a             ; magnitude needed by the signed arm correction
+ .ifdef RIDING_GAS_REACTION
+ ld l,c
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ inc h
+ ld h,(hl)
+ .else
+ and a,#31
+ add a,a
+ or a,#>_physics_scale_planes_36
+ ld h,a
+ ld a,c
+ rlca
+ rlca
+ rlca
+ and a,#7
+ add a,#36
+ .endif
+ jp ss_spin_fold_rows
+.area _CODE
+ss_spin_fold_rows:
+ ld (#0x2000),a
+ ld a,h
+ ldh (ss_force_page),a
+ .irp offset,0,4,8,12
+ .if offset-8
+ .if offset-12
+ ld hl,#(ss_damping+24+offset)
+ .else
+ ld hl,#(ss_damping+20)
+ .endif
+ .else
+ ld hl,#(ss_damping+16)
+ .endif
+ call ss_spin_arm_row
+ ld hl,#(ss_damping+offset+1)
+ call ss_spin_fold_word
+ .endm
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
+ or a
+ ret
+
+; Return all four digits of the signed arm times the shared middle digit.
+ss_spin_arm_row:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld b,(hl)
+ ldh a,(ss_force_page)
+ ld h,a
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ ld c,(hl)
+ dec h
+ add a,(hl)
+ ld d,a
+ ld l,b
+ ld a,c
+ adc a,(hl)
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ bit 7,l
+ jr z,ss_spin_row_unsigned
+ ld b,a
+ ldh a,(ss_force_byte3)
+ ld l,a
+ ld a,b
+ sub l
+ss_spin_row_unsigned:
+ ld b,a
+ ret
+
+; floor(arm*omega/65536) is signed24 for |omega|<65536.
+; Add the middle product directly to the upper three low-row bytes.
+ss_spin_fold_word:
+ ldh a,(ss_force_byte2)
+ or a
+ jr nz,ss_spin_fold_minus
+ ld a,(hl+)
+ add e
+ ld a,(hl+)
+ adc d
+ ld e,a
+ ld a,(hl)
+ adc c
+ ld d,a
+ bit 7,(hl)
+ ld a,#0
+ jr z,ss_spin_fold_pos_high
+ dec a
+ss_spin_fold_pos_high:
+ adc b
+ jr ss_spin_fold_round
+ss_spin_fold_minus:
+ ld a,(hl+)
+ sub e
+ ld a,(hl+)
+ sbc d
+ ld e,a
+ ld a,(hl)
+ sbc c
+ ld d,a
+ bit 7,(hl)
+ ld a,#0
+ jr z,ss_spin_fold_neg_high
+ dec a
+ss_spin_fold_neg_high:
+ sbc b
+ss_spin_fold_round:
+ sra a
+ rr d
+ rr e
+ sra a
+ rr d
+ rr e
+ jr nc,ss_spin_fold_store
+ inc de
+ inc d
+ dec d
+ jr nz,ss_spin_fold_store
+ inc e
+ dec e
+ jr nz,ss_spin_fold_store
+ inc a
+ss_spin_fold_store:
+ ld c,a
  add a,a
  sbc a,a
- ld b,a
- ss_store ss_damping+offset
- .endm
- .irp i,0,4,8,12
- ss_spin_subtract_lane i
- .endm
- or a
+ ld (hl-),a
+ ld a,c
+ ld (hl-),a
+ ld a,d
+ ld (hl-),a
+ ld (hl),e
  ret
 
 .area _CODE_8
@@ -3280,6 +3414,13 @@ ss_spin_rows:
  ret
 ss_spin_select:
  ld c,a
+ .ifdef RIDING_GAS_REACTION
+ ld l,a
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ inc h
+ ld h,(hl)
+ .else
  and a,#31
  add a,a
  or a,#>_physics_scale_planes_36
@@ -3290,6 +3431,7 @@ ss_spin_select:
  rlca
  and a,#7
  add a,#36
+ .endif
  jp ss_spin_rows_mapped
 
 .area _CODE
@@ -3297,44 +3439,47 @@ ss_spin_select:
 ; successive digits, and C retains the row multiplier for sign correction.
 .macro ss_spin_row label,arm
  ld a,(#ss_damping+arm)
- ld l,a
- ld a,(hl)
- ld (de),a
- inc de
- inc h
- ld b,(hl)
+ ld e,a
+ ld a,(de)
+ ld (hl+),a
+ inc d
+ ld a,(de)
+ ld b,a
  ld a,(#ss_damping+arm+1)
- ld l,a
- dec h
- ld a,(hl)
+ ld e,a
+ dec d
+ ld a,(de)
  add a,b
- ld (de),a
- inc de
- inc h
- ld a,(hl)
+ ld (hl+),a
+ inc d
+ ld a,(de)
  adc a,#0
  ld b,a
  ld a,(#ss_damping+arm+2)
- ld l,a
- dec h
- ld a,(hl)
+ ld e,a
+ dec d
+ ld a,(de)
  add a,b
- ld (de),a
- inc de
- inc h
- ld a,(hl)
+ ld (hl+),a
+ inc d
+ ld a,(de)
  adc a,#0
- bit 7,l
+ bit 7,e
  jr z,label
  ; A negative arm is unsigned_low24 - 2^24.
  sub a,c
 label:
- ld (de),a
- inc de
- dec h
+ ld (hl+),a
+ dec d
 .endm
 ss_spin_rows_mapped:
  ld (#0x2000),a
+ ; The four result words are contiguous. HL advances on each write,
+ ; while E selects a digit and D selects its low or high product page.
+ ld a,h
+ ld h,d
+ ld l,e
+ ld d,a
  ss_spin_row ss_spin_row_y0,24
  ss_spin_row ss_spin_row_y1,28
  ss_spin_row ss_spin_row_x0,16
@@ -3370,7 +3515,8 @@ ss_spin_rows_mapped:
  .endif
 .endm
 
-.macro ss_damp_word label,arm,?unsigned,?word
+.macro ss_damp_word label,arm,?unsigned,?word,?mapped
+ ss_near_area
 label:
  ld h,l
  ld l,c
@@ -3381,6 +3527,9 @@ label:
  ld a,(hl+)
  ld d,a
  ld b,(hl)
+ jp mapped
+.area _CODE
+mapped:
  ss_damp_map_digit c
  ld l,e
  ld e,(hl)
@@ -3457,9 +3606,11 @@ word:
  ss_damp_word ss_damp_word2,20
  ss_damp_word ss_damp_word3,28
 
+ .ifndef RIDING_GAS_REACTION
 ss_damp_map:
  ss_damp_map_digit h
  ret
+ .endif
 ss_damp_finish:
  inc h
  ld a,(hl)
@@ -3521,6 +3672,7 @@ ss_byte_mapped_done:
 ; The two lower speed digits always use the same pair of rows. A third
 ; digit contributes four bytes at offset two. The first and second
 ; multiples are obtained without accessing a multiplication table.
+.area _CODE_15
 ss_mt_product:
  ld a,h
  or a

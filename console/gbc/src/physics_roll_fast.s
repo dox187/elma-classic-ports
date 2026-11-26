@@ -479,7 +479,8 @@ _riding_roll_project_pair::
  call ground_select
  jp nz,ground_project_29
 ground_generic_pair:
- .endif
+ jp slope_begin_pair
+ .else
  .ifdef RIDING_ROLL_TABLES
  ldhl sp,#4
  ld a,(hl+)
@@ -588,6 +589,7 @@ roll_project_shallow:
  ret
  .endif
  .endif
+ .endif
 roll_project_wide:
  .ifdef RIDING_GROUND_ROWS
  jp slope_begin_pair
@@ -624,6 +626,7 @@ roll_project_general:
 
  .ifdef RIDING_ROLL_TABLES
 ; Signed16 speed in DE, HL -> signed16 coefficient. Return BCDE.
+ .ifndef RIDING_GROUND_ROWS
 roll_project_component:
  ld a,(hl+)
  ld b,(hl)
@@ -733,6 +736,8 @@ roll_component_miss:
  ld b,h
  ld c,l
  ret
+
+ .endif
 
 ; DEBC holds dvn, HL points to the signed32 wheel torque. On a hit, DEBC is
 ; the final rolling speed delta. On a miss DEBC is preserved. Carry = hit.
@@ -1002,19 +1007,7 @@ ground_select:
  jr nz,ground_unknown
  ld a,#29
  ld (#0x2000),a
- ld h,#>ground_directory
- ld l,c
- ld a,(hl)
- or a
- jr z,ground_unknown_banked
- bit 7,a
- jr nz,ground_second_bank
- ld l,a
- ld a,#29
- ldh (#ground_projection_bank),a
- ld a,l
- or a
- ret
+ jp ground_select_29
 ground_second_bank:
  and #127
  ld l,a
@@ -1025,7 +1018,7 @@ ground_second_bank:
  or a
  ret
 ground_unknown_banked:
- call ground_restore
+ jp ground_restore
 ground_unknown:
  xor a
  ret
@@ -1134,3 +1127,20 @@ roll_omega_extend:
  ld (#0x3000),a
  jp ground_restore
 .endif
+
+.macro ground_select_kernel
+ground_select_29:
+ ld h,#>ground_directory
+ ld l,c
+ ld a,(hl)
+ or a
+ jp z,ground_unknown_banked
+ bit 7,a
+ jp nz,ground_second_bank
+ ld l,a
+ ld a,#29
+ ldh (#ground_projection_bank),a
+ ld a,l
+ or a
+ ret
+.endm

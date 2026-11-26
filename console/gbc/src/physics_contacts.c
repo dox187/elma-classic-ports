@@ -114,12 +114,171 @@ uint8_t riding_merge_close(int16_t x,int16_t y);
 #ifdef RIDING_NORMAL_ATLAS
 uint8_t riding_contact_point_lookup(contact_t *c);
 uint8_t riding_ring_equal_points(void);
+#if MERGE != 102
 static void merge_point(contact_t *c,int16_t qx,int16_t qy) {
     if (!riding_contact_point_lookup(c)) contact_point(c,qx,qy);
 }
+#endif
 #else
 #define merge_point contact_point
 #endif
+#if defined(RIDING_NORMAL_ATLAS) && MERGE == 102
+static void merge_normal_slow(int16_t x,int16_t y) {
+    normalize(x,y,mul16(x,x)+mul16(y,y),&Ct[0]);
+}
+
+uint8_t riding_contact_merge(void) __naked {
+    __asm
+    ld hl,#_Ct
+    ld de,#(_Ct+10)
+    .rept 6
+    ld a,(de)
+    cp (hl)
+    jr nz,merge_different
+    inc hl
+    inc de
+    .endm
+    ; Equal projected points still require normalization after Q14 rounding.
+    call _riding_ring_equal_points
+    or a
+    jp nz,merge_complete
+    ld de,#_Ct
+    call merge_project
+    ld hl,#(_Ct+6)
+    ld de,#(_Ct+16)
+    .rept 4
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    .endm
+    ld de,#0
+    ld b,d
+    ld c,e
+    jr merge_average
+merge_different:
+    ld de,#_Ct
+    call merge_project
+    ld de,#(_Ct+10)
+    call merge_project
+    ld hl,#(_Ct+6)
+    ld a,(#_Ct+16)
+    sub (hl)
+    inc hl
+    ld e,a
+    ld a,(#_Ct+17)
+    sbc (hl)
+    inc hl
+    ld d,a
+    ld a,(#_Ct+18)
+    sub (hl)
+    inc hl
+    ld c,a
+    ld a,(#_Ct+19)
+    sbc (hl)
+    ld b,a
+    push de
+    push bc
+    call _riding_merge_close
+    pop bc
+    pop de
+    or a
+    ld a,#2
+    ret z
+    ; Signed half-differences round toward negative infinity.
+    sra d
+    rr e
+    sra b
+    rr c
+merge_average:
+    ; Subtract the midpoint in the same 16-bit coordinate domain as the solver.
+    ld hl,#(_Ct+6)
+    ld a,(hl+)
+    add e
+    ld e,a
+    ld a,(hl+)
+    adc d
+    ld d,a
+    ld a,(hl+)
+    add c
+    ld c,a
+    ld a,(hl)
+    adc b
+    ld b,a
+    ld a,(#_riding_contact_qx)
+    sub e
+    ld e,a
+    ld a,(#_riding_contact_qx+1)
+    sbc d
+    ld d,a
+    ld a,(#_riding_contact_qy)
+    sub c
+    ld c,a
+    ld a,(#_riding_contact_qy+1)
+    sbc b
+    ld b,a
+    push de
+    push bc
+    call _riding_normal_merge_ring
+    pop bc
+    pop de
+    or a
+    jp nz,merge_complete
+    call _merge_normal_slow
+merge_complete:
+    xor a
+    ret
+merge_project:
+    push de
+    call _riding_contact_point_lookup
+    pop de
+    or a
+    ret nz
+    ; Project both normal components with the same signed length.
+    ld hl,#4
+    add hl,de
+    ld a,(hl+)
+    ld c,a
+    ld b,(hl)
+    push bc
+    ld h,d
+    ld l,e
+    ld a,(hl+)
+    ld e,a
+    ld a,(hl+)
+    ld d,a
+    push hl
+    call _mulq14
+    pop hl
+    ld d,b
+    ld e,c
+    pop bc
+    push de
+    ld a,(hl+)
+    ld e,a
+    ld a,(hl+)
+    ld d,a
+    inc hl
+    inc hl
+    push hl
+    call _mulq14
+    pop hl
+    pop de
+    ld a,(#_riding_contact_qx)
+    sub e
+    ld (hl+),a
+    ld a,(#_riding_contact_qx+1)
+    sbc d
+    ld (hl+),a
+    ld a,(#_riding_contact_qy)
+    sub c
+    ld (hl+),a
+    ld a,(#_riding_contact_qy+1)
+    sbc b
+    ld (hl),a
+    ret
+    __endasm;
+}
+#else
 uint8_t riding_contact_merge(void) {
  int16_t qx=riding_contact_qx,qy=riding_contact_qy;
  /* Equal normals and lengths project to the same point. Keep the final
@@ -158,6 +317,7 @@ uint8_t riding_contact_merge(void) {
 		return 2;
  return 0;
 }
+#endif
 /* ABI1 passes X in DE:BC and Y on the stack. Save the low 12 bits of each
  * coordinate for the contact geometry. Only their upper bits select a grid
  * cell, so no signed32 shifts or full coordinate copies are needed. */
@@ -1374,11 +1534,10 @@ _riding_single_impulse_outward::
     cp #95
     jr nc,wheel_impulse_exact  ; ny outside [8448,32767]
     ld a,(#_Ct+1)
-    add #32
-    cp #64
-    jr nc,wheel_impulse_exact  ; nx outside [-8192,8191]
-    sub #28
-    cp #8                      ; carry if nx in [-1024,1023]
+    add #64
+    cp #128
+    jr nc,wheel_impulse_exact  ; nx outside [-16384,16383]
+    sub #32
     push af
     ld hl,#3
     add hl,de
@@ -1396,8 +1555,22 @@ _riding_single_impulse_outward::
     xor c
     ld b,a
     pop af
+    cp #64
+    jr c,wheel_impulse_narrow_x
+    ; For |nx| up to 16384, Y>2*X+1 proves abs(dy)>=2*abs(dx).
+    ; The positive ny>=8448 leaves a strict margin above the rounding tie.
+    sla b
+    jr c,wheel_impulse_exact
+    inc b
+    jr wheel_impulse_y_bound
+wheel_impulse_narrow_x:
+    sub #16
+    cp #32
     jr nc,wheel_impulse_y_bound
-    srl b
+    srl b                      ; |nx|<=4096, so twice the Y bin suffices
+    sub #12
+    cp #8
+    jr nc,wheel_impulse_y_bound
     srl b
     srl b
 wheel_impulse_y_bound:
