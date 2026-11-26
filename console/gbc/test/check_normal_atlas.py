@@ -21,6 +21,9 @@ class Cartridge:
         self.p.tick(220,False)
         self.m,self.reg = self.p.memory,self.p.register_file
         self.m[0xffff] = self.m[0xff0f] = 0
+        # The solver uses work RAM for its own key and normalized contact.
+        # Keep the guarded output independent of each cartridge's linker layout.
+        self.m[0x0000], self.m[0x4000] = 0x0a, 0
         self.m[0x2000],self.m[0x3000],self.m[self.sym['__current_bank']] = 9,0,9
         self.signature = image[9*16384:9*16384+32]
         self.image = image
@@ -76,7 +79,7 @@ def check(rom, reference):
     dir_offset = 9*16384+(start&16383)
     reader = sym['_riding_normal_ring_mapped']
     representatives = {}
-    contacts = (0xd901,0xdaff)
+    contacts = (0xa101,0xa2ff)
     try:
         for small in range(290):
             limit,group,lo = struct.unpack_from('<BHB',image,dir_offset+4*(small//2))

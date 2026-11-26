@@ -16,7 +16,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-from play import Driver,RIDING,DEAD,FINISHED,PAUSED,MENU
+from play import bg_tile_address,Driver,RIDING,DEAD,FINISHED,PAUSED,MENU
 
 BASE=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(BASE.parents[1]/'console/snes/tools'))
@@ -38,14 +38,16 @@ def original_object_pixels(data):
 
 def object_graphics_check(d):
     height=d.rom_constant('game_sprite_height',8)
-    for index,base in enumerate((248,252)):
+    offset=128 if d.rom_constant('world_lookup_format',0)==3 else 0
+    for index,base in enumerate((248-offset,252-offset)):
         raw=bytes(d.p.memory[1,0x8000+base*16:0x8040+base*16])
         tiles=[tile_pixels(raw[i*16:(i+1)*16])for i in range(4)]
         image=(np.block([[tiles[0],tiles[2]],[tiles[1],tiles[3]]]) if height==16
                else np.block([[tiles[0],tiles[1]],[tiles[2],tiles[3]]]))
         assert np.array_equal(image,d.original_object_pixels[index]),'sprite backend changed original apple/flower pixels'
     address=d.symbols['_killer_tiles'];expected=d.rom_far((address>>16,address&65535),64)
-    raw=bytes(d.p.memory[0,0x8fc0:0x9000]);tiles=[tile_pixels(raw[i*16:(i+1)*16])for i in range(4)]
+    start=0x8fc0-offset*16
+    raw=bytes(d.p.memory[0,start:start+64]);tiles=[tile_pixels(raw[i*16:(i+1)*16])for i in range(4)]
     actual=(np.block([[tiles[0],tiles[2]],[tiles[1],tiles[3]]])if height==16
             else np.block([[tiles[0],tiles[1]],[tiles[2],tiles[3]]]))
     tiles=[tile_pixels(expected[i*16:(i+1)*16])for i in range(4)]
@@ -60,6 +62,8 @@ class HeadVerifier:
         self.index=d.rom_constant('game_head_oam_index',24)
         self.frame_bytes=self.height*2
         self.tiles=(216,218)if self.height==16 else(216,245)
+        if d.rom_constant('world_lookup_format',0)==3:
+            self.tiles=tuple(tile-128 for tile in self.tiles)
         address=d.symbols['_riding_heads'];bank,offset=address>>16,address&65535
         self.frames=[d.rom_far((bank,offset+i*self.frame_bytes),self.frame_bytes)for i in range(256)]
         for name in ('bike_render_prepare','bike_render_draw'):
@@ -146,13 +150,14 @@ def font_pixels(text):
 
 def ui_pixels(d,x,y,characters,window=False):
     lcd=d.p.memory[0xff40]
-    assert lcd&16,'UI must use unsigned tile addresses'
+    if not window:assert lcd&16,'menu must use unsigned tile addresses'
     base=(0x9c00 if lcd&64 else 0x9800)if window else(0x9c00 if lcd&8 else 0x9800)
     result=[]
     for col in range((characters+1)//2):
         address=base+y*32+x+col
         tile,attr=d.p.memory[0,address],d.p.memory[1,address]
-        raw=bytes(d.p.memory[1 if attr&8 else 0,0x8000+tile*16:0x8010+tile*16])
+        start=bg_tile_address(tile,lcd)
+        raw=bytes(d.p.memory[1 if attr&8 else 0,start:start+16])
         pixels=tile_pixels(raw)
         if attr&32:pixels=pixels[:,::-1]
         if attr&64:pixels=pixels[::-1]

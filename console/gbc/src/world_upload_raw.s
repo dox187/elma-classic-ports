@@ -1,5 +1,5 @@
 ; Raw pattern address preparation. Near bank6, ABI0 slot2,id4.
-; Preserve the lossless 1024-pattern bank layout and physical slot252 gap.
+; The unsigned profile skips four OBJ patterns at slot 252.
 ; world_upload_tile remains responsible for bank restore and safe DMA timing.
 .module world_upload_raw
 .area _CODE_6
@@ -52,6 +52,7 @@ _world_cache_upload_raw::
  inc de
 raw_bank_ready:
  pop hl
+.ifndef WORLD_SIGNED_BG
  ld a,h
  or a
  jr nz,raw_slot_gap
@@ -64,6 +65,7 @@ raw_slot_gap:
  inc hl
  inc hl
 raw_slot_ready:
+.endif
  ; NONBANKED ABI1: bankDE, sourceBC, pattern@SP+2 (callee cleanup).
  push hl
  call _world_upload_tile

@@ -25,6 +25,13 @@ void world_upload_tile(uint16_t bank,uint16_t source,uint16_t pattern) NONBANKED
         swap a
         ld b,a
         and a,#15
+#ifdef WORLD_SIGNED_BG
+        ; Signed tile 0 starts at 0x9000, tile 128 at 0x8800.
+        bit 3,a
+        jr nz,00110$
+        set 4,a
+00110$:
+#endif
         ldh (#0x53),a
         ld a,b
         and a,#0xf0

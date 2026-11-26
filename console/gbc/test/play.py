@@ -23,6 +23,12 @@ from zx0 import decompress
 RIDING, DEAD, FINISHED, PAUSED, MENU = range(5)
 
 
+def bg_tile_address(tile,lcdc):
+    if lcdc&16 or tile>=128:
+        return 0x8000+tile*16
+    return 0x9000+tile*16
+
+
 def signed_angle(value):
     return ((value + 32768) % 65536 - 32768) * (2 * math.pi / 65536)
 
@@ -318,11 +324,19 @@ class Driver:
                     assert attribute&247 == expected_attr, 'streamed viewport attributes differ: level%d (%d,%d)'%(index+1,tx,ty)
                     bank = 1 if attribute&8 else 0
                     physical = tile+256*bank
-                    assert physical < 252 or 256 <= physical < 448, 'background overwrote reserved sprite patterns'
-                    start = 0x8000+tile*16
+                    signed_bg = not self.p.memory[0xff40]&16
+                    assert (physical < 492 if signed_bg else physical < 252 or 256 <= physical < 448), 'background overwrote reserved sprite patterns'
+                    start = bg_tile_address(tile,self.p.memory[0xff40])
                     assert bytes(self.p.memory[bank,start:start+16]) == patterns[pattern*16:pattern*16+16], 'streamed viewport pattern differs: level%d (%d,%d) id%d'%(index+1,tx,ty,pattern)
                     lookup_format=self.rom_constant('world_lookup_format',0)
-                    if lookup_format==2 and self.byte('world_lookup_direct'):
+                    if lookup_format==3:
+                        if source['record']['pattern_count']<=492:
+                            cached=pattern
+                        else:
+                            tag=self.p.memory[0,0xa000+(pattern&255)]
+                            high=self.p.memory[0,0xa100+(pattern&255)]
+                            cached=tag-1 if tag and high==pattern>>8 else 52+tx%22+22*(ty%20)
+                    elif lookup_format==2 and self.byte('world_lookup_direct'):
                         address=0xa000+(pattern&4095)*2
                         lookup_bank=1+(pattern>>12)
                         cached=self.p.memory[lookup_bank,address]|self.p.memory[lookup_bank,address+1]<<8
@@ -339,14 +353,14 @@ class Driver:
                     else:
                         address = 0xa000+(pattern&4095)*2
                         cached = self.p.memory[pattern>>12,address] | self.p.memory[pattern>>12,address+1]<<8
-                    assert cached == (physical if physical<252 else physical-4), 'SRAM lookup disagrees with visible cache slot'
+                    assert cached == (physical if signed_bg or physical<252 else physical-4), 'SRAM lookup disagrees with visible cache slot'
                     if '_world_slot_strip_get' in self.symbols or '_world_plane_slots' in self.symbols:
                         if '_world_plane_slots' in self.symbols:
                             cell=(ty&31)*32+(tx&31)
                             mt=self.p.memory[0,0xb000+cell]
                             ma=self.p.memory[0,0xb400+cell]
                             assert mt==tile and ma==attribute,'SRAM plane disagrees with displayed viewport'
-                            mirrored=mt+(252 if ma&8 else 0)
+                            mirrored=mt+((256 if signed_bg else 252) if ma&8 else 0)
                         else:
                             compact=self.rom_constant('world_lookup_format',0)in(1,2)
                             address=(0xb000 if compact else 0xa000)+2*((ty&31)*32+(tx&31))
@@ -378,7 +392,7 @@ class Driver:
                 bank = 1 if attribute&8 else 0
                 pattern = tile+256*bank
                 if pattern not in seen_patterns:
-                    start = 0x8000+tile*16
+                    start = bg_tile_address(tile,self.p.memory[0xff40])
                     assert bytes(self.p.memory[bank,start:start+16]) == self.patterns[pattern*16:pattern*16+16], 'viewport pattern mismatch: %d'%pattern
                     seen_patterns.add(pattern)
         self.viewport_checks += 1

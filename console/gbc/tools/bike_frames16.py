@@ -45,7 +45,7 @@ def paired_metadata(gen):
         raise ValueError('Expected eight 16x16 wheel frames')
     frames = [wheels[i:i+64] for i in range(0, len(wheels), 64)]
     unique = list(dict.fromkeys(frames))
-    slots = ['208', '212', 'BIKE_WHEEL_EXTRA_TILE']
+    slots = ['BIKE_WHEEL_TILE', 'BIKE_WHEEL_TILE+4', 'BIKE_WHEEL_EXTRA_TILE']
     # Zero selects the streamed renderer for an atlas with more distinct frames.
     tiles = [slots[unique.index(frame)] for frame in frames] if len(unique) <= len(slots) else ['0'] * 8
     data += '#include "bike_render16.h"\nconst uint8_t riding_wheel_tiles[]={' + ','.join(tiles) + '};\n'

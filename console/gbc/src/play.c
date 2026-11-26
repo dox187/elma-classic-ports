@@ -14,6 +14,14 @@
 #include "audio.h"
 #include "save.h"
 #include "result.h"
+#ifdef WORLD_SIGNED_BG
+#define HUD_FIRST_TILE 236
+#define HUD_CLOCK_PAGE 0x8f
+#else
+#define HUD_FIRST_TILE 220
+#define HUD_CLOCK_PAGE 0x8e
+#endif
+
 #pragma bank 5
 
 #ifndef GAME_FRAME_INTERVAL
@@ -324,7 +332,7 @@ static void hud_text(const char *text,uint8_t first,uint8_t width) {
         if(left==hud_characters[i*2] && right==hud_characters[i*2+1])continue;
         hud_characters[i*2]=left;hud_characters[i*2+1]=right;
         ui_font_pair(left,right,hud_pattern);
-        VBK_REG=1;set_bkg_data(220+i,1,hud_pattern);
+        VBK_REG=1;set_bkg_data(HUD_FIRST_TILE+i,1,hud_pattern);
     }
     VBK_REG=0;
 }
@@ -361,8 +369,8 @@ clock_upload_rows:
         add hl,hl
         add hl,hl
         add hl,de
-        ; Clock cells 236..239 occupy 0x8ec0..0x8eff.
-        ld d,#0x8e
+        ; Four clock cells start at byte C0 of the selected HUD page.
+        ld d,#HUD_CLOCK_PAGE
         ld e,c
         ; Preload two rows. From a mode 0/1 STAT read through the final
         ; write takes at most 148 T, inside the 160-T double-speed mode 2
@@ -418,16 +426,20 @@ static void draw_hud(void) {
 
 static void video_init(void) {
     uint8_t i,col,attribute=143;
+#ifdef WORLD_SIGNED_BG
+    LCDC_REG&=~LCDCF_BG8000;
+#else
     LCDC_REG|=LCDCF_BG8000;
+#endif
     world_game_assets();set_bkg_palette(7,1,hud_palette);
     ui_font_pair(0,0,hud_pattern);
     VBK_REG=1;
-    for(i=0;i<20;++i)set_bkg_data(220+i,1,hud_pattern);
+    for(i=0;i<20;++i)set_bkg_data(HUD_FIRST_TILE+i,1,hud_pattern);
     for(i=0;i<40;++i)hud_characters[i]=0;
     hud_apples=hud_minutes=hud_seconds_tens_digit=hud_seconds_ones_digit=hud_centiseconds=255;
     for(col=0;col<20;++col) {
         VBK_REG=1;set_win_tiles(col,0,1,1,&attribute);
-        i=220+col;VBK_REG=0;set_win_tiles(col,0,1,1,&i);
+        i=HUD_FIRST_TILE+col;VBK_REG=0;set_win_tiles(col,0,1,1,&i);
     }
     VBK_REG=0;move_win(7,136);
     bike_render_init();SPRITES_8x16;SHOW_BKG;SHOW_WIN;SHOW_SPRITES;

@@ -399,6 +399,14 @@ gather_selected:
  ld d,(hl)
  ld b,#0
  call gather_plane
+ .ifdef WORLD_SIGNED_BG
+ ld a,(#_world_direct_map)
+ or a
+ jr z,gather_standard
+ ld b,#2
+ jr gather_attributes
+gather_standard:
+ .endif
  ldhl sp,#12                  ; high destination
  ld e,(hl)
  inc hl

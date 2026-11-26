@@ -56,12 +56,18 @@ class PresentationDriver(Driver):
             if x and y:
                 address = 0x8000 + (tile & 254) * 16
                 patterns.append(bytes(memory[(attr >> 3) & 1, address:address+32]))
+        signed_bg = not memory[0xff40]&16
+        canonical=bytearray(oam)
+        if signed_bg:
+            for i in range(0,160,4):
+                if any(oam[i:i+3]):canonical[i+2]^=128
+        hud=0x8ec0 if signed_bg else 0x8dc0
         return {
             'steps': self.word('game_steps'),
             'camera': (self.word('game_camera_x'), self.word('game_camera_y')),
-            'OAM': oam,
+            'OAM': bytes(canonical),
             'sprite pixels': patterns,
-            'HUD pixels': bytes(memory[1, 0x8dc0:0x8f00]),
+            'HUD pixels': bytes(memory[1, hud:hud+320]),
         }
 
 

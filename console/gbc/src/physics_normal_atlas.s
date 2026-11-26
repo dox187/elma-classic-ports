@@ -3,7 +3,8 @@
 ; cache tag on replacement. An atlas hit installs the full original key.
 .area _DATA
 normal_octant: .ds 1
-normal_entry: .ds 8
+normal_shape_length: .ds 1
+normal_shape_flags: .ds 1
 
 .area _CODE_9
 _riding_normal_merge_ring::
@@ -133,36 +134,21 @@ ring_outside:
  ret
 
 ring_install:
- pop bc
- pop de
- ld hl,#normal_cache_key
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- inc hl
- ld a,(#normal_entry+6)
- ld (hl+),a
- ld a,(#normal_entry+7)
- ld (hl+),a
+ ; BCDE already hold the four canonical normal bytes. Copy the original
+ ; arguments from the stack to the cache without disturbing the normal.
+ ldhl sp,#0
+ .irp offset,2,3,0,1
+ ld a,(hl+)
+ ld (#normal_cache_key+offset),a
+ .endm
+ add sp,#4
+ ld hl,#normal_cache_key+6
  ld (hl),#2
  inc hl
  ld (hl),#0
- ld hl,#normal_entry
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld b,a
  ld a,(#normal_octant)
  ld h,a
- ld a,(#normal_entry+5)
+ ld a,(#normal_shape_flags)
  ld l,a
  ; A negative nonintegral Q4 product is bitwise complement of the
  ; positive floor. Exact multiples of 16 take one further increment.
@@ -201,7 +187,7 @@ ring_lengths:
  rrca
 ring_length_selected:
  rrca
- ld a,(#normal_entry+4)
+ ld a,(#normal_shape_length)
  res 6,a
  adc a,#0
  ld (#normal_cache_value+4),a
@@ -221,14 +207,26 @@ ring_length_selected:
  ld c,e
  pop de
 ring_axes:
- ld hl,#normal_cache_value
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
+ pop hl
+ jp ring_write_contact
+.area _CODE
+ring_write_contact:
+ .macro ring_write_digit digit,offset
+ ld a,digit
+ ld (#normal_cache_value+offset),a
+ ld (hl+),a
+ .endm
+ ring_write_digit e,0
+ ring_write_digit d,1
+ ring_write_digit c,2
+ ring_write_digit b,3
+ ld a,(#normal_cache_value+4)
+ ld (hl+),a
+ ld (hl),#1
+ ld a,#1
+ or a
+ ret
+.area _CODE_9
 ring_copy:
  pop de
  jp normal_cache_copy
@@ -260,27 +258,32 @@ _riding_normal_ring_mapped::
  add hl,hl
  add hl,hl
  add hl,de
- ld de,#normal_entry
- .rept 8
+ ; Read the raw normal into registers. Length and sign metadata are
+ ; used after unmapping, while the squared length belongs in the cache key.
+ .irp digit,e,d,c,b
  ld a,(hl+)
- ld (de),a
- inc de
+ ld digit,a
  .endm
- ld c,#1
+ .irp addr,normal_shape_length,normal_shape_flags,normal_cache_key+4,normal_cache_key+5
+ ld a,(hl+)
+ ld (#addr),a
+ .endm
+ ld a,#1
+ or a
  jr ring_restore
 ring_above:
- ld c,#2
+ xor a
+ scf
  jr ring_restore
 ring_unmapped:
- ld c,#0
+ xor a
 ring_restore:
+ push af
  xor a
  ld (#0x3000),a
  ld a,#9
  ld (#0x2000),a
- ld a,c
- cp #2
- ccf
+ pop af
  ret
 
 ; DE points to a candidate's three normalized words. Compare all six bytes:
@@ -319,12 +322,13 @@ ring_read_vector:
  ld b,(hl)
  ld a,(#normal_cache_valid)
  bit 7,a
- jr nz,ring_vector_adjust
+ jp nz,ring_vector_adjust
  ld a,#1
  ret
+.area _CODE
 ring_vector_adjust:
  ld h,a
- ld a,(#normal_entry+4)
+ ld a,(#normal_shape_length)
  bit 6,a
  jr z,ring_major_only
  ; The normalized vector shifts one unit along each canonical axis.
@@ -373,6 +377,7 @@ ring_vector_increase_y:
 ring_vector_changed:
  ld a,#2
  ret
+.area _CODE_9
 ring_vector_miss:
  xor a
  ret

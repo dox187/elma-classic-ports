@@ -5,6 +5,11 @@
 ; the low-byte coordinate subtractions exact even across uint16 wrap.
 ; No shared state, bank/IRQ writes or mutation outside selected shadow OAM.
 .module objects_draw_fast
+.ifdef WORLD_SIGNED_BG
+OBJECT_TILE_OFFSET = 128
+.else
+OBJECT_TILE_OFFSET = 0
+.endif
 .area _CODE_5
 .macro object_column
  ld (hl),c
@@ -80,10 +85,10 @@ objects_left_loop:
  inc hl
  inc hl
  ld a,(hl)
- ld de,#2552
+ ld de,#(2552-OBJECT_TILE_OFFSET)
  cp a,#2
  jr z,objects_left_fields_ready
- ld de,#2812
+ ld de,#(2812-OBJECT_TILE_OFFSET)
  cp a,#3
  jr nz,objects_left_fields_ready
  ld d,#5
@@ -151,10 +156,10 @@ objects_right_loop:
  inc hl
  inc hl
  ld a,(hl)
- ld de,#2554
+ ld de,#(2554-OBJECT_TILE_OFFSET)
  cp a,#2
  jr z,objects_right_fields_ready
- ld de,#2814
+ ld de,#(2814-OBJECT_TILE_OFFSET)
  cp a,#3
  jr nz,objects_right_fields_ready
  ld d,#5

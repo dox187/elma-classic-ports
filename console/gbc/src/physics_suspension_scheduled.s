@@ -266,7 +266,7 @@ selected:
  .else
  inc hl
  .endif
- ld e,a
+ ld (#sums+axis*9+0),a
  ld a,(hl)
  sbc a,d
  .if live
@@ -274,17 +274,18 @@ selected:
  .else
  inc hl
  .endif
- ld d,a
+ ld (#sums+axis*9+1),a
  ld a,(hl)
  sbc a,c
  .if live
- ld (hl),a
+ ld (hl+),a
+ .else
+ inc hl
  .endif
- ld c,a
+ ld (#sums+axis*9+2),a
  ld a,#2
  sbc a,b
- ld b,a
- ss_store sums+axis*9
+ ld (#sums+axis*9+3),a
 .endm
 
 ; Return a full signed33 spring+damper in A:BCDE and publish its wrapped
@@ -364,7 +365,7 @@ positive:
 ; All fast inputs lie in [-2^21,2^21) with coefficients in [0,1].
 ; Three sum bytes cover both rounded wheel terms, including carries across
 ; bit 15. The fourth wheel byte is the sign extension of their true sum.
-.macro ss_narrow_force_pair product,destination
+.macro ss_narrow_force_pair product,destination,top
  ld hl,#(ss_force_products+product+3)
  ldh a,(ss_force_products+product+28+3)
  add a,(hl)
@@ -376,53 +377,60 @@ positive:
  inc l
  ldh a,(ss_force_products+product+28+5)
  adc a,(hl)
- ld c,a
+ ld top,a
+ ld hl,#destination
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,top
+ ld (hl+),a
  add a,a
  sbc a,a
- ld b,a
- ss_store destination
+ ld (hl),a
 .endm
 
 .macro ss_narrow_force_axis pair,axis,sums,wheel0,wheel1
- ss_narrow_force_pair pair,wheel0
+ ; B retains wheel zero's high digit while C receives wheel one's.
+ ss_narrow_force_pair pair,wheel0,b
  push de
- ss_narrow_force_pair pair+7,wheel1
+ ss_narrow_force_pair pair+7,wheel1,c
  pop hl
  add hl,de
- ld a,(#wheel0+2)
+ ld a,b
  adc a,c
  ld c,a
  add a,a
  sbc a,a
  ld b,a
- ; HL and C hold the summed signed24 wheel impulse. The saved B sign
- ; extends through both remaining digits of the original signed40 residue.
  ld d,h
  ld e,l
+ ; Subtract the signed24 combined impulse through every residual byte.
+ ; Direct stores leave the borrow available for the next higher digit.
  ld hl,#(_force_residual+axis*8+3)
  ld a,(hl+)
  sub a,e
- ld e,a
+ ld (#sums+axis*9+4),a
  ld a,(hl+)
  sbc a,d
- ld d,a
+ ld (#sums+axis*9+5),a
  ld a,(hl+)
  sbc a,c
- ld c,a
+ ld (#sums+axis*9+6),a
  ld a,(hl+)
  sbc a,b
- ld h,(hl)
- ld l,a
- ld a,h
+ ld (#sums+axis*9+7),a
+ ld a,(hl)
  sbc a,b
  ld (#sums+axis*9+8),a
- ld b,l
- ss_store sums+axis*9+4
 .endm
 
 ; Divide the integer force and the signed carry from the fractional sum. The
 ; register divider supplies a Euclidean remainder and a wrapped HL:DE quotient.
-.macro ss_finish_force axis
+; In the banked cartridge, the common signed prefix reduces the force
+; to the last one or two bytes. Finish those bytes beside their tables.
+; Unusual prefixes use the full signed40 entry.
+.macro ss_finish_force axis,mapped,?negative,?wide,?short,?last,?converted
  ; Fraction subtraction has already stored the three Euclidean digits.
  ld hl,#(_riding_force_sums+axis*9+3)
  ld a,(hl+)
@@ -441,10 +449,45 @@ positive:
  ld b,a
  ld a,(hl)
  adc a,#0
+ .ifnb mapped
+ or a
+ ld h,#>_riding_div20_rows
+ jr z,short
+ inc a
+ jr z,negative
+ dec a
+wide:
+ call _riding_force_divmod20_mapped
+ sub a,#10
+ jr converted
+negative:
+ dec a
+ ld h,#>(_riding_div20_rows+38*256)
+short:
+ cp b
+ jr nz,wide
+ cp c
+ jr nz,wide
+ cp d
+ jr z,last
+ ld l,d
+ ld d,(hl)
+ inc h
+ ld h,(hl)
+last:
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ rrca
+ sub a,#(0x20+10)           ; encoded page / 2 - base / 2 - half divisor
+converted:
+ .else
  call _riding_force_divmod20
  ld b,h
  ld c,l
  sub a,#10
+ .endif
  ld hl,#(_force_residual+axis*8+3)
  ld (hl+),a
  add a,a
@@ -1229,8 +1272,12 @@ ss_reactions:
 ss_wheel1:
  ss_wheel_reaction 4,ss_wheel_stride,ss_wheels_done,ss_reaction1_index,ss_ordinary1,ss_reaction_ready1
 ss_wheels_done:
+ .ifdef RIDING_GAS_REACTION
+ call ss_finish_both_forces
+ .else
  ss_finish_force 0
  ss_finish_force 1
+ .endif
  ld a,(#ss_paired)
  or a
  jr z,ss_angular_forces
@@ -4495,5 +4542,22 @@ gas_read_fixed:
  ld a,(#__current_bank)
  ld (#0x2000),a
  scf
+ ret
+.endif
+
+.ifdef RIDING_GAS_REACTION
+.area _CODE
+ss_finish_both_forces:
+ ld a,#35
+ ld (#0x2000),a
+ call ss_finish_mapped
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+
+.area _CODE_35
+ss_finish_mapped:
+ ss_finish_force 0,1
+ ss_finish_force 1,1
  ret
 .endif

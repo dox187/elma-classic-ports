@@ -649,7 +649,7 @@ void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
     if(body!=last_body) {
         bank=body>>6;
         SWITCH_ROM(10+bank);
-        upload(192,16,riding_bodies[bank]+((uint16_t)(body&63)<<8));
+        upload(BIKE_BODY_TILE,16,riding_bodies[bank]+((uint16_t)(body&63)<<8));
         last_body=body;
     }
     __critical {frame=sys_time;}
@@ -679,7 +679,7 @@ void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
         wheel=(uint8_t)((bike->wheel[i].angle+4096U)>>13)&7;
         if(wheel!=last_wheel[i]) {
             SWITCH_ROM(13);
-            upload(208+i*4,4,riding_wheels+((uint16_t)wheel<<6));
+            upload(BIKE_WHEEL_TILE+i*4,4,riding_wheels+((uint16_t)wheel<<6));
             last_wheel[i]=wheel;
         }
     }

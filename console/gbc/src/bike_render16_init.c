@@ -31,11 +31,11 @@ void bike_render16_init_sprites(void) BANKED {
     set_sprite_palette(3,1,riding_wheel_palette);
     set_sprite_palette(4,1,riding_head_palette);
     for(i=0;i<8;++i) {
-        shadow_OAM[i].tile=192+i*2;
+        shadow_OAM[i].tile=BIKE_BODY_TILE+i*2;
         shadow_OAM[i].prop=S_BANK;
     }
     for(i=8;i<12;++i) {
-        shadow_OAM[i].tile=208+(i-8)*2;
+        shadow_OAM[i].tile=BIKE_WHEEL_TILE+(i-8)*2;
         shadow_OAM[i].prop=S_BANK|3;
     }
     shadow_OAM[12].tile=BIKE_HEAD_TILE;

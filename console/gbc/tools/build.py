@@ -21,6 +21,7 @@ import projection_tables
 import rolling_tables
 import rolling_map_banks
 import rider_map_tables
+import scenery_pins
 import seat_tables
 import sqrt_tables
 import stopped_pair
@@ -68,6 +69,8 @@ def validate_linked_layout(symbol_path,rom_mib):
                 address = symbols[f'_torque_{name}_{phase}']
                 if address >> 16 != 1 or address & 255:
                     raise ValueError('Angular torque digit tables require aligned pages in bank 1')
+    if '_world_scenery_pins' in symbols:
+        scenery_pins.validate_layout(symbols)
     if 'pose_bank_18' in symbols:
         pose_products.validate_layout(symbols)
     if '_riding_scale_directory' in symbols and (symbols.get('_riding_projection_hash'), symbols['_riding_scale_directory'], symbols.get('_riding_scale_pages')) != (0x200, 0x600, 0x700):
@@ -165,6 +168,13 @@ def mismatched_map_banks(rom, sources):
             continue
         match = re.fullmatch(r'level_bank_(\d+)\.c', source.name)
         helper = re.fullmatch(r'rolling_(directory|products)_(\d+)\.s', source.name)
+        if source.name == f'scenery_pins_{scenery_pins.BANK}.s':
+            data = bytes(int(value) for line in source.read_text().splitlines()
+                         if line.startswith(' .db ') for value in line[5:].split(','))
+            start = scenery_pins.BANK*16384
+            if rom[start:start+len(data)] != data:
+                mismatches.append(source)
+            continue
         if match or helper:
             bank = int(match[1] if match else helper[2])
             skip = 0 if match else (512 if helper[1]=='directory' else 2048)
@@ -343,6 +353,7 @@ def main():
     sources=[BASE/'src'/name for name in names]
     sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
     graphics = json.loads((a.gen/'level_manifest.json').read_text())
+    signed_bg = scheduled and rom_mib==8 and graphics['map_codec']==rolling_map_banks.CODEC
     if rom_mib==8:
         sources[sources.index(BASE/'src/video_strip_pair.s')] = BASE/'src/world_map_planes.s'
         # Only world.c and its near acquisition kernel call these SRAM helpers.
@@ -353,6 +364,8 @@ def main():
             prefix = 'WORLD_RAW_STREAM_BANK6 = 1\n'
             if name=='world_memory' and graphics['map_codec']==rolling_map_banks.CODEC:
                 prefix += 'WORLD_PACKED_HIGH = 1\n'
+            if signed_bg and name=='world_memory':
+                prefix += 'WORLD_SIGNED_BG = 1\n'
             head_clearance.write_if_changed(raw, prefix+source.read_text())
             sources[sources.index(source)] = raw
     if rom_mib==4:
@@ -521,9 +534,24 @@ def main():
         if path.exists():
             stat=path.stat();tool_key.append((str(path),stat.st_size,stat.st_mtime_ns))
     configuration=json.dumps([compile_flags,tool_key]).encode()
+    if signed_bg:
+        bank = a.gen/f'level_bank_{scenery_pins.BANK}.c'
+        sources[sources.index(bank)] = scenery_pins.generate(a.gen,bank)
+        for name in ('world_upload_raw','objects_draw_fast'):
+            source = BASE/'src'/(name+'.s')
+            signed = a.gen/('signed_'+name+'.s')
+            head_clearance.write_if_changed(signed,'WORLD_SIGNED_BG = 1\n'+source.read_text())
+            sources[sources.index(source)] = signed
+        unused = {'world_acquire_fast.s','world_retire_fast.s','world_alloc_fast_game.s','world_lookup_raw_game.s'}
+        sources = [path for path in sources if path.name not in unused]
     def coefficient_lookup(path):
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
+    def apply_scenery_flags(path,flags):
+        if signed_bg and path.name in ('world.c','world_dma.c','play.c','result.c','bike_render16.c',
+                                       'bike_render16_init.c','riding16_meta.c'):
+            return flags+['-DWORLD_SIGNED_BG']
+        return flags
     def source_flags(path):
         if scheduled and path == BASE/'src/physics_core.c':
             return ['-DRIDING_PAIRED_ROTATION'] + (['-DRIDING_SEAT_LOOKUP'] if seat_lookup else [])
@@ -536,7 +564,7 @@ def main():
             return ['-DRIDING_HEAD_TERRAIN'] + (['-DRIDING_HEAD_LANES'] if head_lanes else [])
         return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []
     def source_key(path):
-        extra=b''.join(b' '+flag.encode() for flag in source_flags(path))
+        extra=b''.join(b' '+flag.encode() for flag in apply_scenery_flags(path,source_flags(path)))
         return hashlib.sha256(configuration+extra+dependencies(path,a.gen)).hexdigest()
     objects=[];keys=[];pending=[]
     for path in sources:
@@ -545,7 +573,7 @@ def main():
         if not obj.is_file():pending.append((path,obj,key))
     def compile_one(item):
         path,obj,key=item
-        extra=source_flags(path)
+        extra=apply_scenery_flags(path,source_flags(path))
         # lcc can leave a partial ASxxxx object after an interrupted write.
         # Only a completed compilation may publish an object into the cache.
         with tempfile.TemporaryDirectory(dir=cache) as staging:

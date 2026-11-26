@@ -33,14 +33,19 @@ static void protect_background(void) {
 
 static uint16_t text_tile(void) {
     uint16_t tile;
-    /* Bank 1's HUD/reserved range supplies 24 cells. World slots supply the
-     * other 36: at most 21x16=336 of their 444 patterns are protected above
-     * the window, leaving at least 108 choices. Allocation advances once per
-     * candidate, excluding bank 0's killers and bank 1's sprite ranges. */
+    /* Reuse the riding HUD first. At most 21x16=336 scenery patterns
+     * remain visible above the panel. Both layouts leave at least 108
+     * additional eligible slots for the remaining text cells. */
+#ifdef WORLD_SIGNED_BG
+    if(next_hud_tile<20)return 492U+next_hud_tile++;
+#else
     if(next_hud_tile<BIKE_WHEEL_EXTRA_TILE)return 256U+next_hud_tile++;
+#endif
     do {
         tile=next_world_tile++;
+#ifndef WORLD_SIGNED_BG
         if(next_world_tile==252)next_world_tile=256;
+#endif
     } while(used_patterns[tile>>3]&(uint8_t)(1U<<(tile&7)));
     return tile;
 }
@@ -78,7 +83,12 @@ void result_overlay(uint32_t frames,uint32_t previous_best) BANKED {
 
     DISPLAY_OFF;
     protect_background();
-    next_hud_tile=220;next_world_tile=0;
+#ifdef WORLD_SIGNED_BG
+    next_hud_tile=0;
+#else
+    next_hud_tile=220;
+#endif
+    next_world_tile=0;
     window=(volatile uint8_t *)
         ((LCDC_REG&LCDCF_WIN9C00)?0x9c00U:0x9800U);
     draw_row(window,time);

@@ -1348,6 +1348,41 @@ _riding_wheel_inputs::
 ws_have_answer:
     or a,a
     jp z,wheel_no_contact
+#if MERGE == 102 && R_WHEEL == 410
+    ; Segment normals have L1 <= ceil(sqrt(2)*16384 + 1). Radial
+    ; contacts project at most 409 along either axis. A merge midpoint
+    ; is within 51 of its fresh second contact even after prior merges.
+    ; For those offsets [-460,460] the largest L1 at length 405..408
+    ; is 23181 (check_coarse_contact_band.py). Thus the fraction dot
+    ; lies in [-361,361]. At lengths 406..408 no push or rejection is
+    ; possible. At 405 we also require ny >= 0 and nx >= -8192,
+    ; bounding its negative fractional contribution by 128.
+    dec a
+    jr nz,ws_prepare_pair
+    ld hl,#(_Ct+5)
+    ld a,(hl-)
+    dec a
+    jr nz,ws_prepare_single
+    ld a,(hl)
+    sub #150
+    cp #3
+    jr c,wheel_single
+    inc a
+    jr nz,ws_prepare_single
+    dec hl
+    bit 7,(hl)
+    jr nz,ws_prepare_single
+    dec hl
+    dec hl
+    ld a,(hl)
+    add #32
+    bit 7,a
+    jr z,wheel_single
+ws_prepare_single:
+    xor a
+ws_prepare_pair:
+    inc a
+#endif
     pop de
     push de
     call _riding_prepare_contacts

@@ -3,13 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test40 — 8 MiB](build/elma-gbc-v0.96-test40-8m.gbc)**.
-Four controller routes on each of the 54 courses averaged **29.50 updates/s**.
-The 24 longer routes averaged **29.17**, and the neutral Freefall descent
-averaged **29.80**. Late updates including DMA fell from 546 to 484 on the
-standard routes and from 259 to 247 on the longer routes. Of the 216 standard
-routes, 123 met every deadline. All 75,252 captured physics substeps matched
-test39. [Timing and verification](PERFORMANCE.md#096-test40--rolling-and-head-clearance)
+**[0.96 test41 — 8 MiB](build/elma-gbc-v0.96-test41-8m.gbc)**.
+Four controller routes on each of the 54 courses averaged **29.55 updates/s**.
+Of these 216 routes, **137** met every two-refresh deadline, up from 123.
+Late updates including DMA fell from 484 to 415. The 24 longer routes
+averaged **29.23**, with 227 late updates. Neutral Freefall averaged **29.83**
+with one late update. All 75,252 captured physics substeps matched test40.
+[Timing and verification](PERFORMANCE.md#096-test41--contact-forces-and-scenery)
 
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**

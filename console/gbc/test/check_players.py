@@ -13,7 +13,7 @@ import traceback
 import numpy as np
 
 from all_levels import font_pixels, ui_pixels
-from play import BASE, Driver, RIDING, DEAD, FINISHED, MENU, PAUSED
+from play import bg_tile_address, BASE, Driver, RIDING, DEAD, FINISHED, MENU, PAUSED
 
 
 def text_check(d, x, y, value, window=False):
@@ -70,7 +70,7 @@ def finish_fixture(d, at_frames=None, expect_new=True):
                 cell = base+(((sy//8+row)&31)*32)+((sx//8+col)&31)
                 tile, attr = d.p.memory[0,cell], d.p.memory[1,cell]
                 bank = 1 if attr & 8 else 0
-                start = 0x8000+tile*16
+                start = bg_tile_address(tile,d.p.memory[0xff40])
                 frozen_patterns[bank,start] = bytes(d.p.memory[bank,start:start+16])
         shadow = d.symbols['_shadow_OAM']
         frozen_sprites.append(bytes(d.p.memory[shadow:shadow+160]))

@@ -14,8 +14,10 @@ static uint16_t cell_ids[CACHES];
 static uint8_t cell_subcells[CACHES],cell_counts[CACHES];
 static uint8_t next_cell;
 physics_level_desc_t riding_level;
+#ifndef __SDCC
 int32_t physics_level_origin_x,physics_level_origin_y;
 int32_t physics_level_start_x,physics_level_start_y;
+#endif
 uint8_t physics_level_index=255;
 const seg_t *Seg_cur;
 uint8_t Seg_left,Seg_subcell;
@@ -35,6 +37,11 @@ void riding_surface_reset(void) __nonbanked;
 
 typedef struct {uint16_t address;uint8_t bank,count;} cell_pointer_t;
 typedef char descriptor_layout[sizeof(physics_level_desc_t)==48?1:-1];
+#ifdef __SDCC
+typedef char coordinate_layout[offsetof(physics_level_desc_t,origin_x)==0 &&
+    offsetof(physics_level_desc_t,origin_y)==4 && offsetof(physics_level_desc_t,start_x)==8 &&
+    offsetof(physics_level_desc_t,start_y)==12 ? 1 : -1];
+#endif
 typedef char cell_pointer_layout[sizeof(cell_pointer_t)==4?1:-1];
 
 /* High ROM bank bits exist only during this ROM0 copy. No banked function is
@@ -78,10 +85,23 @@ uint8_t physics_collision_select(uint8_t index) {
 #else
     memcpy(&riding_level,&physics_levels[index],sizeof(riding_level));
 #endif
+#ifdef __SDCC
+    /* The exported coordinates are the first four 32-bit fields of the selected
+     * descriptor. Give its fields the existing cartridge symbol names. */
+    __asm
+        .globl _physics_level_origin_x, _physics_level_origin_y
+        .globl _physics_level_start_x, _physics_level_start_y
+        _physics_level_origin_x = _riding_level
+        _physics_level_origin_y = _riding_level+4
+        _physics_level_start_x = _riding_level+8
+        _physics_level_start_y = _riding_level+12
+    __endasm;
+#else
     physics_level_origin_x=riding_level.origin_x;
     physics_level_origin_y=riding_level.origin_y;
     physics_level_start_x=riding_level.start_x;
     physics_level_start_y=riding_level.start_y;
+#endif
     physics_level_index=index;
     physics_collision_reset();
     return 1;

@@ -21,7 +21,7 @@ def verify_wheel_tiles(driver):
         assert slots == bytes(8), 'streaming fallback'
         return
     for phase, (slot, frame) in enumerate(zip(slots, frames)):
-        assert slot in (208, 212, 244), (phase, slot)
+        assert slot in ((208,212,244) if driver.p.memory[0xff40]&16 else (80,84,116)), (phase, slot)
         start = 0x8000 + 16 * slot
         assert bytes(driver.p.memory[1, start:start+64]) == frame, ('wheel pixel mismatch', phase)
 

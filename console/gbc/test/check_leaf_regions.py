@@ -12,6 +12,10 @@ from pyboy import PyBoy
 from check_wheel_terrain import leaves
 
 
+# Keep injected segments and the call trampoline outside the linked WRAM layout.
+SEGMENTS = 0xa400
+
+
 class Iterator:
     def __init__(self, rom):
         self.symbols = {name: int(value, 16) for name, value in re.findall(
@@ -21,11 +25,12 @@ class Iterator:
         self.p = PyBoy(BytesIO(self.image), window='null', sound_emulated=False, cgb=True)
         self.p.set_emulation_speed(0)
         self.p.tick(240, False)
+        self.p.memory[0] = 0x0a  # Enable cartridge RAM for the native fixture.
         self.p.memory[0xff0f] = self.p.memory[0xffff] = 0
 
     def call(self, symbol, x=0, y=0, a=0, stack_byte=None):
         memory, regs = self.p.memory, self.p.register_file
-        pc, sp = 0xc900, 0xcf80
+        pc, sp = 0xbe00, 0xbd00
         address = self.symbols[symbol] & 65535
         code = [0xf3]
         if stack_byte is not None:
@@ -45,14 +50,14 @@ class Iterator:
         return regs.A
 
     def install(self, records):
-        # The two ROMs use identical WRAM fixture addresses. Reuse the same
+        # The two ROMs use identical cartridge RAM fixture addresses. Reuse the same
         # address across different leaves and explicitly exercise reset.
         self.call('_physics_collision_reset')
-        self.p.memory[0xc400:0xc400+len(records)*18] = b''.join(
+        self.p.memory[SEGMENTS:SEGMENTS+len(records)*18] = b''.join(
             struct.pack('<6hH4B', *r) for r in records)
 
     def leaf_entry(self, x, y, start, count):
-        key = struct.pack('<BBH', (x//64+128)&255, (y//64+128)&255, 0xc400+18*start)
+        key = struct.pack('<BBH', (x//64+128)&255, (y//64+128)&255, SEGMENTS+18*start)
         base, memory = self.symbols['_riding_leaf_regions'], self.p.memory
         entries = [slot for slot in range(base,base+128,32)
                    if memory[slot+4] and memory[slot+13] == count and bytes(memory[slot:slot+4]) == key]
@@ -62,7 +67,7 @@ class Iterator:
     def query(self, x, y, start, count, seed):
         s, memory = self.symbols, self.p.memory
         cursor, left, ct = s['_Seg_cur'], s['_Seg_left'], s['_Ct']
-        memory[cursor:cursor+2] = struct.pack('<H', 0xc400+start*18)
+        memory[cursor:cursor+2] = struct.pack('<H', SEGMENTS+start*18)
         memory[left] = count
         memory[ct:ct+20] = seed
         n = self.call('_riding_contacts_loop', x, y)
@@ -97,13 +102,13 @@ def check_invalidation(current, old, levels):
     for machine in (current,old):
         for cx,cy,sub in cells:
             machine.call('_seg_query', x=cy, a=cx, stack_byte=sub)
-        machine.p.memory[0xc400:0xc412] = struct.pack('<6hH4B',*replacement)
+        machine.p.memory[SEGMENTS:SEGMENTS+18] = struct.pack('<6hH4B',*replacement)
     assert current.p.memory[current.symbols['_riding_leaf_regions_dirty']]
     after = agree()
     assert after != before and agree() == after
     for machine in (current,old):
         machine.call('_physics_collision_select', a=1)
-        machine.p.memory[0xc400:0xc412] = struct.pack('<6hH4B',*record)
+        machine.p.memory[SEGMENTS:SEGMENTS+18] = struct.pack('<6hH4B',*record)
     assert current.p.memory[current.symbols['_riding_leaf_regions_dirty']]
     assert agree() == before
 

@@ -20,9 +20,14 @@ uint8_t world_level_index;
 #ifdef WORLD_GRAPHICS_ZX0
 const uint8_t world_lookup_format=1;
 #else
+#ifdef WORLD_SIGNED_BG
+const uint8_t world_lookup_format=3;
+#else
 const uint8_t world_lookup_format=2;
 #endif
+#endif
 uint16_t world_uploads,world_cache_failures;
+#ifndef WORLD_SIGNED_BG
 /* Internal cache symbols are shared with the near bank6 acquisition kernel. */
 uint16_t world_cache_ids[CACHE_COUNT],world_cache_next;
 uint16_t world_cache_references[CACHE_COUNT];
@@ -32,12 +37,15 @@ uint8_t world_cache_free_bits[FREE_BYTES];
 #define references world_cache_references
 #define free_bits world_cache_free_bits
 static const uint8_t slot_masks[8]={1,2,4,8,16,32,64,128};
+#endif
 static uint8_t strip_low[21],strip_high[21],strip_attrs[21];
 static uint8_t output_tiles[21];
 static uint8_t tile_buffer[16];
 static uint16_t palettes[28];
+#ifndef WORLD_SIGNED_BG
 static uint16_t retired[40];
 static uint8_t retired_count;
+#endif
 static uint16_t last_chunk;
 static world_far_t chunk;
 #ifdef WORLD_GRAPHICS_ZX0
@@ -60,11 +68,17 @@ static uint8_t map_cache_planes[MAP_CACHE_COUNT],prepare_map_plane;
 enum {PREP_NONE,PREP_COL_FETCH,PREP_COL_ACQUIRE,PREP_COL_PUBLISH,
       PREP_ROW_FETCH,PREP_ROW_ACQUIRE,PREP_ROW_PUBLISH,PREP_READY};
 static uint8_t prepare_stage,prepare_horizontal,prepare_vertical;
+#ifdef WORLD_SIGNED_BG
+static uint8_t prepare_index,prepare_count;
+#else
 static uint8_t prepare_index,prepare_count,prepare_added_count;
+#endif
 static uint16_t prepare_old_x,prepare_old_y,prepare_x,prepare_y;
 static uint16_t prepare_left,prepare_top,prepare_old_left,prepare_old_top;
 static uint16_t prepare_strip_x,prepare_strip_y;
+#ifndef WORLD_SIGNED_BG
 static uint16_t prepare_added[39];
+#endif
 
 
 #ifndef WORLD_GRAPHICS_ZX0
@@ -98,15 +112,21 @@ uint8_t world_select(uint8_t index) BANKED {
     return 1;
 }
 
+#ifdef WORLD_SIGNED_BG
+#define OBJECT_TILE_OFFSET 128
+#else
+#define OBJECT_TILE_OFFSET 0
+#endif
+
 void world_game_assets(void) BANKED {
-    world_far_copy(14,killer_tiles,tile_buffer,16);VBK_REG=0;set_sprite_data(252,1,tile_buffer);
-    world_far_copy(14,killer_tiles+32,tile_buffer,16);set_sprite_data(253,1,tile_buffer);
-    world_far_copy(14,killer_tiles+16,tile_buffer,16);set_sprite_data(254,1,tile_buffer);
-    world_far_copy(14,killer_tiles+48,tile_buffer,16);set_sprite_data(255,1,tile_buffer);
+    world_far_copy(14,killer_tiles,tile_buffer,16);VBK_REG=0;set_sprite_data(252-OBJECT_TILE_OFFSET,1,tile_buffer);
+    world_far_copy(14,killer_tiles+32,tile_buffer,16);set_sprite_data(253-OBJECT_TILE_OFFSET,1,tile_buffer);
+    world_far_copy(14,killer_tiles+16,tile_buffer,16);set_sprite_data(254-OBJECT_TILE_OFFSET,1,tile_buffer);
+    world_far_copy(14,killer_tiles+48,tile_buffer,16);set_sprite_data(255-OBJECT_TILE_OFFSET,1,tile_buffer);
     world_far_copy(14,(const uint8_t *)killer_palette,tile_buffer,8);set_sprite_palette(5,1,(const uint16_t *)tile_buffer);
     world_far_copy(14,(const uint8_t *)object_palette,tile_buffer,16);set_sprite_palette(1,2,(const uint16_t *)tile_buffer);
     VBK_REG=1;
-    {uint8_t i;for(i=0;i<8;++i){world_far_copy(14,object_tiles+(uint16_t)((i&4)|((i&1)<<1)|((i&2)>>1))*16,tile_buffer,16);set_sprite_data(248+i,1,tile_buffer);}}
+    {uint8_t i;for(i=0;i<8;++i){world_far_copy(14,object_tiles+(uint16_t)((i&4)|((i&1)<<1)|((i&2)>>1))*16,tile_buffer,16);set_sprite_data(248-OBJECT_TILE_OFFSET+i,1,tile_buffer);}}
     VBK_REG=0;set_bkg_palette(0,7,palettes);
 }
 
@@ -492,6 +512,7 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
 }
 #endif
 
+#ifndef WORLD_SIGNED_BG
 static void load_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
     uint8_t i;uint16_t slot,id;
     fetch_strip(x,y,vertical,count,0,0);
@@ -553,6 +574,8 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
     for(i=y>>3;i<(y>>3)+19;++i)load_strip(x>>3,i,0,21);
     move_bkg((uint8_t)x,(uint8_t)y);
 }
+
+#endif
 
 /* One unknown partial scanline plus3K caller/end margin is excluded.
  * A pending VBlank can precede its sys_time ISR; account for it atomically.
@@ -622,6 +645,9 @@ static uint8_t prepare_budget(uint16_t start,uint16_t required_lines) {
 
 #endif
 
+#ifdef WORLD_SIGNED_BG
+#include "world_signed.inc"
+#else
 static void prepare_cancel(void) {
     if(prepare_added_count)
         world_refs_retire_fixed(prepare_added,prepare_added_count);
@@ -1537,3 +1563,5 @@ void world_scroll(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) BANKED {
     world_refs_retire_fixed(retired,retired_count);
     prepare_stage=PREP_NONE;prepare_added_count=0;retired_count=0;
 }
+
+#endif

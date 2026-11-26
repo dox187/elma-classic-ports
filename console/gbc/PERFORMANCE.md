@@ -3458,3 +3458,40 @@ SHA-256 `f49bc467d372f960ea9b90f3427adcac732c3b512b04a0c370e57639a4df888c`.
 Fixed ROM has 46 bytes free. Banks 508–511 remain erased. Build with
 `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test40-8m.gbc`.
 Reports are in `build/v096-test40/`. All timing figures were measured in emulation.
+
+## 0.96 test41 — contact forces and scenery
+
+The wheel solver can now prove directly that a single contact in a narrow
+range will survive the normal check without a push. The radial atlas reader
+loads the contact and its reusable copy in one pass. Both suspension axes
+share the mapped signed division table while computing forces and residuals.
+The 8 MiB game uses signed background tile addressing, with 52 pinned
+patterns and 440 coordinate-indexed slots. Three courses keep all their
+patterns resident. The original tile graphics and level records are preserved.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.553 | 220,952 | 417,848 | 415 | 137/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.226 | 233,543 | 417,276 | 227 | 8/24 |
+| Full Freefall neutral descent | 439 | 29.830 | 228,638 | 311,268 | 1 | 0/1 |
+
+All 75,252 captured substeps and 25,112 published updates matched test40,
+as did the separate 439-update descent. The 45 PC landing/braking and 20
+extreme-spin cases retained their results. Native tests covered 20,984
+signed divisions, 6,144 two-axis force vectors, 6,500 wheel entries,
+528,009 fresh endpoint offsets and 848,241 merged offsets. PyBoy matched
+1,216 presentations and 61,845 visible cells. SameBoy matched 878
+presentations. All 54 course-entry screens passed the source-image
+check, with three display overruns during the separate entry sweep.
+Player, save and frontend checks passed.
+
+On the same input suite the physics changes alone gave 433 standard and
+234 extended late updates. With the scenery changes these fell to 415
+and 227. The long level 11 braking replay still missed 151 of its 650
+deadlines. The active update budget is 280,896 double-speed T-cycles.
+These measurements are from emulation.
+
+SHA-256 `a79219733c295db589a45a05380b78395d0d3402aad914a4740643ef50d5de50`.
+The fixed ROM has 24 bytes free. Build with
+`tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test41-8m.gbc`.
+Reports are in `build/v096-test41/s-{catalog,extended,fullfall}/`.
