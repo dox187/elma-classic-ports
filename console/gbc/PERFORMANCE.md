@@ -3153,3 +3153,40 @@ SHA-256 `a93a551d2b8a60581306d6bcc7bc773b3e8ca3ee60fa67ab6a775732fd214287`.
 Fixed ROM has 691 bytes free. Build using
 `tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test32-8m.gbc`.
 Reports are in `build/v096-test32/`. All timing is emulated.
+
+
+## 0.96 test33 — wheel projection and suspension moments
+
+The terrain endpoint lookup certifies the rounded contact point for 4,000
+of its 4,440 normal entries. Equal contacts can share the projected point.
+A second normalization is required whenever rounding changed the vector.
+Rolling reuses the verified slope for both impulses, uses signed projection
+rows for common braking slopes and handles horizontal ground directly.
+
+The suspension reads multiple digits of a displacement before restoring the
+solver bank and folds the signed product into each wheel moment. The
+longest linked paths for the two wheel moments take 4,504 and 4,528
+T-cycles. Angular damping takes at most 6,144. Including the two-line
+reserve, the preparation guards now require seven, seven and nine lines.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.095 | 235,355 | 417,916 | 1,046 | 86/216 |
+| Eight courses, three longer inputs each | 5,227 | 28.098 | 253,115 | 498,260 | 641 | 5/24 |
+| Full Freefall neutral descent | 439 | 29.694 | 247,000 | 416,040 | 5 | 0/1 |
+
+All 75,252 standard and extended physics substeps, their 25,112 published
+states and the 439 Freefall updates matched test32. The 45 PC rebound and
+braking cases passed. All 20 extreme spin results matched test32. Native
+tests matched 9,210 ordinary and 3,170 speed-limit states. The suspension
+passed 12,769 product, 42,038 damping and 39,424 guard cases. The normal
+atlas passed 35,520 signed permutations, 35,520 equal and 3,272 mixed
+contact pairs. Rolling passed 39,724 impulses and 131,334 omega cases.
+PyBoy matched 1,216 presentations and 61,845 background cells, and SameBoy
+matched 878 presentations. Frontend, audio and save checks passed. The
+idle timer fixture recorded one deadline miss.
+
+SHA-256 `89b4ef83ee3a7a517427f6d109be8b9979e3c859f6cfa42fb028c98fbe1f214b`.
+The 8 MiB MBC5 cartridge has 82 bytes free in fixed ROM. Build with
+`tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test33-8m.gbc`.
+Reports are in `build/v096-test33/`. All timing is emulated.

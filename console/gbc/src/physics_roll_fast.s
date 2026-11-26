@@ -1,6 +1,184 @@
 ; Exact grounded rolling, bank 9. The public ABI0 entry takes
 ; k*, contact*, dvx32, dvy32, tq32. The resolver already owns those inputs.
 .module physics_roll_fast
+.macro roll_axis_inputs_kernel target
+ ; Bit 2 selects Y and bit 7 requests saturated negation. Keep the
+ ; pointer to the pending impulse until the projected velocity is stacked.
+ ldhl sp,#4
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ push af
+ ldhl sp,#10
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ pop af
+ push af
+ call roll_axis_value
+ pop af
+ pop hl
+ push de
+ push bc
+ call roll_axis_value
+ jp target
+.endm
+
+.macro roll_axis_value_kernel
+roll_axis_value:
+ bit 2,a
+ jr z,roll_axis_load
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+roll_axis_load:
+ bit 7,a
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ ret z
+ ld a,d
+ xor #0x80
+ or a,e
+ or a,b
+ or a,c
+ jr nz,roll_axis_negate
+ ld de,#0x7fff
+ ld bc,#0xffff
+ ret
+roll_axis_negate:
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ ld a,#0
+ sbc a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ret
+
+.endm
+
+.macro roll_stationary_kernel entry,banked
+entry:
+ ld de,#(_move_residual+18)
+ ld a,l
+ cp #<(_Bike+24)
+ jr nz,roll_stationary_body
+ ld a,h
+ cp #>(_Bike+24)
+ jr nz,roll_stationary_residual
+ ld de,#(_move_residual+10)
+ jr roll_stationary_residual
+roll_stationary_body:
+ cp #<_Bike
+ jr nz,roll_stationary_residual
+ ld a,h
+ cp #>_Bike
+ jr nz,roll_stationary_residual
+ ld de,#(_move_residual+2)
+roll_stationary_residual:
+ push hl
+ ld h,d
+ ld l,e
+ ld a,(hl+)
+ add a
+ sbc a
+ ld (hl+),a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ add a
+ sbc a
+ ld (hl),a
+ pop hl
+ ld de,#8
+ add hl,de
+ xor a
+ .rept 8
+ ld (hl+),a
+ .endm
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+ .rept 4
+ ld (hl+),a
+ .endm
+ ld hl,#_q24_fraction
+ .rept 5
+ ld (hl+),a
+ .endm
+ .if banked
+ jp ground_restore
+ .else
+ ret
+ .endif
+.endm
+
+.macro roll_bank30_wheels
+roll_axis_inputs_30:
+ roll_axis_inputs_kernel ground_resume_deltas
+ roll_axis_value_kernel
+ roll_stationary_kernel roll_stationary_30,1
+; The horizontal unit tangent needs only two saturated signed negations.
+roll_flat_inputs:
+ ld a,#3
+ ldh (#near_page),a
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ call roll_flat_negate
+ push de
+ push bc
+ ldhl sp,#8
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call roll_flat_negate
+ jp ground_resume_deltas
+roll_flat_negate:
+ xor a
+ sub (hl)
+ ld c,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld b,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld e,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld d,a
+ cp #128
+ ret nz
+ ld a,e
+ or b
+ or c
+ ret nz
+ ld de,#0x7fff
+ ld bc,#0xffff
+ ret
+.endm
+
 .area _CODE_9
 _riding_roll32::
  ldhl sp,#2
@@ -58,6 +236,9 @@ roll_start:
  jr nz,roll_input_dots
  ld a,d
  and #0x80
+ .ifdef RIDING_GROUND_ROWS
+ jp nz,roll_map_flat
+ .endif
  jr roll_axis_inputs
 roll_try_vertical:
  ld a,d
@@ -71,29 +252,11 @@ roll_try_vertical:
  and #0x80
  or #4
 roll_axis_inputs:
- ; Bit 2 selects Y and bit 7 requests saturated negation. Keep the
- ; pointer to the pending impulse until the projected velocity is stacked.
- ldhl sp,#4
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- push af
- ldhl sp,#10
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld de,#8
- add hl,de
- pop af
- push af
- call roll_axis_value
- pop af
- pop hl
- push de
- push bc
- call roll_axis_value
- jr roll_projected_inputs
+ .ifdef RIDING_GROUND_ROWS
+ jp roll_map_axis
+ .else
+ roll_axis_inputs_kernel roll_projected_inputs
+ .endif
 roll_input_dots:
  .ifdef RIDING_GROUND_ROWS
  ld a,e
@@ -218,9 +381,13 @@ roll_have_delta:
  jp roll_stationary
 roll_moving:
  .endif
+ .ifdef RIDING_ROLL_OMEGA
+ call roll_omega
+ .else
  ld hl,#_q24_index_C_ROLL_W
  dec sp
  call roll_coefficient
+ .endif
  ldhl sp,#10
  ld a,(hl+)
  ld h,(hl)
@@ -253,100 +420,31 @@ roll_moving:
 ; The zero-speed wheel writes zero velocity and omega. Its two zero
 ; translations only sign-extend each residual's third byte. The omega
 ; coefficient (and the partial-step Y translation) publish zero Q24.
+ .ifdef RIDING_GROUND_ROWS
 roll_stationary:
- ld de,#(_move_residual+18)
- ld a,l
- cp #<(_Bike+24)
- jr nz,roll_stationary_body
- ld a,h
- cp #>(_Bike+24)
- jr nz,roll_stationary_residual
- ld de,#(_move_residual+10)
- jr roll_stationary_residual
-roll_stationary_body:
- cp #<_Bike
- jr nz,roll_stationary_residual
- ld a,h
- cp #>_Bike
- jr nz,roll_stationary_residual
- ld de,#(_move_residual+2)
-roll_stationary_residual:
- push hl
- ld h,d
- ld l,e
- ld a,(hl+)
- add a
- sbc a
- ld (hl+),a
- inc hl
- inc hl
- ld a,(hl+)
- add a
- sbc a
- ld (hl),a
- pop hl
- ld de,#8
- add hl,de
- xor a
- .rept 8
- ld (hl+),a
- .endm
- inc hl
- inc hl
- inc hl
- inc hl
- .rept 4
- ld (hl+),a
- .endm
- ld hl,#_q24_fraction
- .rept 5
- ld (hl+),a
- .endm
- ret
+ ld a,#30
+ ld (#0x2000),a
+ jp roll_stationary_30
+roll_map_axis:
+ ld c,a
+ ld a,#30
+ ld (#0x2000),a
+ ld a,c
+ jp roll_axis_inputs_30
+roll_map_flat:
+ ld a,#30
+ ld (#0x2000),a
+ jp roll_flat_inputs
+ .else
+ roll_stationary_kernel roll_stationary,0
+ .endif
  .endif
 
 ; HL points at two signed32 values. Return the selected Q14 cardinal
 ; projection in DEBC. Negative INT32_MIN rounds to saturated INT32_MAX.
-roll_axis_value:
- bit 2,a
- jr z,roll_axis_load
- inc hl
- inc hl
- inc hl
- inc hl
-roll_axis_load:
- bit 7,a
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld b,a
- ld a,(hl+)
- ld e,a
- ld d,(hl)
- ret z
- ld a,d
- xor #0x80
- or a,e
- or a,b
- or a,c
- jr nz,roll_axis_negate
- ld de,#0x7fff
- ld bc,#0xffff
- ret
-roll_axis_negate:
- xor a
- sub a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
- ld a,#0
- sbc a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ret
+ .ifndef RIDING_GROUND_ROWS
+ roll_axis_value_kernel
+ .endif
 
 .area _CODE_9
 ; HL -> two phase indices. The Q24 entry consumes its reserved argument byte
@@ -666,7 +764,8 @@ roll_restore_bank:
 
 ; BC=input, HL=seven coefficient planes (the base need not be page-aligned).
 ; Return the complete signed24 quotient sign-extended to DEBC.
-roll_transform_word:
+.macro roll_transform_word label
+label:
  push hl
  ld d,b
  ld b,#0
@@ -703,8 +802,10 @@ roll_transform_word:
  ld d,a
  ret
 
+.endm
+
 ; Each phase executes directly alongside its two coefficient tables.
-.macro roll_phase_delta data,rows,?compose,?drop_torque,?torque_zero,?torque_gas,?table_valid,?table_sum,?table_positive,?compose_wide
+.macro roll_phase_delta data,rows,transform,?compose,?drop_torque,?torque_zero,?torque_gas,?table_valid,?table_sum,?table_positive,?compose_wide
  ld a,b
  add a,#roll_bias_pages
  cp #roll_pages
@@ -813,7 +914,7 @@ compose:
  push bc                        ; original dvn for a wide intermediate
  push hl                        ; original torque pointer
  ld hl,#rows
- call roll_transform_word
+ call transform
  pop hl
  ld a,(hl+)
  add c
@@ -835,7 +936,7 @@ compose:
  cp d
  jr nz,compose_wide
  ld hl,#(rows+7*256)
- call roll_transform_word
+ call transform
  pop hl
  scf
  jp roll_restore_bank
@@ -852,10 +953,12 @@ compose_wide:
 
 .area _CODE_14
 roll_delta_full:
- roll_phase_delta roll_data_0,roll_transform_0
+ roll_phase_delta roll_data_0,roll_transform_0,roll_full_word
+ roll_transform_word roll_full_word
 .area _CODE_6
 roll_delta_partial:
- roll_phase_delta roll_data_1,roll_transform_1
+ roll_phase_delta roll_data_1,roll_transform_1,roll_partial_word
+ roll_transform_word roll_partial_word
 .endif
 
  .ifdef RIDING_GROUND_ROWS
@@ -866,7 +969,13 @@ ground_flat_pair:
  jp ground_flat_29
 ground_try_dots:
  call ground_select
- jp nz,ground_inputs_29
+ jr z,ground_dots_missed
+ ldh (#near_slot),a
+ ld a,#2
+ ldh (#near_page),a
+ ldh a,(#near_slot)
+ jp ground_inputs_29
+ground_dots_missed:
  jp roll_generic_dots
 ground_resume_dots:
  call ground_restore
@@ -900,12 +1009,17 @@ ground_select:
  jr z,ground_unknown_banked
  bit 7,a
  jr nz,ground_second_bank
+ ld l,a
+ ld a,#29
+ ldh (#ground_projection_bank),a
+ ld a,l
  or a
  ret
 ground_second_bank:
  and #127
  ld l,a
  ld a,#30
+ ldh (#ground_projection_bank),a
  ld (#0x2000),a
  ld a,l
  or a
@@ -916,3 +1030,107 @@ ground_unknown:
  xor a
  ret
  .endif
+
+.ifdef RIDING_ROLL_OMEGA
+.area _CODE
+; DEBC is the nonzero speed. The low-byte node is nonnegative, and the
+; complete signed17 result fits signed16. The general multiplier handles
+; wider speed inputs. Publish the identical rounded Q24 fraction on both
+; substeps, including the full interval where translation leaves it live.
+roll_omega::
+ ld a,d
+ or e
+ jr z,roll_omega_positive
+ ld a,d
+ and e
+ inc a
+ jr nz,roll_omega_wide
+ ld h,#(roll_omega_page+11)
+ ld a,b
+ inc a
+ jr nz,roll_omega_map
+ ld a,c
+ or a
+ jr z,roll_omega_map
+ ld h,#(roll_omega_page+27)
+ jr roll_omega_byte
+roll_omega_positive:
+ ld h,#(roll_omega_page+5)
+ ld a,b
+ or a
+ jr nz,roll_omega_map
+ ld h,#roll_omega_page
+roll_omega_byte:
+ ld a,#roll_omega_bank
+ ld (#0x2000),a
+ ld a,#roll_omega_high
+ ld (#0x3000),a
+ ld l,c
+ ld a,(hl)
+ ldh (#_q24_fraction),a
+ inc h
+ ld a,(hl)
+ ldh (#_q24_fraction+1),a
+ inc h
+ ld a,(hl)
+ xor #128
+ ldh (#_q24_fraction+2),a
+ rlca
+ sbc a
+ ldh (#_q24_fraction+3),a
+ inc h
+ ld c,(hl)
+ inc h
+ ld b,(hl)
+ jr roll_omega_extend
+roll_omega_wide:
+ ld a,(#_q24_index_C_ROLL_W)
+ dec sp
+ call _q24_apply_a
+ ret
+roll_omega_map:
+ ld a,#roll_omega_bank
+ ld (#0x2000),a
+ ld a,#roll_omega_high
+ ld (#0x3000),a
+ ld d,#roll_omega_page
+ ld e,c
+ ld l,b
+ ld a,(de)
+ ldh (#_q24_fraction),a
+ inc d
+ ld a,(de)
+ add (hl)
+ ldh (#_q24_fraction+1),a
+ inc d
+ inc h
+ ld a,(de)
+ adc (hl)
+ rla
+ ld b,a
+ ccf
+ sbc a
+ ldh (#_q24_fraction+3),a
+ ld a,b
+ rra
+ ldh (#_q24_fraction+2),a
+ inc d
+ inc h
+ ld a,(de)
+ adc (hl)
+ ld c,a
+ inc h
+ ld a,#0
+ adc (hl)
+ ld b,a
+roll_omega_extend:
+ ld a,b
+ add a
+ sbc a
+ ld d,a
+ ld e,a
+ xor a
+ ldh (#_q24_saturated),a
+ ld (#0x3000),a
+ jp ground_restore
+.endif

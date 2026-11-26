@@ -13,7 +13,7 @@ _riding_normal_ring::
  push hl
  ld a,(#normal_cache_valid)
  cp #2
- jr nz,ring_lookup
+ jr c,ring_lookup
  ld hl,#normal_cache_key
  ld a,(hl+)
  cp e
@@ -208,6 +208,13 @@ ring_length_selected:
  ld (#normal_cache_value+4),a
  ld a,#1
  ld (#normal_cache_value+5),a
+ ; The low octant bits select axis order and signs. A physical tag is
+ ; at least eight; arbitrary-d2 cache entries retain tag one.
+ ld a,l
+ and #0xc0
+ or h
+ or #8
+ ld (#normal_cache_valid),a
  bit 2,h
  jr z,ring_axes
  push bc
@@ -223,8 +230,6 @@ ring_axes:
  ld (hl),c
  inc hl
  ld (hl),b
- inc a                     ; tag 2 certifies d2 = x*x + y*y
- ld (#normal_cache_valid),a
 ring_copy:
  pop de
  jp normal_cache_copy
@@ -277,4 +282,120 @@ ring_restore:
  ld a,c
  cp #2
  ccf
+ ret
+
+; DE points to a candidate's three normalized words. Compare all six bytes:
+; a later merge, push or cache replacement may have changed any of them.
+; Return A=1 for the original vector, 2 for a one-unit adjustment, 0 on miss.
+; DE and BC are the exact rounded projections on success.
+.area _CODE
+ring_cached_vector:
+ ld a,(#normal_cache_valid)
+ and #0xc0
+ ret z
+ ld hl,#normal_cache_value
+ .rept 6
+ ld a,(de)
+ cp (hl)
+ jr nz,ring_vector_miss
+ inc de
+ inc hl
+ .endm
+ ld hl,#normal_cache_key
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ ld a,(#normal_cache_valid)
+ bit 7,a
+ jr nz,ring_vector_adjust
+ ld a,#1
+ ret
+ring_vector_adjust:
+ ld h,a
+ rlca
+ rlca
+ rlca
+ xor h
+ bit 1,a                         ; grow XOR negative
+ jr nz,ring_vector_increase
+ bit 2,h
+ jr z,ring_vector_decrease_y
+ dec de
+ jr ring_vector_changed
+ring_vector_decrease_y:
+ dec bc
+ jr ring_vector_changed
+ring_vector_increase:
+ bit 2,h
+ jr z,ring_vector_increase_y
+ inc de
+ jr ring_vector_changed
+ring_vector_increase_y:
+ inc bc
+ring_vector_changed:
+ ld a,#2
+ ret
+ring_vector_miss:
+ xor a
+ ret
+
+_riding_ring_equal_points::
+ ld de,#_Ct
+ call ring_cached_vector
+ or a
+ ret z
+ push af
+ ld hl,#_riding_contact_qx
+ .irp digit,0,1
+ ld a,(hl+)
+ .if digit
+ sbc d
+ .else
+ sub e
+ .endif
+ ld (#_Ct+6+digit),a
+ ld (#_Ct+16+digit),a
+ .endm
+ ld hl,#_riding_contact_qy
+ .irp digit,0,1
+ ld a,(hl+)
+ .if digit
+ sbc b
+ .else
+ sub c
+ .endif
+ ld (#_Ct+8+digit),a
+ ld (#_Ct+18+digit),a
+ .endm
+ pop af
+ cp #1
+ ret z                            ; same vector, same normalization
+ jp _riding_normal_merge_ring     ; publishes normal or defers to caller
+
+_riding_ring_cached_point::
+ push de
+ call ring_cached_vector
+ pop hl
+ or a
+ ret z
+ .rept 6
+ inc hl
+ .endm
+ ld a,(#_riding_contact_qx)
+ sub e
+ ld (hl+),a
+ ld a,(#_riding_contact_qx+1)
+ sbc d
+ ld (hl+),a
+ ld a,(#_riding_contact_qy)
+ sub c
+ ld (hl+),a
+ ld a,(#_riding_contact_qy+1)
+ sbc b
+ ld (hl),a
+ ld a,#1
  ret

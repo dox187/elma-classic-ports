@@ -1,7 +1,7 @@
 ; Both tangent dots and the final projection use the same signed coefficient.
 ; Each bank contains twelve table slots, followed by this reader at $7c00.
 ; A slot includes the rounded signed16 product and the upper-word correction.
-.macro ground_reader inputs,project,component,store,?dot,?narrow,?miss,?done,?saturate_negative,?first_miss
+.macro ground_reader inputs,project,component,store,?dot,?miss,?done,?saturate_negative,?first_miss
 inputs::
  push af
  ldhl sp,#8
@@ -103,39 +103,12 @@ component:
  ld a,b
  cp #32
  jr nc,miss
- ld h,c
- ld l,e
- ld e,(hl)
- ld a,e
- and #3
- ld c,a
- inc h
- ld l,d
- ld a,e
- add (hl)                     ; carry from the two six-bit fractions
+ ; The correction page contains the exact reader for this coefficient.
  ld a,c
- inc h
- adc (hl)
- ld e,a
- inc h
- ld a,#0
- adc (hl)
- ld d,a
- ld a,b
- cp #16
- jr z,narrow
- inc h
- ld l,b
- ld a,e
- add (hl)
- ld e,a
- set 5,l
- ld a,d
- adc (hl)
- ld d,a
-narrow:
- scf
- ret
+ add #4
+ ld h,a
+ ld l,#64
+ jp (hl)
 miss:
  and a
  ret
@@ -205,4 +178,68 @@ ground_flat_29:
 ground_flat_safe:
  ld de,#0
  jp ground_store_29
+.endm
+
+; Each fifth page holds 64 upper-word correction bytes followed by this
+; coefficient's reader. Reverse the low digit for negative coefficients
+; so every threshold crossing increases the quotient.
+.macro ground_threshold_reader page,negative,narrow,?done
+ .if negative
+ ld a,e
+ cpl
+ ld e,a
+ .endif
+ ld h,#(page+1)
+ ld l,d
+ ld a,(hl)
+ cp e
+ .if narrow
+ dec h
+ ld a,(hl)
+ adc #0
+ ld e,a
+ add a
+ sbc a
+ ld d,a
+ .else
+ ld a,#0
+ adc #0
+ ld c,a
+ inc h
+ ld a,(hl)
+ cp e
+ ld a,c
+ adc #0
+ ld h,#page
+ add (hl)
+ ld e,a
+ ld a,#0
+ adc #0
+ ld c,a
+ ; The signed high digit and coefficient give the base quotient's
+ ; sign. Include the carry from adding the two threshold comparisons.
+ ld a,l
+ .if negative
+ cpl
+ .endif
+ add a
+ sbc a
+ add c
+ ld d,a
+ .endif
+ ld a,b
+ cp #16
+ jr z,done
+ ld h,#(page+4)
+ ld l,b
+ ld a,e
+ add (hl)
+ ld e,a
+ set 5,l
+ ld a,d
+ adc (hl)
+ ld d,a
+done:
+ scf
+ ret
 .endm

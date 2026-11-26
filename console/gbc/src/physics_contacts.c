@@ -113,6 +113,7 @@ uint8_t riding_merge_close(int16_t x,int16_t y);
 #endif
 #ifdef RIDING_NORMAL_ATLAS
 uint8_t riding_contact_point_lookup(contact_t *c);
+uint8_t riding_ring_equal_points(void);
 static void merge_point(contact_t *c,int16_t qx,int16_t qy) {
     if (!riding_contact_point_lookup(c)) contact_point(c,qx,qy);
 }
@@ -121,10 +122,13 @@ static void merge_point(contact_t *c,int16_t qx,int16_t qy) {
 #endif
 uint8_t riding_contact_merge(void) {
  int16_t qx=riding_contact_qx,qy=riding_contact_qy;
-	merge_point( &Ct[0], qx, qy );
  /* Equal normals and lengths project to the same point. Keep the final
   * normalization: rounding does not make that operation idempotent. */
  if(Ct[0].nx==Ct[1].nx && Ct[0].ny==Ct[1].ny && Ct[0].l==Ct[1].l) {
+#ifdef RIDING_NORMAL_ATLAS
+  if(riding_ring_equal_points()) return 0;
+#endif
+  merge_point(&Ct[0],qx,qy);
   int16_t ax=qx-Ct[0].tx, ay=qy-Ct[0].ty;
   Ct[1].tx=Ct[0].tx;Ct[1].ty=Ct[0].ty;
 #ifdef RIDING_NORMAL_ATLAS
@@ -133,6 +137,7 @@ uint8_t riding_contact_merge(void) {
   normalize(ax,ay,mul16(ax,ax)+mul16(ay,ay),&Ct[0]);
   return 0;
  }
+	merge_point( &Ct[0], qx, qy );
 	merge_point( &Ct[1], qx, qy );
 	int16_t dx = Ct[1].tx-Ct[0].tx, dy = Ct[1].ty-Ct[0].ty;
 #if defined(RIDING_NORMAL_ATLAS) && MERGE == 102

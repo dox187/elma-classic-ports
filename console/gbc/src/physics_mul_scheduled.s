@@ -199,8 +199,7 @@ _riding_contact_point_lookup::
  ld b,a
  jp contact_point_read
 contact_point_miss:
- xor a
- ret
+ jp _riding_ring_cached_point
 
 .area _CODE
 contact_point_read:

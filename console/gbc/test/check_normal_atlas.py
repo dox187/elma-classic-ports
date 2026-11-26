@@ -52,6 +52,22 @@ class Cartridge:
         return self.reg.A,out[8:14],pattern[8:14]
 
 
+    def merge(self, first, second, qx, qy):
+        address = self.sym['_Ct']
+        self.m[address:address+20] = first + b'\x55'*4 + second + b'\xaa'*4
+        for name, value in (('_riding_contact_qx', qx), ('_riding_contact_qy', qy)):
+            dest = self.sym[name]
+            self.m[dest:dest+2] = struct.pack('<H', value & 65535)
+        routine = self.sym['_riding_contact_merge']
+        self.m[self.code:self.code+5] = bytes((0xcd, routine & 255, (routine >> 8) & 255, 0x18, 0xfe))
+        self.reg.PC, self.reg.SP = self.code, self.stack
+        self.p.tick(1, False)
+        assert (self.reg.PC, self.reg.SP) == (self.code + 3, self.stack)
+        assert self.m[self.sym['__current_bank']] == 9
+        assert bytes(self.m[0x4000:0x4020]) == self.signature
+        return self.reg.A, bytes(self.m[address:address+20])
+
+
 def check(rom, reference):
     target, old = Cartridge(rom),Cartridge(reference)
     totals = Counter()
@@ -86,6 +102,16 @@ def check(rom, reference):
                         _,want,_ = old.call('_riding_normal_fast',x,y,dest,d2)
                         assert hit==1 and got==want,(x,y,d2,hit,got.hex(),want.hex())
                         totals['signed permutations'] += 1
+                        if '_riding_ring_equal_points' in sym:
+                            # Exercise the actual merge with identical vectors, then
+                            # with a different contact while the physical cache is warm.
+                            qx, qy = (x*257) ^ 0x7ff0, (y*503) ^ 0x800f
+                            assert target.merge(got, got, qx, qy) == old.merge(want, want, qx, qy)
+                            totals['equal contact pairs'] += 1
+                            if (small + large) % 11 == 0:
+                                other = struct.pack('<hhh', 0, 16384, 395 + large % 15)
+                                assert target.merge(other, got, qx, qy) == old.merge(other, want, qx, qy)
+                                totals['mixed contact pairs'] += 1
         assert totals['entries']==4440 and totals['rows']==290
         # Every bank must survive an IRQ taken immediately after the mapper
         # changes both registers, including the exact public/physical cache key.

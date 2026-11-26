@@ -1,4 +1,5 @@
 """Fuse the two rounded rolling impulses for constant throttle and changing brake torques."""
+import json
 import re
 
 from head_clearance import write_if_changed
@@ -20,23 +21,25 @@ SHALLOW_COEFFICIENTS = (-86, 8, -15, -108, -104, -59, -27, -33, 104, -18, -32, -
 
 
 def shallow_tangent_rows(coefficient):
-    # Throwing away bits 0..7 before adding 256*h*k does not affect Q14.
-    # Bias the low digit by a multiple of 64 so all its possible quotients
-    # occupy two bits. The high digit's quotient cancels the same bias.
-    low = [(v * coefficient + 8192) >> 8 for v in range(256)]
-    bias = -(min(low) // 64)
-    high_products = [((v ^ 128) - 128) * coefficient for v in range(256)]
-    whole = [value // 64 - bias for value in high_products]
-    fraction = [(value % 64) * 4 for value in high_products]
-    if any(not 0 <= v // 64 + bias < 4 for v in low):
-        raise ValueError('Shallow product exceeds two-bit low quotient')
-    packed = [(v % 64) * 4 + v // 64 + bias for v in low]
-    corrections = [4 * m * coefficient for m in range(-16, 16)]
-    correction_page = ([v & 255 for v in corrections] +
-                       [(v >> 8) & 255 for v in corrections] + [0] * 192)
-    return [packed, fraction, [v & 255 for v in whole],
-            [(v >> 8) & 255 for v in whole], correction_page]
-
+    # Reverse the low digit for negative slopes so every threshold adds one.
+    # The largest slope is 108/16384, hence at most two thresholds per byte.
+    magnitude = abs(coefficient)
+    lower, first, second = [], [], []
+    for digit in range(256):
+        high = (digit ^ 128) - 128
+        base, remainder = divmod(8192 + high*256*coefficient
+                                 + min(coefficient, 0)*255, 16384)
+        lower.append(base & 255)
+        if abs(coefficient) < 64:
+            if not -128 <= base <= 127:
+                raise ValueError('Small shallow quotient exceeds signed byte')
+        elif (base < 0) != ((high < 0) != (coefficient < 0)) or not -256 <= base < 256:
+            raise ValueError('Shallow quotient cannot use the high digit sign')
+        first.append(min(255, (16383 - remainder)//magnitude))
+        second.append(min(255, (32767 - remainder)//magnitude))
+    corrections = [4*m*coefficient for m in range(-16, 16)]
+    return [lower, first, second, bytes(256), [v & 255 for v in corrections] +
+            [(v >> 8) & 255 for v in corrections]]
 
 
 # Frequent noncardinal rolling tangents. Each key is verified at full width.
@@ -58,6 +61,12 @@ SLOPE_TANGENTS = (
     (-16095, -3066), (-15580, -5069), (-13549, 9212),
 )
 SLOPE_EXTRA = (-12731, -10313, -12538, 10529, 769)
+# Each group occupies unused product planes in its existing shallow bank.
+LOCAL_TANGENTS = {
+    29: ((-16379, -396), (-16379, 402), (-16078, 3152), (-16379, -412)),
+    30: ((-15580, -5069), (-14282, 8029)),
+}
+
 VERTICAL_TANGENT = (20, 16384)
 
 
@@ -85,6 +94,12 @@ def slope_rows(assembly):
         output += [f'slope_key_{i}:', f' .dw {x},{y}']
         if (x, y) == VERTICAL_TANGENT:
             output.append(' .db 0')
+            continue
+        local = next(((bank, i) for bank, group in LOCAL_TANGENTS.items()
+                      for i, tangent in enumerate(group) if tangent == (x, y)), None)
+        if local is not None:
+            bank, slot = local
+            output += [f' .db 1,{bank}', f' .dw local_inputs_{bank}_{slot},local_project_{bank}_{slot}']
             continue
         row = []
         for coefficient in (x, y):
@@ -114,16 +129,47 @@ def slope_rows(assembly):
 
 
 def shallow_tangent_banks(assembly):
-    output = [assembly.with_name('physics_roll_shallow.s').read_text()]
+    output = [assembly.with_name('physics_roll_shallow.s').read_text(),
+              assembly.with_name('roll_local.inc').read_text()]
     directory = bytearray(256)
     for group, bank in enumerate((29, 30)):
         output.extend((f'.area _CODE_{bank}', f'ground_rows_{bank}::'))
         coefficients = SHALLOW_COEFFICIENTS[group * 12:(group + 1) * 12]
+        holes = [0x40 + i*5 + offset for i, k in enumerate(coefficients)
+                 for offset in ((2, 3) if abs(k) < 64 else (3,))]
+        factors = list(dict.fromkeys(k for pair in LOCAL_TANGENTS[bank] for k in pair))
+        if len(factors)*3 > len(holes):
+            raise ValueError('Rolling product planes exceed the shallow bank')
+        tangent_code = [
+            f'local_tangent local_inputs_{bank}_{i},local_project_{bank}_{i},'
+            f'local_product_{bank}_{factors.index(x)},local_product_{bank}_{factors.index(y)},'
+            f'local_sum_{bank},local_round_{bank},local_store_{bank}'
+            for i, (x, y) in enumerate(LOCAL_TANGENTS[bank])]
+        pages = {}
+        for i, k in enumerate(factors):
+            unsigned = [0x800000 + low*k for low in range(256)]
+            for digit, page in enumerate(holes[3*i:3*i+3]):
+                pages[page] = [(v >> (8*digit)) & 255 for v in unsigned]
         for index, coefficient in enumerate(coefficients):
             directory[coefficient & 255] = 0x40 + index * 5 + group * 128
-            for page in shallow_tangent_rows(coefficient):
-                for i in range(0, 256, 32):
+            start = 0x40 + index*5
+            for offset, original in enumerate(shallow_tangent_rows(coefficient)):
+                page = pages.get(start+offset, original)
+                for i in range(0, len(page), 32):
                     output.append(' .db ' + ','.join(map(str, page[i:i + 32])))
+            output.append(f'ground_threshold_reader {start},{int(coefficient < 0)},{int(abs(coefficient) < 64)}')
+            if index < len(factors):
+                k = factors[index]
+                output += [' .bndry 128']
+                upper = [top*k - 0x8080 for top in range(-8, 8)]
+                for shift in (0, 8, 16):
+                    output.extend(projection_tables.byte_lines([(v >> shift) & 255 for v in upper]))
+                args = [f'local_product_{bank}_{index}', *holes[3*index:3*index+3], start+4]
+                output.append('local_product ' + ','.join(map(str, args)))
+            extra = index - len(factors)
+            if 0 <= extra < len(tangent_code)-3:
+                output.append(tangent_code[extra+3])
+            output += [' .bndry 256']
         if len(coefficients) < 12:
             if (12 - len(coefficients)) * 5 != 3 * len(SLOPE_EXTRA):
                 raise ValueError('Supplemental three-plane rows must fill the unused shallow slots')
@@ -133,6 +179,9 @@ def shallow_tangent_banks(assembly):
                     output.extend(projection_tables.byte_lines(page))
         labels = [f'ground_{name}_{bank}' for name in ('inputs', 'project', 'component', 'store')]
         output.append('ground_reader ' + ','.join(labels))
+        output.extend(tangent_code[:3])
+        output.append(f'local_finish local_sum_{bank},local_round_{bank},local_store_{bank}')
+    output += ['.area _CODE_30', 'roll_bank30_wheels']
     output += ['.area _CODE_29', 'ground_flat_kernel', ' .bndry 256', 'ground_directory::']
     for i in range(0, 256, 32):
         output.append(' .db ' + ','.join(map(str, directory[i:i + 32])))
@@ -171,6 +220,17 @@ def generate(gen, assembly):
               f'roll_pages = {2*LIMIT//256}', f'roll_data_size = {2*LIMIT}',
               f'roll_group_bytes = {2*LIMIT//32*2}', f'roll_full_bank = {BANKS[0]}',
               f'roll_partial_bank = {BANKS[1]}', assembly.read_text()]
+    # The common wheel-speed coefficient has a nonnegative low-byte
+    # quotient below 256 and a signed16 quotient for any signed17 input.
+    # Wider products retain the scheduled Q24 entry and its saturation rules.
+    omega = coefficients('ROLL_W')
+    manifest_path = gen / 'physics_q24_manifest.json'
+    if omega[0] == omega[1] and 0 < omega[0] < (1 << 22) and manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        index = manifest['coefficient_values'].index(omega[0])
+        bank = manifest['first_bank'] + index//2
+        output[:0] = ['RIDING_ROLL_OMEGA = 1', f'roll_omega_bank = {bank & 255}',
+                      f'roll_omega_high = {bank >> 8}', f'roll_omega_page = {0x40 + (index%2)*0x20}']
     for phase, (torque, speed, bank) in enumerate(zip(coefficients('ROLL_T'), coefficients('ROLL_DV'), BANKS)):
         groups = [[] for _ in range(3)]
         packed = []

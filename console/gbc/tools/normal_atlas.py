@@ -21,12 +21,23 @@ def encode(x, y, roots):
     base = (nx*x + ny*y + 8192) >> 14
     # Negative nonintegral products take one's complement, exact ones negate.
     flags = (int(px % 16 == 0) << 4) | (int(py % 16 == 0) << 5)
+    projected_errors = []
     for signs in range(4):
         ax = nx + bool(signs & 1 and px % 16)
         ay = ny + bool(signs & 2 and py % 16)
         extra = ((ax*x + ay*y + 8192) >> 14) - base
         assert extra in (0, 1)
         flags |= extra << signs
+        length = base + extra
+        sx = -1 if signs & 1 else 1
+        sy = -1 if signs & 2 else 1
+        projected_x = (sx * ax * length + 8192) >> 14
+        projected_y = (sy * ay * length + 8192) >> 14
+        projected_errors.append((sx * projected_x - x, sy * projected_y - y))
+    # A certified vector reconstructs its source point in every octant,
+    # optionally displaced one unit along the larger coordinate.
+    if len(set(projected_errors)) == 1:
+        flags |= {(0, 0): 0x40, (0, -1): 0x80, (0, 1): 0xc0}.get(projected_errors[0], 0)
     assert 256 <= base < 511 and d2 >> 16 == 2
     return RECORD.pack(nx, ny, base & 255, flags, d2 & 65535)
 

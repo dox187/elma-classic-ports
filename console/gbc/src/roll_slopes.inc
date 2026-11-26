@@ -101,9 +101,17 @@ slope_inputs:
 slope_original_inputs:
  call slope_find
  jp nc,slope_fallback_dots
+ ld a,h
+ ldh (#slope_descriptor+1),a
+ ld a,l
+ ldh (#slope_descriptor),a
+ ld a,#1
+ ldh (#near_page),a
  ld a,(hl)
  or a
  jp z,slope_vertical_inputs
+ cp #1
+ jp z,slope_local_inputs
  add sp,#-4
  ld a,(hl+)
  ld b,(hl)
@@ -371,13 +379,120 @@ slope_pair_miss:
  jp roll_default_pair
 
 .area _CODE_35
+slope_pair_narrow:
+ ; HL is the X row descriptor. The speed must fit signed16 and both
+ ; coefficients must have signed high-digit planes.
+ push hl
+ ldhl sp,#8
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ add a
+ sbc a
+ cp (hl)
+ jr nz,slope_pair_full
+ inc hl
+ cp (hl)
+ jr nz,slope_pair_full
+ pop hl
+ push hl
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ cp #30
+ jr z,slope_pair_full
+ ld b,a
+ inc hl
+ ld a,(hl)
+ cp #30
+ jr z,slope_pair_full
+ push de
+ call slope_word_coordinate
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call roll_store_regs
+ pop de
+ pop hl
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ call slope_word_coordinate
+ add sp,#2
+ pop hl
+ .rept 4
+ inc hl
+ .endm
+ call roll_store_regs
+ jp ground_return
+slope_pair_full:
+ pop hl
+ ret
+slope_word_coordinate:
+ ; Signed word * Q14 coefficient fits signed32. Round at bit 13
+ ; before shifting the high word and extending its sign.
+ call slope_read_word
+ ld a,d
+ add #32
+ jr nc,slope_coordinate_shift
+ inc hl
+slope_coordinate_shift:
+ ld d,h
+ ld e,l
+ ld l,a
+ ld a,d
+ add a
+ sbc a
+ ld c,a
+ ld b,a
+ ld a,l
+ add a
+ rl e
+ rl d
+ add a
+ rl e
+ rl d
+ rl c
+ ret
+
+.area _CODE_35
+slope_local_inputs:
+ inc hl
+ ld a,(hl+)
+ jr slope_local_jump
+slope_local_pair:
+ inc hl
+ ld a,(hl+)
+ inc hl
+ inc hl
+slope_local_jump:
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ ld h,d
+ ld l,e
+ jp slope_local_map
+.area _CODE
+slope_local_map:
+ ld (#0x2000),a
+ jp (hl)
+.area _CODE_35
 slope_project:
  ldhl sp,#8
  call slope_find
  jp nc,slope_pair_miss
+slope_project_known:
  ld a,(hl)
  or a
  jp z,slope_vertical_project
+ cp #1
+ jr z,slope_local_pair
+ call slope_pair_narrow
+
  ; Descriptor holds four product-page bytes, three dot bias bytes, then
  ; the independent X,Y bias corrections for a single product.
  push hl
@@ -644,6 +759,8 @@ slope_vertical_project:
  jp ground_return
 
 .area _HRAM
+ground_projection_bank: .ds 1
+slope_descriptor: .ds 2
 near_page: .ds 1
 near_slot: .ds 1
 near_round: .ds 1
@@ -732,9 +849,34 @@ near_project_select:
  ldh a,(#near_page)
  or a
  jp z,_riding_roll_project_pair
+ cp #2
+ jr c,slope_cached_pair
+ jr z,ground_cached_pair
+ cp #3
+ jr z,ground_cached_flat
  ld a,#13
  ld (#0x2000),a
  jp near_project
+; These continuations belong to the roll whose input dispatcher verified
+; the tangent. Standalone callers still enter the public pair dispatcher.
+ground_cached_flat:
+ push hl
+ jp ground_flat_pair
+ground_cached_pair:
+ push hl
+ ldh a,(#ground_projection_bank)
+ ld (#0x2000),a
+ ldh a,(#near_slot)
+ jp ground_project_29
+slope_cached_pair:
+ push hl
+ ld a,#35
+ ld (#0x2000),a
+ ldh a,(#slope_descriptor+1)
+ ld h,a
+ ldh a,(#slope_descriptor)
+ ld l,a
+ jp slope_project_known
 near_project_miss:
  call ground_restore
  jp _riding_roll_project_pair

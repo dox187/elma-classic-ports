@@ -22,9 +22,16 @@ def check_shallow_products(image, symbols):
         rows = [image[offset+i*256:offset+(i+1)*256] for i in range(5)]
         for word in range(-32768, 32768):
             high = (word >> 8) & 255
-            packed = rows[0][word & 255]
-            result = ((packed + rows[1][high]) >> 8) + (packed & 3)
-            result += rows[2][high] + (rows[3][high] << 8)
+            low = word & 255
+            if coefficient < 0:
+                low = 255-low
+            result = rows[0][high]
+            if abs(coefficient) < 64:
+                result = (result ^ 128) - 128
+            else:
+                result -= 256 if (word < 0) != (coefficient < 0) else 0
+                result += low > rows[2][high]
+            result += low > rows[1][high]
             assert (result & 65535) == (((word*coefficient + 8192) >> 14) & 65535)
         for cell in range(32):
             correction = rows[4][cell] + (rows[4][cell+32] << 8)
@@ -32,6 +39,32 @@ def check_shallow_products(image, symbols):
         products += 65536
     assert products == 21*65536
     return products
+
+
+def check_rolling_omega(emu, symbols, code, stack, sentinel):
+    if 'roll_omega' not in symbols:
+        return 0
+    entry = symbols['roll_omega']
+    fraction = symbols['_q24_fraction']
+    saturated = symbols['_q24_saturated']
+    mem, regs = emu.memory, emu.register_file
+    mem[code:code+5] = [0xcd, entry & 255, entry >> 8, 0x18, 0xfe]
+    rng = random.Random(0x417215)
+    wide = [-2**31, -2**24, -65537, 65536, 2**24-1, 2**31-1]
+    wide.extend(rng.randint(-2**31, 2**31-1) for _ in range(256))
+    for value in (*range(-65536, 65536), *wide):
+        regs.D, regs.E = (value >> 24) & 255, (value >> 16) & 255
+        regs.B, regs.C = (value >> 8) & 255, value & 255
+        regs.PC, regs.SP = code, stack
+        mem[saturated] = 1
+        emu.tick(1, False)
+        expected = (value*417215 + (1 << 23)) >> 24
+        got = (regs.D << 24) | (regs.E << 16) | (regs.B << 8) | regs.C
+        assert got == expected & 0xffffffff and regs.PC == code+3 and regs.SP == stack
+        assert bytes(mem[fraction:fraction+4]) == struct.pack('<i', value*417215 - (expected << 24))
+        assert mem[saturated] == 0 and mem[symbols['__current_bank']] == 9
+        assert bytes(mem[0x4078:0x4088]) == sentinel
+    return 131072 + len(wide)
 
 
 def main():
@@ -87,6 +120,7 @@ def main():
                     assert actual == expected & 0xffffffff, (v,tq,phase,actual,expected)
                     assert bytes(mem[0x4078:0x4088]) == sentinel and mem[names['__current_bank']] == 9
                     count += 1
+        omega_count = check_rolling_omega(emu, names, address, stack, sentinel)
         free = names['_riding_free_throttle']
         assert free >> 16 == 9
         mem[address:address+5] = [0xcd, free & 255, free >> 8 & 255, 0x18, 0xfe]
@@ -145,7 +179,7 @@ def main():
                     gas_count += 1
     finally:
         emu.stop(save=False)
-    print(f'{shallow_products} signed16 shallow projections, {count} native rolling cases, {gas_count} throttle reaction and {free_count} free-wheel throttle cases passed')
+    print(f'{shallow_products} signed16 shallow projections, {count} native rolling impulses, {omega_count} native rolling omega values, {gas_count} throttle reaction and {free_count} free-wheel throttle cases passed')
 
 
 if __name__ == '__main__':

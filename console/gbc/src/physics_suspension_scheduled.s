@@ -468,8 +468,8 @@ positive:
 ; In the ordinary range, split the two signed operands into unsigned
 ; low words and upper digits of zero or -1. The unsigned row product
 ; is corrected by the anchor at bit 16 and the displacement at bit 24.
-.macro ss_raw_product label,arm,disp,rows,fold,?upper_arm,?arm_done,?positive_arm,?positive_disp,?upper_disp,?maybe_neg,?have_middle,?rows_done
-.area _CODE_8
+.macro ss_raw_product label,arm,disp,rows,fold,?upper_arm,?arm_done,?positive_arm,?positive_disp,?upper_disp,?upper_disp_equal,?have_middle,?rows_done
+.area _CODE
 label:
  ld hl,#arm
  ld a,(hl+)
@@ -478,89 +478,36 @@ label:
  ld d,a
  ld b,(hl)
  ldh a,(disp)
- ld c,a
- jp rows
-fold:
- ; Byte zero is stacked. D,C,B,E hold unsigned product bytes 1..4.
- ld a,(#arm+3)
- or a
- jr z,positive_arm
- inc a
- jr nz,upper_arm
- ld hl,#disp
- ld a,b
- sub a,(hl)
- ld b,a
- inc hl
- ld a,e
- sbc a,(hl)
- ld e,a
- sbc a,a
-positive_arm:
- ld l,e                        ; byte four
- ld h,a                        ; byte five
-arm_done:
- ldh a,(disp+2)
- inc a
- jr z,maybe_neg
- dec a
- jr nz,upper_disp
- ldh a,(disp+3)
- or a
- jr z,positive_disp
- jr upper_disp
-maybe_neg:
- ldh a,(disp+3)
- inc a
- jr nz,upper_disp
- push de
- ld d,h
- ld e,l
- ld hl,#arm
- ld a,c
- sub a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
- inc hl
- ld a,e
- sbc a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld h,a
- ld l,e
- pop de
-positive_disp:
- ld a,d
- pop de
- ld d,a
- ret
-upper_arm:
- ld hl,#disp
- call ss_spring_extend_arm
- jr arm_done
-upper_disp:
- push de
- push hl
- push bc
- ld hl,#(disp+2)
- ld a,(hl+)
- ld b,(hl)
- ld c,a
- ld hl,#arm
- call ss_spring_upper_disp
- pop bc
- pop hl
- pop de
- jr positive_disp
-
-.area _CODE
+ ; Read both displacement digits before restoring the solver bank.
 rows:
+ .ifdef RIDING_GAS_REACTION
+ ld l,a
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ inc h
+ ld h,(hl)
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ ld c,(hl)
+ dec h
+ add a,(hl)
+ ld d,a
+ ld l,b
+ ld a,c
+ adc a,(hl)
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld b,a
+ .else
+ ld c,a
  call _riding_product24x8_row
+ .endif
  push de                       ; final byte zero
  ldh a,(disp+1)
  or a
@@ -601,12 +548,119 @@ have_middle:
  add a,c
  ld c,a
  ld a,(#arm+2)
- call ss_spring_last_digit
+ ld l,a
+ ld a,(hl)
+ adc a,b
+ ld b,a
+ inc h
+ ld a,(hl)
+ adc a,e
+ ld e,a
 rows_done:
  ldh a,(#__current_bank)
  ld (#0x2000),a
  jp fold
+
 .area _CODE_8
+fold:
+ ; Byte zero is stacked. Complete its word before reusing DE for bytes four and five.
+ ldhl sp,#1
+ ld (hl),d
+ ld a,(#arm+3)
+ or a
+ jr z,positive_arm
+ inc a
+ jr nz,upper_arm
+ ld hl,#disp
+ ld a,b
+ sub a,(hl)
+ ld b,a
+ inc hl
+ ld a,e
+ sbc a,(hl)
+ ld e,a
+ sbc a,a
+positive_arm:
+ ld d,a
+arm_done:
+ ld hl,#(disp+2)
+ ld a,(hl+)
+ cp a,(hl)
+ jr nz,upper_disp
+ or a
+ jr z,positive_disp
+ inc a
+ jr nz,upper_disp_equal
+ ld hl,#arm
+ ld a,c
+ sub a,(hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc a,(hl)
+ ld b,a
+ inc hl
+ ld a,e
+ sbc a,(hl)
+ ld e,a
+ inc hl
+ ld a,d
+ sbc a,(hl)
+ ld d,a
+positive_disp:
+ ld h,d
+ ld l,e
+ pop de
+ ret
+upper_arm:
+ ; Bytes two through five reside together on the stack during the correction.
+ ld d,#0
+ push de
+ push bc
+ dec a
+ ld c,a
+ ld hl,#disp
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ call ss_spring_upper_arm
+ pop bc
+ pop de
+ jr arm_done
+upper_disp_equal:
+ ; Equal upper digits other than 00/ff require both shifted rows.
+ push de
+ push bc
+ ld a,(hl)
+ ld b,a
+ ld c,a
+ ld hl,#arm
+ call ss_upper_disp_word
+ pop bc
+ pop hl
+ pop de
+ ret
+upper_disp:
+ push de
+ push bc
+ ld b,(hl)
+ ld c,a
+ ld hl,#arm
+ call ss_spring_upper_disp
+ pop bc
+ pop hl
+ pop de
+ ret
+
+.endm
+
+.macro ss_join_nibbles low,high,out
+ ld a,low
+ xor a,high
+ and a,#0x0f
+ xor a,low
+ swap a
+ ld out,a
 .endm
 
 .macro ss_spring_pair first,second
@@ -615,7 +669,34 @@ rows_done:
  push bc
  push de
  call second
- call ss_spring_difference
+ push hl
+ ldhl sp,#2
+ ld a,(hl+)
+ sub a,e
+ ld a,(hl+)
+ sbc a,d
+ pop de
+ push af
+ ld a,(hl+)
+ sbc a,c
+ ld c,a
+ ld a,(hl+)
+ sbc a,b
+ ld b,a
+ ld a,(hl+)
+ sbc a,e
+ ld e,a
+ ld a,(hl)
+ sbc a,d
+ ld d,a
+ pop af
+ ld h,a
+ ss_join_nibbles e,d,l
+ ss_join_nibbles c,b,d
+ ss_join_nibbles b,e,b
+ ss_join_nibbles h,c,e
+ ld c,b
+ ld b,l
  add sp,#6
 .endm
 ; The four spring displacements occupy the future damper-product rows.
@@ -758,7 +839,7 @@ _physics_prepare_spring::
  jr z,ss_prepared_moments
  ld a,#3
  ld (#_riding_spring_ready),a
- ld a,#10                       ; first wheel, including the wide product
+ ld a,#7                        ; 4,504 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
  push de
@@ -766,7 +847,7 @@ _physics_prepare_spring::
  pop de
  ld a,#4
  ld (#_riding_spring_ready),a
- ld a,#10                       ; second wheel and sum
+ ld a,#7                        ; 4,528 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
  push de
@@ -802,7 +883,7 @@ ss_prepared_moments:
  ld a,(#ss_damp_long)
  or a
  ret nz
- ld a,#12                       ; 8,908 T plus two reserved LCD lines
+ ld a,#9                        ; 6,144 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
  push de
@@ -1188,51 +1269,11 @@ ss_spring_rounded:
  ss_sub _q24_fraction
  jp _riding_step_commit_fraction_regs
 
-.macro ss_join_nibbles low,high,out
- ld a,low
- xor a,high
- and a,#0x0f
- xor a,low
- swap a
- ld out,a
-.endm
 ; Subtract the two full products before flooring this wheel's Q12 moment.
  ss_raw_product ss_spring_x0,_riding_pose_anchor,ss_force_products+36,ss_spring_x0_rows,ss_spring_x0_fold
  ss_raw_product ss_spring_y0,_riding_pose_anchor+8,ss_force_products+28,ss_spring_y0_rows,ss_spring_y0_fold
  ss_raw_product ss_spring_x1,_riding_pose_anchor+4,ss_force_products+40,ss_spring_x1_rows,ss_spring_x1_fold
  ss_raw_product ss_spring_y1,_riding_pose_anchor+12,ss_force_products+32,ss_spring_y1_rows,ss_spring_y1_fold
-ss_spring_difference:
- push hl
- ldhl sp,#4
- ld a,(hl+)
- sub a,e
- ld a,(hl+)
- sbc a,d
- pop de
- push af
- ld a,(hl+)
- sbc a,c
- ld c,a
- ld a,(hl+)
- sbc a,b
- ld b,a
- ld a,(hl+)
- sbc a,e
- ld e,a
- ld a,(hl)
- sbc a,d
- ld d,a
- pop af
- ld h,a
- ss_join_nibbles e,d,l
- ss_join_nibbles b,e,d
- ss_join_nibbles c,b,e
- ss_join_nibbles h,c,h
- ld c,d
- ld d,e
- ld e,h
- ld b,l
- ret
 
 ss_near_area
 ss_prepare_reaction:
@@ -1482,50 +1523,40 @@ ss_combine_products:
  add sp,#10
  ret
 
-; A nonzero top anchor digit other than -1 contributes signed8*unsigned16
-; at byte three. The common case never allocates this temporary partial.
-ss_spring_extend_arm:
- push de
- push hl
- ld h,#0
- ld l,e
- push hl
- push bc
- dec a
- ld c,a
- ldhl sp,#4
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld a,(hl+)
- ld e,a
- ld d,(hl)
- call ss_spring_upper_arm
- pop bc
- pop hl
- add sp,#2
- pop de
- ret
-
 ; Add signed8(C)*unsigned16(DE) at byte three of the caller's partial.
-; The unsigned product needs subtracting the low word at bit eight when
-; C is negative. Both corrections are performed modulo 24 bits.
 .area _CODE
 ss_spring_upper_arm:
  push de
- push bc
- ld b,#0
- call ss_byte_positive
- ld a,c
- pop hl
- bit 7,l
+ .ifdef RIDING_GAS_REACTION
+ ld l,c
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ inc h
+ ld h,(hl)
+ .else
+ ld h,c
+ call ss_damp_map
+ .endif
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ dec h
+ add a,(hl)
+ ld d,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ bit 7,c
  pop hl
  jr z,ss_upper_arm_add
- ld b,a
+ ld c,a
  ld a,d
  sub a,l
  ld d,a
- ld a,b
+ ld a,c
  sbc a,h
 ss_upper_arm_add:
  ld c,a
@@ -1539,6 +1570,8 @@ ss_upper_arm_add:
  ld a,(hl)
  adc a,c
  ld (hl),a
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
  ret
 
 .area _CODE_8
@@ -1550,11 +1583,11 @@ ss_spring_upper_disp:
  or a
  jr z,ss_upper_disp_byte
  inc a
- jr nz,ss_upper_disp_word
+ jp nz,ss_upper_disp_word
  ld a,c
  cpl
  inc a
- jr z,ss_upper_disp_word
+ jr z,ss_upper_minus_256
  ld c,a
  call ss_upper_disp_byte_row
  ldhl sp,#2
@@ -1569,6 +1602,23 @@ ss_spring_upper_disp:
  ld (hl+),a
  ld a,(hl)
  sbc a,b
+ ld (hl),a
+ ret
+ss_upper_minus_256:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld c,(hl)
+ ldhl sp,#3
+ ld a,(hl)
+ sub a,e
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,d
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,c
  ld (hl),a
  ret
 ss_upper_disp_byte:
@@ -1616,19 +1666,8 @@ ss_upper_disp_table:
  inc c
  jp ss_spring_u32_row
 .area _CODE_8
+.area _CODE
 ss_upper_disp_word:
- push hl
- ld e,#15
- ld hl,#ss_spring_upper_disp_wide
- call ___sdcc_bcall_ehl
- add sp,#2
- ret
-.area _CODE_15
-ss_spring_upper_disp_wide:
- ldhl sp,#6
- ld a,(hl+)
- ld h,(hl)
- ld l,a
  push hl                        ; anchor
  push bc                        ; word multiplier
  ld a,(hl+)
@@ -1638,8 +1677,41 @@ ss_spring_upper_disp_wide:
  ld a,(hl+)
  ld b,a
  ld a,(hl)
- call ss_spring_u32_row
- ldhl sp,#14
+ push af
+ .ifdef RIDING_GAS_REACTION
+ ld l,c
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ inc h
+ ld h,(hl)
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ ld c,(hl)
+ dec h
+ add a,(hl)
+ ld d,a
+ ld l,b
+ ld a,c
+ adc a,(hl)
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld b,a
+ .else
+ call _riding_product24x8_row
+ .endif
+ pop af
+ ld l,a
+ dec h
+ ld a,(hl)
+ add a,b
+ ld b,a
+ ldhl sp,#6
  ld a,(hl)
  add a,e
  ld (hl+),a
@@ -1661,20 +1733,42 @@ ss_spring_upper_disp_wide:
  ld d,a
  ld b,(hl)
  push de
- push bc
- call ss_byte_positive
- pop hl
- bit 7,l
+ .ifdef RIDING_GAS_REACTION
+ ld l,c
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ inc h
+ ld h,(hl)
+ .else
+ ld h,c
+ call ss_damp_map
+ .endif
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ ld d,(hl)
+ dec h
+ add a,(hl)
+ ld l,b
+ ld b,a
+ ld a,d
+ adc a,(hl)
+ ld d,b
+ bit 7,c
  pop hl
  jr z,ss_upper_disp_add
+ ld b,a
  ld a,d
  sub a,l
  ld d,a
- ld a,c
+ ld a,b
  sbc a,h
- ld c,a
 ss_upper_disp_add:
- ldhl sp,#11
+ ld c,a
+ ldhl sp,#3
  ld a,(hl)
  add a,e
  ld (hl+),a
@@ -1684,19 +1778,11 @@ ss_upper_disp_add:
  ld a,(hl)
  adc a,c
  ld (hl),a
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
  ret
 
 .area _CODE
-ss_spring_last_digit:
- ld l,a
- ld a,(hl)
- adc a,b
- ld b,a
- inc h
- ld a,(hl)
- adc a,e
- ld e,a
- ret
 ss_spring_u32_row:
  push af
  call _riding_product24x8_row
@@ -2297,20 +2383,59 @@ ss_mt_seed_negative:
  ret
 
 .area _CODE_8
-.macro ss_damp_fold low,high,first,minus
+.macro ss_damp_fold low,high,first,minus,last
  .if first
  .if minus
- ld h,a
- ss_negate
- ld a,#0
- sbc a,h
- .endif
- ld (#ss_moment+4),a
- ss_store ss_moment
- .else
- ld h,a
- push hl
+ push af
  ld hl,#ss_moment
+ xor a
+ sub a,e
+ ld (hl+),a
+ ld a,#0
+ sbc a,d
+ ld (hl+),a
+ ld a,#0
+ sbc a,c
+ ld (hl+),a
+ ld a,#0
+ sbc a,b
+ ld (hl+),a
+ pop de
+ ld a,#0
+ sbc a,d
+ ld (hl),a
+ .else
+ ld hl,#ss_moment+4
+ ld (hl-),a
+ ld a,b
+ ld (hl-),a
+ ld a,c
+ ld (hl-),a
+ ld a,d
+ ld (hl-),a
+ ld (hl),e
+ .endif
+ .else
+ push af
+ ld hl,#ss_moment
+ .if last
+ ; Only the borrow or carry from the discarded low word affects the
+ ; final Q18 result. Keep the three retained sum bytes in registers.
+ ld a,(hl+)
+ low a,e
+ ld a,(hl+)
+ high a,d
+ ld a,(hl+)
+ high a,c
+ ld e,a
+ ld a,(hl+)
+ high a,b
+ ld d,a
+ pop bc
+ ld a,(hl)
+ high a,b
+ jp ss_short_result
+ .else
  ld a,(hl)
  low a,e
  ld (hl+),a
@@ -2327,6 +2452,7 @@ ss_mt_seed_negative:
  ld a,(hl)
  high a,d
  ld (hl),a
+ .endif
  .endif
 .endm
 
@@ -2370,7 +2496,7 @@ ss_damp_cert_entry:
  ld (hl+),a
  .endm
 ss_cert_normal:
-.macro ss_damp_term label,speed,arm,minus,first,next,word,?ready,?two,?tables,?fold,?reverse,?zero,?large
+.macro ss_damp_term label,speed,arm,minus,first,next,word,last,?ready,?fold,?reverse,?zero,?large,?absolute
 label:
  ld hl,#ss_damping+speed+2
  ld a,(hl-)
@@ -2396,26 +2522,6 @@ ready:
  .else
  jp z,next
  .endif
- ld a,(#ss_damping+arm)
- ld e,a
- ld a,(#ss_damping+arm+1)
- ld d,a
- ld a,(#ss_damping+arm+2)
- ld b,a
- ld a,l
- or a
- jr nz,two
- call ss_byte_product
- ld a,b
- add a,a
- sbc a,a
- jr fold
-two:
- dec a
- jr nz,tables
- call ss_short_word
- jr fold
-tables:
  call word
 fold:
  ld hl,#ss_damping+speed+2
@@ -2425,11 +2531,15 @@ fold:
  .else
  jr nz,reverse
  .endif
- ss_damp_fold add,adc,first,0
+ ss_damp_fold add,adc,first,0,last
+ .ifeq last
  jp next
+ .endif
 reverse:
- ss_damp_fold sub,sbc,first,1
+ ss_damp_fold sub,sbc,first,1,last
+ .ifeq last
  jp next
+ .endif
  .if first
 zero:
  xor a
@@ -2440,83 +2550,94 @@ zero:
  jr next
  .endif
 large:
- ; A third magnitude digit contributes at byte two of the product.
+ ; The certified speed magnitude has at most four units at bit 16,
+ ; including the sum of two horizontal lanes on equal arms.
  ld hl,#ss_damping+speed
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl)
+ bit 7,a
+ jr z,absolute
+ ld d,a
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+absolute:
+ push af
+ ld l,e
+ call word
+ pop hl
+ ld l,a                       ; signed product byte four
+ push de
  ld de,#ss_damping+arm
- call ss_damp_three_digit
- jr fold
+ call ss_damp_upper_units
+ pop de
+ jp fold
 .endm
- ss_damp_term ss_damp_x0,8,16,0,1,ss_damp_y0,ss_damp_word0
- ss_damp_term ss_damp_y0,0,24,1,0,ss_damp_x1,ss_damp_word1
- ss_damp_term ss_damp_x1,12,20,0,0,ss_damp_y1,ss_damp_word2
- ss_damp_term ss_damp_y1,4,28,1,0,ss_damp_terms_done,ss_damp_word3
+ ss_damp_term ss_damp_x0,8,16,0,1,ss_damp_y0,ss_damp_word0,0
+ ss_damp_term ss_damp_y0,0,24,1,0,ss_damp_x1,ss_damp_word1,0
+ ss_damp_term ss_damp_x1,12,20,0,0,ss_damp_y1,ss_damp_word2,0
+ ss_damp_term ss_damp_y1,4,28,1,0,ss_damp_terms_done,ss_damp_word3,1
 ss_damp_terms_done:
  jp ss_short_finish
-; The speed magnitude in H:L:C and the arm magnitude in B:DE share the
-; unsigned 24-bit product. Restore the arm sign for the caller's fold.
-ss_damp_three_digit:
- push de
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld b,(hl)
- bit 7,b
- jr z,ss_damp_speed_magnitude
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,b
+; Add the low 24 bits of H * arm to the three retained upper bytes.
+; The merged speed magnitude can contain two, three or four high units.
+ss_damp_upper_units:
+ dec h
+ jr nz,ss_damp_upper_multiple
+ ld a,(de)
+ add a,c
+ ld c,a
+ inc de
+ ld a,(de)
+ adc a,b
  ld b,a
-ss_damp_speed_magnitude:
- push bc
- push de
- ldhl sp,#4
- ld a,(hl+)
- ld h,(hl)
+ inc de
+ ld a,(de)
+ adc a,l
+ ret
+ss_damp_upper_multiple:
+ push bc                     ; existing middle word
+ ld c,h                      ; units minus one
+ ld b,l                      ; existing top byte
+ ld a,(de)
  ld l,a
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld a,(hl+)
- ld b,a
- bit 7,b
- jr z,ss_damp_arm_magnitude
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,b
- ld b,a
-ss_damp_arm_magnitude:
- pop hl
- ld c,l
- ld l,h
- pop af
+ inc de
+ ld a,(de)
  ld h,a
- call ss_mt_product
- ; Product in BC:HL:DE. The arm sign remains in memory.
- ld a,c
+ inc de
+ ld a,(de)
+ dec c
+ jr z,ss_damp_upper_double
+ dec c
+ jr z,ss_damp_upper_triple
+ add hl,hl
+ rla
+ss_damp_upper_double:
+ add hl,hl
+ rla
+ jr ss_damp_upper_add
+ss_damp_upper_triple:
+ ld d,h
+ ld e,l
+ ld c,a
+ add hl,hl
+ rla
+ add hl,de
+ adc a,c
+ss_damp_upper_add:
+ pop de
+ add hl,de
+ adc a,b
  ld b,h
  ld c,l
- pop hl
- inc hl
- inc hl
- bit 7,(hl)
- jr z,ss_damp_product_ready
- ld h,a
- ss_negate
- ld a,#0
- sbc a,h
-ss_damp_product_ready:
  ret
 
 ; Return clamp32(sum(arm_x * rely - arm_y * relx) >> 18) in HLDE.
@@ -2731,16 +2852,23 @@ slow:
  ss_short_term ss_short_y1,4,28,1,0,ss_mt_y1,ss_short_finish,ss_damp_word3
 ss_short_finish:
  ld hl,#ss_moment+2
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld l,(hl)
- ld a,l
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl)
+ss_short_result:
+ sra a
+ rr d
+ rr e
+ sra a
+ rr d
+ rr e
+ ld l,a
  add a,a
  sbc a,a
  ld h,a
- jp ss_shift18
+ ret
 ss_short_zero:
  xor a
  ld hl,#ss_moment
@@ -3242,11 +3370,17 @@ ss_spin_rows_mapped:
  .endif
 .endm
 
-.macro ss_damp_word label,arm,?unsigned
+.macro ss_damp_word label,arm,?unsigned,?word
 label:
  ld h,l
  ld l,c
  push hl
+ ld hl,#ss_damping+arm
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld b,(hl)
  ss_damp_map_digit c
  ld l,e
  ld e,(hl)
@@ -3277,6 +3411,16 @@ label:
  ld a,#0
  sbc a,h
 unsigned:
+ inc h                         ; Test the high speed digit while retaining A.
+ dec h
+ jr nz,word
+ ; The low row is the complete product for a byte magnitude.
+ ld l,a
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
+ ld a,l
+ ret
+word:
  push de                        ; retain final byte zero
  ld e,a                         ; signed adjustment to byte four
  ss_damp_map_digit h
