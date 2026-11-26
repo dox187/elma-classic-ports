@@ -69,7 +69,8 @@ def validate_linked_layout(symbol_path,rom_mib):
         raise ValueError('Force division rows must be page-aligned at bank 35 address 0x4000')
     if '_riding_small_squares' in symbols:
         for label, address in (('_riding_small_squares', 0x4000), ('_riding_endpoint_square_rows', 0x4100),
-                               ('_riding_square_rows', 0x4500), ('_riding_merge_limit', 0x6500)):
+                               ('_riding_square_rows', 0x4500), ('_riding_contact_high', 0x6500),
+                               ('_riding_merge_limit', 0x7d00)):
             if symbols.get(label) != 28 * 65536 + address:
                 raise ValueError(f'{label} must be at bank 28 address {address:#06x}')
     if 'brake_angle_rows' in symbols:
@@ -361,6 +362,18 @@ def main():
                     BASE/'src/physics_leaf_region.s', wheel_rows, head_refinement.generate(a.gen),
                     normal_atlas.generate(a.gen, BASE.parent/'nes/src/rsqrt.inc', wheel_rows)]
         sources.append(brake_game)
+    if scheduled:
+        # Append the divider after the aligned bank-35 numeric tables.
+        div_source = BASE/'src/physics_div_fast.s'
+        div_game = a.gen/'physics_div_game.s'
+        head_clearance.write_if_changed(div_game, 'RIDING_BANKED_DIVISION = 1\n'+div_source.read_text())
+        sources.remove(div_source)
+        sources.append(div_game)
+        touch = BASE/'src/objects_touch_fast.s'
+        touch_game = a.gen/'objects_touch_game.s'
+        head_clearance.write_if_changed(touch_game, 'RIDING_OBJECT_CIRCLES = 1\n'+touch.read_text())
+        sources[sources.index(touch)] = touch_game
+        sources.insert(sources.index(a.gen/'head_quarters.s'), mul_table.object_circles(a.gen))
     profile_sources = list(sources)
     validate_profile(a.gen,rom_mib,profile_sources)
     # Validate the complete packed source first, then remove only verified

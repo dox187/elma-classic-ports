@@ -1,7 +1,7 @@
 """Native differential object-cache check against a frozen pre-cache C loop.
 
 Builds an isolated test ROM; never writes generated game data or builds the game.
-The default 1,118 scene pairs cover counts 0..64, eligibility/effect order,
+The default 1,133 scene pairs cover counts 0..64, eligibility/effect order,
 signed extremes, stale-cache invalidation, fractions, and enabled interrupts.
 Also checks 12,544 clipping cases and 729 saturating bike-bound combinations.
 --haircut-scenes optionally adds the private 132-pair captured timing sequence.
@@ -224,12 +224,23 @@ static void setup(uint16_t seed,uint8_t mode,uint8_t n){uint8_t i;int16_t x,y;ui
  memcpy(original_active,game_object_active,64);memcpy(snapshot,&game_world,33);memcpy(snapshot+33,game_objects,896);memcpy(snapshot+929,&gbc_bike,52);
  game_state=0;game_previous_best=0;game_new_record=0;game_time_frames=360;gravity=2;event_count=0;case_mode=mode;case_step=seed+1;
 }
+/* Sparse courses can skip unsuccessful exact touches after a coarse proof.
+ * Keep the original call order and require every hit and effect to match. */
+static uint8_t events_match(uint8_t count) {
+ uint16_t i=0,j=0;
+ while(i<expected_event_count) {
+  if(j<event_count && expected_events[i]==events[j]) {++i;++j;continue;}
+  if(count>4 || expected_events[i]>=0x100)return 0;
+  ++i;
+ }
+ return j==event_count;
+}
 static void run_case(uint16_t seed,uint8_t mode,uint8_t n){uint8_t start_apples,i;uint16_t x,y;
  setup(seed,mode,n);if(!irq_phase){SWITCH_ROM(5);IE_REG=31;IF_REG=4;}start_apples=game_apples_left;
  baseline_check();memcpy(expected_active,game_object_active,64);memcpy(expected_bike,&gbc_bike,52);expected_event_count=event_count;memcpy(expected_events,events,event_count*2u);
  expected_state=game_state;expected_apples=game_apples_left;expected_gravity=gravity;expected_record=game_new_record;expected_best=game_previous_best;
  memcpy(game_object_active,original_active,64);memcpy(&gbc_bike,snapshot+929,52);game_state=0;game_apples_left=start_apples;gravity=2;event_count=0;game_new_record=0;game_previous_best=0;
- fast_check();if(memcmp(expected_active,game_object_active,64)||memcmp(expected_bike,&gbc_bike,52)||expected_event_count!=event_count||memcmp(expected_events,events,event_count*2u)||expected_state!=game_state||expected_apples!=game_apples_left||expected_gravity!=gravity||expected_record!=game_new_record||expected_best!=game_previous_best)++failures;
+ fast_check();if(memcmp(expected_active,game_object_active,64)||memcmp(expected_bike,&gbc_bike,52)||!events_match(n)||expected_state!=game_state||expected_apples!=game_apples_left||expected_gravity!=gravity||expected_record!=game_new_record||expected_best!=game_previous_best)++failures;
  if(objects_empty_valid){for(i=0;i<game_world.object_count;++i){
   if(!game_object_active[i]||(game_objects[i].kind==1&&game_apples_left))continue;
   {uint8_t k;for(k=0;k<objects_near_count;++k)if(objects_near[k]==i)break;if(k<objects_near_count)continue;}
@@ -283,6 +294,7 @@ void main(void){uint16_t i,start;uint8_t mode,n;disable_interrupts();DISPLAY_OFF
 #endif
  for(mode=6;mode<=8;++mode)for(i=0;i<2;++i)run_case(i,mode,8);
  for(mode=9;mode<=16;++mode)for(i=0;i<3;++i)run_case(i,mode,64);
+ for(mode=9;mode<=13;++mode)for(i=0;i<3;++i)run_case(i,mode,4);
  irq_phase=1;IE_REG=VBL_IFLAG;IF_REG=0;DISPLAY_ON;enable_interrupts();start=sys_time;
  for(i=0;i<64;++i)run_case(i,1,64);
  irq_ticks=sys_time-start;if(!irq_ticks||IE_REG!=VBL_IFLAG)++irq_failures;
@@ -292,8 +304,9 @@ void main(void){uint16_t i,start;uint8_t mode,n;disable_interrupts();DISPLAY_OFF
 TOUCH_WRAPPER = r'''
 extern uint16_t events[256],event_count;
 uint8_t gbc_object_touch(const gbc_pose_t *p,const game_object_t *o,uint8_t head) __sdcccall(0){
- events[event_count++]=(uint16_t)(o-game_objects)*4u+(head?2:p==&gbc_bike.wheel[1]?1:0);
- return gbc_object_touch_native(p,o,head);
+ uint8_t hit=gbc_object_touch_native(p,o,head);
+ events[event_count++]=(hit?0x8000u:0u)+(uint16_t)(o-game_objects)*4u+(head?2:p==&gbc_bike.wheel[1]?1:0);
+ return hit;
 }
 '''
 
@@ -389,7 +402,7 @@ def main():
        report['api_cycles'][kind][label]={'calls':len(v),'min':min(v),'max':max(v),'mean':statistics.mean(v)}
      report['sources']={p.name:hashlib.sha256(p.read_bytes()).hexdigest()for p in [args.play,args.bounds,BASE/'src/objects_touch_fast.s',Path(__file__)]}
      (OUT/'report.json').write_text(json.dumps(report,indent=2)+'\n');(OUT/'calls.json').write_text(json.dumps(timing,indent=2)+'\n');print(json.dumps(report,indent=2))
-     assert report['done'] and report['completed']==(1250 if args.haircut_scenes else 1118) and report['helper_cases']==12544 and report['bounds_cases']==729 and not any(report[k]for k in ['failures','scan_failures','guard_failures','bank_failures','irq_failures','helper_failures','bounds_failures'])
+     assert report['done'] and report['completed']==(1265 if args.haircut_scenes else 1133) and report['helper_cases']==12544 and report['bounds_cases']==729 and not any(report[k]for k in ['failures','scan_failures','guard_failures','bank_failures','irq_failures','helper_failures','bounds_failures'])
     finally:p.stop(save=False)
 
 if __name__ == "__main__":

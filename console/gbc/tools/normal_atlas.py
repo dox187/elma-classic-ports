@@ -1,5 +1,6 @@
 """Pack exact terrain-vertex normals into spare MBC5 graphics tails."""
 import json
+from math import isqrt
 import re
 import struct
 
@@ -62,6 +63,8 @@ def generate(gen, roots_path, wheel_rows, dest=None):
         room[bank] -= sizes[i]
     out = ['.module normal_atlas_data','.area _CODE_9','_riding_normal_groups::']
     for i in range(GROUPS):
+        # Both sorted rows lie below the outer limit of the even row.
+        out.append(f' .db {isqrt(OUTER*OUTER - 1 - (2*i)**2)-256}')
         if i in placement:
             out += [f' .dw normal_group_{i}',f' .db {placement[i]&255}']
         else:
@@ -86,7 +89,7 @@ def generate(gen, roots_path, wheel_rows, dest=None):
 
 def validate_layout(symbols):
     if (symbols['_riding_normal_groups'] >> 16 != 9 or
-            symbols['_riding_normal_groups_end']-symbols['_riding_normal_groups'] != 3*GROUPS or
+            symbols['_riding_normal_groups_end']-symbols['_riding_normal_groups'] != 4*GROUPS or
             symbols['_riding_normal_ring'] >> 16 != 9 or symbols['_riding_normal_ring_read'] >= 0x4000):
         raise ValueError('Vertex normal atlas requires bank 9 callers and a fixed-ROM reader')
     for name, start in symbols.items():

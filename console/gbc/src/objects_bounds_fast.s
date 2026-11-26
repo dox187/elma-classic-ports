@@ -4,142 +4,92 @@
 .module objects_bounds_fast
 .area _CODE_5
 _gbc_objects_bounds::
- ld a,(#_gbc_bike+42)
+ ldhl sp,#2
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ push hl
+ ld hl,#_gbc_bike+12
+ call bounds_axis
+ pop hl
+ call bounds_store
+ push hl
+ ld hl,#_gbc_bike+16
+ call bounds_axis
+ pop hl
+ jr bounds_store
+
+; Gather one axis in registers. The integer parts of wheel 1 and the
+; head are respectively 10 and 30 bytes after wheel 0's integer part.
+bounds_axis:
+ ld a,(hl+)
+ ld c,a
  ld e,a
- ld a,(#_gbc_bike+43)
- xor a,#0x80
- ld d,a
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),e
- inc hl
- ld (hl),d
- ld a,(#_gbc_bike+46)
- ld e,a
- ld a,(#_gbc_bike+47)
- xor a,#0x80
- ld d,a
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld bc,#4
- add hl,bc
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),e
- inc hl
- ld (hl),d
- ld a,(#_gbc_bike+12)
- ld e,a
- ld a,(#_gbc_bike+13)
- xor a,#0x80
- ld d,a
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- call update_bounds
- ld a,(#_gbc_bike+16)
- ld e,a
- ld a,(#_gbc_bike+17)
- xor a,#0x80
- ld d,a
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld bc,#4
- add hl,bc
- call update_bounds
- ld a,(#_gbc_bike+22)
- ld e,a
- ld a,(#_gbc_bike+23)
- xor a,#0x80
- ld d,a
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- call update_bounds
- ld a,(#_gbc_bike+26)
- ld e,a
- ld a,(#_gbc_bike+27)
- xor a,#0x80
- ld d,a
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld bc,#4
- add hl,bc
- call update_bounds
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld b,#2
-expand_axis:
- ld a,(hl+)
- or a,(hl)
- jr z,min_saturated
- dec hl
  ld a,(hl)
- sub a,#1
- ld (hl+),a
- ld a,(hl)
- sbc a,#0
- ld (hl),a
-min_saturated:
- inc hl
+ xor a,#0x80
+ ld b,a
+ ld d,a
+ push hl
+ ld a,#9
+ call bounds_advance
+ call bounds_consider
+ pop hl
+ ld a,#29
+ call bounds_advance
+ ; Fall through for the head.
+bounds_consider:
  ld a,(hl+)
- and a,(hl)
- inc a
- jr z,max_saturated
- dec hl
- inc (hl)
- jr nz,max_no_carry
- inc hl
- inc (hl)
- jr max_saturated
-max_no_carry:
- inc hl
-max_saturated:
- inc hl
- dec b
- jr nz,expand_axis
+ ld h,(hl)
+ ld l,a
+ ld a,h
+ xor a,#0x80
+ ld h,a
+ ld a,l
+ sub a,c
+ ld a,h
+ sbc a,b
+ jr nc,bounds_check_max
+ ld b,h
+ ld c,l
+ ret
+bounds_check_max:
+ ld a,e
+ sub a,l
+ ld a,d
+ sbc a,h
+ ret nc
+ ld d,h
+ ld e,l
  ret
 
-; DE=biased candidate, HL=minimum low byte; maximum follows minimum.
-update_bounds:
- ld a,e
- sub a,(hl)
- inc hl
- ld a,d
- sbc a,(hl)
- jr nc,keep_min
- ld (hl),d
- dec hl
- ld (hl),e
- inc hl
-keep_min:
- inc hl
- ld a,(hl+)
- sub a,e
- ld a,(hl)
- sbc a,d
+bounds_advance:
+ add a,l
+ ld l,a
  ret nc
- ld (hl),d
- dec hl
- ld (hl),e
+ inc h
+ ret
+
+; Expand at full precision, saturate at the two ends and write once.
+bounds_store:
+ ld a,b
+ or a,c
+ jr z,bounds_min_ready
+ dec bc
+bounds_min_ready:
+ ld a,d
+ and a,e
+ inc a
+ jr z,bounds_max_ready
+ inc de
+bounds_max_ready:
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
  ret
 
 ; Inclusive coarse rectangle, with rejected points clipping an empty region.

@@ -1,5 +1,7 @@
 """Compare exact native object overlap with independent wrapping integer cases."""
-import hashlib,json,random,re,struct,subprocess
+import argparse,hashlib,json,random,re,struct,subprocess
+from io import BytesIO
+from math import isqrt
 from pathlib import Path
 from pyboy import PyBoy
 BASE=Path(__file__).resolve().parents[1]
@@ -9,9 +11,48 @@ OUT=BASE/'build/objects-touch-check'
 def signed(x):return (x+2**31)%2**32-2**31
 
 
+def linked(rom, rows):
+    symbols = {k:int(v,16) for k,v in re.findall(r'DEF (\S+) 0x([0-9A-Fa-f]+)',
+                                                 rom.with_suffix('.noi').read_text())}
+    image = bytearray(rom.read_bytes())
+    for name, radius in (('wheel', 819), ('head', 653)):
+        label = symbols[f'_object_{name}_limit']
+        offset = (label >> 16)*16384 + (label & 16383)
+        limits = struct.unpack_from('<821H', image, offset)
+        assert limits == tuple(isqrt(radius*radius-x*x)+1 if x <= radius else 0 for x in range(821))
+
+    image[0x100:0x102] = b'\x18\xfe'
+    p = PyBoy(BytesIO(image), window='null', sound_emulated=False, cgb=True)
+    p.set_emulation_speed(0)
+    addr = symbols['_gbc_object_touch']
+    bank = addr >> 16
+    code, pose, obj, stack = 0xc900, 0xc921, 0xc964, 0xcff0
+    mem, reg = p.memory, p.register_file
+    try:
+        p.tick(240, False)
+        mem[code:code+6] = [0xf3, 0xcd, addr & 255, addr >> 8 & 255, 0x18, 0xfe]
+        mem[0x3000] = 0
+        mem[0x2000] = mem[symbols['__current_bank']] = bank
+        for row in rows:
+            body = b'\xa5'+row[:8]+b'\xa5'*3
+            item = b'\x5a'*6+row[8:16]+b'\x5a'*4
+            args = struct.pack('<HHB', pose, obj, row[16])+b'\xca\x39'
+            mem[pose-1:pose+11], mem[obj-1:obj+17], mem[stack:stack+7] = body, item, args
+            reg.SP, reg.PC = stack, code
+            p.tick(1, False)
+            assert (reg.E, reg.PC, reg.SP) == (row[17], code+4, stack), row.hex()
+            assert bytes(mem[pose-1:pose+11]) == body and bytes(mem[obj-1:obj+17]) == item
+            assert bytes(mem[stack:stack+7]) == args and mem[symbols['__current_bank']] == bank
+            assert bytes(mem[0x4000:0x4020]) == image[bank*16384:bank*16384+32]
+    finally:
+        p.stop(save=False)
+    print(f'{len(rows)} linked object contacts and 1642 circle limits passed')
+
+
 def main():
-    OUT.mkdir(parents=True,exist_ok=True)
-    source=(BASE/'src/objects_touch_fast.s').read_bytes();(OUT/'touch.s').write_bytes(source)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--rom', type=Path)
+    rom = parser.parse_args().rom
     rng=random.Random(0x0b1ec7)
     rows=[]
     tangent=[]
@@ -37,6 +78,10 @@ def main():
         hit=int(coarse(px,ox)<=2 and coarse(py,oy)<=2 and abs(x)<=52429 and abs(y)<=52429
                 and (x>>6)**2+(y>>6)**2<=radius*radius)
         rows.append(struct.pack('<4iBB',px,py,ox,oy,head,hit))
+    if rom:
+        return linked(rom, rows)
+    OUT.mkdir(parents=True,exist_ok=True)
+    source=(BASE/'src/objects_touch_fast.s').read_bytes();(OUT/'touch.s').write_bytes(source)
     sources=[]
     header='#include <stdint.h>\ntypedef struct{int32_t xy[4];uint8_t head,expected;} case_t;\ntypedef char layout[sizeof(case_t)==18?1:-1];\n'
     for bank in range(1,9):

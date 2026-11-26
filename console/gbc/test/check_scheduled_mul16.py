@@ -43,7 +43,7 @@ def main():
         r = p.register_file
         for i, (x, y) in enumerate(cases):
             addr = symbols['_riding_mul16_regs' if i & 1 else '_riding_mul16']
-            p.memory[code:code+6] = (0xf3, 0xcd, addr & 255, addr >> 8, 0x18, 0xfe)
+            p.memory[code:code+6] = (0xf3, 0xcd, addr & 255, addr >> 8 & 255, 0x18, 0xfe)
             args = x.to_bytes(2, 'little', signed=True) + y.to_bytes(2, 'little', signed=True) + b'\x35\xda'
             p.memory[stack:stack+len(args)] = args
             bank = (1, 8, 9, 28, 175)[i % 5]
@@ -62,7 +62,7 @@ def main():
                   -101, -1, 0, 1, 101, 102, 103, 127, 255, 256, 409, 410, 32767)
         for name in ('_riding_merge_close', '_riding_endpoint_squared'):
             addr = symbols[name]
-            p.memory[code:code+6] = (0xf3, 0xcd, addr & 255, addr >> 8, 0x18, 0xfe)
+            p.memory[code:code+6] = (0xf3, 0xcd, addr & 255, addr >> 8 & 255, 0x18, 0xfe)
             pairs = [(x, y) for x in coords for y in coords]
             if name == '_riding_endpoint_squared':
                 pairs = [(x, y) for x, y in pairs if abs(x) < 410 and abs(y) < 410]

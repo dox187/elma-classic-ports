@@ -16,308 +16,60 @@ _riding_div_u32_u16::
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+ .ifdef RIDING_BANKED_DIVISION
+ ld a,#35
+ ld (#0x2000),a
+ call divide_body
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+.area _CODE_35
+divide_body:
+ ; When n >> 8 is below the divisor, the first eight quotient bits
+ ; are zero. Install their exact remainder and start at bit seven.
+ ld a,h
+ or a
+ jr nz,divide_sixteen
+ ld a,d
+ sub c
+ ld a,l
+ sbc b
+ jr nc,divide_sixteen
+ ld h,l
+ ld l,d
+ ld d,e
+ ld e,#0
+ jp divide_eight
+divide_sixteen:
+ .endif
+
+.macro divide_bit ?subtract,?done
  sla e
  rl d
  rl l
  rl h
- jr c,100$
+ jr c,subtract
  ld a,l
- sub a,c
+ sub c
  ld a,h
- sbc a,b
- jr c,101$
-100$:
+ sbc b
+ jr c,done
+subtract:
  ld a,l
- sub a,c
+ sub c
  ld l,a
  ld a,h
- sbc a,b
+ sbc b
  ld h,a
  inc e
-101$:
- sla e
- rl d
- rl l
- rl h
- jr c,102$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,103$
-102$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-103$:
- sla e
- rl d
- rl l
- rl h
- jr c,104$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,105$
-104$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-105$:
- sla e
- rl d
- rl l
- rl h
- jr c,106$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,107$
-106$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-107$:
- sla e
- rl d
- rl l
- rl h
- jr c,108$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,109$
-108$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-109$:
- sla e
- rl d
- rl l
- rl h
- jr c,110$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,111$
-110$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-111$:
- sla e
- rl d
- rl l
- rl h
- jr c,112$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,113$
-112$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-113$:
- sla e
- rl d
- rl l
- rl h
- jr c,114$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,115$
-114$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-115$:
- sla e
- rl d
- rl l
- rl h
- jr c,116$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,117$
-116$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-117$:
- sla e
- rl d
- rl l
- rl h
- jr c,118$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,119$
-118$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-119$:
- sla e
- rl d
- rl l
- rl h
- jr c,120$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,121$
-120$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-121$:
- sla e
- rl d
- rl l
- rl h
- jr c,122$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,123$
-122$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-123$:
- sla e
- rl d
- rl l
- rl h
- jr c,124$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,125$
-124$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-125$:
- sla e
- rl d
- rl l
- rl h
- jr c,126$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,127$
-126$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-127$:
- sla e
- rl d
- rl l
- rl h
- jr c,128$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,129$
-128$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-129$:
- sla e
- rl d
- rl l
- rl h
- jr c,130$
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr c,131$
-130$:
- ld a,l
- sub a,c
- ld l,a
- ld a,h
- sbc a,b
- ld h,a
- inc e
-131$:
+done:
+.endm
+
+.rept 8
+ divide_bit
+.endm
+divide_eight:
+.rept 8
+ divide_bit
+.endm
  ret

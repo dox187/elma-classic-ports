@@ -16,4 +16,3 @@ typedef struct {
 
 int32_t riding_pose_anchor[4];
 int16_t riding_pose_rest[2], riding_pose_trig[2];
-int16_t riding_pose_cosine[2], riding_pose_sine[2];

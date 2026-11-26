@@ -1,4 +1,6 @@
 """Check the narrow-quotient rider divider on the actual SM83 CPU."""
+import argparse
+from io import BytesIO
 import json
 from pathlib import Path
 import random
@@ -11,8 +13,7 @@ BASE = Path(__file__).resolve().parents[1]
 OUT = BASE / 'build/play-physics/division-check'
 
 
-def main():
-    OUT.mkdir(parents=True, exist_ok=True)
+def vectors():
     cases = []
     for d in (1, 2, 255, 256, 491, 1024, 32768, 65535):
         for q in (0, 1, 255, 256, 32767, 65535):
@@ -23,6 +24,46 @@ def main():
         d = rng.randrange(1, 65536)
         n = rng.randrange(d << 16)
         cases.append((n, d, n//d))
+    return cases
+
+
+def check_linked(rom, cases):
+    image = bytearray(rom.read_bytes())
+    image[0x100:0x102] = b'\x18\xfe'
+    symbols = {k:int(v,16) for k,v in re.findall(r'DEF (\S+) 0x([0-9A-Fa-f]+)',
+                                                 rom.with_suffix('.noi').read_text())}
+    addr = symbols['_riding_div_u32_u16']
+    p = PyBoy(BytesIO(image), window='null', sound_emulated=False, cgb=True)
+    p.set_emulation_speed(0)
+    code, stack = 0xc900, 0xcff0
+    try:
+        p.tick(240, False)
+        p.memory[code:code+6] = (0xf3, 0xcd, addr & 255, addr >> 8, 0x18, 0xfe)
+        for i,(n,d,q) in enumerate(cases):
+            arg = n.to_bytes(4, 'little') + d.to_bytes(2, 'little') + b'\xca\x39'
+            p.memory[stack:stack+8] = arg
+            bank = (1,4,8,9,35)[i % 5]
+            p.memory[0x2000] = p.memory[symbols['__current_bank']] = bank
+            r = p.register_file
+            r.SP, r.PC = stack, code
+            p.tick(1, False)
+            assert (r.D << 8 | r.E, r.SP, r.PC) == (q, stack, code+4), (n,d,q)
+            assert bytes(p.memory[stack:stack+8]) == arg
+            assert p.memory[symbols['__current_bank']] == bank
+            assert bytes(p.memory[0x4000:0x4020]) == image[bank*16384:bank*16384+32]
+    finally:
+        p.stop(save=False)
+    print(f'{len(cases)} linked quotient and bank-restore checks passed')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--rom', type=Path)
+    rom = parser.parse_args().rom
+    cases = vectors()
+    if rom:
+        return check_linked(rom, cases)
+    OUT.mkdir(parents=True, exist_ok=True)
     (OUT/'vectors.h').write_text('''#include <stdint.h>
 typedef struct {uint32_t n;uint16_t d,q;} division_vector_t;
 extern const division_vector_t vectors[];

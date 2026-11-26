@@ -86,8 +86,8 @@ void main(void) {
 }
 ''')
     assembly = out / 'fixture.s'
-    # Keep the fixture's expanded spring macro in fixed ROM. The driver
-    # selects bank 8, where the production entry points and marker reside.
+    # The driver selects bank 8. Exercise the production first-wheel entry
+    # and its actual anchor and wheel-displacement layout.
     assembly.write_text(source.read_text() + '''
 .area _CODE
 _fixture_products::
@@ -108,7 +108,16 @@ _fixture_products::
  ld (de),a
  inc de
  .endm
- ss_spring_pair _fixture_input+4,_fixture_input+8,_fixture_input+12,_fixture_input+16
+ ss_read _fixture_input+4
+ ss_write _riding_pose_anchor
+ ss_read _fixture_input+8
+ ss_write _riding_pose_anchor+8
+ ss_read _fixture_input+12
+ ss_write ss_force_products+28
+ ss_read _fixture_input+16
+ ss_write ss_force_products+36
+ call ss_first_moment
+ ss_read ss_ts
  ss_write _fixture_answer+16
  ld a,(#fixture_bank_marker)
  ld (#_fixture_marker),a

@@ -1,20 +1,29 @@
 ; Exact Q14 phase geometry, shared by the head, rider and suspension.
 .module physics_pose_lookup
-.area _DATA
+.area _HRAM
+_riding_pose_cosine:: .ds 4
+_riding_pose_sine:: .ds 4
 pose_cos_ax: .ds 3
 pose_neg_cos_ay: .ds 3
 pose_sin_ax: .ds 3
 pose_sin_ay: .ds 3
 
-.area _CODE_1
-b_riding_refresh_geometry = 1
-.globl b_riding_refresh_geometry
+.area _CODE
+; A selects the other quarter wave. Its word address is $c000-HL.
+.macro pose_reflect
+ ld (#0x2000),a
+ xor a
+ sub a,l
+ ld l,a
+ ld a,#0xc0
+ sbc a,h
+ ld h,a
+.endm
+
+; Bank 8 supplies the rounded phase in DE. Start both wave reads here so
+; the scale table bank only needs to be selected once.
 _riding_refresh_geometry::
- ld hl,#_riding_pose_phase
- ld a,(hl+)
- ld e,a
- ld a,(hl)
- ld d,a
+ ld a,d
  rlca
  rlca
  rlca
@@ -37,17 +46,30 @@ _riding_refresh_geometry::
  ld d,a
  ld e,(hl)
  pop hl
- bit 1,c
- push af
- call pose_read_pair
- pop af
- jr z,pose_trig_ready           ; forward sine, reflected cosine
- ld a,e
- ld e,c
- ld c,a
  ld a,d
- ld d,b
- ld b,a
+ ld (#0x2000),a
+ bit 1,c
+ jr nz,pose_forward_cos
+ ld c,(hl)
+ inc l
+ ld b,(hl)
+ dec l
+ ld a,e
+ pose_reflect
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ jr pose_trig_ready
+pose_forward_cos:
+ ld a,e
+ ld e,(hl)
+ inc l
+ ld d,(hl)
+ dec l
+ pose_reflect
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
  jr pose_trig_ready
 pose_octant_endpoint:
  ; At a quarter or eighth turn the positive and negative interpolation
@@ -65,32 +87,28 @@ pose_octant_endpoint:
  ld e,a
  ld d,(hl)
 pose_trig_ready:
+ ld a,#1
+ ldh (#__current_bank),a
+ ld (#0x2000),a
+ call pose_scale_pair
+ ld a,#8
+ ldh (#__current_bank),a
+ ld (#0x2000),a
+ ret
+
+.area _CODE_1
+pose_scale_pair:
  push bc                        ; sine; cosine in DE
  ld hl,#_riding_pose_trig
- ld a,(hl+)
- cp e
- jr nz,pose_cos_changed
- ld a,(hl)
- cp d
- jr z,pose_get_sine
-pose_cos_changed:
- ld (hl),d
- dec hl
- ld (hl),e
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
  call pose_cos_scale
-pose_get_sine:
  pop de
- ld hl,#_riding_pose_trig+2
- ld a,(hl+)
- cp e
- jr nz,pose_sin_changed
- ld a,(hl)
- cp d
- jr z,pose_anchors
-pose_sin_changed:
- ld (hl),d
- dec hl
- ld (hl),e
  call pose_sin_scale
 
 ; Both coordinate pairs are (center-span, center+span). Each operand and
@@ -102,38 +120,37 @@ pose_sin_changed:
  ld a,(hl+)
  ld b,a
  ld e,(hl)
- ld hl,#center
- ld a,(hl+)
+ ld hl,#dest
+ ldh a,(#center)
  sub a,c
- ld (#dest),a
- ld a,(hl+)
+ ld (hl+),a
+ ldh a,(#center+1)
  sbc a,b
- ld (#dest+1),a
- ld a,(hl)
+ ld (hl+),a
+ ldh a,(#center+2)
  sbc a,e
- ld (#dest+2),a
+ ld (hl+),a
  rla
  sbc a,a
- ld (#dest+3),a
- ld hl,#center
- ld a,(hl+)
+ ld (hl+),a
+ ldh a,(#center)
  add a,c
- ld (#dest+4),a
- ld a,(hl+)
+ ld (hl+),a
+ ldh a,(#center+1)
  adc a,b
- ld (#dest+5),a
- ld a,(hl)
+ ld (hl+),a
+ ldh a,(#center+2)
  adc a,e
- ld (#dest+6),a
+ ld (hl+),a
  rla
  sbc a,a
- ld (#dest+7),a
+ ld (hl),a
 .endm
-pose_anchors:
  pose_pair pose_sin_ay,pose_cos_ax,_riding_pose_anchor
  pose_pair pose_neg_cos_ay,pose_sin_ax,_riding_pose_anchor+8
  ret
 
+.area _CODE
 ; Each octant reads one forward and one reflected quarter wave. The
 ; negative interpolation table has its own downward rounding.
 pose_octant_banks:
@@ -143,6 +160,7 @@ pose_endpoints:
  .dw 0,16384,11585,11585,16384,0,11585,-11585
  .dw 0,-16384,-11585,-11585,-16384,0,-11585,11585
 
+.area _CODE_1
 ; DE is the signed trig input. Its high byte selects a sixteen-byte page
 ; with two row pointers and signed bases. The low byte indexes both rows.
 .macro pose_rows
@@ -155,46 +173,38 @@ pose_endpoints:
  xor a,h
  ld h,a
  add hl,bc
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld b,a
- push hl
  ld d,#0
- ld h,d
- ld l,e
- add hl,hl
- add hl,bc
+ sla e
+ rl d
  ld a,(hl+)
- ld c,a
- ld b,(hl)
- pop hl
- push bc
- ld a,(hl+)
+ add a,e
  ld c,a
  ld a,(hl+)
+ adc a,d
  ld b,a
- push hl
- ld h,d
- ld l,e
- add hl,hl
- add hl,hl
- add hl,hl
- add hl,bc
- ld d,h
- ld e,l
- pop hl
- pop bc
- ; HL signed page bases, DE suspension row, BC head row (Y:X).
+ sla e
+ rl d
+ sla e
+ rl d
+ ld a,(hl+)
+ add a,e
+ ld e,a
+ ld a,(hl+)
+ adc a,d
+ ld d,a
+ ; BC and DE point at the head and suspension residuals. HL now
+ ; points at the signed bases, in the order they are consumed.
 .endm
 
-.macro pose_head delta,dest
- ld a,(hl+)
- add a,delta
- ld (#dest),a
+.macro pose_head dest
+ ld a,(bc)
+ inc bc
+ add a,(hl)
+ inc hl
+ ldh (#dest),a
  ld a,(hl+)
  adc a,#0
- ld (#dest+1),a
+ ldh (#dest+1),a
 .endm
 
 .macro pose_anchor dest
@@ -202,22 +212,22 @@ pose_endpoints:
  inc de
  add a,(hl)
  inc hl
- ld (#dest),a
+ ldh (#dest),a
  ld a,(de)
  inc de
  adc a,(hl)
  inc hl
- ld (#dest+1),a
+ ldh (#dest+1),a
  ld a,(hl+)
  adc a,#0
- ld (#dest+2),a
+ ldh (#dest+2),a
 .endm
 
 .macro pose_scale pages,head,rest,ax,ay,sine
  ld bc,#pages
  pose_rows
- pose_head c,head
- pose_head b,head+2
+ pose_head head
+ pose_head head+2
  .if sine
  inc de
  .endif
@@ -244,28 +254,3 @@ pose_cos_scale:
  pose_scale _riding_pose_cos_pages,_riding_pose_cosine,_riding_pose_rest+2,pose_cos_ax,pose_neg_cos_ay,0
 pose_sin_scale:
  pose_scale _riding_pose_sin_pages,_riding_pose_sine,_riding_pose_rest,pose_sin_ax,pose_sin_ay,1
-
-.area _CODE
-; HL is the forward even address, D/E the physical sine banks. Restore
-; bank 1 once after both reads. BC receives forward, DE receives reflected.
-pose_read_pair:
- ld a,d
- ld (#0x2000),a
- ld c,(hl)
- inc l
- ld b,(hl)
- dec l
- ld a,e
- ld (#0x2000),a
- xor a
- sub a,l
- ld l,a
- ld a,#0xc0
- sbc a,h
- ld h,a                         ; reflected address = $c000 - forward
- ld a,(hl+)
- ld e,a
- ld d,(hl)
- ld a,#1
- ld (#0x2000),a
- ret

@@ -63,51 +63,51 @@ pose_refresh:
  ld (hl),d
  ld a,#1
  ld (#pose_valid),a
- ld e,#b_riding_refresh_geometry
- ld hl,#_riding_refresh_geometry
- call ___sdcc_bcall_ehl
+ call _riding_refresh_geometry
 pose_ready:
- ; DE and BC hold the two facing-dependent head displacements.
- ld hl,#_riding_pose_cosine
- ld a,(hl+)
- ld e,a
- ld d,(hl)
- ld hl,#_riding_pose_sine
- ld a,(hl+)
- ld c,a
- ld b,(hl)
+ ; The head's local X component changes sign when the rider turns.
+ ; Read one component from HRAM and combine it with the other at HL.
  ld a,(#_Bike+96)
- or a,a
- jr nz,pose_facing_ready
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- xor a
- sub a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
-pose_facing_ready:
+ or a
+ jr z,pose_default_facing
  ld hl,#_riding_pose_sine+2
- ld a,e
+ ldh a,(#_riding_pose_cosine)
  sub a,(hl)
- inc hl
  ld e,a
- ld a,d
+ inc hl
+ ldh a,(#_riding_pose_cosine+1)
  sbc a,(hl)
  ld d,a
- ld hl,#_riding_pose_cosine+2
- ld a,c
+ ld hl,#_riding_pose_sine
+ ldh a,(#_riding_pose_cosine+2)
  add a,(hl)
- inc hl
  ld c,a
- ld a,b
+ inc hl
+ ldh a,(#_riding_pose_cosine+3)
  adc a,(hl)
  ld b,a
+ jr pose_facing_ready
+pose_default_facing:
+ ld hl,#_riding_pose_sine+2
+ ldh a,(#_riding_pose_cosine)
+ cpl
+ sub a,(hl)
+ ld e,a
+ inc hl
+ ldh a,(#_riding_pose_cosine+1)
+ cpl
+ sbc a,(hl)
+ ld d,a
+ inc de                         ; -cosine.x - sine.y
+ ld hl,#_riding_pose_sine
+ ldh a,(#_riding_pose_cosine+2)
+ sub a,(hl)
+ ld c,a
+ inc hl
+ ldh a,(#_riding_pose_cosine+3)
+ sbc a,(hl)
+ ld b,a
+pose_facing_ready:
  ; Both offsets now fit in registers. Rider and head coordinates are
  ; consecutive, so one source pointer advances through both axes.
 .macro pose_coordinate low,high,destination,?positive

@@ -45,11 +45,42 @@ def scheduled_squares(gen):
             rows.append('_riding_square_rows::')
         page(first, 8)
         page(first, 16)
+    # Each 32-input group crosses at most one contact-point rounding
+    # boundary. Its first value differs by 0..6 from the high-byte base.
+    # Groups repeat after 64 high bytes, when the base increases by length.
+    rows.append('_riding_contact_high::')
+    for length in range(404, 410):
+        rnd = lambda value: (value*length + 8192) >> 14
+        bases = [rnd(((digit ^ 128) - 128)*256) for digit in range(256)]
+        pages = [[(v >> shift) & 255 for v in bases] for shift in (0, 8)]
+        groups = []
+        for group in range(512):
+            start = group * 32
+            first = rnd(start)
+            delta = first - rnd(start & ~255)
+            last = next((x-1 for x in range(1, 32) if rnd(start+x) != first), 31)
+            assert 0 <= delta < 8 and rnd(start+31) - first <= 1
+            groups.append(last*8 + delta)
+        for data in (*pages, groups):
+            rows.extend(' .db '+','.join(map(str, data[i:i+32])) for i in range(0, len(data), 32))
     rows.append('_riding_merge_limit::')
     limits = [isqrt(102**2 - 1 - x*x) for x in range(102)]
     rows.extend(' .db '+','.join(map(str, limits[i:i+24])) for i in range(0, 102, 24))
     write_if_changed(path, '\n'.join(rows) + '\n')
     return path
+
+
+def object_circles(gen):
+    """Store the first exterior Y for the original inclusive pickup radii."""
+    from head_clearance import write_if_changed
+    lines = ['.module object_circle_limits']
+    for radius, bank, label in ((819, 31, 'wheel'), (653, 31, 'head')):
+        lines.extend((f'.area _CODE_{bank}', f'_object_{label}_limit::'))
+        values = [isqrt(radius*radius-x*x)+1 if x <= radius else 0 for x in range(821)]
+        lines.extend(' .dw '+','.join(map(str, values[i:i+16])) for i in range(0, 821, 16))
+    target = gen/'object_circle_limits.s'
+    write_if_changed(target, '\n'.join(lines)+'\n')
+    return target
 
 
 if __name__=='__main__':

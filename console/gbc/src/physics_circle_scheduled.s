@@ -79,9 +79,21 @@ circle_axes:
  ld a,(hl)
  adc a,c
  .endm
+ .macro circle_store_position
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl+),a
+ ld a,(hl)
+ adc a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ .endm
  push bc
  circle_partial_axis _riding_phase_second_x
- call circle_add_low
+ circle_store_position
  pop bc
  inc bc
  inc bc
@@ -107,7 +119,8 @@ circle_full_axis:
  ld a,(bc)
  xor #0x80
  ld e,a
- ld a,(hl)
+ ld a,(hl+)
+ ld d,a
  swap a
  and #0xf0
  add a,e
@@ -118,39 +131,50 @@ circle_full_axis:
  rlca
  sbc a,a
  ld (bc),a
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld b,a
- ld a,(hl+)
- ld e,a
- ld d,(hl)
- ; Join adjacent nibbles. When the upper word already sign-extends
- ; a 16-bit velocity, both upper bytes of its quotient are unchanged.
- .macro circle_shift_four low,high
- ld a,high
+ ld c,d
+ ; Each next velocity byte supplies the high nibble for the previous
+ ; byte's quotient. Leave the original in its register for the next pair.
+ .macro circle_join_nibbles low
  xor a,low
  and #0x0f
  xor a,low
  swap a
  ld low,a
  .endm
- circle_shift_four c,b
- circle_shift_four b,e
- ld a,d
+ ld a,(hl+)
+ ld b,a
+ circle_join_nibbles c
+ ld a,(hl+)
+ ld e,a
+ circle_join_nibbles b
+ ld a,(hl)
+ ld d,a
  inc a
- cp #2
- jr nc,circle_full_wide
+ jr z,circle_full_negative
+ dec a
+ jr nz,circle_full_wide
  ld a,e
- xor a,d
- jr z,circle_full_add
- and #0xf0
- xor a,d
  swap a
+ and #0x0f
  ld e,a
  jr circle_full_add
+circle_full_negative:
+ ld a,e
+ swap a
+ or #0xf0
+ ld e,a
+circle_full_add:
+ pop af
+ pop hl
+ ld a,(hl)
+ adc a,c
+circle_add_low:
+ circle_store_position
+ ret
+
 circle_full_wide:
- circle_shift_four e,d
+ ld a,d
+ circle_join_nibbles e
  ld a,d
  add a,a
  sbc a,a
@@ -159,12 +183,8 @@ circle_full_wide:
  xor a,d
  swap a
  ld d,a
-circle_full_add:
- pop af
- pop hl
- ld a,(hl)
- adc a,c
- jr circle_add_low
+ jr circle_full_add
+
 _riding_circle_load::
 circle_load:
  ld a,(hl+)
@@ -179,18 +199,7 @@ _riding_circle_add::
 circle_add:
  ld a,(hl)
  add a,c
-circle_add_low:
- ld (hl+),a
- ld a,(hl)
- adc a,b
- ld (hl+),a
- ld a,(hl)
- adc a,e
- ld (hl+),a
- ld a,(hl)
- adc a,d
- ld (hl+),a
- ret
+ jr circle_add_low
 _riding_circle_scheduled_end::
 
 

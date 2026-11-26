@@ -3,6 +3,7 @@ import re
 
 from head_clearance import write_if_changed
 from math_q24_coefficients import signed16_quotient_pages
+import projection_tables
 
 LIMIT = 1536
 BANKS = (14, 6)
@@ -37,6 +38,81 @@ def shallow_tangent_rows(coefficient):
             [(v >> 8) & 255 for v in whole], correction_page]
 
 
+
+# Frequent noncardinal rolling tangents. Each key is verified at full width.
+SLOPE_TANGENTS = (
+    (-12731, -10313), (-12538, 10529), (-16362, 769), (-16382, -246),
+    (-16383, 134), (-16379, -412), (-16379, 402), (-16368, -725),
+    (-15279, 5914), (-16370, -677), (-16379, -396), (-16362, 856),
+    (-16383, -170), (-16381, -301), (-16382, -240), (-15747, -4523),
+    (-16383, -163), (-16078, 3152), (-16382, -256), (-16378, 457),
+    (-16120, -2927), (-14037, -8449), (-10611, -12484), (-15702, 4677),
+    (-13123, 9809), (-14955, -6692), (-9638, 13249), (-14140, -8277),
+    (-15821, 4256), (-16379, 394), (-15788, 4377), (-6840, 14888),
+    (-15504, 5297), (-9636, 13251), (-14141, -8275), (-15940, -3788),
+    (-3013, 16105), (-15270, -5937), (-15589, 5042), (-15758, 4487),
+    (-15843, 4174), (-4419, 15777), (-14282, 8029), (737, 16367),
+    (-15586, 5052), (-16378, 432), (-14337, -7931), (-15455, 5440),
+    (-13007, 9963), (-16356, 956), (-11872, -11292), (-15965, 3680),
+    (-9217, -13546), (-11181, 11975), (-16381, 402), (-497, 16376),
+    (-16095, -3066), (-15580, -5069), (-13549, 9212),
+)
+SLOPE_EXTRA = (-12731, -10313, -12538, 10529, 769)
+VERTICAL_TANGENT = (20, 16384)
+
+
+def slope_rows(assembly):
+    locations = {
+        coefficient: (projection_tables.BANKS[i // projection_tables.ROWS_PER_BANK],
+                      projection_tables.row_page(i))
+        for i, coefficient in enumerate(projection_tables.COEFFICIENTS)
+    }
+    locations.update({c: (30, 0x6d + 3*i) for i, c in enumerate(SLOPE_EXTRA)})
+    directory = bytearray(256)
+    tangents = (*SLOPE_TANGENTS, VERTICAL_TANGENT)
+    output = [assembly.with_name('roll_slopes.inc').read_text(), '.area _CODE_35',
+              ' .bndry 256', 'slope_hash::']
+    for i, (x, y) in enumerate(tangents, 1):
+        mixed = (x ^ y) & 255
+        low = (((mixed << 3) | (mixed >> 5)) ^ (x >> 8)) & 255
+        if directory[low] or i >= 128:
+            raise ValueError('Rolling tangent hash needs a distinct two-byte slot')
+        directory[low] = 2*i
+    output.extend(projection_tables.byte_lines(directory))
+    output += ['slope_addresses::', ' .dw 0']
+    output.extend(f' .dw slope_key_{i}' for i in range(len(tangents)))
+    for i, (x, y) in enumerate(tangents):
+        output += [f'slope_key_{i}:', f' .dw {x},{y}']
+        if (x, y) == VERTICAL_TANGENT:
+            output.append(' .db 0')
+            continue
+        row = []
+        for coefficient in (x, y):
+            bank, page = locations[coefficient]
+            row.extend((page, bank & 255))
+        # The top unsigned digit denotes the signed high byte plus 128.
+        # The three U planes additionally bias each byte product by 2^23.
+        # Both constants occupy whole upper words and survive low-byte carries.
+        biases = [-0x800000 * 0x010101 // 65536 - coefficient*128 for coefficient in (x, y)]
+        for correction in (sum(biases), *biases):
+            row.extend((correction >> shift) & 255 for shift in (0, 8, 16))
+        output.append(' .db ' + ','.join(map(str, row)))
+
+    # A signed16 input times 20 can cross one Q14 rounding threshold
+    # over its low byte. A wider input adds 80 for each signed upper word.
+    c = VERTICAL_TANGENT[0]
+    bases, thresholds = [], []
+    for digit in range(256):
+        whole, rem = divmod(((digit ^ 128) - 128)*256*c + 8192, 16384)
+        bases.append(whole & 255)
+        thresholds.append(min(255, (16383 - rem)//c))
+    correction = [4*c*m for m in range(-16, 16)]
+    output += [' .bndry 256', 'slope_vertical_rows::']
+    for row in (bases, thresholds, [n & 255 for n in correction], [(n >> 8) & 255 for n in correction]):
+        output.extend(projection_tables.byte_lines(row))
+    return output
+
+
 def shallow_tangent_banks(assembly):
     output = [assembly.with_name('physics_roll_shallow.s').read_text()]
     directory = bytearray(256)
@@ -49,7 +125,12 @@ def shallow_tangent_banks(assembly):
                 for i in range(0, 256, 32):
                     output.append(' .db ' + ','.join(map(str, page[i:i + 32])))
         if len(coefficients) < 12:
-            output.append(f' .ds {(12 - len(coefficients)) * 5 * 256}')
+            if (12 - len(coefficients)) * 5 != 3 * len(SLOPE_EXTRA):
+                raise ValueError('Supplemental three-plane rows must fill the unused shallow slots')
+            output.append('slope_extra_rows::')
+            for c in SLOPE_EXTRA:
+                for page in projection_tables.planes(c)[:3]:
+                    output.extend(projection_tables.byte_lines(page))
         labels = [f'ground_{name}_{bank}' for name in ('inputs', 'project', 'component', 'store')]
         output.append('ground_reader ' + ','.join(labels))
     output += ['.area _CODE_29', 'ground_flat_kernel', ' .bndry 256', 'ground_directory::']
@@ -65,6 +146,12 @@ def validate_shallow_layout(symbols):
         for label in ('ground_inputs', 'ground_project'):
             if symbols.get(f'{label}_{bank}', 0) != symbols[f'{label}_29'] + ((bank-29) << 16):
                 raise ValueError('Shallow tangent readers must share switchable-window entry addresses')
+    if symbols.get('slope_extra_rows') != 0x1e6d00:
+        raise ValueError('Supplemental rolling projection rows must start at bank 30 address 0x6d00')
+    for label in ('slope_hash', 'slope_addresses', 'slope_vertical_rows'):
+        value = symbols[label]
+        if value >> 16 != 35 or value & 255:
+            raise ValueError(f'{label} must be page-aligned in bank 35')
     directory = symbols['ground_directory']
     if directory >> 16 != 29 or directory & 255:
         raise ValueError('Shallow tangent directory must begin on a page in bank 29')
@@ -115,6 +202,7 @@ def generate(gen, assembly):
                 for i in range(0, 256, 32):
                     output.append(' .db ' + ','.join(map(str, page[i:i+32])))
     output.extend(shallow_tangent_banks(assembly))
+    output.extend(slope_rows(assembly))
     dest = gen / 'physics_roll_game.s'
     write_if_changed(dest, '\n'.join(output) + '\n')
     return dest

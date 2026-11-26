@@ -5,6 +5,10 @@ from pathlib import Path
 import random
 import re
 import struct
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+from rolling_tables import SLOPE_TANGENTS, VERTICAL_TANGENT
 
 from pyboy import PyBoy
 
@@ -119,6 +123,25 @@ def main():
         torque = (-9*torque_scale + (1 << 23)) >> 24
         delta = (torque*speed_scale + (1 << 23)) >> 24
         atlas_cases.append(((0, 16384), (1 << 31) + delta, 0, (9, 0, 0)))
+    # The table reader switches independently between signed16, signed20,
+    # and full-width inputs. Probe both sides of its exact width checks
+    # in all four coordinates and force full-tag misses with aliased lows.
+    limits = (-524289, -524288, -524287, -32769, -32768, -1,
+              0, 32767, 32768, 524286, 524287, 524288)
+    for tx, ty in (*SLOPE_TANGENTS, VERTICAL_TANGENT):
+        normal = (ty, -tx)
+        for i, value in enumerate(limits):
+            words = [rng.randint(-32768, 32767) for _ in range(4)]
+            words[i % 4] = value
+            atlas_cases.append((normal, *words[:2], (*words[2:], rng.choice((-2400, 0, 2400)))))
+        for _ in range(8):
+            words = [rng.randint(-524288, 524287) for _ in range(4)]
+            atlas_cases.append((normal, *words[:2], (*words[2:], rng.randint(-65536, 65535))))
+        alias = (ty ^ 256, -tx)
+        atlas_cases.append((alias, -12345, 67890, (33333, -22222, 0)))
+    for x in (-1048576, -32768, -1, 0, 1, 32767, 1048575):
+        for y in (-2**31, 2**31-1):
+            atlas_cases.append(((20, -16384), x, y, (x, y, 0)))
     observed = set()
     cases = 0
     try:

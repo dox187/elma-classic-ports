@@ -72,6 +72,12 @@ _gbc_object_touch::
  pop bc
  jr failed
 104$:
+ .ifdef RIDING_OBJECT_CIRCLES
+ pop bc
+ ldhl sp,#6
+ ld a,(hl)
+ jp object_circle_lookup
+ .else
  push de
  ld b,d
  ld c,e
@@ -134,6 +140,7 @@ wheel:
  ld a,e
  cp a,#0x2a
  jr c,passed
+ .endif
 failed:
  ld e,#0
  ret
@@ -218,30 +225,68 @@ axis_negative:
 axis_negative_ok:
  ld a,c
 axis_quantize:
- ld b,d
- ld c,h
- ld e,a
- sra b
- rr c
- rr e
- sra b
- rr c
- rr e
- sra b
- rr c
- rr e
- sra b
- rr c
- rr e
- sra b
- rr c
- rr e
- sra b
- rr c
- rr e
- ld d,c
+ ; Only bits 6..21 survive the signed shift and the int16 conversion.
+ ; Shift the two middle bytes left twice, carrying in the top bits of A.
+ ld e,h
+ add a
+ rl e
+ rl d
+ add a
+ rl e
+ rl d
  ld a,#1
  ret
 axis_fail:
  xor a
  ret
+
+ .ifdef RIDING_OBJECT_CIRCLES
+.area _CODE
+; X in BC, Y in DE. The preceding exact Q16 delta check bounds both
+; signed Q10 coordinates to [-820,819]. Read an inclusive circle as a
+; strict comparison against its first exterior absolute Y.
+_gbc_object_circle::
+object_circle_lookup:
+ or a
+ ld a,#31
+ ld (#0x2000),a
+ call object_circle_test
+ ld a,#5
+ ld (#0x2000),a
+ ret
+
+.area _CODE_31
+object_circle_test:
+ ld hl,#_object_wheel_limit
+ jr z,object_circle_magnitude
+ ld hl,#_object_head_limit
+object_circle_magnitude:
+ bit 7,b
+ jr z,object_x_abs
+ xor a
+ sub c
+ ld c,a
+ sbc a,a
+ sub b
+ ld b,a
+object_x_abs:
+ add hl,bc
+ add hl,bc
+ bit 7,d
+ jr z,object_y_abs
+ xor a
+ sub e
+ ld e,a
+ sbc a,a
+ sub d
+ ld d,a
+object_y_abs:
+ ld a,e
+ sub (hl)
+ inc hl
+ ld a,d
+ sbc (hl)
+ ld e,#0
+ rl e
+ ret
+ .endif

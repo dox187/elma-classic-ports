@@ -233,10 +233,10 @@ rider_negative:
  ld d,a
  ld (hl),a
  ld hl,#(_move_residual+residual*4+2)
- call _riding_phase_advance_hl
+ call _riding_phase_carry_hl
  ld hl,#(_Bike+position)
  ld a,(hl)
- add a,c
+ adc a,c
  ld (hl+),a
  ld a,(hl)
  adc a,b

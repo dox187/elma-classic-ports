@@ -63,7 +63,8 @@ def check(rom, reference):
     contacts = (0xd901,0xdaff)
     try:
         for small in range(290):
-            group,lo = struct.unpack_from('<HB',image,dir_offset+3*(small//2))
+            limit,group,lo = struct.unpack_from('<BHB',image,dir_offset+4*(small//2))
+            assert limit+256 == math.isqrt(410**2-1-(small&~1)**2)
             if not group:
                 continue
             bank = lo+256

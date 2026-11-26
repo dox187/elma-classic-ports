@@ -92,10 +92,7 @@ ring_sorted:
  ld l,e
  ld h,#0
  add hl,hl
- add a,l
- ld l,a
- jr nc,ring_descriptor
- inc h
+ add hl,hl
 ring_descriptor:
  ld a,l
  add #<_riding_normal_groups
@@ -103,6 +100,9 @@ ring_descriptor:
  ld a,h
  adc #>_riding_normal_groups
  ld h,a
+ ld a,(hl+)
+ cp c                          ; both rows end at or below this value
+ jr c,ring_outside
  ld a,(hl+)
  ld e,a
  ld a,(hl+)

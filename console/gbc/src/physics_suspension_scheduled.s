@@ -408,83 +408,161 @@ positive:
  ld b,h
  ld c,l
 .endm
-; Return the six low magnitude bytes in BC:HL:DE and the product sign in
-; A. Either signed24 endpoint fits its unsigned 24-bit magnitude. The
-; full-width fallback supplies the signed residue with a zero sign tag.
-.macro ss_spring_term arm,disp,?wide,?arm_positive,?disp_positive,?exit_term
+; In the ordinary range, split the two signed operands into unsigned
+; low words and upper digits of zero or -1. The unsigned row product
+; is corrected by the anchor at bit 16 and the displacement at bit 24.
+.macro ss_raw_product label,arm,disp,rows,fold,?upper_arm,?arm_done,?positive_arm,?positive_disp,?upper_disp,?maybe_neg,?have_middle,?rows_done
+.area _CODE_8
+label:
+ ld hl,#arm
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld b,(hl)
+ ldh a,(disp)
+ ld c,a
+ jp rows
+fold:
+ ; Byte zero is stacked. D,C,B,E hold unsigned product bytes 1..4.
+ ld a,(#arm+3)
+ or a
+ jr z,positive_arm
+ inc a
+ jr nz,upper_arm
+ ld hl,#disp
+ ld a,b
+ sub a,(hl)
+ ld b,a
+ inc hl
+ ld a,e
+ sbc a,(hl)
+ ld e,a
+ sbc a,a
+positive_arm:
+ ld l,e                        ; byte four
+ ld h,a                        ; byte five
+arm_done:
+ ldh a,(disp+2)
+ inc a
+ jr z,maybe_neg
+ dec a
+ jr nz,upper_disp
+ ldh a,(disp+3)
+ or a
+ jr z,positive_disp
+ jr upper_disp
+maybe_neg:
+ ldh a,(disp+3)
+ inc a
+ jr nz,upper_disp
+ push de
+ ld d,h
+ ld e,l
+ ld hl,#arm
+ ld a,c
+ sub a,(hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc a,(hl)
+ ld b,a
+ inc hl
+ ld a,e
+ sbc a,(hl)
+ ld e,a
+ inc hl
+ ld a,d
+ sbc a,(hl)
+ ld h,a
+ ld l,e
+ pop de
+positive_disp:
+ ld a,d
+ pop de
+ ld d,a
+ ret
+upper_arm:
+ ld hl,#disp
+ call ss_spring_extend_arm
+ jr arm_done
+upper_disp:
+ push de
+ push hl
+ push bc
  ld hl,#(disp+2)
  ld a,(hl+)
- ld d,a
- add a,a
- sbc a,a
- cp a,(hl)
- jr nz,wide
- ld hl,#(arm+2)
- ld a,(hl+)
- ld b,a
- add a,a
- sbc a,a
- cp a,(hl)
- jr nz,wide
- ld a,b
- xor a,d
- push af
- ld hl,#(arm)
- ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ ld hl,#arm
+ call ss_spring_upper_disp
+ pop bc
+ pop hl
+ pop de
+ jr positive_disp
+
+.area _CODE
+rows:
+ call _riding_product24x8_row
+ push de                       ; final byte zero
+ ldh a,(disp+1)
+ or a
+ jr nz,have_middle
  ld e,a
+ jr rows_done
+have_middle:
+ .ifdef RIDING_GAS_REACTION
+ ld l,a
+ ld h,#>_riding_scale_directory
  ld a,(hl)
- ld h,d
- ld d,a
- ld a,(#(disp+1))
- ld l,a
- ld a,(#(disp))
- ld c,a
- bit 7,b
- jr z,arm_positive
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,b
- ld b,a
-arm_positive:
- bit 7,h
- jr z,disp_positive
- xor a
- sub a,c
- ld c,a
- ld a,#0
- sbc a,l
- ld l,a
- ld a,#0
- sbc a,h
+ ld (#0x2000),a
+ ld a,l
+ and a,#31
+ add a,a
+ or a,#>_physics_scale_planes_36
  ld h,a
-disp_positive:
- call ss_spring_rows24
- pop af
- jr exit_term
-wide:
- ld hl,#(arm)
- ld de,#(disp)
- call ss_spring_full
- xor a
-exit_term:
+ .else
+ ld h,a
+ call ss_damp_map
+ .endif
+ ld a,(#arm)
+ ld l,a
+ ld a,(hl)
+ add a,d
+ ld d,a
+ inc h
+ ld a,(hl)
+ adc a,c
+ ld c,a
+ ld a,(#arm+1)
+ ld l,a
+ ld a,(hl)
+ adc a,b
+ ld b,a
+ ld a,#0
+ rla
+ ld e,a
+ dec h
+ ld a,(hl)
+ add a,c
+ ld c,a
+ ld a,(#arm+2)
+ call ss_spring_last_digit
+rows_done:
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
+ jp fold
+.area _CODE_8
 .endm
 
-; Each wheel retains the low 48 bits through the subtraction. Bits 12..43
-; then match the signed, unbounded determinant for all int32 inputs.
-.macro ss_spring_pair ax,ay,dx,dy
- ss_spring_term ax,dy
- push af
- push bc
+.macro ss_spring_pair first,second
+ call first
  push hl
+ push bc
  push de
- ss_spring_term ay,dx
- call ss_spring_combine
- add sp,#8
+ call second
+ call ss_spring_difference
+ add sp,#6
 .endm
 ; The four spring displacements occupy the future damper-product rows.
 ; The spring batch consumes all four before the damper batch fills its rows.
@@ -497,7 +575,11 @@ exit_term:
  ss_store ss_force_products+36+offset
 .endm
 .macro ss_wheel_spring offset
- ss_spring_pair _riding_pose_anchor+offset,_riding_pose_anchor+8+offset,ss_force_products+28+offset,ss_force_products+36+offset
+ .if offset
+ ss_spring_pair ss_spring_x1,ss_spring_y1
+ .else
+ ss_spring_pair ss_spring_x0,ss_spring_y0
+ .endif
  .if offset
  ss_accumulate ss_ts
  .else
@@ -1009,69 +1091,11 @@ ss_spring_rounded:
  swap a
  ld out,a
 .endm
-; The first magnitude and its sign are on the caller's stack. A negative
-; tag requests negation of that magnitude modulo 2^48. The usual
-; same-sign case uses one subtraction in the requested operand order.
-ss_spring_combine:
- push hl
- ldhl sp,#11                    ; sign of first product
- bit 7,(hl)
- pop hl
- jr z,ss_spring_first_positive
- bit 7,a
- jr nz,ss_spring_reverse
- call ss_spring_negate_product
-ss_spring_reverse:
- push hl
- ldhl sp,#4
- ld a,e
- sub a,(hl)
- inc hl
- ld a,d
- sbc a,(hl)
- inc hl
- pop de
- push af
- ld a,e
- sbc a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- jr ss_spring_pack
-
-ss_spring_first_positive:
- bit 7,a
- jr z,ss_spring_difference
- push hl
- ldhl sp,#4
- ld a,(hl+)
- add a,e
- ld a,(hl+)
- adc a,d
- pop de
- push af
- ld a,(hl+)
- adc a,e
- ld e,a
- ld a,(hl+)
- adc a,d
- ld d,a
- ld a,(hl+)
- adc a,c
- ld c,a
- ld a,(hl)
- adc a,b
- jr ss_spring_pack
-
+; Subtract the two full products before flooring this wheel's Q12 moment.
+ ss_raw_product ss_spring_x0,_riding_pose_anchor,ss_force_products+36,ss_spring_x0_rows,ss_spring_x0_fold
+ ss_raw_product ss_spring_y0,_riding_pose_anchor+8,ss_force_products+28,ss_spring_y0_rows,ss_spring_y0_fold
+ ss_raw_product ss_spring_x1,_riding_pose_anchor+4,ss_force_products+40,ss_spring_x1_rows,ss_spring_x1_fold
+ ss_raw_product ss_spring_y1,_riding_pose_anchor+12,ss_force_products+32,ss_spring_y1_rows,ss_spring_y1_fold
 ss_spring_difference:
  push hl
  ldhl sp,#4
@@ -1080,30 +1104,29 @@ ss_spring_difference:
  ld a,(hl+)
  sbc a,d
  pop de
- ; Preserve difference byte 1 and its borrow while reducing bytes 2..5.
  push af
- ld a,(hl+)
- sbc a,e
- ld e,a
- ld a,(hl+)
- sbc a,d
- ld d,a
  ld a,(hl+)
  sbc a,c
  ld c,a
- ld a,(hl)
+ ld a,(hl+)
  sbc a,b
-ss_spring_pack:
  ld b,a
+ ld a,(hl+)
+ sbc a,e
+ ld e,a
+ ld a,(hl)
+ sbc a,d
+ ld d,a
  pop af
  ld h,a
- ss_join_nibbles h,e,h
- ss_join_nibbles e,d,e
- ss_join_nibbles d,c,d
- ss_join_nibbles c,b,b
+ ss_join_nibbles e,d,l
+ ss_join_nibbles b,e,d
+ ss_join_nibbles c,b,e
+ ss_join_nibbles h,c,h
  ld c,d
  ld d,e
  ld e,h
+ ld b,l
  ret
 
 ss_prepare_reaction:
@@ -1352,126 +1375,233 @@ ss_combine_products:
  add sp,#10
  ret
 
-; Write each signed32 operand as its unsigned low 24 bits plus a signed
-; top byte times 2^24. The top-by-top term starts at bit 48. The other
-; two cross terms therefore need only their low three bytes.
-ss_spring_full:
- push hl                          ; anchor
- push de                          ; displacement
- call ss_spring_cross
- push bc
+; A nonzero top anchor digit other than -1 contributes signed8*unsigned16
+; at byte three. The common case never allocates this temporary partial.
+ss_spring_extend_arm:
  push de
+ push hl
+ ld h,#0
+ ld l,e
+ push hl
+ push bc
+ dec a
+ ld c,a
  ldhl sp,#4
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld b,a
- ld a,(hl+)
- ld d,(hl)
- ld e,a
- ld h,b
- ld l,c
- call ss_spring_cross
- pop hl
- add hl,de
- pop de
- ld a,e
- adc a,c
- ldh (ss_force_products+2),a
- ld a,l
- ldh (ss_force_products),a
- ld a,h
- ldh (ss_force_products+1),a
-
- pop hl                          ; raw low 24 displacement bits
- ld a,(hl+)
- ld c,a
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- pop de                          ; raw low 24 anchor bits
- push hl
- ld h,d
- ld l,e
  ld a,(hl+)
  ld e,a
- ld a,(hl+)
- ld d,a
- ld b,(hl)
+ ld d,(hl)
+ call ss_spring_upper_arm
+ pop bc
  pop hl
- call ss_mt_product
- ldh a,(ss_force_products)
- add a,h
- ld h,a
- ldh a,(ss_force_products+1)
- adc a,c
- ld c,a
- ldh a,(ss_force_products+2)
- adc a,b
- ld b,a
+ add sp,#2
+ pop de
  ret
 
-; HL points to the low-24 operand, DE to the operand supplying its signed
-; top byte. Return the signed cross term modulo 2^24 in C:DE.
-ss_spring_cross:
- inc de
- inc de
- inc de
- ld a,(de)
+; Add signed8(C)*unsigned16(DE) at byte three of the caller's partial.
+; The unsigned product needs subtracting the low word at bit eight when
+; C is negative. Both corrections are performed modulo 24 bits.
+.area _CODE
+ss_spring_upper_arm:
+ push de
+ push bc
+ ld b,#0
+ call ss_byte_positive
+ ld a,c
+ pop hl
+ bit 7,l
+ pop hl
+ jr z,ss_upper_arm_add
+ ld b,a
+ ld a,d
+ sub a,l
+ ld d,a
+ ld a,b
+ sbc a,h
+ss_upper_arm_add:
+ ld c,a
+ ldhl sp,#3
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl),a
+ ret
+
+.area _CODE_8
+; Add the low 32 bits of A * signed16(D>>16) to bytes two through five.
+; The unsigned low digit uses four anchor bytes, the signed upper digit
+; needs only three. The two discarded top bytes cannot affect the moment.
+ss_spring_upper_disp:
+ ld a,b
  or a
- jr z,ss_spring_cross_zero
- push af
- bit 7,a
- jr z,ss_spring_cross_positive
+ jr z,ss_upper_disp_byte
+ inc a
+ jr nz,ss_upper_disp_word
+ ld a,c
  cpl
  inc a
-ss_spring_cross_positive:
+ jr z,ss_upper_disp_word
  ld c,a
+ call ss_upper_disp_byte_row
+ ldhl sp,#2
+ ld a,(hl)
+ sub a,e
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,d
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,c
+ ld (hl+),a
+ ld a,(hl)
+ sbc a,b
+ ld (hl),a
+ ret
+ss_upper_disp_byte:
+ call ss_upper_disp_byte_row
+ ldhl sp,#2
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl),a
+ ret
+.area _CODE
+ss_upper_disp_byte_row:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl)
+ dec c
+ jr nz,ss_upper_disp_more
+ ld c,b
+ ld b,a
+ ret
+ss_upper_disp_more:
+ dec c
+ jr nz,ss_upper_disp_table
+ ld c,b
+ ld b,a
+ sla e
+ rl d
+ rl c
+ rl b
+ ret
+ss_upper_disp_table:
+ inc c
+ inc c
+ jp ss_spring_u32_row
+.area _CODE_8
+ss_upper_disp_word:
+ push hl
+ ld e,#15
+ ld hl,#ss_spring_upper_disp_wide
+ call ___sdcc_bcall_ehl
+ add sp,#2
+ ret
+.area _CODE_15
+ss_spring_upper_disp_wide:
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ push hl                        ; anchor
+ push bc                        ; word multiplier
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl)
+ call ss_spring_u32_row
+ ldhl sp,#14
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl+),a
+ ld a,(hl)
+ adc a,b
+ ld (hl),a
+ pop bc
+ pop hl
+ ld c,b
  ld a,(hl+)
  ld e,a
  ld a,(hl+)
  ld d,a
  ld b,(hl)
+ push de
+ push bc
  call ss_byte_positive
- pop af
- bit 7,a
- ret z
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
+ pop hl
+ bit 7,l
+ pop hl
+ jr z,ss_upper_disp_add
+ ld a,d
+ sub a,l
  ld d,a
- ld a,#0
- sbc a,c
+ ld a,c
+ sbc a,h
  ld c,a
- ret
-ss_spring_cross_zero:
- ld c,a
- ld d,a
- ld e,a
+ss_upper_disp_add:
+ ldhl sp,#11
+ ld a,(hl)
+ add a,e
+ ld (hl+),a
+ ld a,(hl)
+ adc a,d
+ ld (hl+),a
+ ld a,(hl)
+ adc a,c
+ ld (hl),a
  ret
 
-ss_spring_negate_product:
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,l
+.area _CODE
+ss_spring_last_digit:
  ld l,a
- ld a,#0
- sbc a,h
- ld h,a
- ld a,#0
- sbc a,c
- ld c,a
- ld a,#0
- sbc a,b
+ ld a,(hl)
+ adc a,b
  ld b,a
+ inc h
+ ld a,(hl)
+ adc a,e
+ ld e,a
  ret
+ss_spring_u32_row:
+ push af
+ call _riding_product24x8_row
+ pop af
+ ld l,a
+ dec h                          ; low product plane of the same row
+ ld a,(hl)
+ add a,b
+ ld b,a
+ jp ss_mt_product_done
+.area _CODE_8
+
 ; The four products share omega. For signed24 operands write it as
 ; lo + 256*mid + 65536*top, with a signed top byte. Each byte selects a
 ; multiplication-table bank just once for all four independent arms.
@@ -2756,10 +2886,6 @@ ss_damp_finish:
 
 ; A unit high byte contributes the arm directly at byte offset one.
 ; All larger magnitudes use the existing unsigned two-row table kernel.
-ss_spring_rows24:
- ld a,h
- or a
- jp nz,ss_mt_product
 ss_spring_rows:
  ld a,l
  dec a

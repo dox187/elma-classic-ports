@@ -99,6 +99,8 @@ roll_input_dots:
  cp #0xc0
  jp z,ground_try_dots
 roll_generic_dots:
+ jp slope_begin_dots
+roll_default_dots:
  .endif
  ldhl sp,#6
  ld a,(hl+)
@@ -481,6 +483,10 @@ roll_project_shallow:
  .endif
  .endif
 roll_project_wide:
+ .ifdef RIDING_GROUND_ROWS
+ jp slope_begin_pair
+roll_default_pair:
+ .endif
  ldhl sp,#8
  call roll_project_general
  pop hl

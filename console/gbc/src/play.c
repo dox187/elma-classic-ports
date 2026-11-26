@@ -212,14 +212,16 @@ static void check_objects_near(const uint16_t *bounds) {
 }
 
 static void check_objects(void) BANKED {
-    uint8_t i,hit,use_bounds=OBJECT_COUNT>4;
+    uint8_t i,hit,use_bounds;
     uint16_t bounds[4];
     const game_object_t *object;
-    /* Every collision radius is below one meter. Its object's integer
-     * coordinate must lie within the three physical circles' integer bounds
-     * expanded by one. Dense courses avoid three full tests per distant item. */
+    gbc_objects_bounds(bounds);
+    /* The sparse-course touch predicate wraps signed world coordinates.
+     * Clipping is equivalent away from the seam. At either signed extreme,
+     * keep checking sparse objects against each circle directly. */
+    use_bounds=OBJECT_COUNT>4 || (bounds[0] && bounds[1]!=65535U &&
+                                  bounds[2] && bounds[3]!=65535U);
     if(use_bounds) {
-        gbc_objects_bounds(bounds);
         /* Active flags only clear between starts. Excluded objects stay out
          * while the bike rectangle remains inside this clipped proof. */
         if(objects_empty_valid && objects_empty_apples==game_apples_left

@@ -178,18 +178,64 @@ uint8_t riding_seat_lookup(int16_t *xy) __banked;
 uint8_t riding_restore_small(int16_t x, int16_t y);
 #endif
 #endif
+#ifdef RIDING_SEAT_LOOKUP
+static void rider_restore_world(int16_t x, int16_t y) {
+	Bike.rider_x = Bike.body.rx + ((int32_t)dotq14( x, y, Cs, -Sn ) << 8);
+	Bike.rider_y = Bike.body.ry + ((int32_t)dotq14( x, y, Sn, Cs ) << 8);
+}
+
+/* The banked lookup covers every signed coordinate. Keep its four-byte
+ * result as the local vector and pass it directly to the restoring rotation. */
+static void rider_limit(void) __naked {
+    __asm
+    add sp,#-4
+    ldhl sp,#0
+    ld d,h
+    ld e,l
+    call _riding_rider_phase_local
+    or a
+    jr nz,limit_done$
+    ldhl sp,#0
+    push hl
+    ld e,#b_riding_seat_lookup
+    ld hl,#_riding_seat_lookup
+    call ___sdcc_bcall_ehl
+    pop hl
+    dec a
+    jr z,limit_done$
+    pop de
+    pop bc
+    ld a,(#(_Bike+96))
+    or a
+    jr z,limit_restore$
+    xor a
+    sub e
+    ld e,a
+    sbc a,a
+    sub d
+    ld d,a
+limit_restore$:
+#ifdef RIDING_PAIRED_ROTATION
+    push bc
+    push de
+    call _riding_restore_small
+    pop de
+    pop bc
+    or a
+    ret nz
+#endif
+    jp _rider_restore_world
+limit_done$:
+    add sp,#4
+    ret
+    __endasm;
+}
+#else
 static void rider_limit( void ) {
 #if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
     int16_t xy[2];
     if (riding_rider_phase_local(xy)) return;
-#ifdef RIDING_SEAT_LOOKUP
-    uint8_t seat_result = riding_seat_lookup(xy);
-    if (seat_result == 1) return;
-#endif
     int16_t x = xy[0], y = xy[1];
-#ifdef RIDING_SEAT_LOOKUP
-    if (seat_result == 2) goto restore_world;
-#endif
 #else
 	int16_t dx = sat16( riding_sra8(Bike.rider_x-Bike.body.rx) );
 	int16_t dy = sat16( riding_sra8(Bike.rider_y-Bike.body.ry) );
@@ -234,9 +280,6 @@ static void rider_limit( void ) {
 	}
 	if( !moved )
 		return;
-#ifdef RIDING_SEAT_LOOKUP
-restore_world:
-#endif
 	if( Bike.turned )
 		x = -x;
 #ifdef RIDING_PAIRED_ROTATION
@@ -245,6 +288,7 @@ restore_world:
 	Bike.rider_x = Bike.body.rx + ((int32_t)dotq14( x, y, Cs, -Sn ) << 8);
 	Bike.rider_y = Bike.body.ry + ((int32_t)dotq14( x, y, Sn, Cs ) << 8);
 }
+#endif
 
 // beallitvezeto, at the same rate as the body and wheels:
 #ifndef __SDCC

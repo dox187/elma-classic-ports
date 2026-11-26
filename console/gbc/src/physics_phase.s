@@ -20,34 +20,31 @@ _phase_advance::
 
 ; Native entry. HL is the address of byte 2 of the coordinate's residual.
 _riding_phase_advance_hl::
+ call _riding_phase_carry_hl
+ ret nc
+ jr phase_increment
+
+; Native position updates can consume the rounding carry in their first ADC.
+_riding_phase_carry_hl::
  ld a,(#_riding_subphase)
  or a,a
- jr nz,phase_second
+ jp nz,_riding_phase_second_carry
  ; A full substep adds only the low velocity nibble at bit 20.
  ; Bias the signed residual by half a unit: the byte addition's carry
  ; is exactly the extra position unit, and its low 16 bits stay intact.
+ ld a,(hl)
+ xor a,#0x80
+ ld (hl),a
  ld a,c
  swap a
  and a,#0xf0
- push bc
- ld b,a
- ld a,(hl)
- xor a,#0x80
- add a,b
- ld b,a
- ; Save the carry in C without affecting the biased result in B.
- ld a,#0
- adc a,#0
- ld c,a
- ld a,b
+ add a,(hl)
+ push af
  xor a,#0x80
  ld (hl+),a
  rlca
  sbc a,a
  ld (hl),a
- ld a,c
- pop bc
- ld l,a
  ; Join neighboring nibbles instead of shifting all four bytes four times.
  .macro shift_four low,high
  ld a,high
@@ -78,9 +75,8 @@ phase_shift_upper:
  swap a
  ld d,a
 phase_shift_carry:
- ld a,l
- or a,a
- ret z
+ pop af
+ ret
 phase_increment:
  inc bc
  ld a,b
@@ -102,38 +98,42 @@ phase_second:
 ; fraction in BC and q24_fraction+2. A full signed32 miss keeps DEBC
 ; intact for the original wide multiply. D already sign-extends every
 ; direct row's signed8 quotient.
- .macro phase_lookup publish,?phase_check_wide,?phase_words,?phase_direct,?phase_ready
+ .macro phase_lookup publish,?phase_negative,?phase_positive_wide,?phase_negative_wide,?phase_page,?phase_words,?phase_direct,?phase_ready
  push hl
- ld a,e
- xor d
- jr nz,phase_check_wide
+ ; Positive and negative high words use different canonical top bytes.
+ ; The common 0000 and FFFF words can select their planes immediately.
  ld a,d
  inc a
- cp #2
- jp nc,phase_product_saved
+ jr z,phase_negative
+ dec a
+ jp nz,phase_product_saved
+ ld a,e
+ or a
+ jr nz,phase_positive_wide
  ld a,b
- xor d
  cp #8
  jr c,phase_direct
- ; E=D is either zero or FF. These are the two most frequent upper
- ; words and their high-digit planes start at pages 40 and 7C.
- ld a,d
- and #0x3c
- or #0x40
+ ld a,#0x40
  jr phase_words
-phase_check_wide:
- ; A signed high word from -8 through +6 has an exact four-page
- ; contribution. Page group 7 contains the low-digit product instead.
+phase_negative:
  ld a,e
- add #8
- ld l,a
- ld a,d
- adc #0
- jp nz,phase_product_saved
- ld a,l
- cp #15
+ inc a
+ jr nz,phase_negative_wide
+ ld a,b
+ cp #0xf8
+ jr nc,phase_direct
+ ld a,#0x7c
+ jr phase_words
+phase_positive_wide:
+ cp #7
  jp nc,phase_product_saved
- xor #8
+ jr phase_page
+phase_negative_wide:
+ dec a
+ cp #0xf8
+ jp c,phase_product_saved
+ and #15
+phase_page:
  add a,a
  add a,a
  or #0x40
@@ -167,9 +167,6 @@ phase_words:
  jr phase_ready
 
 phase_direct:
- ld a,b
- or c
- jp z,phase_fast_zero
  ; Signed12 velocity selects the four consecutive byte planes of a
  ; complete product. Its integer floor fits signed8 throughout.
  ld a,b
@@ -247,11 +244,6 @@ phase_residual_word:
  dec de
  ret
 
-phase_fast_zero:
- pop hl
- ld a,(#__current_bank)
- ld (#0x2000),a
- jr phase_zero
 .else
 _riding_phase_second_carry::
 _riding_phase_second_x::

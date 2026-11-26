@@ -2889,3 +2889,51 @@ Fixed ROM has 249 bytes free. Banks 508–511 are erased. Build using
 Reports are under `build/v096-test26/`, with the host checks in
 `native-frozen/` and `speed-frozen/`. Independent force tests are under
 `build/v096-force26/exact/`.
+
+
+### 0.96 test27 — combined cartridge
+
+| Whole-game measurements in PyBoy | test26 | test27 |
+| --- | ---: | ---: |
+| Updates/s, 216 standard routes on 54 courses | 27.287 | 27.824 |
+| Updates/s, 24 extended routes | 25.267 | 26.112 |
+| Updates/s, complete Freefall | 28.251 | 28.875 |
+| Mean standard active update, T-cycles | 264,561 | 258,311 |
+| Longest standard active update, T-cycles | 527,404 | 468,784 |
+| Longest extended active update, T-cycles | 554,044 | 555,172 |
+| Standard updates over 280,896 T-cycles | 3,728 | 2,901 |
+| Standard misses including GDMA | 3,733 | 2,906 |
+| Extended misses including GDMA | 1,510 | 1,272 |
+| Standard routes within the deadline throughout | 42 | 49 |
+| Freefall updates over budget / 439 | 50 | 30 |
+
+The rolling solver shares tangent rows for both velocity and impulse. Exact
+spring moments use signed byte products with a general-width fallback. The
+seat solver resolves larger displacements using the same integer rounding
+as the existing constraint. Head pose reads each quarter wave directly.
+Partial movement carries its rounded displacement into the position update.
+Other changes shorten division, reject exterior endpoint radii earlier and
+tabulate contact-point coordinates for integer lengths 404 through 409.
+
+Sparse object scans reuse the same clipped bounds as dense courses when all
+three circles are clear of the signed coordinate seam. The original wrapping
+predicate handles seam cases. Wheel and head pickups have distinct inclusive
+circle tables. The linked image passed 4,096 wrapping overlap inputs, 1,642
+circle limits, 393,216 contact-point table inputs, 6,144 contact-point calls,
+1,120 divider cases and 29,568 suspension scheduling guards. The object
+fixture matched 1,133 complete scenes, including event order, plus 12,544
+clipping tests and 729 saturated bounds.
+
+All 59,599 standard and 15,653 extended substeps, 25,112 published updates
+and 439 full-descent updates matched test26. The host oracle matched 9,210
+ordinary and 3,170 speed-limit states. The original PC comparison passed 45
+landing and braking cases and reproduced the previous 20 extreme-spin
+results, including the 15.75° worst body-angle difference. Seven PyBoy
+presentation routes matched 1,216 sprite presentations and 61,845 background
+cells. SameBoy CGB-E matched 578 sprite snapshots. Menu, player and save
+checks passed. The idle HUD timer recorded seven display overruns.
+
+Image SHA-256 `263c7893b4fddcee6764e918b9876d213cdc36aa546c0ba41224c9643f3ee3fc`.
+Fixed ROM has 13 bytes free and banks 508–511 are erased. Rebuild with
+`tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test27-8m.gbc`.
+Reports are in `build/v096-test27/`. Physical cartridge timing is pending.
