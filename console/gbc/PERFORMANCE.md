@@ -3580,3 +3580,30 @@ A separate terrain cache in CGB work RAM banks 2–5 reproduced all 76,568
 test42 substeps. Across 241 controller routes it added 4,139,796 active
 T-cycles including DMA and raised late updates from 602 to 611. It was
 discarded.
+
+## 0.96 test44 — rolling on shallow and sloped ground
+
+For signed 16-bit velocities and impulses, the rolling routine reads both
+components of the tangent product and rounds once after adding them. Wider
+inputs use the existing routine. On shallow ground with a signed-byte
+vertical tangent coefficient, vertical velocities from −63 through +63
+contribute exactly zero after rounding. The wheel can use the horizontal
+component directly, including its saturation at the signed 32-bit limit.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.613 | 216,543 | 416,968 | 331 | 150/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.306 | 228,662 | 416,216 | 199 | 8/24 |
+| Full Freefall neutral descent | 439 | 29.864 | 224,689 | 276,540 | 0 | 1/1 |
+
+All 25,551 updates and 76,568 physics substeps matched test43. The direct
+rolling comparison exercised 12,544 combinations across 196 tangents, and
+the prepared-wheel comparison passed 21,340 cases. PyBoy matched 1,216
+presentations and 61,845 visible background cells. The 45 PC landing and
+braking cases and 20 extreme-spin cases passed their existing checks.
+The standard and extended suites still miss deadlines. Their worst active
+updates increased by 352 and 580 T respectively.
+
+SHA-256 `b25810ed08b6dd0e777c46274268244fd1eab8eaa743c7babd823d7efb15614f`.
+Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test44-8m.gbc`.
+Timing is from emulation.

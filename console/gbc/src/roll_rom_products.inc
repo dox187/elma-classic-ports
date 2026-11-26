@@ -96,7 +96,7 @@ miss:
  ret
 .endm
 
-.macro map_tangent inputs,project,xpage,read_x,read_y,?dot,?first_miss,?second_miss,?project_wide,?qx,?qy
+.macro map_tangent inputs,project,xpage,read_x,read_y,?dot,?first_miss,?second_miss,?project_wide,?wide
 ; Compute both unrounded coordinate products, add, then round the dot once.
 inputs::
  ldhl sp,#6
@@ -118,6 +118,109 @@ inputs::
  add sp,#4
  jp slope_fallback_dots
 dot:
+ ; Signed word vectors use the six product bytes from each coordinate
+ ; directly. Keep the two low bytes until their carry enters byte one.
+ push hl
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ add a
+ sbc a
+ cp (hl)
+ jr nz,wide
+ inc hl
+ cp (hl)
+ jr nz,wide
+ inc hl
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ add a
+ sbc a
+ cp (hl)
+ jr nz,wide
+ inc hl
+ cp (hl)
+ jr nz,wide
+ add sp,#2
+ push bc
+ ld h,#(xpage+2)
+ ld l,e
+ ld e,(hl)
+ dec h
+ ld b,(hl)
+ dec h
+ ld c,(hl)
+ ld h,#(xpage+2)
+ ld l,d
+ ld a,c
+ add (hl)
+ ld d,a
+ inc h
+ ld a,b
+ adc (hl)
+ ld c,a
+ inc h
+ ld a,#0
+ adc (hl)
+ ld b,a
+ ; BC:DE is X's unshifted signed product. Add the two Y rows.
+ pop hl
+ ld a,e
+ ld e,h
+ ld h,#(xpage+7)
+ add (hl)
+ ld h,#(xpage+5)
+ ld a,d
+ adc (hl)
+ ld d,a
+ inc h
+ ld a,c
+ adc (hl)
+ ld c,a
+ ld a,b
+ adc #0
+ ld b,a
+ ld l,e
+ inc h
+ ld a,d
+ add (hl)
+ ld d,a
+ inc h
+ ld a,c
+ adc (hl)
+ ld c,a
+ inc h
+ ld a,b
+ adc (hl)
+ ld b,a
+ ; The catalog bounds abs(tx)+abs(ty) <= 32767, so both
+ ; high bits of the rounded raw sum carry its sign.
+ ld a,d
+ add #32
+ ld d,a
+ ld a,c
+ adc #0
+ ld c,a
+ ld a,b
+ adc #0
+ ld b,a
+ add a
+ sbc a
+ ld e,a
+ ld a,d
+ .rept 2
+ add a
+ rl c
+ rl b
+ .endm
+ ld d,e
+ scf
+ ret
+wide:
+ pop hl
  push hl
  call read_x
  jr nc,first_miss
@@ -156,7 +259,8 @@ project::
  cp (hl)
  jp nz,slope_pair_miss
  push de
- call qx
+ ld h,#xpage
+ call rom_slope_qword
  ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
@@ -164,7 +268,8 @@ project::
  call rom_slope_qstore
  pop de
  push hl
- call qy
+ ld h,#(xpage+5)
+ call rom_slope_qword
  pop hl
  call rom_slope_qstore
  add sp,#2
@@ -183,12 +288,6 @@ project_wide:
  pop hl
  call rom_slope_store
  jp ground_return
-qx:
- ld h,#xpage
- jp rom_slope_qword
-qy:
- ld h,#(xpage+5)
- jp rom_slope_qword
 .endm
 
 rom_slope_sum:

@@ -1,35 +1,74 @@
 ; Both tangent dots and the final projection use the same signed coefficient.
 ; Each bank contains twelve table slots, followed by this reader at $7c00.
 ; A slot includes the rounded signed16 product and the upper-word correction.
-.macro ground_reader inputs,project,component,store,?dot,?miss,?done,?saturate_negative,?first_miss
+.macro ground_reader inputs,project,component,store,?dot,?miss,?done,?saturate_negative,?velocity_table,?have_velocity
 inputs::
- push af
- ldhl sp,#8
+ ldhl sp,#6
  ld a,(hl+)
  ld h,(hl)
  ld l,a
  ld bc,#8
  add hl,bc
- pop af
- push af
+ push hl
+ ld bc,#4
+ add hl,bc
+ ; The directory accepted a signed-byte Y coefficient. For |vy| <= 63,
+ ; its product lies strictly within the zero Q14 rounding interval.
+ ld a,(hl+)
+ add #64
+ jr z,velocity_table
+ bit 7,a
+ jr nz,velocity_table
+ ld a,(hl+)
+ adc #0
+ jr nz,velocity_table
+ ld a,(hl+)
+ adc #0
+ jr nz,velocity_table
+ ld a,(hl)
+ adc #0
+ jr nz,velocity_table
+ pop hl
+ xor a
+ sub (hl)
+ ld c,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld b,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld e,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld d,a
+ cp #128
+ jr nz,have_velocity
+ ld a,e
+ or b
+ or c
+ jr nz,have_velocity
+ ld de,#0x7fff
+ ld bc,#0xffff
+ jr have_velocity
+velocity_table:
+ pop hl
+ ldh a,(#near_slot)
  call dot
- jr nc,first_miss
- pop af
+ jp nc,ground_resume_dots
+have_velocity:
  push de
  push bc
  ldhl sp,#8
- ld c,a
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- ld a,c
+ ldh a,(#near_slot)
  call dot
  jp c,ground_resume_deltas
- inc sp
- inc sp
-first_miss:
- inc sp
- inc sp
+ add sp,#4
  jp ground_resume_dots
 
 ; A selects the first page. HL points at x, y. Return DEBC = q(y)-x.
