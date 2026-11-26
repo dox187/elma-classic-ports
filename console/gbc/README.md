@@ -3,13 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test23 — 8 MiB](build/elma-gbc-v0.96-test23-8m.gbc)**.
-Across 216 controller routes on all 54 courses it averages **24.74 physics
-updates per emulated second**, up from **23.54** in test22. The full Freefall
-descent averages **24.80**. The target is **29.86**. Thirty routes maintained
+**[0.96 test24 — 8 MiB](build/elma-gbc-v0.96-test24-8m.gbc)**.
+Across 216 controller routes on all 54 courses it averages **25.40 physics
+updates per emulated second**, up from **24.74** in test23. The full Freefall
+descent averages **25.67**. The target is **29.86**. Thirty-five routes met
 the two-display-frame deadline throughout. Every one of the 59,599 native
-physics substeps and 19,885 published updates matched test22. A separate
-24-route replay averaged **22.09** with another 15,653 matching substeps.
+physics substeps and 19,885 published updates matched test23. A separate
+24-route replay averaged **22.98** with another 15,653 matching substeps.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -59,6 +59,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test24 — terrain contacts and exact integer multiplication
+
+The wheel solver reuses the classification of a finite segment within a
+64-unit region when its bounds prove that every point has the same outcome.
+The cartridge uses one signed product implementation for terrain and wheel
+arithmetic. A dedicated table covers squared distances, freeing the former
+quarter-square banks for physics calculations. The worst standard update
+took 529,156 CPU cycles against a budget of 280,896.
+[Full timings and validation](PERFORMANCE.md#096-test24--combined-cartridge)
 
 ## 0.96 test23 — wheel impacts, suspension and sprite transfers
 

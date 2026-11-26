@@ -173,156 +173,9 @@ _riding_torque_input32::
  add sp,#7
  ret
  .endif
-; HL -> signed32 x, BC = signed16 y. Return BC:HL:DE signed48.
-_riding_product32x16_regs::
-exact_product:
- ld a,b
- or a,c
- jr nz,exact_product_nonzero
- ld bc,#0
- ld hl,#0
- ld de,#0
- ret
-exact_product_nonzero:
- ; Physical Q18 arms and velocities usually fit three magnitude bytes.
- ; Multiply by one or two rows of the existing unsigned byte table. Each
- ; row is selected once for all three input bytes, and ROMB0 is restored
- ; once for the complete product. Wider multiplicands use the full kernel.
- inc hl
- inc hl
- ld a,(hl+)
- ld e,a
- add a,a
- sbc a,a
- cp a,(hl)
- jp nz,exact_product_wide
- xor a,b
- push af
- dec hl
- dec hl
- ld d,(hl)
- dec hl
- ld a,(hl)
- ld h,e
- ld e,a
- bit 7,h
- jr z,exact_product_x_positive
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,h
- ld h,a
-exact_product_x_positive:
- bit 7,b
- jr z,exact_product_y_positive
- xor a
- sub a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
-exact_product_y_positive:
- ld a,b
- ld b,h
- or a
- jr z,exact_product_one_row
- push bc
- push de
- ; For 256..767 the high row is x or 2*x. Keep all four unsigned
- ; result bytes, including the carry when the magnitude is 0x800000.
- cp #3
- jr nc,exact_product_high_table
- ld c,b
- ld b,#0
- dec a
- jr z,exact_product_high_ready
- sla e
- rl d
- rl c
- rl b
- jr exact_product_high_ready
-exact_product_high_table:
- ld c,a
- call exact_product_byte_row
-exact_product_high_ready:
- push bc
- push de
- ldhl sp,#4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- call exact_product_byte_row
- ; Add the high row shifted by one byte to the low row.
- ldhl sp,#0
- ld a,d
- add a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- inc hl
- ld a,(hl)
- adc a,#0
- ld h,b
- ld l,c
- ld c,a
- ld b,#0
- add sp,#8
- jr exact_product_byte_sign
-exact_product_one_row:
- call exact_product_byte_row
- ld h,b
- ld l,c
- ld bc,#0
-exact_product_byte_sign:
- pop af
- bit 7,a
- jr z,exact_product_byte_done
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,l
- ld l,a
- ld a,#0
- sbc a,h
- ld h,a
- ld a,#0
- sbc a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
-exact_product_byte_done:
- ld a,(#__current_bank)
- ld (#0x2000),a
- ret
-exact_product_wide:
- dec hl
- dec hl
- dec hl
- jp exact_product_full
-
-; B:DE is an unsigned 24-bit magnitude, C selects a row in banks 36..43.
-; Return the exact unsigned product in BC:DE, little-endian.
-_riding_product24x8_row::
-exact_product_byte_row:
+; C selects both byte planes. Each input digit addresses the same
+; column in the adjacent low/high pages.
+.macro exact_product_row
  ld a,c
  rlca
  rlca
@@ -340,31 +193,190 @@ exact_product_byte_row:
  inc h
  ld a,(hl)
  ld l,d
+ ld c,(hl)
  dec h
  add a,(hl)
  ld d,a
- inc h
- ld a,(hl)
- adc a,#0
  ld l,b
- dec h
- add a,(hl)
+ ld a,c
+ adc a,(hl)
  ld c,a
  inc h
  ld a,(hl)
  adc a,#0
  ld b,a
+.endm
+
+; HL -> signed32 x, BC = signed16 y. Return BC:HL:DE signed48.
+_riding_product32x16_regs::
+exact_product:
+ ld a,b
+ or a,c
+ jr nz,exact_product_nonzero
+ ld bc,#0
+ ld hl,#0
+ ld de,#0
+ ret
+exact_product_nonzero:
+ ; Keep the four source bytes in registers. Wider inputs enter the
+ ; full kernel with their two signed16 halves already loaded.
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ add a,a
+ sbc a,a
+ cp a,h
+ jp nz,exact_product_full
+ xor a,b
+ rla
+ push af                     ; carry is the sign of the product
+ bit 7,l
+ jr z,exact_product_x_positive
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,l
+ ld l,a
+exact_product_x_positive:
+ bit 7,b
+ jr z,exact_product_y_positive
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+exact_product_y_positive:
+ ; Either operand can select a table row. A byte-sized x needs only
+ ; one row even when both bytes of y are nonzero.
+ ld a,l
+ or a,d
+ jr z,exact_product_byte_x
+ ld a,b
+ ld b,l
+ or a
+ jr z,exact_product_one_row
+ cp #3
+ jr nc,exact_product_high_table
+ dec a
+ jr z,exact_product_unit_high
+exact_product_double_high:
+ ; Double the overlapping byte pairs, retaining the magnitude bit of
+ ; -0x800000. The input registers still hold x for the low row.
+ ld h,b
+ ld l,d
+ add hl,hl
+ ld l,h
+ ld h,#0
+ rl h
+ push hl
+ ld h,d
+ ld l,e
+ add hl,hl
+ push hl
+ jr exact_product_low_row
+exact_product_high_table:
+ ; For other coefficients compute the entire upper row, then use the
+ ; saved arm and low coefficient to look up the lower row.
+ push bc
+ push de
+ ld c,a
+ call exact_product_byte_row
+ ; Exchange the high row with its original operands on the stack.
+ ldhl sp,#0
+ ld a,e
+ ld e,(hl)
+ ld (hl+),a
+ ld a,d
+ ld d,(hl)
+ ld (hl+),a
+ ld a,c
+ ld c,(hl)
+ ld (hl+),a
+ ld a,b
+ ld b,(hl)
+ ld (hl),a
+ jr exact_product_low_row
+exact_product_unit_high:
+ ld l,b
+ ld h,#0
+ push hl
+ push de
+exact_product_low_row:
+ exact_product_row
+ ; Add the high partial at byte one, propagating both word carries.
+ pop hl
+ ld a,d
+ add a,l
+ ld d,a
+ ld a,c
+ adc a,h
+ ld c,a
+ pop hl
+ ld a,b
+ adc a,l
+ ld b,a
+ ld a,h
+ adc a,#0
+ ld h,b
+ ld l,c
+ ld c,a
+ ld b,#0
+ jr exact_product_byte_sign
+exact_product_byte_x:
+ ld a,e
+ ld e,c
+ ld d,b
+ ld c,a
+ call _riding_mul16u8_unsigned
+ jr exact_product_extend
+exact_product_one_row:
+ call exact_product_byte_row
+ ld h,b
+ ld l,c
+exact_product_extend:
+ ld bc,#0
+exact_product_byte_sign:
+ pop af
+ jr nc,exact_product_byte_done
+ xor a
+ sub a,e
+ ld e,a
+ ld a,b
+ sbc a,d
+ ld d,a
+ ld a,b
+ sbc a,l
+ ld l,a
+ ld a,b
+ sbc a,h
+ ld h,a
+ ld a,b
+ sbc a,c
+ ld c,a
+ sbc a,a
+ ld b,a
+exact_product_byte_done:
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+; B:DE is an unsigned 24-bit magnitude, C selects a row in banks 36..43.
+; Return the exact unsigned product in BC:DE, little-endian.
+_riding_product24x8_row::
+exact_product_byte_row:
+ exact_product_row
  ret
 
 exact_product_full:
  push bc
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld a,(hl+)
- ld h,(hl)
- ld l,a
  push hl
  push de
  call _riding_mul16_regs
@@ -376,29 +388,10 @@ exact_product_full:
  push bc
  push hl
  push de
- ; A sign-extended low half already gave the complete product.
- ldhl sp,#7
- bit 7,(hl)
- jr nz,exact_product_negative_low
- inc hl
- ld a,(hl+)
- or a,(hl)
- jr z,exact_product_done
- jr exact_product_high
-exact_product_negative_low:
- inc hl
- ld a,(hl+)
- and a,(hl)
- inc a
- jr z,exact_product_done
-exact_product_high:
  ldhl sp,#8
  ld e,(hl)
  inc hl
  ld d,(hl)
- ld a,d
- or a,e
- jr z,exact_product_correction
  ldhl sp,#10
  ld c,(hl)
  inc hl
@@ -419,7 +412,6 @@ exact_product_high:
  ld a,(hl)
  adc a,b
  ld (hl),a
-exact_product_correction:
  ldhl sp,#7
  bit 7,(hl)
  jr z,exact_product_done
@@ -1034,15 +1026,13 @@ math32_projection_narrow_other:
  .ifdef RIDING_PROJECTION_TABLES
 math32_projection_lookup:
  push af
- ld a,b
- rrca
- rrca
- sub c
- add a,#<_riding_projection_directory
- ld l,a
- ld a,#>_riding_projection_directory
- adc a,#0
- ld h,a
+ ld a,#20
+ ld (#0x2000),a
+_riding_projection_read_directory::
+ ld h,#>_riding_projection_directory
+ ld l,b
+ ld h,(hl)
+ ld l,c
  ld a,(hl)
  cp b
  jr nz,math32_lookup_miss
@@ -1050,11 +1040,14 @@ math32_projection_lookup:
  ld a,(hl)
  or a
  jr z,math32_lookup_miss
- ld (#0x2000),a
- ld a,#1
- ld (#0x3000),a
  inc h
  ld h,(hl)
+ ld (#0x2000),a
+ bit 7,a
+ jr z,math32_projection_lookup_mapped
+ ld a,#1
+ ld (#0x3000),a
+math32_projection_lookup_mapped:
  pop af
  jp _riding_projection_fetch
 math32_lookup_miss:
@@ -1130,6 +1123,9 @@ math32_projection_wide:
  scf
  jp math32_projection_lookup
 math32_projection_full_fallback:
+ ; The full multiplier may return a zero product without selecting a bank.
+ ld a,(#__current_bank)
+ ld (#0x2000),a
  pop hl
  .endif
  dec hl
@@ -1191,6 +1187,28 @@ math32_projection_restore:
  ld a,(#__current_bank)
  ld (#0x2000),a
  ret
+ .ifdef RIDING_PROJECTION_TABLES
+_riding_projection_negate48::
+ xor a
+ sub e
+ ld e,a
+ ld a,#0
+ sbc d
+ ld d,a
+ ld a,#0
+ sbc l
+ ld l,a
+ ld a,#0
+ sbc h
+ ld h,a
+ ld a,#0
+ sbc c
+ ld c,a
+ ld a,#0
+ sbc b
+ ld b,a
+ ret
+ .endif
 math32_projection_zero:
  ld bc,#0
  jp math32_axis_zero

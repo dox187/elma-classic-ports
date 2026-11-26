@@ -386,12 +386,11 @@ _riding_roll_project_pair::
  ld bc,#_riding_shallow_dot_9
  jr roll_project_shallow
 roll_project_directory:
- ; The directory and this routine are in ROM0, so both projections can keep
- ; MBC5's high bit selected until the pair finishes.
- ld a,#1
- ld (#0x3000),a
  ldhl sp,#8
  call roll_project_component
+ ; The second component begins by reading the directory in bank 20.
+ xor a
+ ld (#0x3000),a
  pop hl
  call roll_store_regs
  push hl
@@ -497,15 +496,12 @@ roll_project_component:
  cp #64
  jr z,roll_component_unit
 roll_project_lookup:
- ld a,b
- rrca
- rrca
- sub c
- add a,#<_riding_projection_directory
- ld l,a
- ld a,#>_riding_projection_directory
- adc a,#0
- ld h,a
+ ld a,#20
+ ld (#0x2000),a
+ ld h,#>_riding_projection_directory
+ ld l,b
+ ld h,(hl)
+ ld l,c
  ld a,(hl)
  cp b
  jr nz,roll_component_miss
@@ -513,13 +509,32 @@ roll_project_lookup:
  ld a,(hl)
  or a
  jr z,roll_component_miss
- ld (#0x2000),a
  inc h
  ld h,(hl)
+ ld (#0x2000),a
+ bit 7,a
+ jr z,roll_project_lookup_mapped
+ ld a,#1
+ ld (#0x3000),a
+roll_project_lookup_mapped:
+ bit 7,h
+ jr z,roll_project_rows
+ res 7,h
+ xor a
+ sub e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ cp #128
+ jr nz,roll_project_rows
+ ld a,e
+ or a
+ jr z,roll_component_miss
+roll_project_rows:
  ; U[lo] + (S[hi] << 8) is the signed product. Discard byte 0 and
  ; add the Q14 half at bit 5 of byte 1. U + 8192 fits its three planes
  ; for every signed16 coefficient and every unsigned low speed byte.
- inc h
  ld l,e
  ld a,(hl)
  add a,#32
@@ -592,8 +607,6 @@ roll_component_miss:
  call _riding_mulq14_regs
  ld b,h
  ld c,l
- ld a,#1
- ld (#0x3000),a
  ret
 
 ; DEBC holds dvn, HL points to the signed32 wheel torque. On a hit, DEBC is

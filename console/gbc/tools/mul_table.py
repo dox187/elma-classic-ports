@@ -29,6 +29,18 @@ def generate(out):
     print('Exact signed16 multiplication table: 256 KiB in MBC5 banks20..35')
 
 
+def scheduled_squares(gen):
+    """Store each unsigned24 square in a directly addressed four-byte slot."""
+    from head_clearance import write_if_changed
+    path = gen / 'physics_small_squares.s'
+    rows = ['.module physics_small_squares', '.area _CODE_28', '_riding_small_squares::']
+    for first in range(0, 4096, 8):
+        row = b''.join((v*v).to_bytes(4, 'little') for v in range(first, first+8))
+        rows.append(' .db '+','.join(map(str, row)))
+    write_if_changed(path, '\n'.join(rows) + '\n')
+    return path
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--out',type=Path,required=True)

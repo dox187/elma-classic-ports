@@ -11,6 +11,7 @@ import bike_frames16
 import brake_dispatch
 import head_clearance
 import head_refinement
+import mul_table
 import normal_atlas
 import projection_tables
 import rolling_tables
@@ -53,6 +54,8 @@ def validate_linked_layout(symbol_path,rom_mib):
             fixed_end=max(fixed_end,start+size)
         elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
             raise ValueError(f'ROM bank {bank} exceeds its linked address window')
+    if '_riding_small_squares' in symbols and symbols['_riding_small_squares'] != 0x1c4000:
+        raise ValueError('Squared wheel distances must start at bank 28 address 0x4000')
     if 'brake_angle_rows' in symbols:
         if symbols.get('_physics_bank_93') != 0x5d4000:
             raise ValueError('Brake lookup relocated packed terrain in bank 93')
@@ -257,7 +260,7 @@ def main():
         sources=[a.collision_source.resolve() if path.name=='physics_collision.c' else path for path in sources]
     if scheduled:
         sources += [BASE/'src'/name for name in ('physics_q24.c','physics_force.c','physics_q24.s',
-            'physics_mul_fast.s','physics_mul16u8.s','physics_math32_exact.s',
+            'physics_mul_scheduled.s','physics_mul16u8.s','physics_math32_exact.s',
             'physics_math.s','physics_contact_loop.s','physics_segment_scan.s',
             'physics_normal_fast.s','physics_shift_fast.s','physics_sqrt_fast.s',
             'physics_div_fast.s','physics_sin_fast.s',
@@ -295,8 +298,12 @@ def main():
         sources[sources.index(math_source)] = projection_tables.generate(math_source, a.gen/'physics_projection_game.s')
     else:
         sources.extend((BASE/'src/physics_math.c', BASE/'src/physics_math32.c'))
-        sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name!='physics_mul16.s' and not x.name.startswith('physics_q24'))
-    for pattern in ('physics_quarter_*.c','physics_scale_*.c','physics_sine_*.c',
+        sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name not in ('physics_mul16.s','physics_mul_scheduled.s') and not x.name.startswith('physics_q24'))
+    if scheduled:
+        sources.append(mul_table.scheduled_squares(a.gen))
+    else:
+        sources += sorted(a.gen.glob('physics_quarter_*.c'))
+    for pattern in ('physics_scale_*.c','physics_sine_*.c',
                     'physics_q24_table_*.c' if scheduled else 'physics_coefficient_*.c',
                     'physics_bank_*.c','physics_head_bank_*.c','level_bank_*.c','riding16_body_*.c'):
         sources+=sorted(a.gen.glob(pattern))

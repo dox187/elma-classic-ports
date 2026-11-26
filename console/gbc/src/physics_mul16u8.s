@@ -3,7 +3,6 @@
 ; Unsigned16 DE times unsigned8 C, raw32 return HLDE. Leaves table bank
 ; selected for the wide multiplier to restore once, after its sign correction.
 _riding_mul16u8_unsigned::
- ld b,d
  ld a,c
  rlca
  rlca
@@ -19,14 +18,13 @@ _riding_mul16u8_unsigned::
  ld l,e
  ld e,(hl)
  inc h
- ld d,(hl)
- ld l,b
+ ld a,(hl)
+ ld l,d
+ ld b,(hl)
  dec h
- ld a,(hl)
- add a,d
+ add a,(hl)
  ld d,a
- inc h
- ld a,(hl)
+ ld a,b
  adc a,#0
  ld l,a
  ld h,#0

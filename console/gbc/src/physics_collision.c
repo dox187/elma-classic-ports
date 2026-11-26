@@ -22,6 +22,10 @@ uint8_t Seg_left,Seg_subcell;
 #ifdef __SDCC
 /* Zero invalidates the swept-head empty rectangle on every collision reset. */
 uint8_t riding_head_clear_mask;
+#ifdef RIDING_PC_SCHEDULE
+/* The general wheel iterator memoizes projections by FIFO record address. */
+uint8_t riding_contact_regions_dirty;
+#endif
 #if !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
 void riding_surface_reset(void) __nonbanked;
 #endif
@@ -56,6 +60,9 @@ void physics_collision_reset(void) {
     riding_surface_reset();
 #endif
     riding_head_clear_mask=0;
+#ifdef RIDING_PC_SCHEDULE
+    riding_contact_regions_dirty=1;
+#endif
 #endif
     for(i=0;i<CACHES;++i)cell_ids[i]=65535;
     next_cell=0;Seg_left=0;
@@ -255,6 +262,10 @@ seg_next_slot:
     ld (#_Seg_left),a
     or a
     jr z,seg_restore
+#ifdef RIDING_PC_SCHEDULE
+    ; This slot is about to overwrite the records named by wheel certificates.
+    ld (#_riding_contact_regions_dirty),a
+#endif
     call seg_map_relative
     ld h,d
     ld l,e

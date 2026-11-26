@@ -11,35 +11,44 @@ from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE / 'tools'))
-from projection_tables import BANKS, COEFFICIENTS, row_page, validate_layout
+from projection_tables import BANKS, COEFFICIENTS, DIRECTORY_BANK, MIRRORED, ROWS_PER_BANK, row_page, validate_layout
 
 
 def verify_table_bytes(image, symbols):
-    table = symbols['_riding_projection_directory']
-    tags = image[table:table+256]
-    banks = image[table+256:table+512]
-    pages = image[table+512:table+768]
+    base = DIRECTORY_BANK * 16384
+    table = base + (symbols['_riding_projection_directory'] & 16383)
     accepted = {}
     for y in range(-32768, 32768):
-        high = (y >> 8) & 255
-        slot = (((high >> 2) | (high << 6)) - y) & 255
-        if banks[slot] and tags[slot] == high:
-            accepted[y] = (banks[slot] + 256, pages[slot])
-    expected = {y: (BANKS[i // 10], row_page(i)) for i, y in enumerate(COEFFICIENTS)}
+        high, low = (y >> 8) & 255, y & 255
+        tag_page = image[table + high]
+        address = base + (tag_page - 0x40) * 256 + low
+        bank = image[address + 256]
+        if bank and image[address] == high:
+            accepted[y] = (bank + (256 if bank & 128 else 0), image[address + 512])
+    expected = {y: (BANKS[i // ROWS_PER_BANK], row_page(i)) for i, y in enumerate(COEFFICIENTS)}
+    for y in MIRRORED:
+        bank, page = expected[-y]
+        expected[y] = (bank, page | 128)
     assert expected == accepted
     for y, (bank, page) in accepted.items():
-        start = (bank << 14) + (page - 0x40) * 256
-        planes = image[start:start + 1536]
+        mirror = bool(page & 128)
+        start = (bank << 14) + ((page & 127) - 0x40) * 256
+        planes = image[start:start + 1280]
         unsigned, signed = [], []
         for n in range(256):
-            value = sum(planes[j*256+n] << (8*j) for j in range(3))
+            value = sum(planes[p*256+n] << (8*j) for j,p in enumerate((2,0,1)))
             unsigned.append(value)
-            value = sum(planes[(3+j)*256+n] << (8*j) for j in range(3))
+            value = sum(planes[p*256+n] << (8*j) for j,p in enumerate((2,3,4)))
             signed.append((value ^ (1 << 23)) - (1 << 23))
-            assert unsigned[-1] - 0x800000 == n * y
-            assert signed[-1] + 0x8000 == ((n ^ 128) - 128) * y
+            assert unsigned[-1] - 0x800000 == n * (-y if mirror else y)
+            assert signed[-1] + 0x8000 == ((n ^ 128) - 128) * (-y if mirror else y)
         for x in range(-32768, 32768):
-            assert unsigned[x & 255] + (signed[(x >> 8) & 255] << 8) == x * y
+            operand = -x if mirror else x
+            if operand == 32768:
+                product = unsigned[0] + (unsigned[128] << 8) - 0x80800000
+            else:
+                product = unsigned[operand & 255] + (signed[(operand >> 8) & 255] << 8)
+            assert product == x * y
     return 65536 * len(accepted)
 
 
@@ -90,6 +99,33 @@ def check_shallow_native(p, symbols, code, stack, source, current_bank, bank_win
     return checked
 
 
+def check_rolling_projections(p, symbols, code, stack, source, current_bank, bank_windows):
+    entry = symbols['_riding_roll_project_pair']
+    p.memory[code:code+6] = [0xf3, 0xcd, entry & 255, entry >> 8, 0x18, 0xfe]
+    guards = bytes((0x31, 0x8c))
+    checked = 0
+    for y in (*COEFFICIENTS, *MIRRORED, -32768, 32767):
+        for speed in (-32769, -32768, -32767, -8192, -1, 0, 1, 8192, 32766, 32767, 32768):
+            pair = (y, -y if y != -32768 else 32767)
+            args = speed.to_bytes(4, 'little', signed=True) + b''.join(
+                value.to_bytes(2, 'little', signed=True) for value in pair)
+            p.memory[stack:stack+10] = args + guards
+            p.memory[source-2:source+10] = guards + bytes(8) + guards
+            reg = p.register_file
+            reg.SP, reg.PC, reg.HL = stack, code, source
+            bank = (5, 9, 14)[checked % 3]
+            p.memory[current_bank] = p.memory[0x2000] = bank
+            p.tick(1, False)
+            want = b''.join(((speed*v + 8192) >> 14).to_bytes(4, 'little', signed=True) for v in pair)
+            assert bytes(p.memory[source-2:source+10]) == guards + want + guards, (speed, pair)
+            assert (reg.SP, reg.PC) == (stack, code+4)
+            assert bytes(p.memory[stack:stack+10]) == args + guards
+            assert p.memory[current_bank] == bank
+            assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank]
+            checked += 1
+    return checked
+
+
 def vectors():
     endpoints = (-(1 << 31), -(1 << 31) + 1, -8388609, -8388608, -65537,
                  -65536, -32769, -32768, -257, -256, -255, -1, 0, 1, 127,
@@ -99,18 +135,16 @@ def vectors():
     for x in range(-257, 2):
         for y in (-32768, -32767, -16384, -256, -1, 0, 1, 255, 16384, 32767):
             yield x, y
-    for y in COEFFICIENTS:
+    for y in (*COEFFICIENTS, *MIRRORED):
         for x in endpoints:
             yield x, y
         for _ in range(16):
             yield rng.randint(-32768, 32767), y
             yield rng.randint(-(1 << 31), (1 << 31) - 1), y
-    # Exercise every slot with a different high-byte tag, including empty
-    # slots whose zero tag matches. The zero bank marker must still miss.
+    # Exercise every low-byte slot with several tags, including signed extremes.
     for slot in range(256):
         for high in (0, 0x7f, 0x80, 0xff):
-            low = (((high >> 2) | (high << 6)) - slot) & 255
-            y = (((high * 256 + low) ^ 32768) - 32768)
+            y = (((high * 256 + slot) ^ 32768) - 32768)
             yield -32768, y
             yield 0x456789ab, y
     for _ in range(4096):
@@ -159,7 +193,7 @@ def check_native(image, symbols):
             assert bytes(p.memory[stack-64:stack-62]) == guards
             assert p.memory[current_bank] == bank
             assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank], (x, y, bank)
-            hits += y in COEFFICIENTS and not -255 <= x <= 255
+            hits += y in (*COEFFICIENTS, *MIRRORED) and not -255 <= x <= 255
             started += 1
         dots = 0
         rng = random.Random(0x96d07)
@@ -187,10 +221,11 @@ def check_native(image, symbols):
             assert bytes(p.memory[stack+4:stack+6]) == guards
             assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank]
             dots += 1
+        rolling = check_rolling_projections(p, symbols, code, stack, source, current_bank, bank_windows)
         shallow = check_shallow_native(p, symbols, code, stack, source, current_bank, bank_windows)
     finally:
         p.stop(save=False)
-    return {'native_products': started, 'table_path_vectors': hits, 'fallback_vectors': started - hits, 'native_geometry_dots': dots, 'native_shallow_dots': shallow}
+    return {'native_products': started, 'table_path_vectors': hits, 'fallback_vectors': started - hits, 'native_geometry_dots': dots, 'native_shallow_dots': shallow, 'native_rolling_pairs': rolling}
 
 
 def check_interrupts(image, symbols):
@@ -198,16 +233,13 @@ def check_interrupts(image, symbols):
     # Interrupt once at dispatch and once inside the selected product reader.
     code, source, stack = 0xc900, 0xc930, 0xcff0
     entry = symbols['_riding_projection_product_regs']
+    lookup = symbols['_riding_projection_read_directory']
     current = symbols['__current_bank']
     # EI; NOP; CALL product; DI; JR -2
     driver = [0xfb, 0, 0xcd, entry & 255, entry >> 8, 0xf3, 0x18, 0xfe]
     fetch = symbols['_riding_projection_fetch']
-    # The first conditional branch enters the wide product. Its fall-through
-    # calls the narrow product. Both targets execute from fixed ROM.
-    signed = lambda b: b - 256 if b >= 128 else b
-    assert image[fetch] == 0x38 and image[fetch+2] == 0xcd
-    wide = fetch + 2 + signed(image[fetch+1])
-    narrow = int.from_bytes(image[fetch+3:fetch+5], 'little')
+    wide = symbols['_riding_projection_fetch_wide']
+    narrow = symbols['_riding_projection_read_signed']
     bios = PyBoy(BytesIO(image), window='null', sound_emulated=False, cgb=True)
     bios.set_emulation_speed(0)
     snapshot = BytesIO()
@@ -218,9 +250,10 @@ def check_interrupts(image, symbols):
         bios.stop(save=False)
     checked = 0
     for i, bank in enumerate(BANKS):
-        y = COEFFICIENTS[10*i]
-        for x in (-32768, 0x73ef01fd, -0x72340123):
-            for target in (fetch, narrow if x == -32768 else wide):
+        canonical = COEFFICIENTS[i*ROWS_PER_BANK]
+        for x, y in ((-32768, canonical), (0x73ef01fd, canonical), (-0x72340123, -canonical),
+                     (32767, -canonical)):
+            for target in (lookup, fetch, narrow if -32768 <= x <= 32767 else wide):
                 p = PyBoy(BytesIO(image), window='null', sound_emulated=False, cgb=True)
                 p.set_emulation_speed(0)
                 try:
@@ -237,7 +270,7 @@ def check_interrupts(image, symbols):
                     def vblank(_):
                         s = reg.SP
                         pc = p.memory[s] + (p.memory[s+1] << 8)
-                        if fetch <= pc < fetch+256:
+                        if lookup <= pc < lookup+4 or fetch <= pc < fetch+256:
                             irq['interrupted'] = pc
 
                     p.hook_register(0, target, inject, None)

@@ -2750,3 +2750,46 @@ SHA-256 `e1d81e9245b989bd4f17ac5b8ce36936c317837bd41103aa6b1c266f5f561a1c`.
 Fixed ROM has 131 bytes free, with banks 508–511 erased. Rebuild using
 `tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test23-8m.gbc`.
 Reports are in `build/v096-test23/`. Physical console testing is pending.
+
+
+### 0.96 test24 — combined cartridge
+
+| Complete cartridge in PyBoy | test23 | test24 |
+| --- | ---: | ---: |
+| Updates/s, standard 216 routes | 24.744 | 25.400 |
+| Updates/s, longer 24 routes | 22.085 | 22.984 |
+| Updates/s, full Freefall descent | 24.797 | 25.673 |
+| Mean standard active update, T-cycles | 290,390 | 283,132 |
+| Longest standard active update, T-cycles | 555,028 | 529,156 |
+| Standard updates over deadline | 8,105 | 6,907 |
+| Standard updates over deadline including GDMA stall allowance | 8,114 | 6,918 |
+| Routes passing all deadline and cadence checks / 216 | 30 | 35 |
+
+The collision solver bounds the change of the projected point within a
+64-unit region. It reuses endpoint or interior classifications only when the
+complete region is on the same side of the boundary. Eviction, restart and
+level changes invalidate the relevant entries. Wide products use a shared
+unsigned byte-row kernel. The general signed16 product and the projection
+reader share the same exact arithmetic. A direct square covers inputs
+through magnitude 4,095. This replaces the old 256 KiB quarter-square
+array in the scheduled cartridge. Banks 20–27 now supplement the projection
+directory and rows. All 378 selected signed coefficients use an exact reader
+or its mirrored entry. The remaining coefficients use the native multiplier.
+
+The retained 8 MiB image matched all 75,252 substeps of the combined
+standard and extended controller replays and the complete 439-update
+Freefall descent. The longer routes reached 555,352 active cycles. All
+12,380 host/native state fixtures and 45 PC landing and braking cases passed.
+The 20 extreme-spin PC comparisons reproduced test23’s measurements.
+Native tests checked 12,580 register/stack products, 4,096 square entries,
+24,772,608 projection-row inputs, 30,280 mixed-width products, 4,180 rolling
+pairs and 192 VBlank interrupts during banked lookup. The linked scheduler
+passed its 29,568 deadline checks. SameBoy reproduced 578 sprite snapshots
+on three routes. PyBoy reproduced 1,216 presentations and 61,845 scenery
+cells. Player/save and frontend checks passed. Nine idle timer deadline
+misses remain in the player test.
+
+SHA-256 `88e4873e50aa9e8d757ec5a9054eeb2c494eca0c6ab5ca9f46444c77eed1ed47`.
+Fixed ROM has 1,014 bytes free. Banks 508–511 are erased. Build using
+`tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test24-8m.gbc`.
+Reports are in `build/v096-test24/`. Physical console timing is pending.

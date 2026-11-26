@@ -9,11 +9,14 @@ _riding_segment_box::
  ld a,(#_Seg_left)
  or a,a
  jr z,segment_empty
- ld d,a
  ldhl sp,#2
  ld b,(hl)
  inc hl
  ld c,(hl)
+; Register entry used by the contact loop. A is nonzero remaining count,
+; B/C are the box coordinates. Carry indicates an accepted record.
+_riding_segment_box_regs::
+ ld d,a
  ld hl,#_Seg_cur
  ld a,(hl+)
  ld h,(hl)
@@ -60,6 +63,7 @@ segment_rejected:
  xor a,a
  ld (#_Seg_left),a
 segment_empty:
+ or a
  ld de,#0
  ret
 segment_found:
@@ -76,4 +80,5 @@ segment_found:
  ld a,h
  sbc a,#0
  ld d,a
+ scf
  ret
