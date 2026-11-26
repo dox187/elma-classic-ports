@@ -319,22 +319,128 @@ step_solve_wheels:
  sbc a,a
  ld (hl+),a
 .endm
+; A Q18 bike coordinate becomes a signed 24-bit Q10 coordinate. Its
+; two upper bytes fully identify the cached region after applying the
+; 4 m, 1 m or quarter-metre mask. The shifted sign byte follows bit 23.
+.macro step_head_region coord,old,cache
+ ld hl,#cache
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ ldhl sp,#old
+ ld a,(hl+)
+ and c
+ cp e
+ jr nz,step_head_terrain
+ ld a,(hl)
+ cp d
+ jr nz,step_head_terrain
+ ld hl,#coord
+ ld a,(hl+)
+ and c
+ cp e
+ jr nz,step_head_terrain
+ ld a,(hl)
+ cp d
+ jr nz,step_head_terrain
+.endm
 _riding_step_head::
  ; The stored head is the previous endpoint until head_position runs.
  add sp,#-8
  step_push_head _Bike+92
  step_push_head _Bike+88
  call _riding_step_head_position
+ ; Both endpoints inside the same certified rectangle prove the path
+ ; clear. Most substeps finish here before packing the new endpoint.
+ ld a,(#_riding_head_clear_mask)
+ or a
+ jr z,step_head_terrain
+ ld c,a
+ step_head_region _Bike+90,1,_riding_head_clear_x
+ step_head_region _Bike+94,5,_riding_head_clear_y
+ add sp,#16
+ ld a,#1
+ ret
+step_head_terrain:
  ldhl sp,#8
  ld de,#_Bike+89
  step_write_head
  inc de
  step_write_head
  ld e,#b_riding_swept_head
- ld hl,#_riding_swept_head
+ ld hl,#_riding_head_terrain_query
  call ___sdcc_bcall_ehl
  add sp,#16
  sub a,#1
  ld a,#0
  rla
  ret
+
+; Three PC integration intervals per outer update. B holds the controls
+; for the current interval; DE accumulates each wheel's impacts. A volt
+; only survives the first interval. A grid exit still runs its final
+; interval before reporting death and publishing the accumulated impacts.
+_riding_scheduled_frame::
+ and #15
+ add a,#<frame_controls
+ ld l,a
+ ld a,#>frame_controls
+ adc a,#0
+ ld h,a
+ ld b,(hl)
+ ld a,(#_gbc_bike+50)
+ or a
+ ret z
+ xor a
+ ld (#_riding_subphase),a
+ ld de,#0
+ call frame_interval
+ jr z,frame_publish
+ ld a,b
+ and #3
+ ld b,a
+ call frame_interval
+ jr z,frame_publish
+ ld a,#1
+ ld (#_riding_subphase),a
+ call frame_interval
+frame_publish:
+ ld hl,#_riding_audio_impact
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ jp _physics_export_state_fast
+
+frame_interval:
+ push de
+ push bc
+ call _wheels_in_grid
+ ld c,a
+ ldhl sp,#1
+ ld a,(hl)
+ push bc
+ call _ph_step
+ pop bc
+ or a
+ jr z,frame_alive
+ ld a,c
+ or a
+ call nz,_head_body_in_level
+frame_alive:
+ ld (#_gbc_bike+50),a
+ pop bc
+ pop de
+ ld c,a
+ ld hl,#_riding_audio_impact
+ ld a,(hl+)
+ or e
+ ld e,a
+ ld a,(hl)
+ or d
+ ld d,a
+ ld a,c
+ or a
+ ret
+
+frame_controls:
+ .db 0,1,2,3,8,9,10,11,4,5,6,7,12,13,14,15

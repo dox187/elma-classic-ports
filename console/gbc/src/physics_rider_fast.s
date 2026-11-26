@@ -3,342 +3,185 @@
 ; Vectors(restx,resty,out) writes dirx,diry,dx,dy as signed16.
 ; dir = sat16((wrap32(body-rider) >> 4) + signed16(rest));
 ; delta = sat16(wrap32(rider-body) >> 4).
-; Keep the unshifted difference on the stack: negation must precede the
-; arithmetic shift, including negative low nibbles and INT32_MIN.
 ; Move(ax,ay) adds accelerations, then advances scheduled motion and residuals.
 ; All motion arithmetic wraps modulo2^32. No mutable global scratch.
 .module physics_rider_fast
 .area _CODE_8
 
-; For displacements fitting signed20, q = floor(displacement/16) fits
-; signed16. The reverse displacement is ~q plus one exactly when the low
-; nibble is zero. Compute both vectors from this one quotient.
-.macro rider_narrow_axis rest_offset, out_offset, wide, neg_ok, store, finish
+; The response reserves its four vectors on the stack. The public ABI
+; adapter uses the same frame then copies it to the supplied buffer.
+_riding_rider_vectors32::
+ add sp,#-8
+ call _riding_rider_vectors_frame
+ ldhl sp,#14
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ ldhl sp,#0
+ .rept 8
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ add sp,#8
+ ret
+
+; Both callers have eight local bytes followed by their return address
+; and restx/resty. Each axis reads the two positions only once.
+_riding_rider_vectors_frame::
+.macro rider_vector_axis position,rider,rest,output
+ ld hl,#(_Bike+rider)
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ ld hl,#(_Bike+position)
+ ld a,(hl+)
+ sub e
+ ld e,a
+ ld a,(hl+)
+ sbc d
+ ld d,a
+ ld a,(hl+)
+ sbc c
+ ld c,a
+ ld a,(hl)
+ sbc b
+ ld b,a
+ ldhl sp,#rest
+ call rider_vector_axis_regs
+ ldhl sp,#output
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ldhl sp,#(output+4)
+ ld (hl),c
+ inc hl
+ ld (hl),b
+.endm
+ rider_vector_axis 0,72,12,2
+ rider_vector_axis 4,76,14,4
+ ret
+
+; Input BCDE is body minus rider modulo 2^32, HL points to signed rest.
+; Return spring displacement in DE, reverse displacement in BC.
+rider_vector_axis_regs:
+ push hl
  ld a,c
- add a,#8
+ add #8
  and #0xf0
- jr nz,wide
+ jr nz,rider_vector_wide
  ld a,c
  rlca
  sbc a,a
  cp b
- jr nz,wide
+ jr nz,rider_vector_wide
  ld a,e
- and #0x0f
+ and #15
  ld h,a
- ; Merge adjacent nibbles to divide the signed20 displacement by sixteen.
+.macro rider_drop_nibble low,high
+ ld a,high
+ xor low
+ and #15
+ xor low
+ swap a
+ ld low,a
+.endm
+ rider_drop_nibble e,d
+ rider_drop_nibble d,c
+ ; Reverse quotient = ~q + (remainder == 0). Only the narrow endpoint
+ ; -524288 needs positive saturation after negating the displacement.
+ ld a,h
+ sub #1
+ ld a,e
+ cpl
+ adc #0
+ ld c,a
  ld a,d
- xor a,e
- and #0x0f
- xor a,e
- swap a
+ cpl
+ adc #0
+ ld b,a
+ and d
+ bit 7,a
+ jr z,rider_vector_sum
+ ld bc,#0x7fff
+rider_vector_sum:
+ pop hl
+ ld a,(hl+)
+ add e
  ld e,a
- ld a,c
- xor a,d
- and #0x0f
- xor a,d
- swap a
+ ld a,(hl)
+ ld h,a
+ adc d
+ ld l,a
+ xor d
  ld d,a
  ld a,h
- sub a,#1
- ld a,e
- cpl
- adc a,#0
- ld c,a
- ld a,d
- cpl
- adc a,#0
- ld b,a
- ; Only -524288 can give a positive reverse quotient of 32768.
- and a,d
+ xor l
+ and d
+ ld d,l
  bit 7,a
- jr z,neg_ok
- ld bc,#0x7fff
-neg_ok:
- ldhl sp,#6
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- .rept 4+out_offset
- inc hl
- .endm
- ld (hl),c
- inc hl
- ld (hl),b
- ; Saturating signed16 addition of the rest vector.
- ldhl sp,#rest_offset
- ld a,(hl+)
- add a,e
- ld e,a
- ld c,(hl)
- ld a,c
- adc a,d
- ld b,a
- xor a,c
- ld c,a
- ld a,b
- xor a,d
- and a,c
- ld d,b
- bit 7,a
- jr z,store
+ ret z
  ld de,#0x7fff
- bit 7,b
- jr nz,store
+ bit 7,l
+ ret nz
  inc de
-store:
- ldhl sp,#6
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- .rept out_offset
- inc hl
- .endm
- ld (hl),e
- inc hl
- ld (hl),d
- jp finish
-wide:
-.endm
+ ret
 
-_riding_rider_vectors32::
- ld hl,#_Bike+72
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike
- ld a,(hl+)
- sub a,e
- ld e,a
- ld a,(hl+)
- sbc a,d
- ld d,a
- ld a,(hl+)
- sbc a,c
- ld c,a
- ld a,(hl)
- sbc a,b
+rider_vector_wide:
+ ; Outside signed20 the reverse quotient always clamps. INT32_MIN
+ ; negates to itself under the wrapped subtraction and clamps negative.
+ ld hl,#0x8000
+ bit 7,b
+ jr z,rider_vector_clamped
+ ld a,b
+ xor #0x80
+ or c
+ or d
+ or e
+ jr z,rider_vector_clamped
+ dec hl
+rider_vector_clamped:
+ push hl
+ rider_drop_nibble e,d
+ rider_drop_nibble d,c
+ rider_drop_nibble c,b
+ ld a,b
+ swap a
+ and #15
+ bit 7,b
+ jr z,rider_vector_shifted
+ or #0xf0
+rider_vector_shifted:
  ld b,a
- rider_narrow_axis 2,0,rider_x_wide,rider_x_negative_ok,rider_x_store,rider_axis_y
- push bc
- push de
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- call rider_sat16
- ldhl sp,#10
+ ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- inc hl
- inc hl
- inc hl
- inc hl
- ld (hl),e
- inc hl
- ld (hl),d
- pop de
+ ld a,(hl+)
+ add e
+ ld e,a
+ ld a,(hl)
+ ld h,a
+ adc d
+ ld d,a
+ bit 7,h
+ ld a,#0
+ jr z,rider_vector_extend
+ dec a
+rider_vector_extend:
+ ld h,a
+ adc c
+ ld c,a
+ ld a,h
+ adc b
+ ld b,a
+ call rider_sat16
  pop bc
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- push bc
- push de
- ldhl sp,#6
- ld e,(hl)
- inc hl
- ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
- ldhl sp,#0
- ld a,(hl+)
- add a,e
- ld e,a
- ld a,(hl+)
- adc a,d
- ld d,a
- ld a,(hl+)
- adc a,c
- ld c,a
- ld a,(hl)
- adc a,b
- ld b,a
- add sp,#4
- call rider_sat16
- ldhl sp,#6
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld (hl),e
- inc hl
- ld (hl),d
-
-rider_axis_y:
- ld hl,#_Bike+76
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- ld hl,#_Bike+4
- ld a,(hl+)
- sub a,e
- ld e,a
- ld a,(hl+)
- sbc a,d
- ld d,a
- ld a,(hl+)
- sbc a,c
- ld c,a
- ld a,(hl)
- sbc a,b
- ld b,a
- rider_narrow_axis 4,2,rider_y_wide,rider_y_negative_ok,rider_y_store,rider_vectors_done
- push bc
- push de
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
- ld a,#0
- sbc a,c
- ld c,a
- ld a,#0
- sbc a,b
- ld b,a
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- call rider_sat16
- ldhl sp,#10
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- inc hl
- inc hl
- inc hl
- inc hl
- inc hl
- inc hl
- ld (hl),e
- inc hl
- ld (hl),d
- pop de
- pop bc
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- sra b
- rr c
- rr d
- rr e
- push bc
- push de
- ldhl sp,#8
- ld e,(hl)
- inc hl
- ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld b,a
- ld c,a
- ldhl sp,#0
- ld a,(hl+)
- add a,e
- ld e,a
- ld a,(hl+)
- adc a,d
- ld d,a
- ld a,(hl+)
- adc a,c
- ld c,a
- ld a,(hl)
- adc a,b
- ld b,a
- add sp,#4
- call rider_sat16
- ldhl sp,#6
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- inc hl
- inc hl
- ld (hl),e
- inc hl
- ld (hl),d
-rider_vectors_done:
+ add sp,#2
  ret
 
 rider_sat16:

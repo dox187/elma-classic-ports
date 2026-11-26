@@ -121,34 +121,40 @@ def write_pose_tables(out, coefficients, fixed):
     (out / 'physics_pose_rows.h').write_text(text)
 
 
-def write_rider_tables(out, coefficients):
-    """Rank byte remainders so one comparison reproduces the rounded sum."""
+def signed16_quotient_pages(scale):
+    """Rank low-byte remainders so one comparison carries into the rounded result."""
     unit = 1 << 24
+    pages = []
+    low = [divmod(b * scale, unit) for b in range(256)]
+    fractions = sorted(remainder for _, remainder in low)
+    ranks = [bisect_left(fractions, r) for _, r in low]
+    high = []
+    for raw_high in range(256):
+        signed_high = raw_high if raw_high < 128 else raw_high - 256
+        whole, remainder = divmod(signed_high * 256 * scale + unit // 2, unit)
+        threshold = bisect_left(fractions, unit - remainder)
+        # A threshold of 256 never carries. Encode the same sum
+        # with a zero threshold (always carries) and a lower base.
+        high.append((whole - 1, 0) if threshold == 256 else (whole, threshold))
+    if any(not 0 <= q <= 65535 for q, _ in low):
+        raise ValueError('Low product exceeds two bytes')
+    for v in range(-32768, 32768):
+        q, threshold = high[(v >> 8) & 255]
+        result = q + low[v & 255][0] + (ranks[v & 255] >= threshold)
+        if result != (v * scale + unit // 2) // unit or not -(1 << 23) <= result < (1 << 23):
+            raise ValueError(f'Inexact signed coefficient product at {v}')
+    pages.extend((ranks, [q & 255 for q, _ in low], [q >> 8 for q, _ in low],
+                  [t for _, t in high]))
+    for shift in (0, 8, 16):
+        pages.append([(q >> shift) & 255 for q, _ in high])
+    return pages
+
+
+def write_rider_tables(out, coefficients):
     pages = []
     for name in ('C_RIDER_S', 'C_RIDER_F'):
         for scale in coefficients[name]:
-            low = [divmod(b * scale, unit) for b in range(256)]
-            fractions = sorted(remainder for _, remainder in low)
-            ranks = [bisect_left(fractions, r) for _, r in low]
-            high = []
-            for raw_high in range(256):
-                signed_high = raw_high if raw_high < 128 else raw_high - 256
-                whole, remainder = divmod(signed_high * 256 * scale + unit // 2, unit)
-                threshold = bisect_left(fractions, unit - remainder)
-                # A threshold of 256 never carries. Encode the same sum
-                # with a zero threshold (always carries) and a lower base.
-                high.append((whole - 1, 0) if threshold == 256 else (whole, threshold))
-            if any(not 0 <= q <= 65535 for q, _ in low):
-                raise ValueError('Rider low product exceeds two bytes')
-            for v in range(-32768, 32768):
-                q, threshold = high[(v >> 8) & 255]
-                result = q + low[v & 255][0] + (ranks[v & 255] >= threshold)
-                if result != (v * scale + unit // 2) // unit or not -(1 << 23) <= result < (1 << 23):
-                    raise ValueError(f'Inexact signed rider product at {v}')
-            pages.extend((ranks, [q & 255 for q, _ in low], [q >> 8 for q, _ in low],
-                          [t for _, t in high]))
-            for shift in (0, 8, 16):
-                pages.append([(q >> shift) & 255 for q, _ in high])
+            pages.extend(signed16_quotient_pages(scale))
     output = out / 'physics_rider_rows.c'
     output.write_text('#pragma bank 2\nconst unsigned char riding_rider_rows[]={\n'
                       + ',\n'.join(','.join(map(str, row)) for row in pages) + '\n};\n')

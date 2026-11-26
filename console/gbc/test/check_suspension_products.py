@@ -39,6 +39,15 @@ def vectors():
         yield omega, [half - 1, half, half + 1, -half]
         yield omega, [-half - 1, -half, -half + 1, 3 * half]
 
+    # For each byte multiplier, this arm puts an odd multiple of 2^17
+    # in the product. Exercise exact Q18 ties and their adjacent inputs.
+    for digit in range(1, 256):
+        half_arm = (1 << 17) // (digit & -digit)
+        for omega in (-digit, digit):
+            for tie in (-half_arm, half_arm):
+                yield omega, [tie - 1, tie, tie + 1, 3 * tie]
+            yield omega, [-2**23, -2**23 + 1, 2**23 - 2, 2**23 - 1]
+
     # Equal products at every width cancel before the per-wheel floor.
     for x in edges:
         for y in edges:
@@ -77,8 +86,10 @@ void main(void) {
 }
 ''')
     assembly = out / 'fixture.s'
+    # Keep the fixture's expanded spring macro in fixed ROM. The driver
+    # selects bank 8, where the production entry points and marker reside.
     assembly.write_text(source.read_text() + '''
-.area _CODE_8
+.area _CODE
 _fixture_products::
  ss_read _fixture_input
  ss_write _riding_suspension_state+4
@@ -102,6 +113,7 @@ _fixture_products::
  ld a,(#fixture_bank_marker)
  ld (#_fixture_marker),a
  ret
+.area _CODE_8
 fixture_bank_marker: .db 0xa5
 ''')
     objects = sorted(native.glob('[0-9]*.o'))

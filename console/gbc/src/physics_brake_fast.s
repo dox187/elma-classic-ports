@@ -1,4 +1,5 @@
-; Exact two-wheel brake spring and angular damping in bank 8.
+; Exact two-wheel brake spring and angular damping. The cartridge selects
+; bank 93 for its signed16 lookup rows and restores the caller in bank 8.
 ; Both torque outputs wrap to signed32. Bike is read-only.
 .module physics_brake_fast
 .area _CODE_8
@@ -33,6 +34,21 @@ _riding_brake32::
  ld c,l
 ; DE and BC point to the separate scheduled torque fields.
 _riding_brake_fields::
+ .ifdef brake_tables
+ jp brake_switch
+.area _CODE
+brake_switch:
+ ld a,#93
+ ld (#__current_bank),a
+ ld (#0x2000),a
+ call brake_fields
+ ld a,#8
+ ld (#__current_bank),a
+ ld (#0x2000),a
+ ret
+.area _CODE_93
+brake_fields:
+ .endif
  push bc
  push de
  .ifndef brake_damping_index
@@ -94,6 +110,9 @@ brake_one:
  sbc a,a
  ld d,a
  push hl                     ; wheel.omega immediately follows alfa
+ .ifdef brake_tables
+ call brake_angle_value
+ .else
  .ifdef brake_angle_index
  ld a,#brake_angle_index
  .else
@@ -102,6 +121,7 @@ brake_one:
  .endif
  dec sp                      ; _q24_apply_a consumes its one-byte ABI slot
  call _q24_apply_a
+ .endif
  pop hl
 
  ; Save spring-1 modulo 2^32. Complementing the sum with damping later
@@ -137,6 +157,9 @@ brake_spring_low:
  ld a,d
  sbc a,(hl)
  ld d,a
+ .ifdef brake_tables
+ call brake_damp_value
+ .else
  .ifdef brake_damping_index
  ld a,#brake_damping_index
  .else
@@ -151,6 +174,7 @@ brake_damping_phase:
  .endif
  dec sp
  call _q24_apply_a
+ .endif
 
  ; CPL preserves the carry between bytes.
  pop hl
@@ -175,3 +199,103 @@ brake_damping_phase:
  pop af
  .endif
  ret
+
+.ifdef brake_tables
+; Signed16 input matches when both upper bytes sign-extend B. Wide inputs
+; use the cartridge's saturating Q24 helper with its original coefficient.
+.macro brake_require_word wide
+ ld a,b
+ add a,a
+ sbc a,a
+ cp e
+ jr nz,wide
+ cp d
+ jr nz,wide
+.endm
+.macro brake_row table,index
+ ld a,index
+ add a,#<table
+ ld l,a
+ ld a,#>table
+ adc a,#0
+ ld h,a
+.endm
+brake_angle_value:
+ brake_require_word brake_angle_wide
+ brake_row brake_angle_rows,c
+ ld e,(hl)
+ inc h
+ ld c,(hl)
+ brake_row brake_angle_rows+512,b
+ ld a,e
+ cp (hl)
+ ccf
+ inc h
+ ld a,c
+ adc a,(hl)
+ ld c,a
+ inc h
+ ld a,#0
+ adc a,(hl)
+ ld b,a
+ add a,a
+ sbc a,a
+ ld d,a
+ ld e,a
+ ret
+brake_angle_wide:
+ ld a,#brake_angle_index
+ jr brake_wide
+
+brake_damp_value:
+ brake_require_word brake_damp_wide
+ brake_row brake_damp_low,c
+ ld d,h
+ ld e,l
+ brake_row brake_damp_high,b
+ ; low*m + half + ((signed high*m)<<8). Keep all low 24 bits
+ ; to publish the same signed rounding residual as the full Q24 path.
+ ld a,(de)
+ ldh (#_q24_fraction),a
+ inc d
+ ld a,(de)
+ add a,(hl)
+ ldh (#_q24_fraction+1),a
+ inc d
+ inc h
+ ld a,(de)
+ adc a,(hl)
+ push af
+ xor #0x80
+ ldh (#_q24_fraction+2),a
+ add a,a
+ sbc a,a
+ ldh (#_q24_fraction+3),a
+ pop af
+ inc d
+ inc h
+ ld a,(de)
+ adc a,(hl)
+ ld c,a
+ inc d
+ inc h
+ ld a,(de)
+ adc a,(hl)
+ ld b,a
+ inc h
+ ld a,#0
+ adc a,(hl)
+ ld e,a
+ add a,a
+ sbc a,a
+ ld d,a
+ xor a
+ ldh (#_q24_saturated),a
+ ret
+brake_damp_wide:
+ ld a,#brake_damping_index
+brake_wide:
+ dec sp
+ call _q24_apply_a
+ ret
+.endif

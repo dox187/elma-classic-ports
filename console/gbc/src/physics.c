@@ -74,6 +74,19 @@ static uint8_t head_body_in_level(void) {
 #endif
 #endif
 
+#if defined(RIDING_PC_SCHEDULE) && defined(__SDCC)
+typedef char frame_input_layout[GBC_GAS==1 && GBC_BRAKE==2 && GBC_ROTATE_LEFT==4 &&
+    GBC_ROTATE_RIGHT==8 && IN_GAS==1 && IN_BRAKE==2 && IN_VOLT_LEFT==8 &&
+    IN_VOLT_RIGHT==4 && offsetof(gbc_bike_t,alive)==50 ? 1 : -1];
+void physics_step(uint8_t input) GBC_BANKED __naked {
+    input;
+    __asm
+    ldhl sp,#6
+    ld a,(hl)
+    jp _riding_scheduled_frame
+    __endasm;
+}
+#else
 void physics_step(uint8_t input) GBC_BANKED {
     uint8_t in=0;
     if(!gbc_bike.alive)return;
@@ -104,6 +117,7 @@ void physics_step(uint8_t input) GBC_BANKED {
 #endif
     export_state();
 }
+#endif
 
 void physics_turn(void) GBC_BANKED {
     ph_turn();export_state();

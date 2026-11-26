@@ -2,6 +2,7 @@
 import argparse
 from io import BytesIO
 from pathlib import Path
+import random
 import re
 import struct
 
@@ -30,14 +31,17 @@ def main():
     mem[address:address+5] = [0xcd, fn & 255, fn >> 8, 0x18, 0xfe]
     sentinel = bytes(image[9*0x4000+120:9*0x4000+136])
     count = 0
+    rng = random.Random(0x9623)
     try:
         for phase,(t,s) in enumerate(((2115702,112030763),(3208767,73867549))):
             mem[names['_riding_subphase']] = phase
             for tq in (0, 2400, -2400, 1, -1, 2399, 2401, -2399, -2401,
-                       2400+65536, -2400-65536, 2**31-1, -2**31):
-                valid = tq in (0,2400,-2400)
-                values = list(range(-3072,3072)) if valid else [-3072,-1,0,1,3071]
-                values.extend((-2**31, -65536, -3073, 3072, 65536, 2**31-1))
+                       32767, -32768, 32768, -32769, 2400+65536, -2400-65536, 2**31-1, -2**31):
+                constant_torque = tq in (0,2400,-2400)
+                values = list(range(-3072,3072)) if constant_torque else [-3072,-1,0,1,3071]
+                values.extend((-2**31, -65536, -32769, -32768, -32767, -3073, -1537,
+                               -1536, 1535, 1536, 3072, 32766, 32767, 32768, 65536, 2**31-1))
+                values.extend(rng.randint(-32768, 32767) for _ in range(64))
                 mem[torque_address:torque_address+4] = struct.pack('<i', tq)
                 mem[0x3000] = 0
                 mem[0x2000] = mem[names['__current_bank']] = 9
@@ -47,11 +51,12 @@ def main():
                     regs.B, regs.C = (v >> 8) & 255, v & 255
                     regs.SP, regs.PC = stack, address
                     emu.tick(1, False)
-                    hit = valid and -3072 <= v < 3072
+                    first = (v * t + 2**23) >> 24
+                    intermediate = ((first + tq + 2**31) & 0xffffffff) - 2**31
+                    hit = -32768 <= v < 32768 and -32768 <= intermediate < 32768
                     assert regs.PC == address+3 and regs.SP == stack
                     assert bool(regs.F & 0x10) == hit, (v,tq,phase)
-                    first = (v * t + 2**23) >> 24
-                    expected = ((first + tq)*s + 2**23) >> 24 if hit else v
+                    expected = (intermediate*s + 2**23) >> 24 if hit else v
                     actual = (regs.D << 24) | (regs.E << 16) | (regs.B << 8) | regs.C
                     assert actual == expected & 0xffffffff, (v,tq,phase,actual,expected)
                     assert bytes(mem[0x4078:0x4088]) == sentinel and mem[names['__current_bank']] == 9

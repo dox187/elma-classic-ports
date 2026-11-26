@@ -34,7 +34,38 @@ _riding_bounds_before::
  call _riding_bounds_before
 .endm
 
+; Wheels are usually in the same signed 64 m band on an axis. A shared
+; top byte below the limit proves both inside. In the boundary band the
+; OR of the two next bytes is an unsigned upper bound on either value.
+; If that proof straddles the limit, retain all 32 bits of the comparison.
+.macro bounds_pair axis,limit,accepted
+ ld a,(#_Bike+24+axis+3)
+ ld hl,#_Bike+48+axis+3
+ cp (hl)
+ jr nz,bounds_wheels_scalar
+ xor #128
+ ld b,a
+ ld a,(#_riding_level+limit+3)
+ xor #128
+ cp b
+ jp c,bounds_out
+ jr nz,accepted
+ ld a,(#_Bike+24+axis+2)
+ dec hl
+ or (hl)
+ ld b,a
+ ld a,(#_riding_level+limit+2)
+ cp b
+ jr c,bounds_wheels_scalar
+ jr z,bounds_wheels_scalar
+accepted:
+.endm
 _wheels_in_grid::
+ bounds_pair 0,24,bounds_x_ok
+ bounds_pair 4,28,bounds_y_ok
+ ld a,#1
+ ret
+bounds_wheels_scalar:
  bounds_compare 24,24
  jr nc,bounds_out
  bounds_compare 28,28

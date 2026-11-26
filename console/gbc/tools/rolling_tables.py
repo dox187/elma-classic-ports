@@ -1,9 +1,10 @@
-"""Fuse the two rounded rolling impulses for zero and constant throttle torque."""
+"""Fuse the two rounded rolling impulses for constant throttle and changing brake torques."""
 import re
 
 from head_clearance import write_if_changed
+from math_q24_coefficients import signed16_quotient_pages
 
-LIMIT = 3072
+LIMIT = 1536
 BANKS = (14, 6)
 
 
@@ -50,6 +51,11 @@ def generate(gen, assembly):
             output.append(f'roll_bases_{phase}_{mode}::')
             for i in range(0, len(group), 16):
                 output.append(' .dw ' + ','.join(map(str, group[i:i+16])))
+        output.append(f'roll_transform_{phase}::')
+        for scale in (torque, speed):
+            for page in signed16_quotient_pages(scale):
+                for i in range(0, 256, 32):
+                    output.append(' .db ' + ','.join(map(str, page[i:i+32])))
     dest = gen / 'physics_roll_game.s'
     write_if_changed(dest, '\n'.join(output) + '\n')
     return dest

@@ -19,6 +19,7 @@ static void body16(uint8_t x,uint8_t y,uint8_t mask) __sdcccall(0) __naked {
     ld e,(hl)
     inc hl
     ld b,(hl)
+_body16_registers:
     ld hl,#_shadow_OAM
     srl b
     ld a,#0
@@ -156,36 +157,235 @@ void bike_render_hide(void) {
     prepared=0;
 }
 
-/* Atlas sources and pattern destinations are 16-byte aligned. Keep the source
- * ROM bank and VBK selected until completion. HBlank DMA is started in OAM
- * scan (mode 2), never in HBlank; interrupts stay enabled while it completes.
- * https://gbdev.io/pandocs/CGB_Registers.html#lcd-vram-dma-transfers
- */
+/* A fresh HBlank plus the following OAM scan provides at least
+ * (87+80)*2 = 334 double-speed CPU T-cycles before VRAM closes again.
+ * Allow 36 T between STAT reads, 40 T for the successful test and launch, and
+ * transfer at most three tiles (192 T), leaving 66 T of margin.
+ * https://gbdev.io/pandocs/Rendering.html
+ * https://gbdev.io/pandocs/VRAM_DMA_Transfers.html */
+static void upload_aligned(uint8_t tile,uint8_t count,const uint8_t *source) __sdcccall(0) __naked {
+    __asm
+_bike_dma_begin::
+    ldhl sp,#2
+    ld a,(hl+)
+    swap a
+    ld e,a
+    and a,#15
+    or a,#0x80
+    ld d,a
+    ld a,e
+    and a,#0xf0
+    ld e,a
+    ld a,(hl+)
+    ld b,a
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+010$:
+    ld a,h
+    ldh (#0x51),a
+    ld a,l
+    ldh (#0x52),a
+    ld a,d
+    ldh (#0x53),a
+    ld a,e
+    ldh (#0x54),a
+    ldh a,(#0x40)
+    bit 7,a
+    jr nz,011$
+    ld a,b
+    dec a
+    ldh (#0x55),a
+    ret
+011$:
+    di
+    ldh a,(#0x41)
+    and a,#3
+    cp a,#1
+    jr nz,013$
+    ; LY144..151 leave at least two complete lines for all 16 blocks.
+    ldh a,(#0x44)
+    sub a,#144
+    cp a,#8
+    jr nc,012$
+    ld a,b
+    dec a
+    ldh (#0x55),a
+    ei
+    ret
+012$:
+    ; One tile fits even at the last dot of VBlank plus the next mode 2.
+    ; LY can already be zero during line 153. Recheck STAT just before launch.
+    ldh a,(#0x41)
+    and a,#3
+    cp a,#1
+    jr nz,013$
+    ld c,#0
+    jr 017$
+013$:
+    cp a,#3
+    jr z,014$
+    ei
+    jr 011$
+014$:
+    ld a,b
+    cp a,#3
+    jr c,015$
+    ld a,#3
+015$:
+    dec a
+    ld c,a
+    ; We sampled mode 3 before computing the count. Recheck it to avoid
+    ; treating the tail of that HBlank as its beginning.
+    ldh a,(#0x41)
+    and a,#3
+    cp a,#3
+    jr nz,013$
+016$:
+    ldh a,(#0x41)
+    rra
+    jr c,016$
+017$:
+    ld a,c
+    ldh (#0x55),a
+    ei
+    inc c
+    ld a,b
+    sub a,c
+    ret z
+    ld b,a
+    ; Reprogram both hardware addresses for every following chunk.
+    ld a,c
+    swap a
+    ld c,a
+    add a,l
+    ld l,a
+    jr nc,018$
+    inc h
+018$:
+    ld a,c
+    add a,e
+    ld e,a
+    jr nc,010$
+    inc d
+    jr 010$
+_bike_dma_end::
+    __endasm;
+}
+
 static void upload(uint8_t tile,uint8_t count,const uint8_t *data) {
-    uint16_t source=(uint16_t)data;
-    uint16_t dest=0x8000U+((uint16_t)tile<<4);
-    if(source&15) {set_sprite_data(tile,count,data);return;}
-    /* At LY<=151 at least two complete VBlank scanlines remain even if this
-     * line is about to end: enough for the largest 16-block (256-byte) copy.
-     * General DMA is used there, otherwise HBlank DMA bounds VRAM access. */
-    if((LCDC_REG&LCDCF_ON) && !(LY_REG>=144 && LY_REG<=151)) {
-        __critical {
-            while((STAT_REG&3)!=2) {}
-            HDMA1_REG=source>>8;HDMA2_REG=(uint8_t)source;
-            HDMA3_REG=dest>>8;HDMA4_REG=(uint8_t)dest;
-            HDMA5_REG=0x80|(count-1);
-        }
-        while(!(HDMA5_REG&0x80)) {}
-    } else {
-        HDMA1_REG=source>>8;HDMA2_REG=(uint8_t)source;
-        HDMA3_REG=dest>>8;HDMA4_REG=(uint8_t)dest;
-        HDMA5_REG=count-1;
-    }
+    if((uint16_t)data&15)set_sprite_data(tile,count,data);
+    else upload_aligned(tile,count,data);
 }
 
 static void place(uint8_t sprite,int16_t x,int16_t y) {
     if(x < -7 || x >= 160 || y < -15 || y >= 136)move_sprite(sprite,0,0);
     else move_sprite(sprite,(uint8_t)(x+8),(uint8_t)(y+16));
+}
+
+/* Most riding frames fit the complete bike inside the playfield. Publish the
+ * thirteen coordinate pairs directly from the projected signed words. The
+ * edge renderer below also handles coordinates outside the byte range. */
+typedef char screen_parts_layout[
+    offsetof(bike_screen_t,body_y)==2 && offsetof(bike_screen_t,head_x)==8 &&
+    offsetof(bike_screen_t,head_y)==10 && offsetof(bike_screen_t,wheel_x)==12 &&
+    offsetof(bike_screen_t,wheel_y)==16 ? 1 : -1];
+static uint8_t draw_centered(const bike_screen_t *s,uint8_t mask) __sdcccall(0) __naked {
+    __asm
+    ldhl sp,#4
+    ld b,(hl)
+    dec hl
+    ld a,(hl-)
+    ld l,(hl)
+    ld h,a
+    ld a,(hl+)
+    sub a,#16
+    cp a,#129
+    jr nc,021$
+    add a,#8
+    ld d,a
+    ld a,(hl+)
+    or a
+    jr nz,021$
+    ld a,(hl+)
+    sub a,#16
+    cp a,#105
+    jr nc,021$
+    add a,#16
+    ld e,a
+    ld a,(hl+)
+    or a
+    jr nz,021$
+    push hl
+    call _body16_registers
+    pop hl
+    ld de,#4
+    add hl,de
+    ; Head origin is (center - 4,center - 4), hardware offsets (8,16).
+    ld a,(hl+)
+    cp a,#164
+    jr nc,021$
+    add a,#4
+    ld d,a
+    ld a,(hl+)
+    or a
+    jr nz,021$
+    ld a,(hl+)
+    cp a,#140
+    jr nc,021$
+    add a,#12
+    ld e,a
+    ld a,(hl+)
+    or a
+    jr nz,021$
+    ld a,d
+    ld (_shadow_OAM+49),a
+    ld a,e
+    ld (_shadow_OAM+48),a
+    ; The contiguous wheel words are x0,x1,y0,y1.
+    ld c,#145
+    call 022$
+    jr nc,021$
+    ld d,a
+    call 022$
+    jr nc,021$
+    ld e,a
+    ld c,#121
+    call 022$
+    jr nc,021$
+    add a,#8
+    ld (_shadow_OAM+32),a
+    ld (_shadow_OAM+36),a
+    ld a,d
+    ld (_shadow_OAM+33),a
+    add a,#8
+    ld (_shadow_OAM+37),a
+    call 022$
+    jr nc,021$
+    add a,#8
+    ld (_shadow_OAM+40),a
+    ld (_shadow_OAM+44),a
+    ld a,e
+    ld (_shadow_OAM+41),a
+    add a,#8
+    ld (_shadow_OAM+45),a
+    ld e,#1
+    ret
+021$:
+    ld e,#0
+    ret
+022$:
+    ld a,(hl+)
+    ld b,a
+    ld a,(hl+)
+    or a
+    ret nz
+    ld a,b
+    sub a,#8
+    cp a,c
+    ld a,b
+    ret
+    __endasm;
 }
 
 /* The cast after >>8 keeps only subtraction bytes 1 and 2. Byte 0 still
@@ -423,9 +623,6 @@ void bike_render_draw(const gbc_bike_t *bike,const bike_screen_t *s) {
     uint8_t mask;
     if(!prepared)bike_render_prepare(bike);
     prepared=0;
-    if(positions_valid && !prepared_changed && !memcmp(s,&last_screen,sizeof(last_screen)))return;
-    memcpy(&last_screen,s,sizeof(last_screen));
-    positions_valid=1;
 #ifdef RIDING_PAIRED_MASKS
     mask=riding_body_pair_masks[last_body];
 #else
@@ -434,6 +631,10 @@ void bike_render_draw(const gbc_bike_t *bike,const bike_screen_t *s) {
     mask=(uint8_t)((original_mask|(original_mask>>4))&15)
         |(uint8_t)(((original_mask>>4)|(original_mask>>8))&240);
 #endif
+    if(draw_centered(s,mask)) {positions_valid=0;return;}
+    if(positions_valid && !prepared_changed && !memcmp(s,&last_screen,sizeof(last_screen)))return;
+    memcpy(&last_screen,s,sizeof(last_screen));
+    positions_valid=1;
     if(s->body_x>=16 && s->body_x<=144 && s->body_y>=16 && s->body_y<=120) {
         body16((uint8_t)s->body_x-8,(uint8_t)s->body_y,mask);
     } else {

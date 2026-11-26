@@ -2699,3 +2699,54 @@ Fixed ROM has 359 bytes free. Banks 508–511 are erased. Build with the same
 8 MiB asset profile as test21 using `tools/build.py --gen build/gen-v096-test21-8m
 --rom-mib 8 --out build/elma-gbc-v0.96-test22-8m.gbc`. Reports are in
 `build/v096-test22/`. Physical cartridge timing is pending.
+
+
+### 0.96 test23 — combined cartridge
+
+| Complete cartridge in PyBoy | test22 | test23 |
+| --- | ---: | ---: |
+| Updates/s, 216 routes on 54 courses | 23.538 | 24.744 |
+| Updates/s, 24 longer routes using seed 0x9322 | 21.272 | 22.085 |
+| Updates/s, full Freefall descent | 24.013 | 24.797 |
+| Mean active update, CPU T-cycles | 303,894 | 290,390 |
+| Longest standard active update, CPU T-cycles | 556,332 | 555,028 |
+| Standard updates over 280,896 cycles / 19,885 | 10,438 | 8,105 |
+| Routes meeting all timing checks / 216 | 27 | 30 |
+
+The two-frame deadline corresponds to 29.864 updates/s. Adding 64 CPU cycles
+per transferred tile to account for PyBoy’s omitted GDMA stall brings the
+test23 over-budget count to 8,114. The observer covers all six launch sites
+for scenery and bike DMA. The longer routes reached 592,892 active cycles.
+
+The brake table occupies the unused tail of terrain bank 93. Its products
+preserve both the signed Q24 residual and the saturation flag. The complete
+terrain prefix through the last level directory matches test22 byte for byte.
+Rolling uses signed16 projection and separate torque tables. Suspension
+shares symmetric vertical wheel forces, handles common angular speeds with
+one coefficient row, and computes the wide wheel moment modulo 48 bits
+before the required shift. Torque reaction reuses the signed Q14 product.
+The scheduler can safely start either wheel moment with ten scanlines left.
+The controller frame dispatch retains all three substeps and early death.
+Wheel bounds share the upper coordinate bytes where those prove the result.
+Swept-head geometry reuses the previous empty region, rejects distant edges
+using a swept-length bound, and checks exact capsules on the remaining edges.
+Changed bike tiles transfer in bounded GDMA bursts during HBlank or VBlank.
+
+All 59,599 standard and 15,653 extended substeps, both sets of published
+updates and the 439-update Freefall trace matched test22. The independent
+native reference matched 9,210 standard and 3,170 speed-limit states.
+All 45 PC landing and braking checks passed, and all 20 PC extreme-spin
+measurements reproduced test22, including its 15.75° worst body-angle error.
+The linked guard passed 29,568 deadline checks. The brake oracle covered
+2,524 paired-wheel inputs, the wheel-grid oracle covered 9,696 pairs, and
+the projected geometry oracle covered 9,600 signed16 dots. Seven visual
+routes checked 1,216 presentations and 61,845 scenery tiles. Separately,
+SameBoy CGB-E with GDMA stalls reproduced all 578 sampled sprite states
+across three routes. Player, save, result and menu checks passed. The idle
+timer test still recorded nine missed deadlines in 180 display frames.
+
+The directly playable ROM is `build/elma-gbc-v0.96-test23-8m.gbc`.
+SHA-256 `e1d81e9245b989bd4f17ac5b8ce36936c317837bd41103aa6b1c266f5f561a1c`.
+Fixed ROM has 131 bytes free, with banks 508–511 erased. Rebuild using
+`tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test23-8m.gbc`.
+Reports are in `build/v096-test23/`. Physical console testing is pending.

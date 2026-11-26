@@ -5,7 +5,7 @@
 ; return DE=low16, HL=high16. AF/BC/DE/HL clobbered. Reentrant, no globals.
 ; Mathematical result: clamp_i32(trunc_zero(torque * 4194304 / distance2)).
 ; distance2==0 returns 0. All other uint32 denominators accepted.
-; Six local bytes plus two bytes for the internal call; no ROM0 code.
+; Six local bytes; temporary words hold the remainder and quotient digit.
 .module physics_reaction_division
 .area _CODE_8
 _riding_close_reaction32::
@@ -62,7 +62,7 @@ cr_magnitude_ready:
  ld (hl+),a
  ld (hl+),a
  ld (hl),a
- jr cr_fraction_start
+ jp cr_fraction_start
 cr_integer_needed:
  ; Includes 0/0. A zero denominator retains its public result of zero.
  ldhl sp,#12
@@ -125,6 +125,67 @@ cr_integer_loop:
  dec (hl)
  jr nz,cr_integer_loop
 cr_fraction_start:
+ ; Close wheel separations fit a 23-bit divisor. The remainder then
+ ; doubles within 24 bits, and an entire quotient byte fits in A.
+ ; Keep the low remainder in HL for native 16-bit addition.
+ ldhl sp,#15
+ ld a,(hl-)
+ or a
+ jr nz,cr_fraction_wide
+ bit 7,(hl)
+ jr nz,cr_fraction_wide
+ ; Incoming remainder DEBC. Save its low word while loading -divisor.
+ push bc
+ ld c,e
+ ldhl sp,#14
+ xor a
+ sub a,(hl)
+ ld e,a
+ inc hl
+ ld a,#0
+ sbc a,(hl)
+ ld d,a
+ inc hl
+ ld a,#0
+ sbc a,(hl)
+ ld b,a
+ pop hl
+ ld a,#4
+ call cr_fraction_byte
+ ; Append the first six bits to the integer part in locals 0..1.
+ push hl
+ ldhl sp,#4
+ ld (hl),a
+ ldhl sp,#2
+ ld a,(hl+)
+ rrca
+ rrca
+ push af
+ and a,#0x3f
+ bit 0,(hl)
+ jr z,cr_no_bit8
+ or a,#0x40
+cr_no_bit8:
+ inc hl
+ inc hl
+ ld (hl-),a
+ pop af
+ and a,#0xc0
+ or (hl)
+ ld (hl),a
+ pop hl
+ ld a,#1
+ call cr_fraction_byte
+ push hl
+ ldhl sp,#3
+ ld (hl),a
+ pop hl
+ ld a,#1
+ call cr_fraction_byte
+ ldhl sp,#0
+ ld (hl),a
+ jr cr_result
+cr_fraction_wide:
  ; Emit 22 exact fractional quotient bits, feeding zeros into remainder.
  ldhl sp,#5
  ld (hl),#22
@@ -145,6 +206,7 @@ cr_fraction_loop:
  ldhl sp,#5
  dec (hl)
  jr nz,cr_fraction_loop
+cr_result:
  ldhl sp,#0
  ld c,(hl)
  inc hl
@@ -191,6 +253,33 @@ cr_saturate:
 cr_saturated_return:
  add sp,#6
  ret
+; B:DE = -divisor modulo 2^24, C:HL = remainder. A contains
+; a sentinel followed by the quotient bits emitted so far. The carry
+; from the trial addition means the shifted remainder reached divisor.
+cr_fraction_byte:
+ push af
+ add hl,hl
+ rl c
+ push hl
+ add hl,de
+ ld a,c
+ adc a,b
+ jr c,cr_byte_one
+ pop hl
+ pop af
+ add a,a
+ jr nc,cr_fraction_byte
+ ret
+cr_byte_one:
+ ld c,a
+ inc sp
+ inc sp
+ pop af
+ scf
+ rla
+ jr nc,cr_fraction_byte
+ ret
+
 ; DEBC = 32-bit remainder after shifting; carry is its 33rd bit.
 ; Incoming remainder before shifting was < divisor. Therefore one
 ; subtraction suffices, even when the 33rd bit is set. A borrow in that

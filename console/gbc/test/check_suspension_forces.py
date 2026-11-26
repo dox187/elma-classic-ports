@@ -20,7 +20,7 @@ DRIVER = """#include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stdint.h>
 volatile int32_t fixture_input[8];
-volatile uint8_t fixture_index[2], fixture_bank;
+volatile uint8_t fixture_index[2], fixture_bank, fixture_paired;
 void fixture_before(void) {}
 void fixture_after(void) {}
 void fixture_forces(void) __sdcccall(0);
@@ -33,6 +33,9 @@ void main(void) {
 ENTRY = """
 .area _CODE
 _fixture_forces::
+ call ss_try_mirrored
+ ld a,(#ss_paired)
+ ld (#_fixture_paired),a
  ld a,(#_fixture_index)
  ld hl,#_fixture_input
  ld de,#ss_force_products
@@ -41,8 +44,17 @@ _fixture_forces::
  ld hl,#_fixture_input+16
  ld de,#ss_force_products+28
  call ss_force_four
+ ld a,(#ss_paired)
+ or a
+ jr z,ff_general
+ ld e,#15
+ ld hl,#ss_paired_forces
+ call ___sdcc_bcall_ehl
+ jp ff_done
+ff_general:
  ss_force_axis 0,0,ff_x0_pos,ff_x1_pos
  ss_force_axis 14,1,ff_y0_pos,ff_y1_pos
+ff_done:
  ld a,(#ff_bank)
  ld (#_fixture_bank),a
  ret
@@ -88,6 +100,26 @@ def vectors(phases, scales, rng):
     for _ in range(1400):
         # Exercise the generic clamping path with the cartridge's larger scales.
         yield [rng.choice(candidates) for _ in range(2)], [rng.choice(EDGES) for _ in range(8)]
+
+
+def paired_vectors(phases, scales, rng):
+    # Both wheels see the same vertical spring/damper. Include saturating
+    # scales whose combined signed33 wheel value can overflow either way.
+    large = max(scales, key=scales.get)
+    for indices in (*phases, (large, large), (large, phases[0][1])):
+        for spring in EDGES:
+            for damper in EDGES:
+                yield indices, [0, 0, spring, spring, 0, 0, damper, damper]
+    for _ in range(1024):
+        spring, damper = (rng.randrange(-2**31, 2**31) for _ in range(2))
+        indices = [rng.choice(tuple(scales)) for _ in range(2)]
+        yield indices, [0, 0, spring, spring, 0, 0, damper, damper]
+    # A difference in any input byte must reject the paired force path.
+    for lane in range(8):
+        for bit in range(32):
+            values = [0, 0, 73, 73, 0, 0, -301, -301]
+            values[lane] = ((values[lane] ^ (1 << bit)) + 2**31) % 2**32 - 2**31
+            yield phases[0], values
 
 
 def expected(indices, inputs, residual, scales):
@@ -187,7 +219,11 @@ def main():
     phases, scales = coefficients(args.native / 'gen')
     rng = random.Random(0x242833)
     work = list(vectors(phases, scales, rng))
+    general_count = len(work)
     residuals = [(rng.randrange(-2**63, 2**63), rng.randrange(-2**63, 2**63)) for _ in work]
+    for case in paired_vectors(phases, scales, rng):
+        work.append(case)
+        residuals.append((rng.randrange(-2**63, 2**63), rng.randrange(-2**63, 2**63)))
     emulator = PyBoy(str(rom), window='null', sound_emulated=False, cgb=True)
     emulator.set_emulation_speed(0)
     index, failures = 0, []
@@ -196,7 +232,14 @@ def main():
         if index >= len(work) or failures:
             return
         indices, inputs = work[index]
-        for name, data in (('_fixture_index', bytes(indices)), ('_fixture_input', struct.pack('<8i', *inputs)),
+        # Opposite pose anchors allow exactly the (0,0,y,y) spring prefix.
+        # Feed both real scratch arrays as the preparation stage would.
+        rows = symbols['_riding_spring_product_rows'] + 28
+        damping = symbols['_riding_spring_ready'] + 1
+        emulator.memory[rows:rows+16] = struct.pack('<4i', *inputs[:4])
+        emulator.memory[damping:damping+16] = struct.pack('<4i', *inputs[4:])
+        for name, data in (('_riding_pose_anchor', struct.pack('<4i', -101, 101, 537, -129)),
+                           ('_fixture_index', bytes(indices)), ('_fixture_input', struct.pack('<8i', *inputs)),
                            ('_force_residual', struct.pack('<2q', *residuals[index]))):
             addr = symbols[name]
             emulator.memory[addr:addr + len(data)] = data
@@ -214,9 +257,13 @@ def main():
         actual_wheels = b''.join(bytes(emulator.memory[addr+i:addr+i+4])
                                  for i in (10, 24, 14, 28))
         bank = emulator.memory[symbols['_fixture_bank']]
-        if (actual_sums, actual_wheels, bank) != (sums, wheels, 0xa5):
+        paired = emulator.memory[symbols['_fixture_paired']]
+        expected_paired = (inputs[0] == inputs[1] == inputs[4] == inputs[5] == 0 and
+                           inputs[2] == inputs[3] and inputs[6] == inputs[7])
+        if (actual_sums, actual_wheels, bank, paired) != (sums, wheels, 0xa5, expected_paired):
             failures.append(dict(index=index, indices=indices, inputs=inputs, residual=residuals[index],
                                  expected_sums=sums.hex(), actual_sums=actual_sums.hex(),
+                                 paired=paired, expected_paired=expected_paired,
                                  expected_wheels=wheels.hex(), actual_wheels=actual_wheels.hex(), bank=bank))
         index += 1
 
@@ -230,7 +277,10 @@ def main():
         mirrored = check_mirrored(emulator, symbols)
     finally:
         emulator.stop(save=False)
-    report = dict(mirrored_cases=mirrored, vectors=index, expected=len(work), errors=failures, passed=index == len(work) and not failures)
+    report = dict(mirrored_cases=mirrored, general_vectors=general_count,
+                  paired_and_near_paired_vectors=len(work) - general_count,
+                  vectors=index, expected=len(work), errors=failures,
+                  passed=index == len(work) and not failures)
     (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))
     return 0 if report['passed'] else 1

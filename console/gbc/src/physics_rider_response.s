@@ -6,20 +6,7 @@
 .area _CODE_8
 _riding_rider_response32::
  add sp,#-8
- ldhl sp,#0
- push hl
- ldhl sp,#14
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ldhl sp,#14
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- call _riding_rider_vectors32
- add sp,#6
+ call _riding_rider_vectors_frame
 ; The spring displacement always fits signed16. If relative velocity
 ; also fits, compute the independently rounded spring and damper products
 ; in one bank visit. Wider velocities retain the full Q24 damper.
@@ -37,7 +24,7 @@ _riding_rider_response32::
  ld b,a
  .endif
  ldhl sp,#14
- call _riding_mulq14_regs
+ call _riding_rider_spin14
  ld b,h
  ld c,l
  ld hl,#(_Bike+body_velocity)
@@ -143,6 +130,182 @@ combine:
  rider_response_axis 4,0,12,84,2,22,rider_wide_y,rider_combine_y
  add sp,#8
  jp _riding_rider_move_y_regs
+
+; The rider needs only the rounded Q14 value. A signed16 omega fits a
+; signed32 product, so omit the generic signed48 extension and saturation.
+; HL points to omega, BC is the tangent. All scratch belongs to this call.
+_riding_rider_spin14::
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ add a,a
+ sbc a,a
+ cp (hl)
+ jr nz,rider_spin_wide
+ inc hl
+ cp (hl)
+ dec hl
+ jr nz,rider_spin_wide
+ ld a,d
+ or a
+ jr z,rider_spin_byte
+ inc a
+ jr z,rider_spin_negbyte
+ ; Move the two unsigned table products to fixed ROM in one call. Only
+ ; the upper 24 bits of the product survive to Q14 rounding.
+ jp rider_spin_word
+rider_spin_wide:
+ dec hl
+ dec hl
+ jp _riding_mulq14_regs
+
+rider_spin_negbyte:
+ ; floor((-m*t + 8192)/16384) = -floor((m*t + 8191)/16384).
+ ; Form the raw signed24 product instead to preserve negative half ties.
+ ld a,e
+ cpl
+ inc a
+ jp z,rider_spin_word         ; -256
+ push af
+ xor a
+ sub c
+ ld e,a
+ sbc a,a
+ sub b
+ ld d,a
+ pop af
+ ld c,a
+ ; Negating -32768 yields +32768. The original tangent supplies the
+ ; product sign even when the negated low word wraps to 0x8000.
+ ld a,d
+ or e
+ jr z,rider_spin_zero
+ ld a,b
+ cpl
+ jr rider_spin_byte_sign
+rider_spin_byte:
+ ld a,e
+ or a
+ jr z,rider_spin_zero
+ ld e,c
+ ld d,b
+ ld c,a
+ ld a,b
+rider_spin_byte_sign:
+ push af
+ call rider_spin_u8
+ pop af
+ bit 7,a
+ jr z,rider_spin_byte_ready
+ ld a,l
+ sub c
+ ld l,a
+rider_spin_byte_ready:
+ ; L:D:E is the signed24 product. Arithmetic high bits outside this
+ ; range are needed only for the sign of the result.
+ ld a,l
+ rlca
+ sbc a,a
+ ld h,a
+ ld a,d
+ jr rider_spin_round
+rider_spin_zero:
+ ld hl,#0
+ ld de,#0
+ ret
+
+.area _CODE
+rider_spin_u8:
+ call _riding_mul16u8_unsigned ; preserves multiplier C
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+
+_riding_q14_word_regs::
+rider_spin_word:
+ push bc                       ; original tangent
+ push de                       ; original omega
+ call _riding_mul16u8_unsigned ; unsigned omega * low tangent byte
+ ld b,l
+ ld c,d                       ; bits 8..23 of the first product
+ ldhl sp,#3
+ ld a,(hl)
+ pop de
+ push de
+ push bc
+ ld c,a
+ call _riding_mul16u8_unsigned ; unsigned omega * high tangent byte
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ jp rider_spin_word_sum
+
+.area _CODE_8
+rider_spin_word_sum:
+ pop bc
+ ld a,e
+ add c
+ ld e,a                       ; bits 8..15 of the complete product
+ ld a,d
+ adc b
+ ld d,a
+ ld a,l
+ adc #0
+ ld b,a                       ; B:D unsigned high word
+ ldhl sp,#3
+ bit 7,(hl)
+ pop hl                       ; original omega
+ jr z,rider_spin_omega_sign
+ ld a,d
+ sub l
+ ld d,a
+ ld a,b
+ sbc h
+ ld b,a
+rider_spin_omega_sign:
+ bit 7,h
+ pop hl                       ; original tangent
+ jr z,rider_spin_word_ready
+ ld a,d
+ sub l
+ ld d,a
+ ld a,b
+ sbc h
+ ld b,a
+rider_spin_word_ready:
+ ld h,b
+ ld l,d
+ ld a,e
+
+rider_spin_round:
+ ; HL is the signed high word, A holds bits 8..15. Add the rounding
+ ; bit first, then concatenate the upper bits without a shift loop.
+ add #32
+ jr nc,rider_spin_rounded
+ inc hl
+rider_spin_rounded:
+ rlca
+ rlca
+ and #3
+ ld e,a
+ ld a,h
+ rlca
+ sbc a,a
+ add hl,hl
+ rla
+ add hl,hl
+ rla
+ ld d,h
+ ld h,a
+ ld a,l
+ or e
+ ld e,a
+ ld l,h
+ ld a,h
+ rlca
+ sbc a,a
+ ld h,a
+ ret
 
 ; The private caller passes the xy output pointer in DE (SDCC ABI1).
 ; The phase and Q14 pair come from the same cached pose. Each phase byte

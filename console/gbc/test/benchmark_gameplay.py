@@ -62,7 +62,7 @@ SCENARIOS = ("neutral", "gas", "brake", "seeded")
 STATE_NAMES = {0: "riding", 1: "dead", 2: "finished", 3: "paused", 4: "menu"}
 STATE_FIELDS = ("step", "bike_hex", "gbc_bike_hex", "state", "apples_left", "time_frames")
 GDMA_LIMITATION = ("PyBoy 2.9.0 does not charge the 64 double-speed T-cycle CPU stall per GDMA block. "
-                   "The additive surcharge below counts world_upload_tile commands only; it is a margin estimate, "
+                   "The additive surcharge counts world tile DMA and labeled bike DMA commands; it is a margin estimate, "
                    "not a hardware timing simulation, and does not reproduce shifted LCD/interrupt scheduling.")
 
 
@@ -183,16 +183,23 @@ class GameplayProfiler(Profiler):
         self.gdma_sites = self.observe_gdma()
 
     def observe_gdma(self):
+        sites = []
+        first, last = self.symbols.get("_bike_dma_begin"), self.symbols.get("_bike_dma_end")
+        if first is not None and last is not None:
+            sites.extend(self.observe_gdma_range(first, last))
         start = self.symbols.get("_world_upload_tile")
         if start is None:
-            return []
+            return sites
         bank, address = start >> 16, start & 65535
         following = [value & 65535 for value in self.symbols.values()
                      if value >> 16 == bank and address < (value & 65535) < 0x8000]
-        if not following:
-            return []
-        end = min(following)
-        code = self.d.rom_far((bank, address), end - address)
+        if following:
+            sites.extend(self.observe_gdma_range(start, (bank << 16) + min(following)))
+        return sites
+
+    def observe_gdma_range(self, start, end):
+        bank, address = start >> 16, start & 65535
+        code = self.d.rom_far((bank, address), end - start)
         # Walk instruction boundaries instead of hooking an accidental E0 55
         # inside an immediate argument. This bounded function has no data table.
         three = {0x01, 0x08, 0x11, 0x21, 0x31, 0xc2, 0xc3, 0xc4, 0xca, 0xcc,
@@ -407,7 +414,8 @@ class GameplayProfiler(Profiler):
                 "active_update_with_gdma_surcharge": statistics([update["cycles_with_gdma_surcharge"] for update in self.work]),
                 "updates_exceeding_budget_with_gdma_surcharge": sum(
                     update["cycles_with_gdma_surcharge"] > UPDATE_BUDGET for update in self.work),
-                "gdma": {"launch_sites": self.gdma_sites, "coverage": "world_upload_tile only",
+                "gdma": {"launch_sites": self.gdma_sites,
+                         "coverage": "world and bike" if "_bike_dma_begin" in self.symbols else "world only",
                          "commands": sum(update["gdma_commands"] for update in self.work),
                          "blocks": sum(update["gdma_blocks"] for update in self.work),
                          "surcharge_cycles": sum(update["gdma_surcharge_cycles"] for update in self.work),

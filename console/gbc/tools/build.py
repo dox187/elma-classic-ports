@@ -53,6 +53,11 @@ def validate_linked_layout(symbol_path,rom_mib):
             fixed_end=max(fixed_end,start+size)
         elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
             raise ValueError(f'ROM bank {bank} exceeds its linked address window')
+    if 'brake_angle_rows' in symbols:
+        if symbols.get('_physics_bank_93') != 0x5d4000:
+            raise ValueError('Brake lookup relocated packed terrain in bank 93')
+        if any(symbols.get(name, 0) >> 16 != 93 for name in ('brake_angle_rows','brake_damp_low','brake_damp_high')):
+            raise ValueError('Brake lookup is outside its selected ROM bank')
     if '_riding_head_cell_mask' in symbols:
         for bank in (506,507):
             if symbols.get(f'_physics_head_bank_{bank}') != (bank << 16) + 0x4000:
@@ -270,7 +275,8 @@ def main():
         sources[sources.index(free_source)] = rolling_tables.generate_free(a.gen, free_source)
         sources.append(stopped_pair.generate(a.gen, BASE/'src/stopped_pair_lookup.s'))
         brake_source = BASE/'src/physics_brake_fast.s'
-        sources[sources.index(brake_source)] = brake_dispatch.generate(a.gen, brake_source)
+        brake_game = brake_dispatch.generate(a.gen, brake_source)
+        sources.remove(brake_source)
         roll_source = BASE/'src/physics_roll_fast.s'
         sources[sources.index(roll_source)] = rolling_tables.generate(a.gen, roll_source)
         for name in ('physics_contact_loop', 'physics_normal_fast'):
@@ -303,7 +309,14 @@ def main():
         wheel_rows = wheel_terrain.generate(a.gen)
         sources += [BASE/'src/wheel_terrain.s', wheel_rows, head_refinement.generate(a.gen),
                     normal_atlas.generate(a.gen, BASE.parent/'nes/src/rsqrt.inc', wheel_rows)]
-    validate_profile(a.gen,rom_mib,sources)
+        sources.append(brake_game)
+    profile_sources = list(sources)
+    validate_profile(a.gen,rom_mib,profile_sources)
+    # Validate the complete packed source first, then remove only verified
+    # padding. The shortened object keeps its original place in link order.
+    if scheduled and 'brake_tables = 1\n' in brake_game.read_text():
+        terrain = a.gen/'physics_bank_93.c'
+        sources[sources.index(terrain)] = brake_dispatch.terrain_object(a.gen, brake_dispatch.terrain_prefix(a.gen))
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
     for name in ('lcc','sdcc','sdasgb','sdldgb'):
@@ -346,7 +359,7 @@ def main():
     for path,key in zip(sources,keys):
         if source_key(path)!=key:
             raise RuntimeError('Source changed during the build: '+str(path)+'; rerun after edits finish')
-    validate_profile(a.gen,rom_mib,sources)
+    validate_profile(a.gen,rom_mib,profile_sources)
     manifest_path=a.out.with_suffix('.build.json')
     build_key=hashlib.sha256(json.dumps([keys,link_flags,tool_key]).encode()).hexdigest()
     if manifest_path.is_file() and a.out.is_file() and a.out.with_suffix('.noi').is_file():

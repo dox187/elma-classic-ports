@@ -266,6 +266,7 @@ geometry_scaled_product:
  .else
  call _riding_mul16_regs
  .endif
+geometry_reduce_q14:
  ld a,d
  add a,#32
  ld d,a
@@ -375,6 +376,45 @@ geometry_dot_single:
  add sp,#4
  jp (hl)
 geometry_dot_both:
+ ; For a downhill-facing unit Y axis the rounded dot is round(x*c) - y.
+ ; |c| < 16384 ensures the first rounded term fits in a signed word.
+ ; HL still addresses the upper byte of the second coefficient.
+ ld a,(hl-)
+ cp #0xc0
+ jr nz,geometry_dot_products
+ ld a,(hl-)
+ or a
+ jr nz,geometry_dot_products
+ ld a,(hl)
+ add #63
+ cp #127
+ jr nc,geometry_dot_products
+ push bc
+ ld b,(hl)
+ dec hl
+ ld c,(hl)
+ call _mulq14
+ pop de
+ ld a,b
+ xor d
+ ld h,a
+ ld a,c
+ sub e
+ ld c,a
+ ld a,b
+ sbc d
+ ld e,a
+ xor b
+ and h
+ ld b,e
+ bit 7,a
+ jr z,geometry_dot_return
+ bit 7,b
+ ld bc,#0x7fff
+ jr nz,geometry_dot_return
+ inc bc
+ jr geometry_dot_return
+geometry_dot_products:
  .endif
  push bc
  ldhl sp,#4
@@ -422,38 +462,8 @@ geometry_dot_both:
  ld h,b
  ld l,c
  add sp,#6
- ld a,d
- add a,#32
- ld d,a
- ld a,l
- adc a,#0
- ld l,a
- ld a,h
- adc a,#0
- ld h,a
- ; bits14..29 are the result: shift toward the high end twice.
- ; First check that the unshifted high byte is within signed[-32,31].
- ld a,h
- add a,#32
- cp a,#64
- jr nc,scale_dot_sat
- sla d
- rl l
- rl h
- sla d
- rl l
- rl h
- ld b,h
- ld c,l
- jr scale_dot_done
-scale_dot_sat:
- bit 7,h
- jr z,scale_dot_pos
- ld bc,#0x8000
- jr scale_dot_done
-scale_dot_pos:
- ld bc,#0x7fff
-scale_dot_done:
+ call geometry_reduce_q14
+geometry_dot_return:
  pop hl
  add sp,#4
  jp (hl)

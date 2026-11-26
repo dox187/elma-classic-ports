@@ -124,7 +124,7 @@ static uint8_t close_vertex(int16_t x,int16_t y,int16_t dx,int16_t dy,uint16_t r
  * cd=d x e and ca=(a-p)x d give the other three crosses by addition.
  * Bounded8m pieces keep all relative vectors in signed16 and products32. */
 static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
-                       const seg_t *s,uint16_t radius){
+                       const seg_t *s,uint16_t radius,int32_t c0){
     int16_t ax=s->px,ay=s->py,ex=s->dx,ey=s->dy;
     int16_t bx=ax+ex,by=ay+ey,dx=qx-px,dy=qy-py,x=px-ax,y=py-ay;
     uint32_t d2,e2,r2;
@@ -142,7 +142,7 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
            (x<=-(int16_t)radius && x1<=-(int16_t)radius))return 0;
         if(minimum(py,qy)>=minimum(ay,by) && maximum(py,qy)<=maximum(ay,by))return 1;
     }
-    int32_t c0=cross(x,y,ex,ey),cd=0,ca=0;
+    int32_t cd=0,ca=0;
     /* Stored length is nearest-integer; len+1 bounds its exact length. */
     int32_t limit=mul16((int16_t)radius,SEG_LENGTH(s)+1);
     uint8_t have_cd=0,have_ca=0;
@@ -150,23 +150,24 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
         cd=cross(dx,dy,ex,ey);have_cd=1;
         if(c0>=limit ? c0+cd>=limit : c0+cd<=-limit)return 0;
     }
-    if(maximum(px,qx)+(int16_t)radius<=minimum(ax,bx)||minimum(px,qx)-(int16_t)radius>=maximum(ax,bx)
-       ||maximum(py,qy)+(int16_t)radius<=minimum(ay,by)||minimum(py,qy)-(int16_t)radius>=maximum(ay,by))return 0;
     if(behind(x,qx-ax,ex)&&behind(y,qy-ay,ey))
         return close_vertex(-x,-y,dx,dy,radius);
     if(behind(bx-px,bx-qx,ex)&&behind(by-py,by-qy,ey))
         return close_vertex(bx-px,by-py,dx,dy,radius);
-    if(maximum(px,qx)>=minimum(ax,bx)&&minimum(px,qx)<=maximum(ax,bx)
-       &&maximum(py,qy)>=minimum(ay,by)&&minimum(py,qy)<=maximum(ay,by)){
-        if(!have_cd){cd=cross(dx,dy,ex,ey);have_cd=1;}
-        ca=cross(-x,-y,dx,dy);have_ca=1;
-        if(straddles(ca,ca-cd)&&straddles(c0,c0+cd))return 1;
-    }
-    d2=(uint32_t)(mul16(dx,dx)+mul16(dy,dy));
-    e2=(uint32_t)(mul16(ex,ex)+mul16(ey,ey));r2=(uint32_t)mul16(radius,radius);
-    if(close_segment(x,y,ex,ey,e2,radius,r2,c0))return 1;
     if(!have_cd)cd=cross(dx,dy,ex,ey);
+    /* Nonparallel segments intersect exactly when both pairs of endpoints
+     * straddle the other line. For parallel or degenerate segments the
+     * four finite point-to-segment distances below already include overlap. */
+    if(cd && straddles(c0,c0+cd)){
+        ca=cross(-x,-y,dx,dy);have_ca=1;
+        if(straddles(ca,ca-cd))return 1;
+    }
+    e2=(uint32_t)(mul16(ex,ex)+mul16(ey,ey));r2=(uint32_t)mul16(radius,radius);
+    /* The advancing centre ordinarily enters the capsule at the new end.
+     * Its distance to the terrain segment does not need the path length. */
     if(close_segment(x+dx,y+dy,ex,ey,e2,radius,r2,c0+cd))return 1;
+    if(close_segment(x,y,ex,ey,e2,radius,r2,c0))return 1;
+    d2=(uint32_t)(mul16(dx,dx)+mul16(dy,dy));
     if(!have_ca)ca=cross(-x,-y,dx,dy);
     if(close_segment(-x,-y,dx,dy,d2,radius,r2,ca))return 1;
     return close_segment(ex-x,ey-y,dx,dy,d2,radius,r2,ca-cd);
@@ -184,9 +185,16 @@ static uint8_t scan(int16_t px,int16_t py,int16_t qx,int16_t qy,uint16_t radius)
     uint8_t x0=seg_box1(minimum(px,qx)+margin),x1=seg_box1(maximum(px,qx)-margin);
     uint8_t y0=seg_box1(minimum(py,qy)+margin),y1=seg_box1(maximum(py,qy)-margin);
     const seg_t *s;
+    /* The swept centre stays within |dx|+|dy| of its first point. A
+     * line farther than that plus the radius cannot meet the capsule.
+     * Compute the common radius once for all edges in this leaf. */
+    int16_t outer=radius+absolute(qx-px)+absolute(qy-py);
     while((s=seg_next())){
         if(x1<s->x0||x0>s->x1||y1<s->y0||y0>s->y1)continue;
-        if(capsule(px,py,qx,qy,s,radius))return 1;
+        int32_t c=cross(px-s->px,py-s->py,s->dx,s->dy);
+        int32_t limit=mul16(outer,SEG_LENGTH(s)+1);
+        if(c>=limit || c<=-limit)continue;
+        if(capsule(px,py,qx,qy,s,radius,c))return 1;
     }
     return 0;
 }
@@ -215,7 +223,7 @@ next_cell:;
 
 #ifdef __SDCC
 extern uint8_t riding_head_clear_mask;
-static uint16_t clear_x,clear_y;
+uint16_t riding_head_clear_x,riding_head_clear_y;
 #ifdef RIDING_HEAD_TERRAIN
 static uint8_t head_tiles[4];
 extern uint16_t riding_head_cell_mask(uint8_t cx,uint8_t cy);
@@ -243,6 +251,10 @@ static uint8_t head_fractions[4];
 static uint8_t quarter_level=0;
 static uint8_t quarter_x,quarter_y;
 static uint16_t quarter_mask;
+/* A failed map proof in a single quarter means every sweep starting in
+ * that quarter can proceed directly to the finite terrain records. */
+static uint16_t occupied_x,occupied_y;
+static uint8_t occupied_level;
 
 uint16_t riding_head_quarters(uint8_t tx,uint8_t ty) {
     uint8_t level=physics_level_index,cx=tx>>2,cy=ty>>2;
@@ -276,12 +288,17 @@ static uint8_t head_refine_clear(void) {
         uint16_t rows=head_rows[4*lo+hi];
         for(x=xlo;;++x){
             lo=x==xlo?(x0&3):0;hi=x==xhi?(x1&3):3;
-            if(riding_head_quarters(x,y)&rows&head_columns[4*lo+hi])return 0;
+            if(riding_head_quarters(x,y)&rows&head_columns[4*lo+hi]){
+                if(x0==x1 && y0==y1){
+                    occupied_x=xe;occupied_y=ye;occupied_level=physics_level_index+1;
+                }
+                return 0;
+            }
             if(x==xhi)break;
         }
         if(y==yhi)break;
     }
-    clear_x=xe;clear_y=ye;riding_head_clear_mask=0xff;
+    riding_head_clear_x=xe;riding_head_clear_y=ye;riding_head_clear_mask=0xff;
     return 1;
 }
 /* A zero mask extends the cached certificate to the whole coarse cell. */
@@ -306,17 +323,17 @@ head_cache_coords:
         add hl,hl
         add hl,hl
         ld a,l
-        ld (#_clear_x),a
+        ld (#_riding_head_clear_x),a
         ld a,h
-        ld (#_clear_x+1),a
+        ld (#_riding_head_clear_x+1),a
         ld l,e
         ld h,#0
         add hl,hl
         add hl,hl
         ld a,l
-        ld (#_clear_y),a
+        ld (#_riding_head_clear_y),a
         ld a,h
-        ld (#_clear_y+1),a
+        ld (#_riding_head_clear_y+1),a
         pop hl
         inc sp
         jp (hl)
@@ -427,7 +444,7 @@ uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED
         or a,a
         jr z,head_uncached
         ld c,a
-        ld hl,#_clear_x
+        ld hl,#_riding_head_clear_x
         ld a,(hl+)
         ld e,a
         ld d,(hl)
@@ -453,7 +470,7 @@ uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED
         ld a,(hl)
         or a
         jr nz,head_uncached
-        ld hl,#_clear_y
+        ld hl,#_riding_head_clear_y
         ld a,(hl+)
         ld e,a
         ld d,(hl)
@@ -480,7 +497,42 @@ uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED
         or a
         ret z   ; A is zero on a complete certificate match.
 head_uncached:
+_riding_head_terrain_query::
 #ifdef RIDING_HEAD_TERRAIN
+        ld a,(#_physics_level_index)
+        inc a
+        ld hl,#_occupied_level
+        cp (hl)
+        jr nz,head_read_map
+        ld hl,#_occupied_x
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        ldhl sp,#7
+        ld a,(hl+)
+        cp e
+        jr nz,head_read_map
+        ld a,(hl+)
+        cp d
+        jr nz,head_read_map
+        ld a,(hl)
+        or a
+        jr nz,head_read_map
+        ld hl,#_occupied_y
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        ldhl sp,#11
+        ld a,(hl+)
+        cp e
+        jr nz,head_read_map
+        ld a,(hl+)
+        cp d
+        jr nz,head_read_map
+        ld a,(hl)
+        or a
+        jp z,_riding_swept_head_uncached
+head_read_map:
         ; Native banked stack still contains both Q10 endpoints. Extract the
         ; eight metre bits only after checking all remaining high bits.
         ldhl sp,#7
@@ -572,8 +624,8 @@ uint8_t HEAD_QUERY(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED {
                 if(tile_clear(((uint16_t)hi<<8)|lo))mask=0xfc;
             }
             if(mask) {
-                clear_x=(uint16_t)((uint32_t)qx>>8)&(0xff00u|mask);
-                clear_y=(uint16_t)((uint32_t)qy>>8)&(0xff00u|mask);
+                riding_head_clear_x=(uint16_t)((uint32_t)qx>>8)&(0xff00u|mask);
+                riding_head_clear_y=(uint16_t)((uint32_t)qy>>8)&(0xff00u|mask);
                 riding_head_clear_mask=mask;
                 if(mask==0xf0||a==b)return 0;
             }
@@ -603,7 +655,7 @@ uint8_t riding_capsule_test(int16_t px,int16_t py,int16_t qx,int16_t qy,
     seg_t s;
     s.px=ax;s.py=ay;s.dx=ex;s.dy=ey;
     s.len=(int16_t)isqrt32((uint32_t)(mul16(ex,ex)+mul16(ey,ey)));
-    uint8_t narrow=capsule(px,py,qx,qy,&s,radius);
+    uint8_t narrow=capsule(px,py,qx,qy,&s,radius,cross(px-ax,py-ay,ex,ey));
     /* Build the same saturated wheel bounds as the geometry exporter and
      * check the broad phase independently of the direct capsule result. */
     s.x0=seg_box1(minimum(ax,ax+ex)-R_WHEEL);

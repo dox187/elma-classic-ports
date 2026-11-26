@@ -125,7 +125,27 @@ def check_scheduled_rom(rom):
 
     rng = random.Random(0x9611)
     cases = rows()
+    # Sample both sides of every angular-product width change, as well as
+    # negative half ties, signed16 endpoints and full-width saturation.
+    spin_edges = (-2**31, -32769, -32768, -32767, -257, -256, -255, -128,
+                  -2, -1, 0, 1, 2, 127, 255, 256, 257, 32766, 32767, 32768, 2**31-1)
     try:
+        # Check the rounded spin directly. The damper following it can
+        # round away a one-unit angular error in the combined response.
+        tangents = (-32768, -32767, -16384, -8193, -8192, -8191, -1, 0,
+                    1, 8191, 8192, 8193, 16384, 32766, 32767)
+        spin_cases = [(w, t) for w in spin_edges for t in tangents]
+        spin_cases.extend((rng.randint(-32768, 32767), rng.randint(-32768, 32767))
+                          for _ in range(4096))
+        # Odd omega times +/-8192 always lands exactly halfway between integers.
+        spin_cases.extend((w, t) for w in range(-511, 512, 2) for t in (-8192, 8192))
+        for omega, tangent in spin_cases:
+            mem[out:out+4] = struct.pack('<i', omega)
+            regs.HL, regs.B, regs.C = out, (tangent >> 8) & 255, tangent & 255
+            invoke('_riding_rider_spin14', b'\xa5')  # caller's stack guard
+            actual = s32((regs.HL << 16) | (regs.D << 8) | regs.E)
+            want = max(-2**31, min(2**31-1, (omega*tangent+8192) >> 14))
+            assert actual == want, ('spin', omega, tangent, actual, want)
         for i, row in enumerate(cases):
             bx, by, x, y, vx, vy, ax, ay, rx, ry = row
             mem[bike:bike+8] = struct.pack('<ii', bx, by)
@@ -151,7 +171,8 @@ def check_scheduled_rom(rom):
                 assert bytes(mem[bike+72:bike+88]) == struct.pack('<4i', *position, *velocity), (i, phase)
                 # Exercise both rounded rider forces together. Include narrow and wide
                 # relative speeds, the zero damper shortcut and overflow on wrap32.
-                omega = (0, 1, -1, 32768, -32769, 2**31-1, -2**31, s32(ax))[i % 8]
+                omega = (spin_edges[i % len(spin_edges)] if not phase else
+                         rng.randint(-32768, 32767) if i & 1 else s32(ax))
                 gx, gy = ax, ay
                 dx, dy = struct.unpack('<hh', expected(row)[4:8])
                 directions = struct.unpack('<hh', expected(row)[:4])
@@ -178,7 +199,7 @@ def check_scheduled_rom(rom):
                 assert bytes(mem[bike+72:bike+88]) == struct.pack('<4i', *position, *velocity), ('response', i, phase)
     finally:
         emu.stop(save=False)
-    print(f'{len(cases)} rider vector and {2*len(cases)} scheduled movement and response cases passed')
+    print(f'{len(spin_cases)} rider spin, {len(cases)} vector and {2*len(cases)} scheduled movement and response cases passed')
 
 
 def main():

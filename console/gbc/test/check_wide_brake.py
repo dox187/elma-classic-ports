@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check wide brake torques against 1,500 independent Python oracle cases.
+"""Check wide brake torques against 2,524 independent Python oracle cases.
 
 Run with the GBC virtualenv Python and scheduled Q24 tables in --gen.
 Synthetic packed bike states exercise int32 wrapping, signed angle shifts,
@@ -98,7 +98,7 @@ def main():
     rows = []
     values = [-2**31, -2**31+1, -1000000, -65537, -65536, -32769, -32768,
               -16384, -1, 0, 1, 16384, 32767, 32768, 65535, 65536, 1000000, 2**31-1]
-    for i in range(1500):
+    for i in range(2524):
         state = bytearray(rng.randbytes(119))
         phase, contacts = i % 2, bytes([i % 3, (i // 3) % 3])
         omega = values[i % len(values)] if i < 324 else rng.randint(-2**31, 2**31-1)
@@ -109,6 +109,12 @@ def main():
             angle, brake = rng.getrandbits(32), rng.getrandbits(32)
             speed = (values[(i // len(values) + k) % len(values)] if i < 324
                      else rng.randint(-2**31, 2**31-1))
+            if i >= 1500:
+                # Exercise both table paths with independent low bytes and carries.
+                da = rng.randint(-32768, 32767)
+                dw = rng.randint(-32768, 32767)
+                angle = (alfa + brake + (da << 8) + rng.randrange(256)) & 0xffffffff
+                speed = s32(omega + dw)
             struct.pack_into('<Ii', state, 40+24*k, angle, speed)
             struct.pack_into('<I', state, 101+4*k, brake)
             # Subtractions wrap before the signed angle shift / Q24 products.
