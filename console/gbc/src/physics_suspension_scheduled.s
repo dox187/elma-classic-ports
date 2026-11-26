@@ -258,19 +258,12 @@ positive:
  add sp,#6
 .endm
 .macro ss_reaction_product arm
- ld a,#14
- push af
- inc sp
  ld hl,#(ss_coarse+arm)
- ld e,(hl)
- inc hl
- ld d,(hl)
- push de
- ss_read ss_tr
- push bc
- push de
- call _riding_mulq32
- add sp,#7
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ ld hl,#ss_tr
+ call _riding_mulq14_regs
  ld b,h
  ld c,l
 .endm
@@ -2866,10 +2859,7 @@ gas_page:
  ld a,(hl+)
  ld c,a
  ld b,(hl)
- push bc
- push de
- call _riding_recip_index
- add sp,#4
+ call _riding_recip_index_regs
  ld c,e
  pop af
  ld b,a

@@ -10,23 +10,34 @@ _riding_free_inputs::
  ld a,(hl+)
  ld d,a
  push de
- ld d,h
- ld e,l
- push de
- ld bc,#8
- add hl,bc
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld b,a
- ld a,(hl+)
- ld e,a
- ld d,(hl)
- ; Only the rounded torque contributes to omega; a zero impulse adds zero.
- or a,d
+ ld b,h
+ ld c,l
+ ld hl,#8
+ add hl,de
+ ld d,b
+ ld e,c
+ ; Consume both impulses in record order. HL reaches alfa as DE reaches tq.
+ .rept 2
+ ld a,(de)
+ inc de
+ add a,(hl)
+ ld (hl+),a
+ .rept 3
+ ld a,(de)
+ inc de
+ adc a,(hl)
+ ld (hl+),a
+ .endm
+ .endm
+ push hl
+ ld h,d
+ ld l,e
+ call _riding_circle_load
+ ld a,d
+ or a,e
  or a,b
  or a,c
- jr z,free_velocity
+ jr z,wheel_load_omega
 .ifdef RIDING_FREE_THROTTLE
  call _riding_free_throttle
  jr c,free_apply
@@ -41,72 +52,81 @@ free_coefficient:
  dec sp
  call _q24_apply_a
 free_apply:
- ; Add the full coefficient result (DEBC) to omega.
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- push de
- ld de,#20
- add hl,de
- pop de
+ ; Store the new omega modulo 2^32 and retain it for the angle update.
+ pop hl
+ push hl
+ inc hl
+ inc hl
+ inc hl
+ inc hl
  ld a,(hl)
  add a,c
  ld (hl+),a
+ ld c,a
  ld a,(hl)
  adc a,b
  ld (hl+),a
+ ld b,a
  ld a,(hl)
  adc a,e
  ld (hl+),a
+ ld e,a
  ld a,(hl)
  adc a,d
  ld (hl),a
-free_velocity:
- pop de
- pop hl
- push hl
- ld bc,#8
- add hl,bc
- ; The impulses and the velocity components are contiguous in x,y order.
- .rept 2
- ld a,(de)
- inc de
- add a,(hl)
- ld (hl+),a
- .rept 3
- ld a,(de)
- inc de
- adc a,(hl)
- ld (hl+),a
- .endm
- .endm
- pop hl
- jr _riding_wheel_move_hl
+ ld d,a
+ jr wheel_angle
 _riding_wheel_move::
  ldhl sp,#2
  ld a,(hl+)
  ld h,(hl)
  ld l,a
 _riding_wheel_move_hl::
+ push hl
+ ld de,#16
+ add hl,de
+ push hl
+wheel_load_omega:
+ pop hl
+ push hl
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+ call _riding_circle_load
+wheel_angle:
+ ld a,d
+ or a,e
+ or a,b
+ or a,c
+ pop hl
+ jr z,wheel_translate
+ push hl
+ ; The partial substep uses the saturating coefficient and publishes its
+ ; fraction. For the full substep, omega*32 wraps in the phase word.
+ call _riding_angle_regs
+ pop hl
+ call _riding_circle_add
+wheel_translate:
+ pop hl
  ld a,l
  cp a,#<(_Bike+24)
  jr nz,wheel_move_other
  ld a,h
  cp a,#>(_Bike+24)
- ld b,#2
+ ld bc,#(_move_residual+10)
  jr z,wheel_move_slot
 wheel_move_other:
- ld b,#4
+ ld bc,#(_move_residual+18)
  ld a,l
  cp a,#<_Bike
  jr nz,wheel_move_slot
  ld a,h
  cp a,#>_Bike
  jr nz,wheel_move_slot
- ld b,#0
+ ld bc,#(_move_residual+2)
 wheel_move_slot:
- jp _riding_circle_move_regs
+ jp _riding_circle_axes
 
 .ifdef RIDING_FREE_THROTTLE
 ; DEBC is a nonzero torque. For constant throttle, publish the same

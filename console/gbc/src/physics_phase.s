@@ -284,14 +284,20 @@ phase_pair:
  ret
 
 _phase_move::
+ pop hl
+ inc sp
+ push hl
+_riding_angle_regs::
  ld a,(#_riding_subphase)
  or a,a
  jr z,angle_first
  ld a,(#_riding_angle_index)
- ldhl sp,#2
- ld (hl),a
- jp _q24_apply
+ dec sp
+ call _q24_apply_a
+ ret
 angle_first:
+ ; The upper bytes cross a three-bit boundary. The lower word wraps
+ ; directly on the SM83's 16-bit add, including signed32 extremes.
  .macro shift_five upper,lower
  ld a,upper
  xor a,lower
@@ -304,13 +310,11 @@ angle_first:
  .endm
  shift_five d,e
  shift_five e,b
- shift_five b,c
- ld a,c
- rrca
- rrca
- rrca
- and a,#0xe0
- ld c,a
- pop hl
- inc sp
- jp (hl)
+ ld h,b
+ ld l,c
+ .rept 5
+ add hl,hl
+ .endm
+ ld b,h
+ ld c,l
+ ret

@@ -232,8 +232,23 @@ exact_product_y_positive:
  jr z,exact_product_one_row
  push bc
  push de
+ ; For 256..767 the high row is x or 2*x. Keep all four unsigned
+ ; result bytes, including the carry when the magnitude is 0x800000.
+ cp #3
+ jr nc,exact_product_high_table
+ ld c,b
+ ld b,#0
+ dec a
+ jr z,exact_product_high_ready
+ sla e
+ rl d
+ rl c
+ rl b
+ jr exact_product_high_ready
+exact_product_high_table:
  ld c,a
  call exact_product_byte_row
+exact_product_high_ready:
  push bc
  push de
  ldhl sp,#4

@@ -2506,3 +2506,46 @@ Four bytes remain in fixed ROM. Banks 508–511 are erased. Rebuild using
 --out build/elma-gbc-v0.96-test18-8m.gbc` with a copy of the test17
 generated profile and the project Python. Reports are in `build/v096-test18/`.
 Physical cartridge timing is pending.
+
+### 0.96 test19 — combined cartridge
+
+| Full-game PyBoy workload | Test18 | Test19 |
+| --- | ---: | ---: |
+| Average updates/s across 216 routes | 22.826 | 23.017 |
+| Freefall updates/s, full descent | 23.195 | 23.362 |
+| Longest active update, SM83 T-cycles | 556,904 | 555,976 |
+| Updates over 280,896 cycles / 19,885 | 11,874 | 11,461 |
+| Routes within budget throughout / 216 | 18 | 18 |
+
+The head lookup retains both offsets in registers and reads the eight octant
+endpoints directly. Free-wheel motion keeps the just-updated 32-bit angular
+velocity in registers. The full and fractional angular steps serve free and
+rolling wheels. The torque reaction passes its Q14 multiply operands in
+registers and derives the reciprocal index from the middle two nibbles of
+each lever. When the high byte of a multiplier magnitude is 1 or 2, the
+wide product uses the multiplicand or its exact double. Of 2,866 Q14
+reaction-path products sampled on eight controller routes, 2,125 had such a
+multiplier. Sprite setup during start/resume runs in bank 4. Removing three
+unused diagnostic objects from the link leaves room for further fixed code.
+
+All 19,885 controller updates reproduced test18 at both boundaries. The
+12,380 packed native states matched the frozen test5 reference. All 45 PC
+landing and braking gates passed and the 20 spin comparisons retained the
+test18 deviations. The pose fixture passed 131,072 phase/facing combinations,
+the reciprocal-index fixture passed 8,192 cases, and the cartridge passed
+13,294 projection products and 900 paired-wheel comparisons. On seven
+controller routes, all 40 OAM records, the pattern bytes of sprites with
+nonzero X and Y, and the gameplay state matched for 1,216 updates. A stricter
+comparison also read tile zero for hidden sprites. That tile belongs to the
+scenery cache and can change during offscreen preparation. All 61,845 visible
+scenery tile checks passed. Menus, audio, player records and the finish HUD
+passed functional checks. The live timer published 88 physics updates and
+87 LCD changes in 180 display frames, with 32 deadline misses.
+
+The 8 MiB ROM SHA-256 is
+`0d2e6b33f129393f039f554db4341cb2821413aefd63c8d77da2bfbdd4820dda`.
+Fixed ROM has 901 bytes free. Banks 508–511 are erased. Rebuild using
+`tools/build.py --gen build/gen-v096-test19-8m --rom-mib 8
+--out build/elma-gbc-v0.96-test19-8m.gbc` with a copy of the test18
+generated profile and the project Python. Reports are under `build/v096-test19/`.
+Physical cartridge timing is pending.

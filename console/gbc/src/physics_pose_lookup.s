@@ -50,21 +50,20 @@ _riding_refresh_geometry::
  ld b,a
  jr pose_trig_ready
 pose_octant_endpoint:
- ; Eight phases can reach a quarter-wave endpoint outside the table.
- ; Keep the same canonical fixed-point endpoint handling as fsin.
- push de
- call _riding_sin16
- ld b,d
- ld c,e
- pop de
- ld a,d
- add a,#64
- ld d,a
- push bc
- push de
- call _riding_sin16
- add sp,#2
- pop bc
+ ; At a quarter or eighth turn the positive and negative interpolation
+ ; tables meet. Read the exact Q14 endpoint pair by octant.
+ ld hl,#pose_endpoints
+ add hl,bc
+ add hl,bc
+ add hl,bc
+ add hl,bc
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
 pose_trig_ready:
  push bc                        ; sine; cosine in DE
  ld hl,#_riding_pose_trig
@@ -140,9 +139,13 @@ pose_anchors:
 pose_octant_banks:
  .db 16,17, 17,16, 18,17, 19,16, 18,19, 19,18, 16,19, 17,18
 
+pose_endpoints:
+ .dw 0,16384,11585,11585,16384,0,11585,-11585
+ .dw 0,-16384,-11585,-11585,-16384,0,-11585,11585
+
 ; DE is the signed trig input. Its high byte selects a sixteen-byte page
 ; with two row pointers and signed bases. The low byte indexes both rows.
-pose_rows:
+.macro pose_rows
  ld a,d
  add a,#64
  swap a
@@ -183,7 +186,7 @@ pose_rows:
  pop hl
  pop bc
  ; HL signed page bases, DE suspension row, BC head row (Y:X).
- ret
+.endm
 
 .macro pose_head delta,dest
  ld a,(hl+)
@@ -212,7 +215,7 @@ pose_rows:
 
 .macro pose_scale pages,head,rest,ax,ay,sine
  ld bc,#pages
- call pose_rows
+ pose_rows
  pose_head c,head
  pose_head b,head+2
  .if sine

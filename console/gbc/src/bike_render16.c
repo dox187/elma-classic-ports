@@ -136,35 +136,17 @@ static uint8_t head_tile;
 static uint8_t positions_valid;
 static uint8_t prepared,prepared_changed;
 static bike_screen_t last_screen;
-static const uint8_t blank_head_half[16]={0};
+
+void bike_render16_init_sprites(void) BANKED;
 
 void bike_render_init(void) {
-    uint8_t i;
     last_body=last_wheel[0]=last_wheel[1]=255;
     last_head=256;
     head_tile=BIKE_HEAD_TILE;
     head_upload_frame=0;
     positions_valid=0;
     prepared=0;
-    /* Every head frame has a transparent lower half. Initialize both buffers
-     * once while the LCD is off; only their upper tile changes during play. */
-    VBK_REG=1;
-    set_sprite_data((uint8_t)(BIKE_HEAD_TILE+1),1,blank_head_half);
-    set_sprite_data((uint8_t)(BIKE_HEAD_BACK_TILE+1),1,blank_head_half);
-    VBK_REG=0;
-    set_sprite_palette(0,1,riding_body_palette);
-    set_sprite_palette(3,1,riding_wheel_palette);
-    set_sprite_palette(4,1,riding_head_palette);
-    for(i=0;i<8;++i) {
-        shadow_OAM[i].tile=192+i*2;
-        shadow_OAM[i].prop=S_BANK;
-    }
-    for(i=8;i<12;++i) {
-        shadow_OAM[i].tile=208+(i-8)*2;
-        shadow_OAM[i].prop=S_BANK|3;
-    }
-    shadow_OAM[12].tile=BIKE_HEAD_TILE;
-    shadow_OAM[12].prop=S_BANK|4;
+    bike_render16_init_sprites();
 }
 
 void bike_render_hide(void) {

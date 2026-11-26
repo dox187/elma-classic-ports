@@ -39,7 +39,8 @@ class Profiler:
                          '_bike_screen','_draw_objects','_touching','_check_objects',
                          '_bike_bounded','_clock_tick','_hud_text','_draw_hud'):
                 if name in local:self.symbols[name]=base+local[name]
-                elif name=='_pixels':self.symbols[name]=self.symbols['_gbc_video_pixels']
+                elif name=='_pixels' and '_gbc_video_pixels' in self.symbols:
+                    self.symbols[name]=self.symbols['_gbc_video_pixels']
                 elif name=='_bike_bounded':self.symbols[name]=self.symbols['_gbc_bike_bounded']
             # Reject a stale listing before observing arbitrary ROM addresses.
             encoded={int(address,16):bytes.fromhex(prefix) for address,prefix in re.findall(

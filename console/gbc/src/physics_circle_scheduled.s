@@ -56,6 +56,7 @@ circle_translate:
  ld a,#>(_move_residual+2)
  adc a,#0
  ld b,a
+_riding_circle_axes::
 circle_axes:
  push bc
  call circle_axis
@@ -75,6 +76,7 @@ circle_axis:
  call _riding_phase_advance_hl
  pop hl
  jp circle_add
+_riding_circle_load::
 circle_load:
  ld a,(hl+)
  ld c,a
@@ -84,6 +86,7 @@ circle_load:
  ld e,a
  ld d,(hl)
  ret
+_riding_circle_add::
 circle_add:
  ld a,(hl)
  add a,c

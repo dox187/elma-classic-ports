@@ -3,11 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test18 — 8 MiB](build/elma-gbc-v0.96-test18-8m.gbc)**.
-Across 216 controller routes on all 54 courses this ROM averages **22.83
-physics updates per emulated second**, up from **22.75** in test17. The
-full Freefall descent averages **23.19**. The target is **29.86**.
-All 19,885 compared gameplay updates reproduce test17.
+**[0.96 test19 — 8 MiB](build/elma-gbc-v0.96-test19-8m.gbc)**.
+Across 216 controller routes on all 54 courses this ROM averages **23.02
+physics updates per emulated second**, up from **22.83** in test18. The
+full Freefall descent averages **23.36**. The target is **29.86**.
+All 19,885 compared gameplay updates reproduce test18.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +57,15 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test19 — geometry, wheel rotation and torque
+
+The pose lookup computes the head and suspension anchors with fewer register
+loads. Free and rolling wheels share the same angular update. The suspension
+uses shorter exact products for common lever lengths during throttle.
+Missed deadlines fell from 11,874 to 11,461. The worst active update still
+takes almost four display frames.
+[Full timings and validation](PERFORMANCE.md#096-test19--combined-cartridge)
 
 ## 0.96 test18 — wheel contacts and position updates
 

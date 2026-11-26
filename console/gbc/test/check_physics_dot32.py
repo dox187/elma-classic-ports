@@ -23,6 +23,13 @@ def vectors():
     rows = [(a, b, c, d, s) for a in endpoints for b in endpoints
             for c, d in ((-32768, -32768), (-16384, 16384), (0, 0),
                          (1, -1), (32767, 32767)) for s in (1, 10, 14, 16)]
+    # At -2^23, doubling the magnitude carries into the fourth product byte.
+    # Opposed terms expose low bits that saturation of a single term can hide.
+    for x in (-(1 << 23), -(1 << 23) + 1, (1 << 23) - 1):
+        for y in (255, 256, 511, 512, 513, 767, 768):
+            for sign in (-1, 1):
+                rows.append((x, x + 1, sign*y, -sign*(y-1), 14))
+                rows.append((x, 0, sign*y, 0, 14))
     for _ in range(4096):
         a, b = rng.randint(lo, hi), rng.randint(lo, hi)
         c, d = rng.randint(-32768, 32767), rng.choice(weights)

@@ -4,15 +4,18 @@
 .area _CODE_8
 _riding_recip_index::
  ldhl sp,#2
- ld e,(hl)
- inc hl
- ld d,(hl)
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+_riding_recip_index_regs::
  call recip_square
  push hl
- ldhl sp,#6
- ld e,(hl)
- inc hl
- ld d,(hl)
+ ld d,b
+ ld e,c
  call recip_square
  pop de
  add hl,de
@@ -36,32 +39,26 @@ recip_max:
  ld e,#255
  ret
 recip_square:
- sra d
- rr e
- sra d
- rr e
- sra d
- rr e
- sra d
- rr e
- bit 7,d
- jr z,recip_positive
- xor a
- sub a,e
- ld e,a
- ld a,#0
- sbc a,d
- ld d,a
-recip_positive:
+ ; If DE >> 4 cannot fit a signed byte, its square alone saturates
+ ; the index. Otherwise the middle two nibbles are its exact low byte.
  ld a,d
- or a
- jr nz,recip_limit
- ld a,e
- cp #127
- jr c,recip_load
-recip_limit:
- ld e,#127
-recip_load:
+ add a,#8
+ cp #16
+ jr nc,recip_limit
+ ld a,d
+ xor e
+ and #15
+ xor e
+ swap a
+ bit 7,a
+ jr z,recip_magnitude
+ cpl
+ inc a
+recip_magnitude:
+ ; 90^2 >> 5 = 253, while 91^2 >> 5 already exceeds 255.
+ cp #91
+ jr nc,recip_limit
+ ld e,a
  ld d,#0
  sla e
  rl d
@@ -70,6 +67,9 @@ recip_load:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+ ret
+recip_limit:
+ ld hl,#8192
  ret
 recip_squares:
  .dw 0,1,4,9,16,25,36,49
@@ -83,8 +83,4 @@ recip_squares:
  .dw 4096,4225,4356,4489,4624,4761,4900,5041
  .dw 5184,5329,5476,5625,5776,5929,6084,6241
  .dw 6400,6561,6724,6889,7056,7225,7396,7569
- .dw 7744,7921,8100,8281,8464,8649,8836,9025
- .dw 9216,9409,9604,9801,10000,10201,10404,10609
- .dw 10816,11025,11236,11449,11664,11881,12100,12321
- .dw 12544,12769,12996,13225,13456,13689,13924,14161
- .dw 14400,14641,14884,15129,15376,15625,15876,16129
+ .dw 7744,7921,8100

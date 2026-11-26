@@ -34,17 +34,18 @@ _riding_step_head_position::
  ; Rounded Q16 phase, discarding the high turn bits.
  ld hl,#_Bike+16
  ld a,(hl+)
- add a,#64
+ add a,a                         ; carry = bit 7, B bit 7 = rounding bit 6
  ld b,a
  ld a,(hl+)
- adc a,#0
+ rla
  ld e,a
  ld a,(hl)
- adc a,#0
+ rla
  ld d,a
- sla b
- rl e
- rl d
+ bit 7,b
+ jr z,pose_phase_rounded
+ inc de
+pose_phase_rounded:
  ld hl,#_riding_pose_phase
  ld a,(hl+)
  cp e
@@ -99,41 +100,34 @@ pose_facing_ready:
  ld a,d
  sbc a,(hl)
  ld d,a
- push bc
- ld hl,#_Bike+72
- ld bc,#_Bike+88
- call pose_coordinate
- pop de
  ld hl,#_riding_pose_cosine+2
- ld a,e
+ ld a,c
  add a,(hl)
  inc hl
- ld e,a
- ld a,d
+ ld c,a
+ ld a,b
  adc a,(hl)
- ld d,a
- ld hl,#_Bike+76
- ld bc,#_Bike+92
-pose_coordinate:
- ; Copy rider + signextended offset*256 modulo 2^32.
+ ld b,a
+ ; Both offsets now fit in registers. Rider and head coordinates are
+ ; consecutive, so one source pointer advances through both axes.
+.macro pose_coordinate low,high,destination,?positive
  ld a,(hl+)
- ld (bc),a
- inc bc
+ ld (#destination),a
  ld a,(hl+)
- add a,e
- ld (bc),a
- inc bc
+ add a,low
+ ld (#destination+1),a
  ld a,(hl+)
- adc a,d
- ld (bc),a
- inc bc
- ld a,(hl)
- bit 7,d
- jr z,pose_positive
- adc a,#255
- ld (bc),a
- ret
-pose_positive:
+ adc a,high
+ ld (#destination+2),a
+ ld a,(hl+)
  adc a,#0
- ld (bc),a
+ bit 7,high
+ jr z,positive
+ dec a
+positive:
+ ld (#destination+3),a
+.endm
+ ld hl,#_Bike+72
+ pose_coordinate e,d,_Bike+88
+ pose_coordinate c,b,_Bike+92
  ret
