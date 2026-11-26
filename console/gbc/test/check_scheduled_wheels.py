@@ -18,7 +18,8 @@ class Cartridge:
         self.wheels = [self.sym['_Bike'] + offset for offset in (24, 48)]
         self.inputs = self.sym['_riding_suspension_state']
         image = bytearray(rom.read_bytes())
-        image[0x100:0x102] = b'\x18\xfe'
+        main = self.sym['_main']
+        image[main:main+3] = b'\xf3\x18\xfe'  # Run the CRT, including initialized wheel inputs.
         addr = self.sym['_riding_cert_hit']
         offset = (addr >> 16) * 0x4000 + (addr & 0x3fff)
         # Supply a coarse contact count per wheel. The normal fine filter,

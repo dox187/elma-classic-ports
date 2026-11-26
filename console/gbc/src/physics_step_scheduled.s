@@ -290,13 +290,20 @@ _riding_step_wheels::
  ld hl,#step_solve_wheels
  jp ___sdcc_bcall_ehl
 
+ .ifdef RIDING_CORNER_CELLS
+; The CRT installs two ordinary bank-9 calls. Course resets and quarter-square
+; changes replace the two operands independently, between wheel solves.
+.area _INITIALIZED
+step_solve_wheels:: .ds 12
+.area _INITIALIZER
+ .else
 .area _CODE_9
-step_solve_wheels:
+step_solve_wheels::
+ .endif
  ld hl,#_riding_suspension_state+step_wheel0
  call _riding_wheel_inputs
  ld hl,#_riding_suspension_state+step_wheel1
  jp _riding_wheel_inputs
-
 .area _CODE_8
 
 ; Convert F to u by dropping the low byte and sign-extending the upper 24.

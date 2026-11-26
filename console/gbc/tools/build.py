@@ -10,6 +10,8 @@ import tempfile
 
 import bike_frames16
 import brake_dispatch
+import corner_bank
+import corner_cells
 import head_clearance
 import head_refinement
 import head_lane_tables
@@ -77,6 +79,23 @@ def validate_linked_layout(symbol_path,rom_mib):
                 symbols.get('_riding_reaction_words') != start or
                 symbols.get('_riding_reaction_words_end') != start + 14 * 256):
             raise ValueError('Reaction reader requires fixed ROM and two aligned signed16 tables')
+    if '_riding_corner_lookup' in symbols:
+        if symbols['_riding_corner_lookup'] >= 0x4000:
+            raise ValueError('Corner bank switch must execute in fixed ROM')
+        dispatch = symbols['step_solve_wheels']
+        init = symbols['s__INITIALIZED']
+        if not init <= dispatch <= init + symbols['l__INITIALIZED'] - 12:
+            raise ValueError('Wheel dispatch must be initialized by the CRT')
+        if not all(symbols['s__DATA'] <= symbols[name] < symbols['s__DATA'] + symbols['l__DATA']
+                   for name in ('_riding_sparse_lookup', '_riding_sparse_bind')):
+            raise ValueError('Corner bank reader must execute in WRAM')
+        for bank in corner_bank.RANGES:
+            start = symbols.get(f'_riding_corner_data_{bank}')
+            if start is not None:
+                size = symbols[f'_riding_corner_end_{bank}'] - start
+                if bank in corner_cells.REGIONS and size != symbols[f'corner_size_{bank}']:
+                    raise ValueError(f'Incorrect size for the dense corner data in bank {bank}')
+                corner_bank.validate_layout(symbols, bank, size, with_code=bank in corner_cells.REGIONS)
     if '_world_scenery_pins' in symbols:
         scenery_pins.validate_layout(symbols)
     if 'pose_bank_18' in symbols:
@@ -167,6 +186,11 @@ def mismatched_map_banks(rom, sources):
     packed = {f'scenery_pins_{scenery_pins.BANK}.s': scenery_pins.BANK,
               f'reaction_words_{rolling_tables.REACTION_WORD_BANK}.s': rolling_tables.REACTION_WORD_BANK}
     for source in sources:
+        corner = re.fullmatch(r'corner_bank_(\d+)\.s', source.name)
+        if corner:
+            if not corner_bank.matches_rom(rom, source, int(corner[1])):
+                mismatches.append(source)
+            continue
         if source.name == f'head_lanes_bank_{head_lane_tables.BANK}.s':
             data = bytearray()
             for line in source.read_text().splitlines():
@@ -447,7 +471,7 @@ def main():
             game_source = a.gen/(name+'_game.s')
             text = 'RIDING_NORMAL_ATLAS = 1\n'+source.read_text()
             if name == 'physics_contact_loop':
-                text = 'RIDING_LEAF_REGION = 1\n' + text
+                text = 'RIDING_LEAF_REGION = 1\n' + text + '\n' + (BASE/'src/corner_pair.inc').read_text()
             if name == 'physics_normal_fast':
                 text += '\n'+(BASE/'src/physics_normal_atlas.s').read_text()
             head_clearance.write_if_changed(game_source,text)
@@ -540,6 +564,14 @@ def main():
         sources = rolling_map_banks.bank_sources(sources, graphics, a.gen, BASE/'src')
     head_lanes = scheduled and rom_mib == 8 and graphics['map_codec'] == rolling_map_banks.CODEC
     if head_lanes:
+        tables, directory = corner_cells.generate(a.gen, BASE/'src/corner_cell_reader.inc')
+        step = BASE/'src/physics_step_scheduled.s'
+        step_game = a.gen/'physics_step_corners.s'
+        head_clearance.write_if_changed(step_game, 'RIDING_CORNER_CELLS = 1\n'+step.read_text())
+        sources[sources.index(step)] = step_game
+        lookup = a.gen/'corner_lookup_game.s'
+        head_clearance.write_if_changed(lookup, (BASE/'src/corner_lookup.s').read_text() + directory)
+        sources.append(lookup)
         lane_code, lane_table = head_lane_tables.generate(a.gen, BASE/'src/head_lanes.s')
         sources[sources.index(a.gen/'level_bank_469.c')] = lane_table
         sources.insert(sources.index(a.gen/'head_quarters.s'), lane_code)
@@ -560,6 +592,17 @@ def main():
             sources[sources.index(source)] = signed
         unused = {'world_acquire_fast.s','world_retire_fast.s','world_alloc_fast_game.s','world_lookup_raw_game.s'}
         sources = [path for path in sources if path.name not in unused]
+    if head_lanes:
+        for bank, table in tables.items():
+            original = a.gen/f'level_bank_{bank}.c'
+            if bank == rolling_tables.REACTION_WORD_BANK:
+                original = a.gen/f'reaction_words_{bank}.s'
+                corner_bank.after_numeric_prefix(table, original, bank, '_riding_reaction_words_end')
+            elif bank == scenery_pins.BANK and signed_bg:
+                original = a.gen/f'scenery_pins_{bank}.s'
+                corner_bank.after_numeric_prefix(table, original, bank, '_world_scenery_pins_end')
+            sources[sources.index(original)] = table
+
     def coefficient_lookup(path):
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
@@ -575,7 +618,7 @@ def main():
         if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
-        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR']
+        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR'] + (['-DRIDING_CORNER_CELLS'] if head_lanes else [])
         if scheduled and path==sweep_path:
             return ['-DRIDING_HEAD_TERRAIN'] + (['-DRIDING_HEAD_LANES'] if head_lanes else [])
         return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []

@@ -145,6 +145,7 @@ _riding_contact_merge_kind::
     ; Equal projected points still require normalization after Q14 rounding.
     dec b
     jr nz,merge_equal_unverified
+_riding_contact_merge_equal_known::
     call _riding_ring_equal_known
     jr merge_equal_result
 merge_equal_unverified:
@@ -301,6 +302,7 @@ merge_project:
 /* Alternate merge radii retain the ordinary point and distance solver. */
 uint8_t riding_contact_merge_kind(void) __naked {
     __asm
+_riding_contact_merge_equal_known::
     jp _riding_contact_merge
     __endasm;
 }
@@ -817,6 +819,13 @@ static void remember_prepared_pair(circle_t *k) {
     w->pair.contacts[1]=Ct[1];
 }
 void riding_surface_reset(void) __nonbanked {
+#ifdef RIDING_CORNER_CELLS
+    __asm
+    ld e,#32
+    ld hl,#_riding_corner_select
+    call ___sdcc_bcall_ehl
+    __endasm;
+#endif
     wheel_surface_cache[0].kind=wheel_surface_cache[1].kind=0;
 }
 /* ABI1 supplies by:bx in DE. Return NULL, the sole record, or address 1
@@ -1026,6 +1035,9 @@ ws_change:
     inc de
     inc de
     ld a,(de)
+#ifdef RIDING_CORNER_CELLS
+    call _riding_sparse_bind
+#endif
     ld (hl+),a
     inc de
     ld a,(de)
@@ -1322,6 +1334,29 @@ void riding_wheel(circle_t *k,int32_t dvx,int32_t dvy,int32_t tq) PH_BANKED __na
     k;dvx;dvy;tq;
     __asm
     ldhl sp,#6
+#ifdef RIDING_CORNER_CELLS
+    jr _riding_wheel_inputs
+_riding_sparse_wheel_inputs::
+    push hl
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    push de
+    call _riding_sparse_lookup
+    cp #255
+    jr nz,ws_have_answer
+    jr ws_cert
+_riding_corner_wheel_inputs::
+    push hl
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    push de
+    call _riding_corner_gravity
+    cp #255
+    jr nz,ws_have_answer
+    jr ws_cert
+#endif
 _riding_wheel_inputs::
     ; Preserve the record and the wheel across queries, pushes and dot products.
     push hl
@@ -1329,6 +1364,7 @@ _riding_wheel_inputs::
     ld d,(hl)
     ld e,a
     push de
+ws_cert:
     call _riding_cert_hit
     cp #254
     jr c,ws_have_answer

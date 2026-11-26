@@ -388,6 +388,7 @@ contact_loop_radial:
  or a
  jr nz,contact_loop_accept_radial
  .endif
+contact_loop_radial_miss:
  ld a,e
  add a,#0x99
  ld l,a

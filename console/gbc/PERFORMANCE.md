@@ -3664,3 +3664,72 @@ extended misses. Those alternatives were discarded.
 SHA-256 `128d481e75a66277e2e958e0aa8c1da4dc50babd1d3bf52f4dd2aa07d86fbf67`.
 Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test46-8m.gbc`.
 Timing is from emulation.
+
+## 0.96 test47 — multi-edge wheel contacts
+
+The wheel solver computes a radial contact once when two ordered terrain
+records identify the same vertex. It preserves projection, rounding and final
+normalization. This path works independently of the level and wheel position.
+For selected terrain tiles the ROM also stores the exact empty or single
+contact for each integer wheel center. Two distinct supports continue through
+the ordered solver. The two wheels retain their original solve order and integration schedule.
+
+The generator scanned the 54 packed collision maps and ranked 579,266
+candidate 16-by-16 tiles around polygon vertices. The ROM contains 97 tiles:
+44 in two braking regions on Gravity Ride and one geometry-selected tile on
+each of the other 53 courses. These cover 24,832 integer wheel centers. A
+quarter-square change arms or disarms each wheel's lookup independently.
+The tables reuse gaps in six existing ROM banks, preserving the 8 MiB layout.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.647 | 215,880 | 418,232 | 285 | 155/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.613 | 224,598 | 415,884 | 88 | 10/24 |
+| Full Freefall neutral descent | 439 | 29.864 | 223,516 | 277,456 | 0 | 1/1 |
+
+On the 650-update Gravity Ride braking replay, late updates fell from 129 to
+31. For updates 91–136 the previous build took three display frames every
+time. Test47 took two frames 39 times and three frames seven times, raising
+cadence from 19.91 to 27.75 updates/s. The extended Bumpy Journey braking
+replay went from 16 late updates to 17. Hi Flyer produced the catalog's
+largest active update at 418,232 T. Three display frames (19.91 updates/s)
+was the longest observed input interval in these controller replays.
+
+Direct cartridge checks covered both wheels and every stored center, tile
+edges, high-coordinate aliases and changing courses. The reference and
+candidate agreed on 47,628 table hits and on the 2,036 centers queried
+across both wheels that required the two-support fallback. Four additional
+terrain locations per course exercised simultaneous contacts outside all
+stored tiles. Both wheels produced 266 merged contacts and 166 distinct
+pairs across those 216 positions.
+
+A separate stress replay moved a freshly initialized bike to those 216
+positions and the centers of all 97 stored tiles, alternating the wheel
+placed at the contact. It then applied gas, brake and rotation for up to
+four updates per placement. All 1,186 resulting updates matched test46
+for body, rider, wheels, residuals, exported state, and contact audio.
+Physics alone exceeded 280,896 T on 210 updates across 42 courses,
+compared with 242 updates across 42 courses on test46. The worst placement
+was on Steep Corner at (23,448, 38,696) in level-local solver units with gas.
+It took 631,864 T (75.32 ms), up from 630,908 T on test46. These timings
+exclude graphics, audio playback and the display wait. The starting poses
+were deliberately placed on terrain and can differ from normal riding.
+
+All 25,551 published updates and 76,568 substeps matched test46 in the
+controller suites. Seven presentation replays matched 1,216 frames and
+61,845 visible background cells. Another 6,144 ordered shared-vertex
+queries, 8,064 moving-contact queries, 144 signed-boundary cases and 900
+scheduled wheel pairs passed. The scheduled validation passed native physics,
+PC landing and braking, audio, menu and player saves. All 54 courses opened.
+The entry sweep exceeded one display deadline, so the zero-miss gate remains
+open. The independent Freefall check passed.
+
+The early design probed the Gravity Ride
+tables on every course and introduced a late Freefall update. Selecting
+the wheel path when the course or terrain square changes avoided this cost.
+
+SHA-256 `267fd2d2c4f89354a92ad6d7a2ee67175ffdd5e42c4f9ce051d38a62808a44b0`.
+Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test47-8m.gbc`.
+Run `test/check_corner_results.py` with this ROM, the test46 reference
+and `--manifest build/gen-v096-test36-8m/corner_cells.json` to reproduce
+the placement tests. All reported timings are from emulation.

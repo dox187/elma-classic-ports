@@ -709,6 +709,7 @@ dense_leaf_copy_six:
  ret
 
 .area _DATA
+_riding_dense_vertex::
 dense_vertex: .ds 4
 
 .area _CODE_31
@@ -743,42 +744,4 @@ dense_cap_point:
  ld a,(hl)
  adc b
  ld b,a
- ret
-
-.area _CODE_9
-_riding_shared_cap::
- ld hl,#dense_vertex
- ld a,(#_riding_contact_qx)
- sub (hl)
- inc hl
- ld e,a
- ld a,(#_riding_contact_qx+1)
- sbc (hl)
- inc hl
- ld d,a
- ld a,(#_riding_contact_qy)
- sub (hl)
- inc hl
- ld c,a
- ld a,(#_riding_contact_qy+1)
- sbc (hl)
- ld b,a
- call _riding_normal_merge_ring
- jr c,dense_cap_empty
- or a
- jp z,_riding_leaf_program      ; no radial certificate for this vector
- ld hl,#_Ct
- ld de,#(_Ct+10)
- .rept 6
- ld a,(hl+)
- ld (de),a
- inc de
- .endm
- ld a,#1
- ld (#_riding_dense_merged),a
- call _riding_contact_merge    ; includes projection and final renormalization
- ld a,#1
- ret
-dense_cap_empty:
- xor a
  ret
