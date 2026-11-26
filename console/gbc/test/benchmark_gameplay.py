@@ -43,6 +43,7 @@ from pathlib import Path
 import platform
 import random
 import sys
+import tempfile
 import time
 import traceback
 
@@ -434,6 +435,11 @@ class GameplayProfiler(Profiler):
 
 
 def run_case(args, level, scenario, names):
+    with tempfile.TemporaryDirectory(prefix="elma-gameplay-") as scratch:
+        return run_case_with_driver(args, level, scenario, names, Path(scratch))
+
+
+def run_case_with_driver(args, level, scenario, names, scratch):
     started = time.monotonic()
     case_id = f"level-{level:02d}-{scenario}"
     plan = controller_plan(scenario, args.seed, level, args.steps)
@@ -444,7 +450,7 @@ def run_case(args, level, scenario, names):
     trace = {"id": case_id, "controller_plan": plan, "initial": None,
              "physics": [], "updates": [], "final": None, "end_reason": "error"}
     try:
-        driver = Driver(args.rom, args.out / "driver" / case_id, args.gen)
+        driver = Driver(args.rom, scratch, args.gen)
         required = ("_Bike", "_ph_step", "_game_level_index", "_vsync", "__current_bank")
         missing = [name for name in required if name not in driver.symbols]
         if missing:

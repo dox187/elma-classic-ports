@@ -948,6 +948,9 @@ Finished tests keep their versioned playable ROM and the results recorded in
 duplicate ROMs and native compiler outputs after integration. Keep raw
 reference traces only while the next comparison uses them. The builder
 removes its intermediate Intel HEX file after it verifies the cartridge.
+The gameplay benchmark writes its report and reference trace to the output
+directory. It deletes each route's emulator screenshots and driver logs when
+the route ends, including on interruption.
 
 Requirements: Make, Bash, Python 3, a host C compiler for tests, curl and tar,
 plus `elma.res` and `default.lgr` from your own copy of the game. The converters

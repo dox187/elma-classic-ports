@@ -3575,3 +3575,8 @@ SHA-256 `0b2920b969bfc343fcbea84fe31a7a2c4bfa9bc8082811baaa9c5c64507f9814`.
 Fixed ROM has 228 bytes free. Build with
 `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test43-8m.gbc`.
 Timing is from emulation.
+
+A separate terrain cache in CGB work RAM banks 2–5 reproduced all 76,568
+test42 substeps. Across 241 controller routes it added 4,139,796 active
+T-cycles including DMA and raised late updates from 602 to 611. It was
+discarded.
