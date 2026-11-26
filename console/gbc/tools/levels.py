@@ -13,6 +13,7 @@ import struct
 import shutil
 
 import assets
+import rider_map_tables
 
 import numpy as np
 from PIL import Image
@@ -232,13 +233,16 @@ def main():
     first=physics['next_free_bank'];packer=Packer(first)
     render_key=render_fingerprint(a.res,a.lgr)
     source_hashes={str(x.resolve()):hashlib.sha256(x.read_bytes()).hexdigest()for x in(a.res,a.lgr)}
+    riding_constants=(a.out/'riding_constants.h').read_text()
+    scheduled=a.rom_mib==8 and '#define RIDING_PC_SCHEDULE 1' in riding_constants
     fingerprint=hashlib.sha256(Path(__file__).read_bytes()+render_key.encode()
+        + Path(rider_map_tables.__file__).read_bytes()+riding_constants.encode()
         +(a.out/'physics_bank_manifest.json').read_bytes()).hexdigest()
     cache_dir=a.out
     cached=rendered_cache(cache_dir,render_key,source_hashes)
     desired_codec='zx0-planes32x16' if a.rom_mib==4 else 'raw3-plane32x16'
     if cached and cached.get('fingerprint')==fingerprint and cached.get('rom_mib')==a.rom_mib \
-       and cached.get('map_codec')==desired_codec and cached['first_bank']==first \
+       and cached.get('map_codec') in ((desired_codec,rider_map_tables.CODEC) if scheduled else (desired_codec,)) and cached['first_bank']==first \
        and all((a.out/name).is_file()for name in ('level_catalogue.c','level_catalogue.h')) \
        and all((a.out/('level_bank_%d.c'%bank)).is_file()for bank in range(first,cached['last_bank']+1)):
         print('All-level graphics unchanged: banks %d..%d'%(first,cached['last_bank']));return
@@ -298,6 +302,7 @@ def main():
                 'objects_pointer':object_pointer,'objects':[list(o)for o in objects],
                 'blue_sky':blue_sky,'sky_base_rgb':base.tolist(),'sky_colors_rgb':sky_colors.tolist()}
         report.append(record);print('%02d %-18s %dx%d %d patterns bank%d'%(number+1,level.name,w,h,pattern_count,packer.bank),flush=True)
+    rider_bank = rider_map_tables.repack(packer, report, riding_constants) if scheduled else None
     header='''#ifndef GBC_LEVEL_CATALOGUE_H
 #define GBC_LEVEL_CATALOGUE_H
 #include <stdint.h>
@@ -327,6 +332,9 @@ extern const uint16_t killer_palette[];
               'payload_bytes':sum(map(len,packer.banks)),'physical_bank_bytes':len(packer.banks)*16384,
               'map_codec':'raw3-plane32x16','pattern_codec':'raw-2bpp','palette_policy':'source sky colors; protected shared base blue; separate foreground coverage; one-step green lift for decoration-majority colors',
               'source_sha256':source_hashes}
+    if rider_bank is not None:
+        manifest.update(map_codec=rider_map_tables.CODEC, rider_product_first_bank=rider_bank,
+                        rider_product_constants_sha256=hashlib.sha256(riding_constants.encode()).hexdigest())
     (a.out/'level_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print('All-level graphics banks %d..%d, %d payload bytes'%(first,packer.bank,manifest['payload_bytes']))
 

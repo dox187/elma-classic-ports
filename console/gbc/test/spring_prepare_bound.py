@@ -40,7 +40,7 @@ def guard_sites(rom, symbols):
         if code[i:i+3] == call:
             assert code[i-2] == 0x3e and code[i+3] == 0xd0  # ret nc
             sites.append((entry + i - 2, code[i-1]))
-    assert len(sites) in (4, 6), sites
+    assert len(sites) in (4, 6, 7), sites
     return sites
 
 

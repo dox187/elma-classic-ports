@@ -164,6 +164,16 @@ _world_slot_strip_get::
  jr z,430$
  or a,a
  jr nz,420$
+ ; A contiguous row uses the same forward copy for either direction.
+ ; Keep the ring-aware path for a row that crosses the 32-cell boundary.
+ ld a,c
+ and #63
+ rrca
+ add a,b
+ cp #33
+ jr nc,399$
+ jp mirror_words
+399$:
  ld a,c
  and a,#0xc0
  ld c,a
@@ -243,6 +253,20 @@ _world_slot_strip_set::
  jr z,530$
  or a,a
  jr nz,520$
+ ; A contiguous row uses the same forward copy for either direction.
+ ; Keep the ring-aware path for a row that crosses the 32-cell boundary.
+ ld a,c
+ and #63
+ rrca
+ add a,b
+ cp #33
+ jr nc,499$
+ push hl
+ ld h,d
+ ld l,e
+ pop de
+ jp mirror_words
+499$:
  ld a,c
  and a,#0xc0
  ld c,a
@@ -283,6 +307,32 @@ _world_slot_strip_set::
  ld h,a
  jr 521$
 530$:
+ ret
+
+; B words, HL source, DE destination. Both spans are contiguous.
+mirror_words:
+ ld a,b
+ cp #4
+ jr c,mirror_word_tail
+ sub #4
+ ld b,a
+ .rept 8
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ jr mirror_words
+mirror_word_tail:
+ or a
+ ret z
+mirror_word_next:
+ .rept 2
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ dec b
+ jr nz,mirror_word_next
  ret
 
 ; Three independent destination arrays, map planes separated by 512 bytes.
@@ -342,13 +392,30 @@ gather_selected:
  ld e,(hl)
  inc hl
  ld d,(hl)
+ ldhl sp,#7
+ bit 7,(hl)
+ jr z,gather_raw_high
+ ld a,(hl)
+ rra
+ and #63
+ ldhl sp,#16
+ ld b,(hl)                    ; fragment length
+gather_fill_high:
+ ld (de),a
+ inc de
+ dec b
+ jr nz,gather_fill_high
+ ld b,#2                      ; attributes follow the low ID plane
+ jr gather_attributes
+gather_raw_high:
  ld b,#2
  call gather_plane
+ ld b,#4
+gather_attributes:
  ldhl sp,#14                  ; attributes destination
  ld e,(hl)
  inc hl
  ld d,(hl)
- ld b,#4
  call gather_plane
  add sp,#2
  xor a,a

@@ -16,10 +16,6 @@ _riding_leaf_dispatch::
 wheel_leaf_result:
  ld a,c
  ret
-wheel_leaf_distance:
- ld h,d
- ld l,e
- jp _riding_plane_distance
 
 .area _CODE_31
 wheel_leaf_request:
@@ -38,52 +34,10 @@ wheel_leaf_certified:
  ld hl,#wheel_leaf_result
  ret
 wheel_leaf_surface:
- cp #5
- jr z,wheel_leaf_unit_y
  bit 3,a
  ld hl,#_riding_plane_fill
  ret z
  ld hl,#_riding_plane_affine
- ret
-wheel_leaf_unit_y:
- ; A signed unit Y axis and a small X coefficient use the exact shallow
- ; dot directly. The table reader restores the tracked caller bank.
- ld hl,#5
- add hl,de
- ld a,c
- add (hl)
- inc hl
- ld e,a
- ld a,#0
- adc (hl)
- inc hl
- ld d,a
- ld a,b
- add (hl)
- inc hl
- ld c,a
- ld a,#0
- adc (hl)
- inc hl
- ld b,a
- push hl
- inc hl
- inc hl
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- push hl
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- push hl
- call _riding_terrain_dotq14
- pop de
- ld hl,#wheel_leaf_distance
  ret
 wheel_leaf_lookup:
  ld a,(#_riding_leaf_regions_dirty)

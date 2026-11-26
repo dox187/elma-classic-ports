@@ -40,14 +40,20 @@ retire_next:
  adc a,#0
  ld h,a
  ld c,(hl)
- srl d
- rr e
- srl d
- rr e
- srl d
- rr e
- ld hl,#_world_cache_free_bits
- add hl,de
+ ld a,e
+ rrca
+ rrca
+ rrca
+ and #31
+ bit 0,d
+ jr z,retire_free_index
+ or #32
+retire_free_index:
+ add #<(_world_cache_free_bits)
+ ld l,a
+ ld a,#>(_world_cache_free_bits)
+ adc #0
+ ld h,a
  ld a,(hl)
  or c
  ld (hl),a

@@ -3076,3 +3076,38 @@ SHA-256 `7f7e3c46d538e3ea6a7ed15a715ef26f3903b7a2daca7b8dc97740644c7ab59a`.
 Fixed ROM has 685 bytes free. Build with the scheduled assets using
 `tools/build.py --gen build/gen-v096-test29-8m --rom-mib 8 --out build/elma-gbc-v0.96-test30-8m.gbc`.
 Reports are under `build/v096-test30/`. Timing on a physical cartridge remains unverified.
+
+## 0.96 test31 — rider lookups, suspension and map reads
+
+Uniform map-chunk high bytes free 96 KiB for exact spring and damper
+lookup tables. The renderer reads both packed and ordinary chunks. All
+162,147 tile patterns stayed at their previous addresses and all 2,279 map
+entries decoded to the source data. The linked-ROM oracle verified 49,152
+table entries and 4,136 paired rider calls, including wide fallbacks.
+Suspension reuses an idle interval for the next update's angular damping
+when at least 12 LCD lines remain. The structural bound for this stage is
+8,908 T-cycles. The live input sample remains at its original boundary.
+The integrator combines the two fraction updates. Contact clipping handles
+more short and shallow segments directly, and partial scenery strips reuse
+the tile IDs fetched for the same visible cells.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 28.805 | 242,399 | 435,308 | 1,460 | 69/216 |
+| Eight courses, three longer inputs each | 5,227 | 27.680 | 260,996 | 516,428 | 802 | 1/24 |
+| Full Freefall neutral descent | 439 | 29.427 | 251,470 | 414,704 | 13 | 0/1 |
+
+Standard and extended misses fell from 1,682 and 900 in test30. The long
+suite had one fewer route finish without a miss. All 75,252 physics substeps,
+25,112 published states and the separate 439 Freefall states matched test30.
+All 45 landing/braking comparisons passed and the 20 extreme-spin results
+matched test30. The native host checks matched 9,210 ordinary and 3,170
+speed-limit states. The spring deadline fixture covered 34,496 cases.
+PyBoy matched 1,216 presentations and 61,845 visible background cells,
+and SameBoy CGB-E matched 878 presentations. The menu, sound, results and
+save checks passed. The idle timer fixture recorded one deadline miss.
+
+SHA-256 `7e4e45bf45b013ed08d7f667c955d46a251ddfc05308ee61d67a007b193eceb8`.
+The ROM uses MBC5 and 32 KiB SRAM with 320 bytes free in fixed ROM.
+Build with `tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test31-8m.gbc`.
+Reports are in `build/v096-test31/`. All timing is emulated.

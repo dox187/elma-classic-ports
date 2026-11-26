@@ -25,24 +25,6 @@ step_fraction = 48
  ld c,a
  ld b,(hl)
 .endm
-.macro step_sub32 address
- ld hl,#(address)
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld b,a
-.endm
 .macro step_add32 address
  ld hl,#(address)
  ld a,(hl)
@@ -168,13 +150,9 @@ step_gravity_row:
  ld b,a
  ret
 
-; Before the volt/rider paths can overwrite q24_fraction, combine both
-; sub-unit torque terms. Store the new signed24 residual in the consumed
-; spring field. The rider still observes the previous angular_residual.
-_riding_step_fraction::
- step_load32 _angular_residual
- step_sub32 _riding_suspension_state+step_fraction
- step_sub32 _q24_fraction
+; BCDE is the previous angular residual less both signed Q24 fractions.
+; Publish the pending value for the body after the rider observes the old one.
+_riding_step_commit_fraction_regs::
  ld hl,#_riding_suspension_state+step_fraction
  ld (hl),e
  inc hl

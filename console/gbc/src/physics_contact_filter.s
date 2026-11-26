@@ -7,50 +7,31 @@
 ; table reads, including the adjustment for each signed coefficient.
 fine_fraction:
  ld c,e
- push de
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
+ ld b,d
  push hl
- call fine_product
- pop bc
- push hl
- push de
- ld h,b
- ld l,c
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- push hl             ; length
- ldhl sp,#7
- ld c,(hl)
- call fine_product
- ld a,(#__current_bank)
- ld (#0x2000),a
- jp fine_sum
-
-_riding_fraction_product::
-fine_product:
- ld a,c
- or a,a
- jr z,fine_product_zero
+ call _riding_fraction_pair
+ pop hl
+ .rept 4
+ inc hl
+ .endm
+ ; DE is the raw low word and BC the signed high word. The component
+ ; pointer now addresses length. The low product bytes already propagated.
  ld a,d
- or a,e
- jr z,fine_product_zero
- bit 7,d
- jp z,_riding_mul16u8_unsigned
- call _riding_mul16u8_unsigned
- ld a,l
- sub a,c             ; unsigned16 minus 65536, times the coordinate
- ld l,a
- ld h,#255
- ret
-fine_product_zero:
- ld de,#0
- ld hl,#0
- ret
+ add #32
+ ld d,a
+ ld a,c
+ adc #0
+ ld c,a
+ ld a,b
+ adc #0
+ ld b,a
+ sla d
+ rl c
+ rl b
+ sla d
+ rl c
+ rl b
+ jp fine_length
 
 ; Positive push 1..255, no other contact. DE=wheel, BC=contact, A=push.
 ; Both rounded projections share the same unsigned-byte-product table row.
@@ -137,27 +118,36 @@ fine_push_round:
  pop de
  ret
 
-; With ny=16384 and nx in [-64,-1], the exact fractional dot is
+; With ny=16384 and nx in [-64,32], the exact fractional dot is
 ; fy or fy-1. A negative half tie rounds up. For |nx| <=32 even fx=255
 ; cannot cross the half-unit boundary. Carry reports a certified result.
 fine_shallow_fraction:
  ld h,b
  ld l,c
  inc hl
- ld a,(hl+)
- inc a
- jr nz,fine_shallow_miss
+ inc hl
  ld a,(hl+)
  or a
  ret nz
- ld a,(hl)
+ ld a,(hl-)
  cp #64
  jr nz,fine_shallow_miss
- ld h,b
- ld l,c
+ dec hl
+ ld a,(hl-)
+ or a
+ jr z,fine_minor_positive
+ inc a
+ jr nz,fine_shallow_miss
  ld a,(hl)
  cp #192
  jr c,fine_shallow_miss
+ jr fine_minor_position
+fine_minor_positive:
+ ld a,(hl)
+ cp #33
+ jr nc,fine_shallow_miss
+ ld a,#255                     ; |nx| <=32 contributes exactly zero
+fine_minor_position:
  push hl
  ld h,d
  ld l,e
@@ -192,10 +182,10 @@ fine_shallow_miss:
  or a
  ret
 
-.area _CODE_9
 fine_shallow_cut:
  ; floor(8192/abs(nx)), indexed by nx+64. nx=-32..-1 takes no correction.
  .db 128,130,132,134,136,138,141,143,146,148,151,154,157,160,163,167,170,174,178,182,186,190,195,199,204,210,215,221,227,234,240,248
+.area _CODE_9
 _riding_contact_push::
  ld h,b
  ld l,c
@@ -258,6 +248,17 @@ fine_surface:
 fine_surface_y_high:
  dec hl
  ld a,(hl)
+ bit 7,a
+ jr nz,fine_surface_y_negative
+ ; At fy=123, even the smallest admitted positive major rounds to
+ ; 123. Any nonnegative minor can only increase the fractional dot.
+ ld hl,#4
+ add hl,de
+ ld a,(hl)
+ cp #123
+ jr nc,fine_in_band
+ jr fine_calculate
+fine_surface_y_negative:
  add a,#2
  cp a,#130
  jr nc,fine_calculate
@@ -320,41 +321,6 @@ fine_calculate:
  ld l,c
  jp fine_fraction
 
-fine_sum:
- ; Stack: length pointer, raw X product low and high words, fractions.
- ; Both signed products fit signed24. Sum before rounding, including the
- ; carry from their low bytes. BC will hold the rounded Q14 fraction.
- ld b,h
- ld c,l
- ldhl sp,#2
- ld a,(hl+)
- add a,e
- ld a,(hl+)
- adc a,d
- ld d,a
- ld a,(hl+)
- adc a,c
- ld c,a
- ld a,(hl)
- adc a,b
- ld b,a
- ld a,d
- add a,#0x20
- ld d,a
- ld a,c
- adc a,#0
- ld c,a
- ld a,b
- adc a,#0
- ld b,a
- sla d
- rl c
- rl b
- sla d
- rl c
- rl b
- pop hl
- add sp,#6
 fine_length:
  ; push=(404-length)*256 + (123-fraction). For all signed16 normals,
  ; 123-fraction is in [-897,1143]. Its high byte is in [-4,4].

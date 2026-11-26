@@ -172,31 +172,242 @@ void world_far_gather3(uint16_t bank,const uint8_t *source,uint8_t *low,
     uint8_t *high,uint8_t *attrs,uint8_t count,uint8_t stride) __sdcccall(0);
 #endif
 
+static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,uint8_t offset,uint8_t partial);
+#ifndef WORLD_GRAPHICS_ZX0
+/* Return one in-bounds raw fragment, or zero at a padded cell. The caller
+ * advances unsigned coordinates and owns the three destination arrays. */
+static uint8_t raw_map_fragment(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
+                                uint8_t *low,uint8_t *high,uint8_t *attrs) __sdcccall(0) __naked {
+    x;y;vertical;count;low;high;attrs;
+    __asm
+        ld hl,#_game_world
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        .rept 3
+        srl d
+        rr e
+        .endm
+        ldhl sp,#2
+        ld a,e
+        sub (hl)
+        ld e,a
+        inc hl
+        ld a,d
+        sbc (hl)
+        jp c,raw_outside
+        ld d,a
+        or e
+        jp z,raw_outside
+        push de
+        ld hl,#_game_world+2
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        .rept 3
+        srl d
+        rr e
+        .endm
+        ldhl sp,#6
+        ld a,e
+        sub (hl)
+        ld e,a
+        inc hl
+        ld a,d
+        sbc (hl)
+        pop bc
+        jp c,raw_outside
+        ld d,a
+        or e
+        jp z,raw_outside
+        ldhl sp,#6
+        ld a,(hl)
+        or a
+        jr z,raw_row_limit
+        ldhl sp,#4
+        ld a,(hl)
+        and #15
+        cpl
+        add #17
+        jr raw_limit
+raw_row_limit:
+        ld d,b
+        ld e,c
+        ldhl sp,#2
+        ld a,(hl)
+        and #31
+        cpl
+        add #33
+raw_limit:
+        ld b,a
+        ld a,d
+        or a
+        jr nz,raw_limit_count
+        ld a,e
+        cp b
+        jr nc,raw_limit_count
+        ld b,a
+raw_limit_count:
+        ldhl sp,#7
+        ld a,(hl)
+        cp b
+        jr c,raw_run
+        ld a,b
+raw_run:
+        push af
+        ; y / 16 can use nine bits after the world bounds test.
+        ldhl sp,#6
+        ld a,(hl+)
+        swap a
+        and #15
+        ld e,a
+        ld a,(hl)
+        swap a
+        ld d,a
+        and #0xf0
+        or e
+        ld e,a
+        ld a,d
+        and #15
+        ld d,a
+        ld hl,#0
+        ld a,(#_game_world+30)
+raw_multiply_row:
+        srl a
+        jr nc,raw_skip_add
+        add hl,de
+raw_skip_add:
+        jr z,raw_row_product
+        sla e
+        rl d
+        jr raw_multiply_row
+raw_row_product:
+        ld b,h
+        ld c,l
+        ; x / 32 fits one byte because the pixel width is uint16_t.
+        ldhl sp,#4
+        ld a,(hl+)
+        .rept 3
+        rlca
+        .endm
+        and #7
+        ld e,a
+        ld a,(hl)
+        .rept 3
+        rlca
+        .endm
+        and #248
+        or e
+        ld e,a
+        ld d,#0
+        ld h,b
+        ld l,c
+        add hl,de
+        ld a,(#_last_chunk)
+        cp l
+        jr nz,raw_load_chunk
+        ld a,(#_last_chunk+1)
+        cp h
+        jr z,raw_have_chunk
+raw_load_chunk:
+        ld a,l
+        ld (#_last_chunk),a
+        ld a,h
+        ld (#_last_chunk+1),a
+        add hl,hl
+        add hl,hl
+        ld a,(#_game_world+20)
+        ld e,a
+        ld a,(#_game_world+21)
+        ld d,a
+        add hl,de
+        ld de,#4
+        push de
+        ld de,#_chunk
+        push de
+        push hl
+        ld hl,#_game_world+18
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+        push hl
+        call _world_far_copy
+        add sp,#8
+raw_have_chunk:
+        ldhl sp,#4
+        ld a,(hl)
+        and #31
+        ld e,a
+        ldhl sp,#6
+        ld a,(hl)
+        and #15
+        .rept 3
+        rrca
+        .endm
+        ld d,a
+        and #0xe0
+        or e
+        ld e,a
+        ld a,d
+        and #1
+        ld d,a
+        ld hl,#_chunk+2
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+        add hl,de
+        ld d,h
+        ld e,l
+        ldhl sp,#8
+        ld a,(hl)
+        or a
+        ld b,#1
+        jr z,raw_arguments
+        ld b,#32
+raw_arguments:
+        ldhl sp,#1
+        ld c,(hl)
+        push bc
+        ; Each push moves the following source word to the same displacement.
+        .rept 3
+        ldhl sp,#16
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+        push hl
+        .endm
+        push de
+        ld hl,#_chunk
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+        push hl
+        call _world_far_gather3
+        add sp,#12
+        pop af
+        ld e,a
+        ret
+raw_outside:
+        ld e,#0
+        ret
+    __endasm;
+}
+
+#endif
+#ifdef WORLD_GRAPHICS_ZX0
 static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,uint8_t offset,uint8_t partial) {
     uint16_t ci,local;uint8_t run,i=offset;
-#ifndef WORLD_GRAPHICS_ZX0
-    uint16_t width,height;
-    if(!count)return 0;
-    width=game_world.width>>3;height=game_world.height>>3;
-#endif
-#ifdef WORLD_GRAPHICS_ZX0
     uint8_t plane;
     if(!partial)prepare_map_plane=0;
-#endif
     count+=offset;
     while(i<count) {
-#ifdef WORLD_GRAPHICS_ZX0
         if(x>=game_world.width/8 || y>=game_world.height/8) {
-#else
-        if(x>=width || y>=height) {
-#endif
             strip_low[i]=strip_high[i]=strip_attrs[i]=0;++i;
             if(vertical)++y;else ++x;
             continue;
         }
         ci=(y>>4)*game_world.chunks_x+(x>>5);
         if(ci!=last_chunk) {
-#ifdef WORLD_GRAPHICS_ZX0
             uint8_t cached;
             for(cached=0;cached<MAP_CACHE_COUNT;++cached)if(map_cache_ids[cached]==ci)break;
             if(cached==MAP_CACHE_COUNT) {
@@ -208,21 +419,11 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
             chunk_ram_bank=1;chunk_cache=cached;
             chunk.address=0xa000U+(uint16_t)cached*1536;
             last_chunk=ci;
-#else
-            world_far_copy(game_world.chunks.bank,(const uint8_t *)(game_world.chunks.address+ci*4),
-                           (uint8_t *)&chunk,4);last_chunk=ci;
-#endif
         }
         local=(y&15)*32+(x&31);
         run=vertical?16-(y&15):32-(x&31);if(run>count-i)run=count-i;
-#ifdef WORLD_GRAPHICS_ZX0
         if(vertical){if(game_world.height/8-y<run)run=game_world.height/8-y;}
         else if(game_world.width/8-x<run)run=game_world.width/8-x;
-#else
-        if(vertical){if(height-y<run)run=height-y;}
-        else if(width-x<run)run=width-x;
-#endif
-#ifdef WORLD_GRAPHICS_ZX0
         /* A complete cached map has no cold work to budget between planes.
          * Gather the fragment once, as for the raw profile, instead of paying
          * three dispatches and cache-budget checks for the same cells. */
@@ -253,15 +454,33 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
             }
         }
         }
-#else
-        world_far_gather3(chunk.bank,(const uint8_t *)(chunk.address+local),
-            strip_low+i,strip_high+i,strip_attrs+i,run,vertical?32:1);
-#endif
         i+=run;if(vertical)y+=run;else x+=run;
         if(partial)break;
     }
     return i-offset;
 }
+#else
+static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,uint8_t offset,uint8_t partial) {
+    uint8_t done=0;
+    while(done<count) {
+        uint8_t index=offset+done;
+        uint8_t run=raw_map_fragment(x,y,vertical,count-done,
+                                     strip_low+index,strip_high+index,strip_attrs+index);
+        if(!run) {
+            uint16_t axis=vertical?y:x;
+            run=count-done;
+            /* Unsigned coordinates can wrap into the first map cell. */
+            if(axis && (uint16_t)(0U-axis)<run)run=(uint8_t)(0U-axis);
+            memset(strip_low+index,0,run);
+            memset(strip_high+index,0,run);
+            memset(strip_attrs+index,0,run);
+        } else if(partial)return done+run;
+        done+=run;
+        if(vertical)y+=run;else x+=run;
+    }
+    return done;
+}
+#endif
 
 static void load_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count) {
     uint8_t i;uint16_t slot,id;
@@ -319,6 +538,53 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
 /* A raw fetch reads at most one chunk fragment (three planes). Reserve
  * 18,240 cycles including the caller and partial-line margin. */
 #define PREP_FETCH_LINES 20
+#ifndef WORLD_GRAPHICS_ZX0
+/* Raw stages request at most 25 lines. Across the first display period, or
+ * in VBlank of the second, more than that remains. Sample the pending IRQ,
+ * time and LY together, just as the full-width compressed guard does. */
+static uint8_t prepare_budget(uint16_t start,uint16_t required_lines) __naked {
+    start;required_lines;
+    __asm
+        di
+        ld hl,#_sys_time
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+        ldh a,(#0x44)
+        ld b,a
+        ldh a,(#0x0f)
+        ei
+        rrca
+        jr nc,raw_budget_time
+        inc hl
+raw_budget_time:
+        ld a,l
+        sub e
+        ld l,a
+        ld a,h
+        sbc d
+        jr nz,raw_budget_late
+        ld a,l
+        or a
+        jr z,raw_budget_room
+        dec a
+        jr nz,raw_budget_late
+        ld a,#144
+        sub b
+        jr c,raw_budget_room
+        jr z,raw_budget_room
+        cp c
+        jr c,raw_budget_late
+        jr nz,raw_budget_room
+raw_budget_late:
+        xor a
+        ret
+raw_budget_room:
+        ld a,#1
+        ret
+    __endasm;
+}
+#else
 static uint8_t prepare_budget(uint16_t start,uint16_t required_lines) {
     uint16_t now,elapsed,lines;
     uint8_t ly,pending;
@@ -330,6 +596,8 @@ static uint8_t prepare_budget(uint16_t start,uint16_t required_lines) {
     if(!elapsed)lines+=154;
     return lines>required_lines;
 }
+
+#endif
 
 static void prepare_cancel(void) {
     if(prepare_added_count)
@@ -363,6 +631,33 @@ prepare_shift_added_loop:
     __endasm;
 }
 
+#ifndef WORLD_GRAPHICS_ZX0
+static void shift_column_prefix(void) __naked {
+            __asm
+                ld hl,#_strip_low+1
+                call fpa_shift_plane
+                ld hl,#_strip_high+1
+                call fpa_shift_plane
+                ld hl,#_strip_attrs+1
+                call fpa_shift_plane
+                ld hl,#_output_tiles+1
+                call fpa_shift_plane
+                ret
+fpa_shift_plane:
+                ld d,h
+                ld e,l
+                dec de
+                .rept 18
+                ld a,(hl+)
+                ld (de),a
+                inc de
+                .endm
+                ret
+
+            __endasm;
+}
+#endif
+
 /* A completed horizontal strip already contains18 of the19 diagonal edge
  * cells. Keep those exact references and published hidden cells; the ordinary
  * row stage replaces the corner and publishes the new row before commit. */
@@ -392,14 +687,9 @@ static uint8_t prepare_rebase_column(uint16_t old_x,uint16_t old_y,uint16_t x,ui
         }
 #ifndef WORLD_GRAPHICS_ZX0
         if(partial) {
-            uint8_t i;
-            /* The old first cell is above the new top. Keep fetched IDs,
-             * attributes (including assigned VBK), and completed tile IDs
-             * at their matching index before resuming the acquisition. */
-            for(i=0;i<18;++i) {
-                strip_low[i]=strip_low[i+1];strip_high[i]=strip_high[i+1];
-                strip_attrs[i]=strip_attrs[i+1];output_tiles[i]=output_tiles[i+1];
-            }
+            /* Copy the four retained prefixes forwards. Each source overlaps
+             * its destination by one cell, so each read precedes its write. */
+            shift_column_prefix();
             ++prepare_strip_y;
         }
 #endif
@@ -484,8 +774,24 @@ fpa_read_high:
         ld d,(hl)
 fpa_lookup:
         push de
-        call _world_lookup_open_raw
+        ld a,(#_world_lookup_direct)
+        or a
+        jr z,fpa_general_lookup
+        ld a,d
+        cp #0x30
         jr nc,fpa_general_lookup
+        ld h,d
+        ld l,e
+        add hl,hl
+        ld a,h
+        and #31
+        or #0xa0
+        ld h,a
+        ld a,d
+        swap a
+        and #3
+        inc a
+        ld (#0x4000),a
         ld a,(hl+)
         ld e,a
         ld a,(hl)
@@ -615,6 +921,30 @@ fpa_next_ready:
         and e
         inc a
         jr z,fpa_upload
+        ld a,(#_world_lookup_direct)
+        or a
+        jr z,fpa_unlink_chain
+        ld a,d
+        cp #0x30
+        jr nc,fpa_upload
+        swap a
+        and #3
+        inc a
+        ld (#0x4000),a
+        ld h,d
+        ld l,e
+        add hl,hl
+        ld a,h
+        and #31
+        or #0xa0
+        ld h,a
+        ld a,#255
+        ld (hl+),a
+        ld (hl),a
+        xor a
+        ld (#0x4000),a
+        jr fpa_upload
+fpa_unlink_chain:
         ld hl,#65535
         push hl
         push de
@@ -683,6 +1013,102 @@ fpa_outputs:
         ld (hl),a
         ld hl,#_prepare_index
         inc (hl)
+        ; Up to three additional pinned direct hits fit in the existing
+        ; twenty-line acquisition allowance. Stop at every fourth index.
+        ; A miss, a revived slot, and repeated IDs use the normal path.
+        ld a,(#_world_lookup_direct)
+        or a
+        ret z
+        ld c,(hl)
+        ld b,#0
+fpa_batch_next:
+        ld a,c
+        and #3
+        jr z,fpa_batch_close
+        ld a,(#_prepare_count)
+        cp c
+        jr z,fpa_batch_close
+        ld hl,#_strip_low
+        add hl,bc
+        ld a,(hl-)
+        ld e,a
+        cp (hl)
+        jr z,fpa_batch_close
+        ld hl,#_strip_high
+        add hl,bc
+        ld d,(hl)
+        ld a,d
+        cp #0x30
+        jr nc,fpa_batch_close
+        swap a
+        and #3
+        inc a
+        ld (#0x4000),a
+        ld h,d
+        ld l,e
+        add hl,hl
+        ld a,h
+        and #31
+        or #0xa0
+        ld h,a
+        ld a,(hl+)
+        ld e,a
+        ld a,(hl)
+        ld d,a
+        or a
+        jr z,fpa_batch_valid
+        dec a
+        jr nz,fpa_batch_close
+        ld a,e
+        cp #188
+        jr nc,fpa_batch_close
+fpa_batch_valid:
+        ; Require the
+        ; slot to be already pinned, leaving free-slot revival to the caller.
+        ld hl,#_world_cache_references
+        add hl,de
+        add hl,de
+        ld a,(hl+)
+        or (hl)
+        jr z,fpa_batch_close
+        dec hl
+        inc (hl)
+        jr nz,fpa_batch_pin
+        inc hl
+        inc (hl)
+fpa_batch_pin:
+        ld hl,#_prepare_added_count
+        ld a,(hl)
+        inc (hl)
+        add a,a
+        add #<(_prepare_added)
+        ld l,a
+        ld a,#>(_prepare_added)
+        adc #0
+        ld h,a
+        ld a,e
+        ld (hl+),a
+        ld (hl),d
+        cp #252
+        ld a,d
+        sbc #0
+        ld a,e
+        jr c,fpa_batch_tile
+        add #4
+        ld hl,#_strip_attrs
+        add hl,bc
+        set 3,(hl)
+fpa_batch_tile:
+        ld hl,#_output_tiles
+        add hl,bc
+        ld (hl),a
+        inc c
+        ld a,c
+        ld (#_prepare_index),a
+        jr fpa_batch_next
+fpa_batch_close:
+        xor a
+        ld (#0x4000),a
         ret
 fpa_repeat:
         ; The preceding cell pinned this ID and is still in the rollback log.
@@ -791,29 +1217,34 @@ fpa_store_run:
         jr nz,fpa_store_run
         ret
 fpa_clear_free:
- push de
- ld a,e
- and #7
- ld c,a
- ld b,#0
- ld hl,#fpa_clear_masks
- add hl,bc
- ld b,(hl)
- ld h,d
- ld l,e
- srl h
- rr l
- srl h
- rr l
- srl h
- rr l
- ld de,#_world_cache_free_bits
- add hl,de
- ld a,(hl)
- and b
- ld (hl),a
- pop de
- ret
+        ld a,e
+        and #7
+        add #<fpa_clear_masks
+        ld l,a
+        ld a,#>fpa_clear_masks
+        adc #0
+        ld h,a
+        ld b,(hl)
+        ; The complete slot is nine bits. Rotate its ninth bit into bit 5
+        ; of the byte index, with no full-width shift or stack temporary.
+        ld a,e
+        rrca
+        rrca
+        rrca
+        and #31
+        bit 0,d
+        jr z,fpa_free_index
+        or #32
+fpa_free_index:
+        add #<(_world_cache_free_bits)
+        ld l,a
+        ld a,#>(_world_cache_free_bits)
+        adc #0
+        ld h,a
+        ld a,(hl)
+        and b
+        ld (hl),a
+        ret
 fpa_clear_masks:
  .db 254,253,251,247,239,223,191,127
     __endasm;

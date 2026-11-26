@@ -99,6 +99,7 @@ def trace(rom, gen, out, level, scenario, observe_dma=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, required=True)
+    parser.add_argument('--reference-gen', type=Path, help='asset directory matching the reference ROM')
     parser.add_argument('--rom', type=Path, required=True)
     parser.add_argument('--gen', type=Path, required=True)
     parser.add_argument('--out', type=Path, default=BASE/'build/check-bike-presentation')
@@ -108,7 +109,7 @@ def main():
     routes = ((11, 'brake'), (34, 'brake'), (1, 'gas'), (44, 'gas'),
               (32, 'seeded'), (35, 'gas'), (38, 'brake'))
     for level, scenario in routes:
-        old, _, _ = trace(args.reference, args.gen, args.out/'reference', level, scenario)
+        old, _, _ = trace(args.reference, args.reference_gen or args.gen, args.out/'reference', level, scenario)
         new, checked, observed = trace(args.rom, args.gen, args.out/'candidate', level, scenario, True)
         bursts.update(observed)
         assert len(old) == len(new), (level, scenario, 'update count', len(old), len(new))

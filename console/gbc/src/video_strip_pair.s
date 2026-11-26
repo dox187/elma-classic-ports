@@ -154,12 +154,23 @@ pair_row_span:
 pair_row_tail:
  or a
  ret z
- ld b,a
-pair_row_last:
+ dec a
+ jr z,pair_row_one
+ dec a
+ jr z,pair_row_two
  stat_window
  row_byte
- dec b
- jr nz,pair_row_last
+ row_byte
+ row_byte
+ ret
+pair_row_two:
+ stat_window
+ row_byte
+ row_byte
+ ret
+pair_row_one:
+ stat_window
+ row_byte
  ret
 
 pair_column_span:
@@ -176,12 +187,22 @@ pair_column_span:
 pair_column_tail:
  or a
  ret z
-pair_column_last:
- push af
+ dec a
+ jr z,pair_col_one
+ dec a
+ jr z,pair_col_two
  stat_window
  column_byte
- pop af
- dec a
- jr nz,pair_column_last
+ column_byte
+ column_byte
+ ret
+pair_col_two:
+ stat_window
+ column_byte
+ column_byte
+ ret
+pair_col_one:
+ stat_window
+ column_byte
  ret
 _gbc_video_strip_pair_end::

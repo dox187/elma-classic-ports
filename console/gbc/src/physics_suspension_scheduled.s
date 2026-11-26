@@ -5,7 +5,8 @@
 .module physics_suspension_scheduled
 .area _DATA
 ; Completed work for the next full substep: 1 arms, 2 spin, 3 wheel inputs,
-; 4 first moment, 5 both moments, 6 spring products, 7 damper products.
+; 4 first moment, 5 both moments, 6 spring products, 7 damper products,
+; 8 certified angular damping moment.
 _riding_spring_ready:: .ds 1
 ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
 ss_spin_mid: .ds 16
@@ -17,7 +18,8 @@ ss_coarse: .ds 4
 ss_tr: .ds 4
 ss_reaction_high: .ds 1
 ss_paired: .ds 1
-ss_damp_long: .ds 1                 ; any force input outside signed18
+ss_damp_long: .ds 1                 ; 0 certified, 1 wide, 2 prepared moment
+ss_prepared_damping: .ds 4
 _riding_spring_scratch_end::
 
 ss_wheel_dvx = 10
@@ -76,8 +78,7 @@ ss_wheel_stride = 14
  ld b,a
 .endm
 ; R = memory - R. Useful for body_velocity - (wheel_velocity + spin).
-.macro ss_reverse_sub address
- ld hl,#(address)
+.macro ss_reverse_sub_hl
  ld a,(hl+)
  sub a,e
  ld e,a
@@ -90,6 +91,10 @@ ss_wheel_stride = 14
  ld a,(hl)
  sbc a,b
  ld b,a
+.endm
+.macro ss_reverse_sub address
+ ld hl,#(address)
+ ss_reverse_sub_hl
 .endm
 .macro ss_add address
  ld hl,#(address)
@@ -714,7 +719,7 @@ _physics_prepare_spring::
  push de
  call _riding_spring_geometry
  ld a,#1
- jr c,ss_prepared_wide
+ jp c,ss_prepared_wide
  inc a
  ld (#_riding_spring_ready),a
  pop de
@@ -757,9 +762,31 @@ ss_prepared_moments:
  ld a,#6
  call _riding_spring_budget
  ret nc
+ push de
  call _riding_prepare_damper_products
+ pop de
  ret c
  ld a,#7
+ ld (#_riding_spring_ready),a
+ ; The two equal springs require no angular force. For the certified
+ ; four-term case every relative speed has already supplied its wheel
+ ; force. Its final consumer can run in the remaining idle interval.
+ ld a,(#ss_paired)
+ or a
+ ret nz
+ ld a,(#ss_damp_long)
+ or a
+ ret nz
+ ld a,#12                       ; 8,908 T plus two reserved LCD lines
+ call _riding_spring_budget
+ ret nc
+ call ss_damp_cert_entry
+ ld b,h
+ ld c,l
+ ss_store ss_prepared_damping
+ ld a,#2
+ ld (#ss_damp_long),a
+ ld a,#8
  ld (#_riding_spring_ready),a
  ret
 ss_prepared_wide:
@@ -1064,7 +1091,7 @@ ss_wheels_done:
  ; Both rounded angular forces and both signed Q24 fractions are zero.
  xor a
  ld hl,#_riding_suspension_state+44
- .rept 8
+ .rept 4
  ld (hl+),a
  .endm
  ld hl,#_q24_fraction
@@ -1072,7 +1099,8 @@ ss_wheels_done:
  ld (hl+),a
  .endm
  ld (#_q24_saturated),a
- ret
+ ss_read _angular_residual
+ jp _riding_step_commit_fraction_regs
 ss_angular_forces:
  ld hl,#ss_ts+1
  ld e,(hl)
@@ -1080,16 +1108,10 @@ ss_angular_forces:
  ld d,(hl)
  inc hl
  ld c,(hl)
- ld a,c
- add a,a
- sbc a,a
- ld b,a
- sra b
- rr c
+ sra c
  rr d
  rr e
- sra b
- rr c
+ sra c
  rr d
  rr e
  jr nc,ss_spring_rounded
@@ -1097,25 +1119,32 @@ ss_angular_forces:
  ld a,d
  or a,e
  jr nz,ss_spring_rounded
- inc bc
+ inc c
 ss_spring_rounded:
+ ld a,c
+ add a,a
+ sbc a,a
+ ld b,a
  ss_q24_phase _q24_index_C_SPRING_T,ss_c_spring_t_index
  ss_negate
- ss_write _riding_suspension_state+44
- ld hl,#_q24_fraction
- ld de,#_riding_suspension_state+48
- .rept 4
- ld a,(hl+)
- ld (de),a
- inc de
- .endm
+ push bc
+ push de
+ ; Consume the spring fraction before damping reuses the Q24 result.
+ ss_delta32 _angular_residual,_q24_fraction
+ push bc
+ push de
  call ss_damping_scheduled
  ld b,h
  ld c,l
  ss_q24_phase _q24_index_C_FRIC_T,ss_c_fric_t_index
- ss_reverse_sub _riding_suspension_state+44
- ss_write _riding_suspension_state+44
- ret
+ ldhl sp,#4
+ ss_reverse_sub_hl
+ ss_store _riding_suspension_state+44
+ pop de
+ pop bc
+ add sp,#4
+ ss_sub _q24_fraction
+ jp _riding_step_commit_fraction_regs
 
 .macro ss_join_nibbles low,high,out
  ld a,low
@@ -2196,7 +2225,13 @@ ss_mt_seed_negative:
 ss_damping_scheduled:
  ld a,(#ss_damp_long)
  or a
- jp nz,ss_damping_torque18
+ jr z,ss_damp_cert_entry
+ dec a
+ jp z,ss_damping_torque18
+ ss_read ss_prepared_damping
+ ld h,b
+ ld l,c
+ ret
 ss_damp_cert_entry:
  ; Each axis of a rotated pose anchor has magnitude at most
  ; 222822 + 157286 + 2. Adding the certified spring displacement

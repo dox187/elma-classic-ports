@@ -38,7 +38,6 @@ riding_suspension_state_t riding_suspension_state;
 const uint8_t riding_suspension_anchor_x=Q24_ANCHOR_X;
 const uint8_t riding_suspension_anchor_y=Q24_ANCHOR_Y;
 void riding_suspension_scheduled(void) __sdcccall(0);
-void riding_step_fraction(void) __sdcccall(0);
 void riding_step_apply(int16_t gravity);
 void riding_step_wheels(void) __sdcccall(0);
 uint8_t riding_step_head(void);
@@ -489,7 +488,6 @@ uint8_t ph_step( uint8_t input ) {
 #ifdef __SDCC
     riding_step_controls(input);
     riding_suspension_scheduled();
-    riding_step_fraction();
 #else
 	int32_t previous_head_x=Bike.head_x,previous_head_y=Bike.head_y;
     angle();

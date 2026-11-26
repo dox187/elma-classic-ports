@@ -236,6 +236,11 @@ class Driver:
         return default if address is None else self.rom_far((address>>16,address&65535),1)[0]
 
     def graphics_block(self, pointer, size):
+        bank, address = pointer
+        if self.level_manifest.get('map_codec')=='raw-uniform-high32x16' and bank & 0x8000:
+            assert size==1536
+            data=self.rom_far((bank & 511,address),1024)
+            return data[:512]+bytes([(bank >> 9) & 63])*512+data[512:]
         if not self.level_manifest.get('compression_key'):
             return self.rom_far(pointer,size)
         prefix=self.level_manifest.get('decode_cost_prefix_bytes',0)

@@ -38,6 +38,60 @@ rider_wide:
 ; DE is the signed16 relative velocity and HL points to the signed16
 ; spring displacement. Both products use the same physical ROM bank.
 _riding_rider_pair16::
+  .ifdef RIDING_DIRECT_RIDER_BANK
+ ; Both rounded values in these intervals, and their difference, fit signed16.
+ ; Each of four damper ranges shares a bank with the direct spring pages.
+ ld a,d
+ add a,#32
+ cp #64
+ jr nc,rider_pair_general
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl-)
+ ld b,a
+ add a,#4
+ cp #8
+ jr nc,rider_pair_general
+ ld a,(#_riding_subphase)
+ sub #1
+ sbc a,a
+ and #4
+ xor #(RIDING_DIRECT_RIDER_BANK+4)
+ ld h,a
+ ld a,d
+ swap a
+ and #3
+ or h
+ ld (#0x2000),a
+ ld a,d
+ and #15
+ add a,a
+ add a,#0x50
+ ld h,a
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld d,(hl)
+ ld a,b
+ and #7
+ add a,a
+ add a,#0x40
+ ld h,a
+ ld l,c
+ ld a,(hl)
+ sub a,e
+ ld e,a
+ inc h
+ ld a,(hl)
+ sbc a,d
+ ld d,a
+ add a,a
+ sbc a,a
+ ld h,a
+ ld l,a
+ jr rider_restore
+rider_pair_general:
+ .endif
  ld a,#2
  ld (#0x2000),a
  call rider_pair_lookup

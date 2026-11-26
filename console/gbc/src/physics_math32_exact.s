@@ -983,11 +983,14 @@ math32_dot14_pair:
  .ifdef RIDING_PROJECTION_TABLES
  ; (-1, k/16384) projects to round(y*k/16384) - x exactly.
  ld a,b
- cp #0xc0
+ and #127
+ cp #64
  jr nz,math32_dot_check_second
  ld a,c
  or a
  jr nz,math32_dot_check_second
+ bit 7,b
+ jr z,math32_dot_first_positive
  ld a,h
  inc a
  jr nz,math32_dot_first_unit
@@ -1009,6 +1012,19 @@ math32_dot_first_unit:
  ld hl,#4
  add hl,de
  jr math32_dot_unit_term
+math32_dot_first_positive:
+ ; An integral first component commutes with the Q14 rounding bias.
+ ; Preserve the full two-product path if the other term can saturate alone.
+ ld a,h
+ add #63
+ cp #127
+ jr nc,math32_dot14_general
+ ld b,h
+ ld c,l
+ push de
+ ld hl,#4
+ add hl,de
+ jr math32_dot_add_unit
 math32_dot_check_second:
  ld a,h
  and #127
@@ -1054,6 +1070,7 @@ math32_dot_add_second:
  push hl
  ld h,d
  ld l,e
+math32_dot_add_unit:
  call _riding_mulq14_regs
  ld b,h
  ld c,l

@@ -89,7 +89,9 @@ void main(void){uint16_t i,c,start;uint8_t bank,target;
     row=bytes.fromhex('1a 13 22')
     column=bytes.fromhex('1a 13 77 09')
     assert all(code.count(poll+instruction*4)==1 for instruction in (row,column))
-    assert code.count(poll)==4
+    assert all(code.count(poll+instruction*count+b'\xc9')==1
+               for instruction in (row,column) for count in (1,2,3))
+    assert code.count(poll)==8
     safe_window_cycles=12+8+8+4*(8+8+8+8)
     assert safe_window_cycles==156<160
     emulator=PyBoy(str(out/'check.gbc'),window='null',sound_emulated=False,cgb=True);emulator.set_emulation_speed(0);active=[];returns=set();timing={'pair':[],'baseline':[]}

@@ -1042,56 +1042,80 @@ _riding_plane_fill::
  ld (#0x2000),a
  ld (#__current_bank),a
  call terrain_plane_setup
+ ld a,#6
+ ld (#0x2000),a
+ ld (#__current_bank),a
+ ; The builder only reads the WRAM plane and writes its private tail.
+ pop de
+ push de
+ call plane_shallow_build
  ld a,#9
  ld (#0x2000),a
  ld (#__current_bank),a
  pop de
  pop bc
 _riding_plane_affine::
+ ld hl,#21
+ add hl,de
+ ld a,(hl+)
+ or a
+ jr z,plane_general
+ ; At most two integer crossings are possible in 255 local X units.
+ ; The encoded thresholds are the last X values before each crossing.
+ ld e,a                      ; flags: bit 7 selects negative X, bit 6 negative Y
+ ld a,(hl+)
+ cp c
+ ld d,#0
+ rl d
+ ld a,(hl+)
+ cp c
+ ld a,d
+ adc #0
+ ld d,a
+ bit 7,e
+ ld a,(hl+)
+ jr nz,plane_shallow_sub_x
+ add d
+ ld c,a
+ ld a,(hl)
+ adc #0
+ jr plane_shallow_y
+plane_shallow_sub_x:
+ sub d
+ ld c,a
+ ld a,(hl)
+ sbc #0
+plane_shallow_y:
+ ld d,a
+ bit 6,e
+ ld a,c
+ jr nz,plane_shallow_sub_y
+ add b
+ ld c,a
+ ld a,d
+ adc #0
+ jr plane_shallow_distance
+plane_shallow_sub_y:
+ sub b
+ ld c,a
+ ld a,d
+ sbc #0
+plane_shallow_distance:
+ ld b,a
+ ld de,#-16                  ; offset 25 back to 9
+ add hl,de
+ jp _riding_plane_distance
+plane_general:
  ld hl,#9
  add hl,de
  push hl
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- push hl
- push bc
- call _riding_fraction_product
- pop bc
- ld a,b
- pop bc
- push hl
- push de
- ld h,b
- ld l,c
- ld c,a
- ld a,(hl+)
- ld e,a
- ld d,(hl)
- call _riding_fraction_product
- pop bc
- ld a,c
- add e
- ld e,a
- ld a,b
- adc d
- ld d,a
- pop bc
- ld a,c
- adc l
- ld c,a
- ld a,b
- adc h
- ld b,a
+ call _riding_fraction_pair
  pop hl
- push hl
- ld a,#8
- add l
- ld l,a
- jr nc,terrain_add_intercept
- inc h
-terrain_add_intercept:
+ push hl                      ; normal pointer for the contact writer
+ push de
+ ld de,#8
+ add hl,de                    ; raw dot at the origin of the cache square
+ pop de
  ld a,e
  add (hl)
  inc hl
@@ -1107,9 +1131,135 @@ terrain_add_intercept:
  adc (hl)
  ld h,a
  ld l,c
- ld a,(#__current_bank)
- ld (#0x2000),a
  call _riding_terrain_reduce_q14
  pop hl
  jp _riding_plane_distance
+
+.area _CODE_6
+; The full row uses d(0,0), signed Y and zero, one or two crossings in X.
+; For a signed unit Y normal the Y term is exactly integral. A minor normal
+; of magnitude <=127 changes the rounded result by at most two over 255u.
+plane_shallow_build:
+ ld hl,#21
+ add hl,de
+ ld (hl),#0
+ ld hl,#9
+ add hl,de
+ ld a,(hl+)
+ ld c,a
+ add a
+ sbc a
+ cp (hl)                    ; signed 8-bit X coefficient
+ ret nz
+ inc hl
+ ld a,(hl+)
+ or a
+ ret nz
+ ld a,(hl)
+ and #127
+ cp #64
+ ret nz
+ ld b,#1
+ bit 7,(hl)
+ jr z,plane_shallow_check_x
+ set 6,b
+plane_shallow_check_x:
+ bit 7,c
+ jr z,plane_shallow_magnitude
+ ld a,c
+ cpl
+ inc a
+ cp #128
+ ret z
+ ld c,a
+ set 7,b
+plane_shallow_magnitude:
+ ld hl,#21
+ add hl,de
+ ld a,b
+ ld (hl+),a
+ push hl                     ; first threshold address
+ ld hl,#17
+ add hl,de
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ add #32
+ ld d,a
+ ld a,(hl+)
+ adc #0
+ ld h,(hl)
+ jr nc,plane_shallow_no_carry
+ inc h
+plane_shallow_no_carry:
+ ld l,a                      ; high word of biased raw
+ push de
+ ld a,d
+ rlca
+ rlca
+ and #3
+ add hl,hl
+ add hl,hl
+ or l
+ ld l,a                      ; signed D0 modulo 65536
+ pop de
+ push hl                     ; store D0 after thresholds
+ ld a,d
+ and #63
+ ld h,a
+ ld l,e
+ bit 7,b
+ jr nz,plane_shallow_first
+ ; With positive X, the threshold is floor((16383-remainder)/n).
+ ld a,h
+ xor #63
+ ld h,a
+ ld a,l
+ cpl
+ ld l,a
+plane_shallow_first:
+ push hl
+ call plane_shallow_div
+ pop hl
+ ld d,a
+ add #1
+ jr z,plane_shallow_single
+ ld a,h
+ add #64                     ; one more complete Q14 quantum
+ ld h,a
+ call plane_shallow_div
+ jr plane_shallow_save
+plane_shallow_single:
+ ld a,#255
+plane_shallow_save:
+ pop bc                      ; D0
+ pop hl
+ ld (hl),d
+ inc hl
+ ld (hl+),a
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ ret
+; min(255, floor(HL / C)). The precheck also covers zero coefficient.
+plane_shallow_div:
+ ld a,h
+ cp c
+ ld a,#255
+ ret nc
+ ld b,#8
+plane_shallow_bit:
+ sla l
+ ld a,h
+ rla
+ cp c
+ jr c,plane_shallow_remainder
+ sub c
+ inc l
+plane_shallow_remainder:
+ ld h,a
+ dec b
+ jr nz,plane_shallow_bit
+ ld a,l
+ ret
  .endif

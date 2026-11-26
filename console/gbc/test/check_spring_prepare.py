@@ -291,8 +291,10 @@ def main():
     # Count the entire suffix from RET NC through stage publication to the
     # next guard or return, including every call, branch and stack operation.
     labels=('geometry','wheel inputs','spring products','damper products')
-    if len(sites)==6:
+    if len(sites)>=6:
         labels=('geometry','wheel velocities and symmetry','first moment','second moment','spring products','damper products')
+    if len(sites)==7:
+        labels+=('angular damping moment',)
     paths=bounds(a.rom,sy,{k:pc+5 for k,(pc,_) in zip(labels,sites)},
                  {pc for pc,_ in sites})
     print('Worst-case reachable SM83 T-cycles after each guard',paths)
@@ -311,7 +313,8 @@ def main():
         assert trial.lifecycle['turn']>0 and trial.lifecycle['reset']>=3,trial.lifecycle
         print(len(output),'completed input samples matched, consumed stages',dict(trial.takes),
               'insufficient guard no-ops by retained stage',dict(trial.declines))
-    for scalar,retained in (('_q24_index_C_SPRING_FW',len(sites)-1),('_q24_index_C_FRIC_W',len(sites))):
+    for scalar,label in (('_q24_index_C_SPRING_FW','spring products'),('_q24_index_C_FRIC_W','damper products')):
+        retained=labels.index(label)+1
         trial=Replay(a.rom,True,scalar=scalar)
         assert Replay(a.rom,False,scalar=scalar).run()==trial.run()
         assert trial.attempts[retained] and trial.takes[retained] and max(trial.takes)==retained

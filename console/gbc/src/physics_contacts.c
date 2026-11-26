@@ -592,7 +592,8 @@ void riding_wheel_contact(const wheel_input_t *input,uint8_t n);
  * the original query throughout. Entries own their geometry across eviction
  * of the three collision-reader slots. Mode 9 holds a prepared pair at one
  * exact center in a square already known to have multiple candidates.
- * Kinds 10/11 are the two interior modes with an exact affine intercept.
+ * Kinds 10/11 retain the exact affine intercept. A signed unit Y plane
+ * with a small X component also holds its two exact X crossings.
  * Kinds 64..254 identify contiguous windows in the original ordered leaf. */
 typedef struct {
     uint16_t x,y;
@@ -1000,18 +1001,7 @@ ws_plane_neg:
 ws_full_dot:
     pop hl
 #ifdef RIDING_WHEEL_TERRAIN
-    ; Use the single-axis lookup directly for a signed unit Y axis.
     push hl
-    inc hl
-    inc hl
-    ld a,(hl+)
-    or a
-    jr nz,ws_new_intercept
-    ld a,(hl)
-    and #127
-    cp #64
-    jr z,ws_original_dot
-ws_new_intercept:
     ; Every within-square coordinate is at most 255u away from this
     ; one. Exclude signed16 wrap anywhere in either relative coordinate.
     ld a,d

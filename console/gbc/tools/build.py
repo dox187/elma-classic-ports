@@ -17,6 +17,7 @@ import normal_atlas
 import phase_tables
 import projection_tables
 import rolling_tables
+import rider_map_tables
 import seat_tables
 import sqrt_tables
 import stopped_pair
@@ -151,7 +152,8 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     scheduled=scheduled_profile(gen)
     coefficient_manifest='physics_q24_manifest.json' if scheduled else 'physics-coefficient-manifest.json'
     coefficients=json.loads((gen/coefficient_manifest).read_text())
-    codecs={'zx0-planes32x16':(4,'zx0-512'), 'raw3-plane32x16':(8,'raw-2bpp')}
+    codecs={'zx0-planes32x16':(4,'zx0-512'), 'raw3-plane32x16':(8,'raw-2bpp'),
+            rider_map_tables.CODEC:(8,'raw-2bpp')}
     if levels.get('map_codec') not in codecs:
         raise ValueError('Unknown level graphics codec: '+str(levels.get('map_codec')))
     rom_mib,pattern_codec=codecs[levels['map_codec']]
@@ -160,6 +162,11 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
                          (requested_rom_mib,'compressed'if requested_rom_mib==4 else'raw',gen,levels['map_codec']))
     if levels.get('rom_mib',rom_mib)!=rom_mib or levels.get('pattern_codec',pattern_codec)!=pattern_codec:
         raise ValueError('Level manifest has inconsistent ROM size or pattern codec')
+    if levels['map_codec']==rider_map_tables.CODEC:
+        constants=(gen/'riding_constants.h').read_bytes()
+        if not scheduled or levels.get('rider_product_constants_sha256')!=hashlib.sha256(constants).hexdigest():
+            raise ValueError('Direct rider scenery requires matching scheduled constants')
+        rider_map_tables.validate(gen, levels, constants.decode())
     header=(gen/'level_catalogue.h').read_text()
     for name,value in (('WORLD_GRAPHICS_ZX0',1),('WORLD_PATTERN_BLOCK_BYTES',512),('WORLD_MAP_PLANE_BYTES',512),('WORLD_ZX0_COST_PREFIX',1)):
         definitions=re.findall(r'^[ \t]*#[ \t]*define[ \t]+'+name+r'\b([^\n]*)$',header,re.M)
@@ -325,7 +332,11 @@ def main():
         sources.insert(0, a.gen/'physics_rider_rows.c')
         rider_game = a.gen/'physics_rider_coeff_game.s'
         rider_source = BASE/'src/physics_rider_coeff.s'
-        head_clearance.write_if_changed(rider_game, 'RIDING_ALIGNED_RIDER_ROWS = 1\n'+rider_source.read_text())
+        rider_prefix = 'RIDING_ALIGNED_RIDER_ROWS = 1\n'
+        graphics = json.loads((a.gen/'level_manifest.json').read_text())
+        if graphics['map_codec']==rider_map_tables.CODEC:
+            rider_prefix += f"RIDING_DIRECT_RIDER_BANK = {graphics['rider_product_first_bank']}\n"
+        head_clearance.write_if_changed(rider_game, rider_prefix+rider_source.read_text())
         sources.extend((rider_game, a.gen/'physics_q24_dispatch.c'))
         sources.extend((BASE/'src/head_clearance.s', a.gen/'physics_head_map.c'))
         suspension = BASE/'src/physics_suspension_scheduled.s'
