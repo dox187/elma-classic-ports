@@ -943,6 +943,12 @@ through 0.84 share the same production physics; their changes concern sound.
 
 ## Build and run
 
+Finished tests keep their versioned playable ROM and the results recorded in
+[PERFORMANCE.md](PERFORMANCE.md). Remove their private trial directories,
+duplicate ROMs and native compiler outputs after integration. Keep raw
+reference traces only while the next comparison uses them. The builder
+removes its intermediate Intel HEX file after it verifies the cartridge.
+
 Requirements: Make, Bash, Python 3, a host C compiler for tests, curl and tar,
 plus `elma.res` and `default.lgr` from your own copy of the game. The converters
 use numpy and Pillow, and the emulator tests use PyBoy. From this directory:

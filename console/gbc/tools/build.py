@@ -602,6 +602,7 @@ def main():
             if previous.get('linked_layout')!=layout:
                 previous['linked_layout']=layout
                 manifest_path.write_text(json.dumps(previous,indent=2)+'\n')
+            a.out.with_suffix('.ihx').unlink(missing_ok=True)
             print('ROM unchanged: '+str(a.out));return
     def link():
         subprocess.run([str(compiler),*link_flags,'-o',str(a.out),*map(str,objects)],check=True)
@@ -626,6 +627,7 @@ def main():
     report={'rom_mib':rom_mib,'cartridge_type':0x1B,'ram_kib':32,'generated_dir':str(a.gen),'build_key':build_key,'rom_sha256':hashlib.sha256(rom).hexdigest(),
             'sources':[str(x)for x in sources],'objects':[str(x)for x in objects],'linked_layout':layout}
     manifest_path.write_text(json.dumps(report,indent=2)+'\n')
+    a.out.with_suffix('.ihx').unlink(missing_ok=True)
     print('Built '+str(a.out)+' '+report['rom_sha256'])
 
 
