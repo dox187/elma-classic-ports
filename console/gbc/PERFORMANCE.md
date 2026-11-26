@@ -3651,6 +3651,10 @@ All 25,551 published updates and 76,568 substeps matched test45, including a
 separate substep-level Freefall replay. PyBoy matched 1,216 presentations and
 61,845 visible background cells. The mixed-run scenery check found zero cache,
 map or tile-pattern errors. Freefall's peak active cost increased by 1,196 T.
+The strict scheduled checks passed the native physics, PC landing/braking,
+audio, menu and player-save stages. All 54 courses opened, with one display
+deadline miss in the entry sweep. This fails the zero-miss requirement.
+The separate Freefall check passed.
 
 On test43, preloading initial wheel queries or combining the return paths
 raised extended deadline misses from 206 to 208 and 211, respectively. On
