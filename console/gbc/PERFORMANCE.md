@@ -2599,3 +2599,47 @@ Fixed ROM has 779 bytes free. Banks 508–511 are erased. Rebuild using
 --out build/elma-gbc-v0.96-test20-8m.gbc` with a copy of the test19
 generated profile and the project Python. Reports are in `build/v096-test20/`.
 Physical cartridge timing is pending.
+
+### 0.96 test21 — combined cartridge
+
+| Complete cartridge in PyBoy | test20 | test21 |
+| --- | ---: | ---: |
+| Controller updates/s, 216 routes across 54 courses | 23.036 | 23.223 |
+| Updates/s, full Freefall descent | 23.405 | 23.727 |
+| Mean active update, SM83 T-cycles | 309,063 | 307,994 |
+| Longest active update, SM83 T-cycles | 553,956 | 557,336 |
+| Updates over 280,896 cycles / 19,885 | 11,440 | 11,075 |
+| Routes within budget throughout / 216 | 20 | 24 |
+
+The suspension prepares velocities and the two wheel moments in separate
+stages. Late in the display frame the scheduler can start a bounded stage
+after terrain prefetch has closed. Worst-case linked costs of the six
+guarded paths were 9,432, 3,312, 15,976, 16,000, 3,740 and 3,728 T-cycles.
+All 29,568 guard boundary checks passed. The rider keeps per-axis acceleration
+in registers during the movement calculation. Stationary rolling wheels skip
+zero products. Two shallow normals reuse exact rounding tables. For common
+angular velocities, four byte products bound the rounded body rotation.
+Ambiguous results take the full-width path. A narrower multiply also serves
+moderate damper speeds with the same signed 40-bit accumulation.
+
+On identical controller input, all 19,885 update returns and publications
+matched test20. A separate replay with `test/benchmark_gameplay.py
+--substep-states` compared 59,599 native substep returns, including bike,
+movement and force residuals, angular residual, landing contact normals,
+contact audio flags and survival. Every output byte matched. The 12,380
+native reference states matched, all 45 PC rebound/braking gates passed,
+and all 20 extreme-spin comparisons retained the measured test20 PC deltas.
+The integer fixtures passed 34,004 body angle cases, 35,276 damping moments,
+7,676 force vectors, 467 mirror cases, 4,889 rider vectors, 9,778 rider
+movement and response cases each, and 4,034 wheel cases. Sprite attributes
+matched over 1,216 updates and 61,845 visible scenery tiles matched. The
+menu, audio, player, save and finish checks passed. The live timer changed
+90 times in 180 display frames. Twelve active idle updates missed the
+deadline in the timer fixture.
+
+The 8 MiB ROM SHA-256 is
+`43ebd7b90781287541f3f8206c1a40aaa3e9e36f04ab95fcda2c181104f1c206`.
+Fixed ROM has 553 bytes free. Banks 508–511 are erased. Rebuild with
+`tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8
+--out build/elma-gbc-v0.96-test21-8m.gbc` using the project Python.
+The reports are in `build/v096-test21/`. Physical cartridge timing is pending.

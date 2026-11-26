@@ -1,19 +1,19 @@
 ; Exact rider acceleration orchestration in bank8, stack ABI0.
 ; restx16,resty16,Oms32,gx32,gy32. Existing vector/math/move kernels
 ; retain their signed narrowing, rounded products and wrapping32 updates.
-; Stack workspace: vectors0..7, accelerations8..15; no static RAM.
+; The vectors use eight stack bytes. Each acceleration goes straight to motion.
 .module physics_rider_response
 .area _CODE_8
 _riding_rider_response32::
- add sp,#-16
+ add sp,#-8
  ldhl sp,#0
  push hl
- ldhl sp,#22
+ ldhl sp,#14
  ld e,(hl)
  inc hl
  ld d,(hl)
  push de
- ldhl sp,#22
+ ldhl sp,#14
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -23,7 +23,7 @@ _riding_rider_response32::
 ; The spring displacement always fits signed16. If relative velocity
 ; also fits, compute the independently rounded spring and damper products
 ; in one bank visit. Wider velocities retain the full Q24 damper.
-.macro rider_response_axis tangent,invert,body_velocity,rider_velocity,direction,gravity,acceleration,wide,combine
+.macro rider_response_axis tangent,invert,body_velocity,rider_velocity,direction,gravity,wide,combine
  ldhl sp,#tangent
  ld a,(hl+)
  ld c,a
@@ -36,39 +36,33 @@ _riding_rider_response32::
  sbc b
  ld b,a
  .endif
- ldhl sp,#22
+ ldhl sp,#14
  call _riding_mulq14_regs
  ld b,h
  ld c,l
  ld hl,#(_Bike+body_velocity)
- ld a,(hl)
+ ld a,(hl+)
  add a,e
  ld e,a
- inc hl
- ld a,(hl)
+ ld a,(hl+)
  adc a,d
  ld d,a
- inc hl
- ld a,(hl)
+ ld a,(hl+)
  adc a,c
  ld c,a
- inc hl
  ld a,(hl)
  adc a,b
  ld b,a
  ld hl,#(_Bike+rider_velocity)
- ld a,(hl)
+ ld a,(hl+)
  sub a,e
  ld e,a
- inc hl
- ld a,(hl)
+ ld a,(hl+)
  sbc a,d
  ld d,a
- inc hl
- ld a,(hl)
+ ld a,(hl+)
  sbc a,c
  ld c,a
- inc hl
  ld a,(hl)
  sbc a,b
  ld b,a
@@ -126,37 +120,29 @@ combine:
  ld b,h
  ld c,l
  ldhl sp,#gravity
- ld a,(hl)
+ ld a,(hl+)
  add a,e
  ld e,a
- inc hl
- ld a,(hl)
+ ld a,(hl+)
  adc a,d
  ld d,a
- inc hl
- ld a,(hl)
+ ld a,(hl+)
  adc a,c
- ld c,a
- inc hl
+ ld c,e
+ ld e,a
  ld a,(hl)
  adc a,b
- ld b,a
- ldhl sp,#acceleration
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
+ ld b,d
+ ld d,a
 .endm
 
- rider_response_axis 6,1,8,80,0,26,8,rider_wide_x,rider_combine_x
- rider_response_axis 4,0,12,84,2,30,12,rider_wide_y,rider_combine_y
+ ; The y response uses the saved dx and the original y velocity. Advancing
+ ; x here keeps both its velocity and its independent residual in order.
+ rider_response_axis 6,1,8,80,0,18,rider_wide_x,rider_combine_x
+ call _riding_rider_move_x_regs
+ rider_response_axis 4,0,12,84,2,22,rider_wide_y,rider_combine_y
  add sp,#8
- call _riding_rider_move32
- add sp,#8
- ret
+ jp _riding_rider_move_y_regs
 
 ; The private caller passes the xy output pointer in DE (SDCC ABI1).
 ; The phase and Q14 pair come from the same cached pose. Each phase byte

@@ -339,6 +339,104 @@ oms_in_range:
 oms_borrow:
  dec bc
 oms_normalized:
+ ; A zero or sign-filled upper word allows a signed Q8 sum of four
+ ; byte products. Fall back to the full six-digit calculation at a tie.
+ ld a,d
+ or e
+ jr z,oms_short
+ ld a,d
+ and e
+ inc a
+ jp nz,oms_long
+oms_short:
+ push de
+ push bc
+ ; floor(digit*m/2^(8*page)); lower bytes of each row are omitted.
+ .macro oms_at page
+ add a,#<_riding_oms_product
+ ld l,a
+ ld a,#>(_riding_oms_product+256*page)
+ adc a,#0
+ ld h,a
+ .endm
+ ld a,(#_angular_residual+1)
+ oms_at 4
+ ld c,(hl)
+ ld a,(#_angular_residual+2)
+ oms_at 3
+ ld a,(hl)
+ add c
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc #0
+ ld b,a
+ ldhl sp,#0
+ ld a,(hl)
+ oms_at 2
+ ld a,(hl)
+ add c
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc b
+ ld b,a
+ inc h
+ ld a,(hl)
+ adc #0
+ ld e,a
+ ldhl sp,#1
+ ld a,(hl)
+ oms_at 1
+ ld a,(hl)
+ add c
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc b
+ ld b,a
+ inc h
+ ld a,(hl)
+ adc e
+ ld e,a
+ inc h
+ ld a,(hl)
+ adc #0
+ ld d,a
+ ldhl sp,#3
+ bit 7,(hl)
+ jr z,oms_short_round
+ ld hl,#_riding_oms_product+1
+ oms_subtract                  ; subtract m in Q8 for the negative high word
+oms_short_round:
+ ; The discarded low residual digit contributes less than 1 Q8 unit.
+ ; Each of four floored digits loses less than 1. Only 124..127 can
+ ; therefore cross the 128 tie; the slow path resolves those exactly.
+ ld a,c
+ sub #124
+ cp #4
+ jr c,oms_short_tie
+ ld a,c
+ add a,a
+ ld a,b
+ adc #0
+ ld c,a
+ ld a,e
+ adc #0
+ ld b,a
+ ld a,d
+ adc #0
+ ld e,a
+ add a,a
+ sbc a,a
+ ld d,a
+ add sp,#4
+ ret
+oms_short_tie:
+ pop bc
+ pop de
+oms_long:
+ ld hl,#_angular_residual+2
  ld a,(hl-)
  or a,(hl)
  dec hl

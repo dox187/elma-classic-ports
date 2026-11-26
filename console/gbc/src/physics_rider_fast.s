@@ -360,7 +360,7 @@ rider_negative:
 
 ; Add one acceleration to its velocity, advance the matching signed Q24
 ; residual, and commit the resulting position in the phase helper's DEBC ABI.
-.macro rider_move_axis argument, position, velocity, residual
+.macro rider_move_argument argument
  ldhl sp,#argument
  ld a,(hl+)
  ld c,a
@@ -369,6 +369,9 @@ rider_negative:
  ld a,(hl+)
  ld e,a
  ld d,(hl)
+.endm
+
+.macro rider_move_axis position, velocity, residual
  ld hl,#(_Bike+velocity)
  ld a,(hl)
  add a,c
@@ -404,6 +407,15 @@ rider_negative:
 .endm
 
 _riding_rider_move32::
- rider_move_axis 2,72,80,6
- rider_move_axis 6,76,84,7
+ rider_move_argument 2
+ call _riding_rider_move_x_regs
+ rider_move_argument 6
+ jr _riding_rider_move_y_regs
+
+; Both the stack entry and the response pass the acceleration in DEBC.
+_riding_rider_move_x_regs::
+ rider_move_axis 72,80,6
+ ret
+_riding_rider_move_y_regs::
+ rider_move_axis 76,84,7
  ret

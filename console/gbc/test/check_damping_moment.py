@@ -86,6 +86,21 @@ def vectors():
                     values[position] = wide
                     yield values
 
+    # Mix zero-, one- and two-byte terms with the largest signed40 prefix.
+    # Transfer to the wider solver at each position, including the first
+    # speed just outside the short path and arms that exceed signed24.
+    for speed_pos, arm_pos in ((2, 4), (0, 6), (3, 5), (1, 7)):
+        for speed in (-65537, -65536, -16384, -16383, -257, -256, -255,
+                      0, 255, 256, 257, 16383, 16384, 65535, 65536):
+            for arm in (MIN24 - 1, MIN24, -1, 0, MAX24, MAX24 + 1):
+                for sign in (-1, 1):
+                    values = [-16383 * sign] * 2 + [16383 * sign] * 2 + [MIN24] * 4
+                    values[speed_pos], values[arm_pos] = speed, arm
+                    yield values
+    for _ in range(2048):
+        yield ([rng.randrange(-16383, 16384) for _ in range(4)] +
+               [rng.randrange(MIN24, MAX24 + 1) for _ in range(4)])
+
     for width in (24, 32):
         limit = 1 << (width - 1)
         for _ in range(2048):

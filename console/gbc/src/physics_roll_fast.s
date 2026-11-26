@@ -127,6 +127,23 @@ roll_projected_inputs:
  ld de,#8
  add hl,de
  pop de
+ ; With zero impulse and torque, both rounded operations yield zero.
+ ld a,d
+ or e
+ or b
+ or c
+ jr nz,roll_lookup_delta
+ ld a,(hl+)
+ or (hl)
+ inc hl
+ or (hl)
+ inc hl
+ or (hl)
+ jr z,roll_have_delta
+ dec hl
+ dec hl
+ dec hl
+roll_lookup_delta:
  call _riding_roll_table_delta
  jr c,roll_have_delta
  .endif
@@ -176,6 +193,16 @@ roll_have_delta:
  adc a,d
  ld (hl),a
  ld d,a
+ .ifdef RIDING_ROLL_TABLES
+ or e
+ or b
+ or c
+ jr nz,roll_moving
+ add sp,#10
+ pop hl
+ jp roll_stationary
+roll_moving:
+ .endif
  ld hl,#_q24_index_C_ROLL_W
  dec sp
  call roll_coefficient
@@ -201,6 +228,63 @@ roll_have_delta:
  add sp,#10
  pop hl
  jp _riding_wheel_move_hl
+
+ .ifdef RIDING_ROLL_TABLES
+.area _CODE
+; The zero-speed wheel writes zero velocity and omega. Its two zero
+; translations only sign-extend each residual's third byte. The omega
+; coefficient (and the partial-step Y translation) publish zero Q24.
+roll_stationary:
+ ld de,#(_move_residual+18)
+ ld a,l
+ cp #<(_Bike+24)
+ jr nz,roll_stationary_body
+ ld a,h
+ cp #>(_Bike+24)
+ jr nz,roll_stationary_residual
+ ld de,#(_move_residual+10)
+ jr roll_stationary_residual
+roll_stationary_body:
+ cp #<_Bike
+ jr nz,roll_stationary_residual
+ ld a,h
+ cp #>_Bike
+ jr nz,roll_stationary_residual
+ ld de,#(_move_residual+2)
+roll_stationary_residual:
+ push hl
+ ld h,d
+ ld l,e
+ ld a,(hl+)
+ add a
+ sbc a
+ ld (hl+),a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ add a
+ sbc a
+ ld (hl),a
+ pop hl
+ ld de,#8
+ add hl,de
+ xor a
+ .rept 8
+ ld (hl+),a
+ .endm
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+ .rept 4
+ ld (hl+),a
+ .endm
+ ld hl,#_q24_fraction
+ .rept 5
+ ld (hl+),a
+ .endm
+ ret
+ .endif
 
 ; HL points at two signed32 values. Return the selected Q14 cardinal
 ; projection in DEBC. Negative INT32_MIN rounds to saturated INT32_MAX.
@@ -245,6 +329,7 @@ roll_axis_negate:
  ld d,a
  ret
 
+.area _CODE_9
 ; HL -> two phase indices. The Q24 entry consumes its reserved argument byte
 ; and returns DEBC, including its normal fraction and saturation side effects.
 roll_coefficient:
@@ -270,13 +355,37 @@ _riding_roll_project_pair::
  add a,a
  sbc a,a
  cp (hl)
- jr nz,roll_project_wide
+ jp nz,roll_project_wide
  inc hl
  cp (hl)
- jr nz,roll_project_wide
+ jp nz,roll_project_wide
  ld a,d
  or e
  jr z,roll_project_zero
+ ; For the shallow rolling tangents, X is -speed and Y is one signed
+ ; byte. The same two rounding-threshold rows used by the dot product
+ ; give the exact Y without visiting a general projection bank.
+ ldhl sp,#8
+ ld a,(hl+)
+ or a
+ jr nz,roll_project_directory
+ ld a,(hl+)
+ cp #0xc0
+ jr nz,roll_project_directory
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl)
+ inc a
+ jr nz,roll_project_directory
+ ld a,c
+ ld bc,#_riding_shallow_dot_61
+ cp #195
+ jr z,roll_project_shallow
+ cp #247
+ jr nz,roll_project_directory
+ ld bc,#_riding_shallow_dot_9
+ jr roll_project_shallow
+roll_project_directory:
  ; The directory and this routine are in ROM0, so both projections can keep
  ; MBC5's high bit selected until the pair finishes.
  ld a,#1
@@ -302,6 +411,44 @@ roll_project_zero:
  .rept 8
  ld (hl+),a
  .endm
+ ret
+roll_project_shallow:
+ ld h,#0
+ ld l,d
+ add hl,bc
+ ld a,#4
+ ld (#0x2000),a
+ ld b,(hl)
+ inc h
+ ld a,(hl)
+ cp e
+ ld a,b
+ sbc #0
+ ld c,a
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ pop hl
+ ld a,d
+ cpl
+ add a
+ sbc a
+ ld b,a                      ; sign extension of -speed (speed != 0)
+ xor a
+ sub e
+ ld (hl+),a
+ ld a,#0
+ sbc d
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ add a
+ sbc a
+ ld (hl+),a
+ ld (hl+),a
+ ld (hl),a
  ret
  .endif
 roll_project_wide:

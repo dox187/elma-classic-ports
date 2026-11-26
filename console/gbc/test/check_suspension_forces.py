@@ -31,7 +31,7 @@ void main(void) {
 """
 
 ENTRY = """
-.area _CODE_8
+.area _CODE
 _fixture_forces::
  ld a,(#_fixture_index)
  ld hl,#_fixture_input
@@ -46,6 +46,7 @@ _fixture_forces::
  ld a,(#ff_bank)
  ld (#_fixture_bank),a
  ret
+.area _CODE_8
 ff_bank: .db 0xa5
 _fixture_mirror::
  call ss_spring_total
@@ -123,6 +124,9 @@ def fixture(native, source, out, lcc):
         subprocess.run([*flags, '-c', '-o', objects[index], path], check=True)
     rom = out / 'check.gbc'
     subprocess.run([*flags, '-o', rom, *objects], check=True)
+    bank_size = re.search(r'^_CODE_8\s+\w+\s+(\w+)\s+=', rom.with_suffix('.map').read_text(), re.M)
+    if not bank_size or int(bank_size[1], 16) > 0x4000:
+        raise ValueError('suspension fixture exceeds bank 8')
     return rom
 
 

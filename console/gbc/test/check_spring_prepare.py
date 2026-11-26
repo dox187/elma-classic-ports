@@ -54,8 +54,8 @@ class Replay:
             image[(s>>16)*0x4000+(s&0x3fff)]=0xc9
         elif stage_limit is not None:
             # Return before the next guard with the producer's stack balanced.
-            site,_ = self.sites[{2:1,3:2,4:3}[stage_limit]]
-            image[(site>>16)*0x4000+(site&0x3fff)]=0xc9
+            for site,_ in self.sites[stage_limit-1:]:
+                image[(site>>16)*0x4000+(site&0x3fff)]=0xc9
         self.emu=PyBoy(BytesIO(image),window='null',cgb=True,sound_emulated=False)
         self.emu.set_emulation_speed(0)
         self.mem=self.emu.memory
@@ -76,7 +76,7 @@ class Replay:
         if wide:
             self.hook('_riding_spring_geometry',self.seed_wide_geometry)
         if prepare:
-            for stage,(site,_) in zip((0,2,3,4),self.sites):
+            for stage,(site,_) in zip((0,*range(2,len(self.sites)+1)),self.sites):
                 self.install(site+5, lambda _,s=stage:self.check_guard(s))
             self.hook('_riding_suspension_scheduled',self.consume)
             self.hook('_ph_turn',self.check_before_turn)
@@ -291,6 +291,8 @@ def main():
     # Count the entire suffix from RET NC through stage publication to the
     # next guard or return, including every call, branch and stack operation.
     labels=('geometry','wheel inputs','spring products','damper products')
+    if len(sites)==6:
+        labels=('geometry','wheel velocities and symmetry','first moment','second moment','spring products','damper products')
     paths=bounds(a.rom,sy,{k:pc+5 for k,(pc,_) in zip(labels,sites)},
                  {pc for pc,_ in sites})
     print('Worst-case reachable SM83 T-cycles after each guard',paths)
@@ -300,16 +302,16 @@ def main():
     assert immediate==wide.run() and wide.takes[1],wide.takes
     print('Wide angular velocity consumed the arms-only prefix')
     ref=Replay(a.reference,None).run() if a.reference else Replay(a.rom,False).run()
-    for mode in (None,2,3,4):
+    for mode in (None,*range(2,len(sites)+1)):
         trial=Replay(a.rom,True,mode)
         output=trial.run()
         for i,(want,have) in enumerate(zip(ref,output)):
             for k in FIELDS: assert want[k]==have[k],(i,k,want[k].hex(),have[k].hex())
-        assert trial.produced and trial.takes[mode or 5],trial.takes
+        assert trial.produced and trial.takes[mode or len(sites)+1],trial.takes
         assert trial.lifecycle['turn']>0 and trial.lifecycle['reset']>=3,trial.lifecycle
         print(len(output),'completed input samples matched, consumed stages',dict(trial.takes),
               'insufficient guard no-ops by retained stage',dict(trial.declines))
-    for scalar,retained in (('_q24_index_C_SPRING_FW',3),('_q24_index_C_FRIC_W',4)):
+    for scalar,retained in (('_q24_index_C_SPRING_FW',len(sites)-1),('_q24_index_C_FRIC_W',len(sites))):
         trial=Replay(a.rom,True,scalar=scalar)
         assert Replay(a.rom,False,scalar=scalar).run()==trial.run()
         assert trial.attempts[retained] and trial.takes[retained] and max(trial.takes)==retained

@@ -64,6 +64,13 @@ void main(void) {
     assert m == int(pair[2])
     # Place the combined 56-bit input on both sides of the last rounding
     # threshold before each clamp, including changes of a single residual bit.
+    # Near every selected short-omega tie, vary the signed residual by one
+    # unit. The Q8 estimate must invoke the full calculation when ambiguous.
+    for w in (*range(-128,129), -65536, -65535, 65534, 65535):
+        center = (w*m) >> 24
+        for integer in (center-1, center, center+1):
+            r = (((integer << 48) + (1 << 47)) // m) - (w << 24)
+            cases.extend((w, r+offset) for offset in (-1,0,1) if -(1<<23)<=r+offset<(1<<23))
     for integer in (-(1<<31)-1, -(1<<31), -1, 0, (1<<31)-2, (1<<31)-1):
         boundary = ((integer << 48) + (1 << 47)) // m
         for delta in range(-4, 5):

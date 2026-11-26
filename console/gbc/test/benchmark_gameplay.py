@@ -155,7 +155,7 @@ def controller_plan(scenario, seed, level, count):
 class GameplayProfiler(Profiler):
     """Extend the existing exact-cycle/stack observer with fidelity records."""
 
-    def __init__(self, driver, level, plan):
+    def __init__(self, driver, level, plan, substep_states=False):
         self.level = level
         self.plan = plan
         self.initial = None
@@ -169,6 +169,15 @@ class GameplayProfiler(Profiler):
         self.irq_entry_repeats = Counter()
         self.scheduled = "#define RIDING_PC_SCHEDULE 1" in (driver.gen / "riding_constants.h").read_text()
         super().__init__(driver)
+        self.substeps = [] if substep_states else None
+        if substep_states:
+            fields = [("_Bike", driver.rom_constant("game_physics_state_bytes", 109)),
+                      ("_angular_residual", 4), ("_move_residual", 32), ("_force_residual", 16),
+                      ("_riding_subphase", 1), ("_riding_landing_contact", 2),
+                      ("_riding_landing_nx", 4), ("_riding_landing_ny", 4),
+                      ("_riding_audio_impact", 2), ("_riding_audio_contact", 2)]
+            self.substep_ranges = [(self.symbols[name], self.symbols[name] + size)
+                                   for name, size in fields]
         address = self.symbols["_ph_step"]
         self.p.hook_register(address >> 16, address & 65535, self._core_entry, self)
         self.gdma_sites = self.observe_gdma()
@@ -308,6 +317,10 @@ class GameplayProfiler(Profiler):
         before = len(profiler.records)
         Profiler._return(context)
         for call in profiler.records[before:]:
+            if call["name"] == "_ph_step" and profiler.substeps is not None:
+                state = b"".join(bytes(profiler.p.memory[start:end])
+                                 for start, end in profiler.substep_ranges)
+                profiler.substeps.append({"state_hex": state.hex(), "alive": profiler.p.register_file.A})
             if call["name"] != "_physics_step":
                 continue
             argument = call["physics_input"]
@@ -440,7 +453,7 @@ def run_case(args, level, scenario, names):
         key, count = ("down", distance) if distance <= LEVEL_COUNT // 2 else ("up", LEVEL_COUNT - distance)
         for _ in range(count):
             driver.pulse(key)
-        observer = GameplayProfiler(driver, level, plan)
+        observer = GameplayProfiler(driver, level, plan, args.substep_states)
         # Use Driver.tick/buttons to launch without pulse()'s extra riding loops.
         # Once the menu changes to RIDING, stage scenario controls while its
         # level finishes loading, before the next main-loop controller sample.
@@ -485,6 +498,11 @@ def run_case(args, level, scenario, names):
                          end_reason=observer.end_reason or "error", calls=observer.records)
             result["timing"] = observer.timing_report()
             result["completed_steps"] = len(observer.physics)
+            if observer.substeps is not None:
+                trace["substeps"] = observer.substeps
+                result["completed_substeps"] = len(observer.substeps)
+                if len(observer.substeps) != sum(len(step["core_inputs"]) for step in observer.physics):
+                    errors.append("missing or duplicate physics substep return")
             result["completed_updates"] = len(observer.work)
             result["end_reason"] = trace["end_reason"]
             result["final"] = trace["final"]
@@ -514,7 +532,8 @@ def run_case(args, level, scenario, names):
 def fidelity_record(trace):
     def state(value):
         return {key: value[key] for key in STATE_FIELDS} if value is not None else None
-    return {"initial": state(trace["initial"]), "final": state(trace["final"]),
+    return {**({"substeps": trace["substeps"]} if "substeps" in trace else {}),
+            "initial": state(trace["initial"]), "final": state(trace["final"]),
             "end_reason": trace["end_reason"],
             "physics": [{"index": item["index"], "physics_input": item["physics_input"],
                          "core_input": item["core_input"], "state": state(item["return_state"])}
@@ -578,7 +597,9 @@ def compare_reference(result, trace, reference, settings):
         if settings[key] != reference_settings[key]:
             problems.append({"path": "settings." + key, "actual": settings[key],
                              "reference": reference_settings[key]})
-    if match is None:
+    if settings.get("substep_states", False) != reference_settings.get("substep_states", False):
+        problems.append({"path": "settings.substep_states", "error": "capture substeps on both runs to compare them"})
+    elif match is None:
         problems.append({"path": "case", "error": "case is missing from reference"})
     else:
         problems.extend(differences(fidelity_record(trace), fidelity_record(match["trace"])))
@@ -609,12 +630,14 @@ def main():
                         help="one or more scenarios (default all four)")
     parser.add_argument("--seed", type=lambda value: int(value, 0), default=0xE6B0)
     parser.add_argument("--reference", type=Path, help="prior report.json, trace.jsonl[.gz], or output directory")
+    parser.add_argument("--substep-states", action="store_true",
+                        help="also compare native bike, integrator residuals, contacts and return value after each scheduled microstep")
     args = parser.parse_args()
     args.rom, args.gen, args.out = args.rom.resolve(), args.gen.resolve(), args.out.resolve()
     args.scenario = list(dict.fromkeys(args.scenario))
     args.out.mkdir(parents=True, exist_ok=True)
     settings = {"levels": args.levels, "scenarios": args.scenario, "steps": args.steps, "seed": args.seed,
-                "controller_version": CONTROLLER_VERSION, "display_cycles": DISPLAY_CYCLES,
+                "controller_version": CONTROLLER_VERSION, "substep_states": args.substep_states, "display_cycles": DISPLAY_CYCLES,
                 "update_budget_cycles": UPDATE_BUDGET, "sound_emulated": False,
                 "brake_policy": "gas for min(60, max(1, steps // 3)) updates, then hold B",
                 "seeded_policy": "per-update seeded gas/brake/neutral, occasional left/right and Up"}

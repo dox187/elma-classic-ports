@@ -82,13 +82,35 @@ def main():
     values = [-2**31, -2**31+1, -65537, -65536, -46138, -46137, -46136,
               -32769, -232, -231, -230, -1, 0, 1, 231, 232, 32768,
               46136, 46137, 46138, 65535, 2**31-1]
+    # With zero Y velocity, these shallow tangents yield exactly -vx.
+    # Probe either side of the signed16 speed bounds and every high byte
+    # near its projection rounding threshold in each table.
+    shallow = []
+    for magnitude in (9, 61):
+        speeds = {-32769, -32768, 0, 32767, 32768}
+        for high in range(-128, 128):
+            remainder = (8192 - high * 256 * magnitude) % 16384
+            low = min(255, remainder // magnitude)
+            speeds.add(high * 256 + low)
+            if low < 255:
+                speeds.add(high * 256 + low + 1)
+        shallow.extend((magnitude, speed) for speed in sorted(speeds))
     observed = set()
     cases = 0
     try:
-        for i in range(1200):
+        for i in range(1200 + len(shallow) + 16):
             fields = {key: rng.randbytes(size) for key, size in FIELDS.items()}
             slot, phase, prior = i & 1, i >> 1 & 1, i >> 2 & 1
-            if i < len(values) * 8:
+            if i >= 1200 + len(shallow):
+                # A nonzero normal impulse and normal velocity disappear
+                # from the rolling solution. Include a moving initial omega.
+                normal, vx, vy = (0, 16384), 0, 0x76543210
+                impulses = (0, -1234567, 0)
+            elif i >= 1200:
+                magnitude, speed = shallow[i - 1200]
+                normal, vx, vy = (-magnitude, 16384), -speed, 0
+                impulses = (0, 0, 0)
+            elif i < len(values) * 8:
                 # Both sides of the exact support and first-impact thresholds.
                 normal, vx, vy = (16384, 0), values[i // 8], 0
                 impulses = (1, 0, 0)
@@ -109,6 +131,10 @@ def main():
             # Residuals reachable between calls are signed Q24 fractions.
             fields['_move_residual'] = struct.pack('<8i', *[
                 rng.randint(-0x800000, 0x7fffff) for _ in range(8)])
+            if i >= 1200 + len(shallow):
+                # Byte 3 is normally the extension of byte 2. The native
+                # zero-velocity translation still canonicalizes it.
+                fields['_move_residual'] = rng.randbytes(32)
             for mode in ('single', 'roll'):
                 params = fields, mode, phase, slot, impulses
                 expected, actual = base.run(*params), target.run(*params)

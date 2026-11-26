@@ -4,8 +4,8 @@
 ; contribute before the complete spring and damping moments are narrowed.
 .module physics_suspension_scheduled
 .area _DATA
-; 1 carries Oms and arms, 2 adds spin, 3 adds wheel inputs,
-; 4 adds four spring force products and 5 adds four damper products.
+; Completed work for the next full substep: 1 arms, 2 spin, 3 wheel inputs,
+; 4 first moment, 5 both moments, 6 spring products, 7 damper products.
 _riding_spring_ready:: .ds 1
 ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
 ss_spin_mid: .ds 16
@@ -468,7 +468,7 @@ _physics_prepare_spring::
  ld a,(hl+)
  ld d,(hl)
  ld e,a                         ; next-input deadline is start + 2
- ld a,#12                       ; complete lines required by geometry
+ ld a,#13                       ; complete lines required by geometry
  call _riding_spring_budget
  ret nc
  push de
@@ -478,29 +478,48 @@ _physics_prepare_spring::
  inc a
  ld (#_riding_spring_ready),a
  pop de
- ld a,#40                       ; complete lines required by both wheel inputs
+ ld a,#6                        ; displacements, relative speeds and symmetry
  call _riding_spring_budget
  ret nc
  push de
- call _riding_spring_inputs
+ call ss_wheel_values
+ call ss_try_mirrored
  pop de
+ jr z,ss_prepared_moments
  ld a,#3
  ld (#_riding_spring_ready),a
- ld a,#7                       ; four product lanes plus guard/return margin
+ ld a,#20                       ; first wheel, including the wide product
+ call _riding_spring_budget
+ ret nc
+ push de
+ call ss_first_moment
+ pop de
+ ld a,#4
+ ld (#_riding_spring_ready),a
+ ld a,#20                       ; second wheel and sum
+ call _riding_spring_budget
+ ret nc
+ push de
+ call ss_second_moment
+ pop de
+ss_prepared_moments:
+ ld a,#5
+ ld (#_riding_spring_ready),a
+ ld a,#7
  call _riding_spring_budget
  ret nc
  push de
  call _riding_prepare_spring_products
  pop de
  ret c
- ld a,#4
+ ld a,#6
  ld (#_riding_spring_ready),a
- ld a,#7                       ; four product lanes plus guard/return margin
+ ld a,#7
  call _riding_spring_budget
  ret nc
  call _riding_prepare_damper_products
  ret c
- ld a,#5
+ ld a,#7
  ld (#_riding_spring_ready),a
  ret
 ss_prepared_wide:
@@ -571,9 +590,11 @@ _riding_spring_geometry::
  jp ss_spin_narrow
 
 _riding_spring_inputs::
+ call ss_wheel_values
+ jp ss_spring_total
+ss_wheel_values:
  ss_wheel_displacement 0
  ss_wheel_displacement 4
- call ss_spring_total
  ss_wheel_relative_velocity 24,0
  ss_wheel_relative_velocity 48,4
  ret
@@ -583,20 +604,33 @@ _riding_spring_inputs::
 ; displacement their unshifted moments are P and -P. The sum of the
 ; two floors is zero when P is divisible by 4096, and -1 otherwise.
 ss_spring_total:
+ call ss_try_mirrored
+ ret z
+ss_both_moments:
+ call ss_first_moment
+ss_second_moment:
+ ss_wheel_spring 4
+ ret
+ss_first_moment:
+ ss_wheel_spring 0
+ ret
+
+; Z means both moments were committed. A miss leaves ss_ts untouched.
+ss_try_mirrored:
  ld hl,#ss_force_products+28
  ld a,(hl+)
  or a,(hl)
- jr nz,ss_spring_general
+ ret nz
  .rept 6
  inc hl
  or a,(hl)
  .endm
- jr nz,ss_spring_general
+ ret nz
  ld hl,#ss_force_products+40
  .irp offset,0,1,2,3
  ld a,(#ss_force_products+36+offset)
  cp a,(hl)
- jr nz,ss_spring_general
+ ret nz
  inc hl
  .endm
  ; Compare the sum in all four bytes. Constrain one top byte to 00/ff
@@ -604,16 +638,16 @@ ss_spring_total:
  ld a,(#_riding_pose_anchor+3)
  inc a
  and a,#0xfe
- jr nz,ss_spring_general
+ ret nz
  ld hl,#_riding_pose_anchor+4
  ld a,(#_riding_pose_anchor)
  add a,(hl)
- jr nz,ss_spring_general
+ ret nz
  .irp offset,1,2,3
  inc hl
  ld a,(#_riding_pose_anchor+offset)
  adc a,(hl)
- jr nz,ss_spring_general
+ ret nz
  .endm
  ; A shared set bit among bits 0..5 puts both trailing-zero counts
  ; below six. Otherwise count the factors of two in the low 12 bits.
@@ -637,11 +671,7 @@ ss_spring_mirror_write:
  .rept 4
  ld (hl+),a
  .endm
- ret
-
-ss_spring_general:
- ss_wheel_spring 0
- ss_wheel_spring 4
+ xor a
  ret
 
 ; Count trailing zeros up to twelve using the first nonzero nibble.
@@ -698,10 +728,20 @@ _riding_suspension_scheduled::
  dec b
  jr z,ss_need_inputs
  dec b
+ jr z,ss_need_both_moments
+ dec b
+ jr z,ss_need_second_moment
+ dec b
  jr z,ss_have_inputs
  dec b
  jr z,ss_have_spring_products
  jr ss_have_products
+ss_need_both_moments:
+ call ss_both_moments
+ jr ss_have_inputs
+ss_need_second_moment:
+ call ss_second_moment
+ jr ss_have_inputs
 ss_need_geometry:
  call _riding_spring_geometry
  jr nc,ss_need_inputs
@@ -1742,16 +1782,15 @@ ss_mt_vertical:
  adc a,(hl)
  jr z,ss_mt_zero
 ss_mt_general:
-; A Q18 arm times a speed of magnitude at most 255 fits signed32:
-; 255 * 2^23 < 2^31. Four such products need only five accumulator
-; bytes. A larger operand extends the completed prefix and resumes
-; with the first unfinished term of the signed24/full-width solver.
+; Each signed24 arm times a speed of magnitude below 2^14 has magnitude
+; below 2^37. Four such terms fit signed40, including the full Q18 fraction.
+; A wider operand extends the prefix and resumes at the first unfinished term.
 .macro ss_byte_term label,speed,arm,subtract,first,ordinary
 label:
  ld hl,#ss_damping+speed+1
  ld a,(hl+)
  cp a,(hl)
- jr nz,005$
+ jr nz,007$
  inc hl
  cp a,(hl)
  jr nz,005$
@@ -1761,7 +1800,7 @@ label:
  jr nz,005$
  ld a,(#ss_damping+speed)
  or a
- jr z,005$                      ; -256 needs a second digit
+ jr z,007$                      ; -256 needs a second digit
  cpl
  inc a
  jr 002$
@@ -1787,7 +1826,7 @@ label:
  cp a,(hl)
  jr nz,005$
  call ss_byte_product
- ld a,(#ss_damping+speed+1)
+ ld a,(#ss_damping+speed+2)
  or a
  .if subtract
  jr z,003$
@@ -1814,6 +1853,35 @@ label:
  .else
  call ss_byte_extend
  jp ordinary
+ .endif
+007$:
+ ld hl,#ss_damping+speed
+ ld de,#ss_damping+arm
+ call ss_word_product
+ jr c,005$
+ ld hl,#ss_damping+speed+2
+ bit 7,(hl)
+ .if subtract
+ jr z,008$
+ .else
+ jr nz,008$
+ .endif
+ .if first
+ call ss_word_seed
+ .else
+ call ss_word_add
+ .endif
+ jr 006$
+008$:
+ .if first
+ push af
+ ss_negate
+ pop hl
+ ld a,#0
+ sbc a,h
+ call ss_word_seed
+ .else
+ call ss_word_sub
  .endif
 006$:
 .endm
@@ -1843,22 +1911,39 @@ ss_byte_first_zero:
  jp ss_byte_y0
 
 ss_byte_seed:
- ld hl,#ss_moment
- ld a,e
- ld (hl+),a
- ld a,d
- ld (hl+),a
- ld a,c
- ld (hl+),a
  ld a,b
- ld (hl+),a
  add a,a
  sbc a,a
- ld (hl),a
+ss_word_seed:
+ ld hl,#ss_moment+4
+ ld (hl-),a
+ ld a,b
+ ld (hl-),a
+ ld a,c
+ ld (hl-),a
+ ld a,d
+ ld (hl-),a
+ ld (hl),e
  ret
 
-.macro ss_byte_fold label,low,high
+; Apply the high byte first, then propagate only the carry or borrow out
+; of the low four bytes. Byte-speed products have a sign extension of 0/-1.
+.macro ss_byte_fold label,word,low,high,adjust,propagate,subtract,merge
+word:
+ .if subtract
+ cpl
+ inc a
+ .endif
+ ld hl,#ss_moment+4
+ add a,(hl)
+ ld (hl),a
+ jr merge
 label:
+ bit 7,b
+ jr z,merge
+ ld hl,#ss_moment+4
+ adjust (hl)
+merge:
  ld hl,#ss_moment
  ld a,(hl)
  low a,e
@@ -1872,19 +1957,85 @@ label:
  ld a,(hl)
  high a,b
  ld (hl+),a
- ; BIT, LD and DEC preserve the carry from the fourth byte.
- ld e,#0
- bit 7,b
- jr z,001$
- dec e
-001$:
- ld a,(hl)
- high a,e
- ld (hl),a
+ ret nc
+ propagate (hl)
  ret
 .endm
- ss_byte_fold ss_byte_add,add,adc
- ss_byte_fold ss_byte_sub,sub,sbc
+ ss_byte_fold ss_byte_add,ss_word_add,add,adc,dec,inc,0,ss_add_low40
+ ss_byte_fold ss_byte_sub,ss_word_sub,sub,sbc,inc,dec,1,ss_sub_low40
+
+; HL points to a speed outside [-255,255], DE to its arm. Return carry for
+; wide inputs. Otherwise return abs(speed) * signed_arm in A:BC:DE.
+ss_word_product:
+ push de
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ cp a,(hl)
+ jr nz,ss_word_reject
+ or a
+ jr z,ss_word_speed_positive
+ inc a
+ jr nz,ss_word_reject
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,b
+ jr nc,ss_word_reject            ; -65536 has a zero low word
+ jr ss_word_speed_ready
+ss_word_speed_positive:
+ ld a,b
+ss_word_speed_ready:
+ cp a,#64
+ jr nc,ss_word_reject
+ pop hl
+ ld d,a
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ push de
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ pop hl
+ jr nz,ss_word_wide
+ bit 7,b
+ jr z,ss_word_positive_arm
+ ; Subtract abs(speed) * 2^24 from the unsigned product of a negative arm.
+ ld l,c
+ push hl
+ ld l,h
+ call ss_spring_rows
+ ld b,c
+ ld c,l
+ ld a,h
+ pop hl
+ sub a,l
+ ld l,a
+ ld a,b
+ sbc a,h
+ ld b,l
+ or a
+ ret
+ss_word_positive_arm:
+ ld l,h
+ call ss_spring_rows
+ ld a,c
+ ld b,h
+ ld c,l
+ or a
+ ret
+ss_word_reject:
+ pop hl
+ss_word_wide:
+ scf
+ ret
 
 ss_byte_extend:
  ld hl,#ss_moment+4

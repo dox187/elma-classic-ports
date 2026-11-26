@@ -535,6 +535,12 @@ void main(void) NONBANKED {
              * The first condition excluded elapsed zero and one here. */
             else if(line<108 || line>=144)
                 prepare_next_view(now-1);
+#if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
+            /* A short tail can still fit the guarded geometry stage after
+             * the last safe starting line for scenery. */
+            else if(line<131)
+                physics_prepare_spring(now-1);
+#endif
         }
         ++game_frames;
         __critical {
