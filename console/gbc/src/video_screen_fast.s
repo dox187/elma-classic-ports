@@ -14,7 +14,8 @@
  ld b,(hl)
 .endm
 
-; Preserve the origin for the next point. Leave this pixel on the stack.
+; The fractional projector consumes BCDE. Preserve the origin when another
+; point on the same axis follows. Both variants leave a pixel on the stack.
 .macro project_part offset,project
  push bc
  push de
@@ -25,7 +26,7 @@
  push hl
 .endm
 
-.macro project_last offset,project
+.macro project_and_push offset,project
  ld hl,#(_gbc_bike+offset)
  call project
  push hl
@@ -88,9 +89,18 @@ _gbc_video_parts_screen::
  store_pixel
 _gbc_video_sprite_screen::
  load_origin 4
+ ld a,d
+ or e
+ jr nz,sprite_fractional_x
+ project_and_push 20,integral_x
+ project_and_push 10,integral_x
+ project_and_push 40,integral_x
+ jr sprite_store_x
+sprite_fractional_x:
  project_part 20,project_x
  project_part 10,project_x
- project_last 40,project_x
+ project_and_push 40,project_x
+sprite_store_x:
  screen_destination 8,_game_camera_x
  store_pixel            ; head.x
  inc hl
@@ -99,9 +109,18 @@ _gbc_video_sprite_screen::
  store_pixel            ; wheel_x[1]
 
  load_origin 8
+ ld a,d
+ or e
+ jr nz,sprite_fractional_y
+ project_and_push 24,integral_y
+ project_and_push 14,integral_y
+ project_and_push 44,integral_y
+ jr sprite_store_y
+sprite_fractional_y:
  project_part 24,project_y
  project_part 14,project_y
- project_last 44,project_y
+ project_and_push 44,project_y
+sprite_store_y:
  screen_destination 10,_game_camera_y
  store_pixel            ; head.y
  inc hl
@@ -116,9 +135,9 @@ _gbc_video_parts_screen_end::
 ; The camera uses the body's two clamped level pixels before it can scroll.
 _gbc_video_body_world::
  load_origin 8
- project_last 4,project_y
+ project_and_push 4,project_y
  load_origin 4
- project_last 0,project_x
+ project_and_push 0,project_x
  ldhl sp,#6
  ld a,(hl+)
  ld h,(hl)
@@ -131,6 +150,114 @@ _gbc_video_body_world::
  ld (hl+),a
  .endm
 _gbc_video_body_world_end::
+ ret
+
+; In every shipped level the origin's fractional word is zero. Leave the
+; integer origin in BC and read the low fraction byte only at a rounding
+; boundary on X. DE is free between points in an integral batch.
+.macro lookup_fraction boundary
+ add a,#<fraction_pixels
+ ld e,a
+ ld a,#>fraction_pixels
+ adc a,#0
+ ld d,a
+ ld a,(de)
+ bit 7,a
+ jr nz,boundary
+.endm
+integral_x:
+ inc hl
+ ld a,(hl+)
+ lookup_fraction integral_x_boundary
+integral_x_whole:
+ ld e,a
+ ld a,(hl+)
+ sub c
+ ld h,(hl)
+ ld l,a
+ ld a,h
+ sbc b
+ jr integral_pixels
+
+integral_y:
+ xor a
+ sub (hl)
+ inc hl
+ ld a,#0
+ sbc (hl)
+ inc hl
+ jr nc,integral_y_zero
+ lookup_fraction integral_y_boundary
+integral_y_nonzero:
+ scf                  ; subtract the borrow from negating the fraction
+integral_y_whole:
+ ld e,a
+ ld a,c
+ sbc (hl)
+ inc hl
+ ld l,(hl)
+ ld h,a
+ ld a,b
+ sbc l
+ ld l,h
+integral_pixels:
+ ld h,a
+ inc a
+ cp #2
+ jr nc,integral_clip
+ ld a,e
+ ld d,h
+ ld e,l
+ add hl,hl
+ add hl,de
+ add hl,hl
+ add hl,hl
+ add a,l
+ ld l,a
+ ret nc
+ inc h
+ ret
+integral_clip:
+ bit 7,h
+ ld hl,#3072
+ ret z
+ ld hl,#-3072
+ ret
+integral_y_zero:
+ xor a
+ jr integral_y_whole
+
+; The shared thresholds apply to the fractional word in the direction
+; being projected. HL returns to the integer word before its subtraction.
+integral_x_boundary:
+ ld d,a
+ dec hl
+ dec hl
+ ld a,(hl+)
+ inc hl
+ call integral_round
+ jr integral_x_whole
+integral_y_boundary:
+ ld d,a
+ dec hl
+ dec hl
+ xor a
+ sub (hl)
+ inc hl
+ inc hl
+ call integral_round
+ jr integral_y_nonzero
+integral_round:
+ ld e,#86
+ bit 6,d
+ jr z,integral_compare
+ ld e,#171
+integral_compare:
+ cp e
+ ld a,d
+ ; Strip the boundary marker after the borrow adjusts the candidate.
+ sbc a,#0
+ and #15
  ret
 
 ; HL points at a little-endian position, BCDE holds the origin.

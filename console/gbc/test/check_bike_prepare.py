@@ -2,6 +2,7 @@
 
 DMA is replaced with an identical recorder in both translation units. Native
 calls must select the same bank, source bytes, tile destinations and lengths,
+except for a head pattern already resident in its exact destination,
 and preserve the same head publication state across repeated display frames.
 An independent integer model also checks every resulting frame selection.
 """
@@ -74,6 +75,7 @@ void bike_render_prepare(const gbc_bike_t *bike) {
 '''
 
 FIXTURE = r'''
+#define BIKE_FIXED
 #include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stddef.h>
@@ -81,7 +83,7 @@ FIXTURE = r'''
 #include "bike_render16.h"
 #include "riding_assets.h"
 static uint8_t last_body,last_wheel[2],head_tile,prepared,prepared_changed;
-static uint16_t last_head,head_upload_frame;
+static uint16_t last_head,previous_head,head_upload_frame;
 static uint8_t count,records[20];
 static void upload(uint8_t tile,uint8_t length,const uint8_t *source) {
     uint8_t *p=records+count*5;
@@ -93,7 +95,7 @@ static void upload(uint8_t tile,uint8_t length,const uint8_t *source) {
 SUFFIX = r'''
 void reset_KIND(void) {
     last_body=last_wheel[0]=last_wheel[1]=255;
-    last_head=256;head_tile=BIKE_HEAD_TILE;
+    previous_head=last_head=256;head_tile=BIKE_HEAD_TILE;
     head_upload_frame=0;prepared=0;
 }
 void run_KIND(const gbc_bike_t *bike,uint8_t *out) {
@@ -163,6 +165,11 @@ def vectors(up_x, up_y):
         for offset in (-2, -1, 0, 1, 2):
             add(0, 128, rng.randrange(65536),
                 head=(boundary + offset, -(boundary - offset)))
+    # Repeated A/B head publications, including multiple attempts within a
+    # display frame. Each buffer retains its pixels when a request is gated.
+    for phase in (0, 1, 0, 1, 0, 1, 2, 1, 2, 3, 2, 3):
+        for _ in range(3):
+            add(0, 100, 0, 0, head=((phase & 1) * 3000, -(phase >> 1) * 3000))
     for _ in range(4096):
         bound = 257 if rng.randrange(2) else 32768
         add(rng.randrange(-bound, bound), rng.randrange(-bound, bound),
@@ -247,7 +254,29 @@ void run_baseline(const gbc_bike_t *,uint8_t *);
 void run_fast(const gbc_bike_t *,uint8_t *);
 void reset_baseline(void);void reset_fast(void);
 uint8_t guarded_bike[56],snapshot[56],baseline[38],fast[38];
-volatile uint16_t completed,failures,model_failures,guard_failures,bank_failures,irq_failures;
+volatile uint16_t completed,failures,model_failures,guard_failures,bank_failures,irq_failures,head_cache_hits;
+static uint8_t head_sources[2][5],head_seen[2];
+/* Model both destination tiles from the original renderer's DMA log. Only
+ * an exact bank, source, length and destination match may disappear. */
+static void expected_uploads(uint8_t *state) {
+    uint8_t i,kept=0,slot;
+    for(i=0;i<state[13];++i) {
+        uint8_t *record=state+14+i*5;
+        if(record[1]==BIKE_HEAD_TILE || record[1]==BIKE_HEAD_BACK_TILE) {
+            slot=record[1]==BIKE_HEAD_BACK_TILE;
+            if(head_seen[slot] && !memcmp(record,head_sources[slot],5)) {
+                ++head_cache_hits;
+                continue;
+            }
+            head_seen[slot]=1;
+            memcpy(head_sources[slot],record,5);
+        }
+        if(kept!=i)memcpy(state+14+kept*5,record,5);
+        ++kept;
+    }
+    memset(state+14+kept*5,0,20-kept*5);
+    state[13]=kept;
+}
 volatile uint8_t done,case_in_range;
 typedef char vector_size[sizeof(case_t)==64?1:-1];
 static void batch(const case_t *source,uint16_t length,uint8_t bank) {
@@ -260,6 +289,7 @@ static void batch(const case_t *source,uint16_t length,uint8_t bank) {
         SWITCH_ROM(9);sys_time=v.frame;IE_REG=0;IF_REG=4;
         run_baseline((const gbc_bike_t *)(guarded_bike+2),baseline+2);
         run_fast((const gbc_bike_t *)(guarded_bike+2),fast+2);
+        expected_uploads(baseline+2);
         if(memcmp(baseline,fast,38))++failures;
         if(memcmp(fast+2,v.expected,9))++model_failures;
         if(memcmp(snapshot,guarded_bike,56)||fast[0]!=0xa5||fast[1]!=0xa5||fast[36]!=0xa5||fast[37]!=0xa5)++guard_failures;
@@ -315,7 +345,7 @@ void main(void){
             address = symbols['_' + name]
             return int.from_bytes(bytes(emulator.memory[address:address + length]), 'little')
 
-        report = {name: read(name) for name in ('completed', 'failures', 'model_failures',
+        report = {name: read(name) for name in ('completed', 'head_cache_hits', 'failures', 'model_failures',
                   'guard_failures', 'bank_failures', 'irq_failures')}
         report.update(done=read('done', 1), expected_cases=len(rows), source_sha256=source_hash,
                       prepare_cycles={kind: {label: {'calls': len(values), 'min': min(values),
@@ -350,7 +380,7 @@ void main(void){
     assert source_hash == hashlib.sha256(source.read_bytes()).hexdigest(), 'Production source changed during check'
     (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
-    assert report['done'] and report['completed'] == len(rows), report
+    assert report['done'] and report['completed'] == len(rows) and report['head_cache_hits'], report
     assert not any(report[name] for name in ('failures', 'model_failures', 'guard_failures',
                                             'bank_failures', 'irq_failures')), report
 

@@ -3035,3 +3035,44 @@ Image SHA-256 `5e228ad0e37677d91d7f88e1f48a4d824cac35545d892556a622789354a0854e`
 Fixed ROM has 789 bytes free. Build from the scheduled assets using
 `tools/build.py --gen build/gen-v096-test29-8m --rom-mib 8 --out build/elma-gbc-v0.96-test29-8m.gbc`.
 Reports are in `build/v096-test29/`. Physical cartridge timing remains unverified.
+
+## 0.96 test30 — dense terrain, rolling projections and sprite placement
+
+The 8 MiB MBC5 cartridge retains the three original-schedule physics intervals
+and their existing input sample. The terrain reader can narrow an ordered
+candidate window using 341 additional metre regions across all 54 courses.
+The generator derives each answer from the packed segments. On Gravity Ride's
+expensive eight throttle updates, the isolated change reduced segment visits
+from 570 to 202. The table also includes geometry-selected regions outside the
+standard and extended routes. On cloned test28 images with identical relocated
+starts, all 64 held-out routes on 32 courses matched at every substep.
+
+Seven near-horizontal rolling tangents reuse the exact correction on both
+input and output. Suspension forms wheel deltas directly from the two source
+positions or velocities. Rider coefficient pages are aligned, signed rider
+rotation reuses the exact signed projection reader, and the geometry dot
+retains the carry from the two low product words through Q14 rounding. The
+renderer reuses a centered body position and a resident alternate head frame.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 28.648 | 246,746 | 449,024 | 1,682 | 60/216 |
+| Eight courses, three longer inputs each | 5,227 | 27.440 | 264,682 | 524,656 | 900 | 2/24 |
+| Full Freefall neutral descent | 439 | 29.427 | 256,872 | 416,116 | 13 | 0/1 |
+
+Standard and extended replays matched all 75,252 substeps and 25,112 published
+states against test29. All 439 full Freefall updates matched. The 45 PC landing
+and braking checks passed. All 20 extreme spin results reproduced test29,
+including its 15.75° maximum. Synthetic native runs agreed with the host on
+9,210 ordinary states and 3,170 speed-limit states. The linked geometry oracle
+verified each certificate and 20,388 cold/warm contacts. Preparation passed
+29,568 deadline checks. PyBoy matched 1,216 presentations and 61,845 background
+cells. SameBoy CGB-E matched 878 presentations. Menu, sound and saved-player
+checks passed. The idle timer still recorded two missed deadlines. The finish
+fixture now places the wheel at the flower before constructing the object search
+bounds. Its previous hook could be skipped while the bike was stationary.
+
+SHA-256 `7f7e3c46d538e3ea6a7ed15a715ef26f3903b7a2daca7b8dc97740644c7ab59a`.
+Fixed ROM has 685 bytes free. Build with the scheduled assets using
+`tools/build.py --gen build/gen-v096-test29-8m --rom-mib 8 --out build/elma-gbc-v0.96-test30-8m.gbc`.
+Reports are under `build/v096-test30/`. Timing on a physical cartridge remains unverified.

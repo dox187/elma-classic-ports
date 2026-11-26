@@ -165,10 +165,40 @@ selected:
  ld a,(hl)
  ss_q24
 .endm
+; Both source addresses are known. Read their difference one digit at a
+; time, keeping only the result in registers. INC HL preserves borrow.
+.macro ss_delta32 left,right
+ ld hl,#(right)
+ ld a,(#(left))
+ sub (hl)
+ ld e,a
+ inc hl
+ ld a,(#(left+1))
+ sbc (hl)
+ ld d,a
+ inc hl
+ ld a,(#(left+2))
+ sbc (hl)
+ ld c,a
+ inc hl
+ ld a,(#(left+3))
+ sbc (hl)
+ ld b,a
+.endm
 .macro ss_arm body,wheel,destination
- ss_read _Bike+body
- ss_reverse_sub _Bike+wheel
- ss_store destination
+ ld hl,#(_Bike+body)
+ .irp digit,0,1,2,3
+ ld a,(#(_Bike+wheel+digit))
+ .if digit
+ sbc (hl)
+ .else
+ sub (hl)
+ .endif
+ ld (#(destination+digit)),a
+ .if digit-3
+ inc hl
+ .endif
+ .endm
 .endm
 ; The native table products are (raw + 2^23) = integer*2^24 + biased.
 ; The wheel uses only the integer. The body gets both pieces, and four
@@ -513,11 +543,8 @@ have_middle:
  ld h,#>_riding_scale_directory
  ld a,(hl)
  ld (#0x2000),a
- ld a,l
- and a,#31
- add a,a
- or a,#>_physics_scale_planes_36
- ld h,a
+ inc h
+ ld h,(hl)
  .else
  ld h,a
  call ss_damp_map
@@ -563,13 +590,24 @@ rows_done:
 .endm
 ; The four spring displacements occupy the future damper-product rows.
 ; The spring batch consumes all four before the damper batch fills its rows.
+.macro ss_displacement_axis anchor,arm,destination
+ ld hl,#(ss_damping+arm)
+ .irp digit,0,1,2,3
+ ld a,(#(_riding_pose_anchor+anchor+digit))
+ .if digit
+ sbc (hl)
+ .else
+ sub (hl)
+ .endif
+ ldh (#(ss_force_products+destination+digit)),a
+ .if digit-3
+ inc hl
+ .endif
+ .endm
+.endm
 .macro ss_wheel_displacement offset
- ss_read _riding_pose_anchor+offset
- ss_sub ss_damping+16+offset
- ss_store ss_force_products+28+offset
- ss_read _riding_pose_anchor+8+offset
- ss_sub ss_damping+24+offset
- ss_store ss_force_products+36+offset
+ ss_displacement_axis offset,(16+offset),(28+offset)
+ ss_displacement_axis (8+offset),(24+offset),(36+offset)
 .endm
 .macro ss_wheel_spring offset
  .if offset
@@ -586,8 +624,7 @@ rows_done:
 .macro ss_wheel_relative_velocity wheel,offset
  ; The spin workspace becomes the relative velocity. Subtract the same
  ; unsigned words modulo 2^32 in place, retaining the original X/Y signs.
- ss_read _Bike+8
- ss_sub _Bike+wheel+8
+ ss_delta32 (_Bike+8),(_Bike+wheel+8)
  ld hl,#(ss_damping+offset)
  ld a,e
  sub (hl)
@@ -601,8 +638,7 @@ rows_done:
  ld a,b
  sbc (hl)
  ld (hl),a
- ss_read _Bike+12
- ss_sub _Bike+wheel+12
+ ss_delta32 (_Bike+12),(_Bike+wheel+12)
  ss_accumulate ss_damping+8+offset
 .endm
 .macro ss_wheel_reaction offset,record,next_wheel,reaction_index,ordinary,have_reaction
@@ -3045,7 +3081,8 @@ ss_spin_rows_mapped:
  ld h,#>_riding_scale_directory
  ld a,(hl)
  ld (#0x2000),a
- ld a,l
+ inc h
+ ld h,(hl)
  .else
  ld a,digit
  rlca
@@ -3055,11 +3092,11 @@ ss_spin_rows_mapped:
  add a,#36
  ld (#0x2000),a
  ld a,digit
- .endif
  and a,#31
  add a,a
  or a,#>_physics_scale_planes_36
  ld h,a
+ .endif
 .endm
 
 .macro ss_damp_word label,arm,?unsigned

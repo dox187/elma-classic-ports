@@ -3,13 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test29 — 8 MiB](build/elma-gbc-v0.96-test29-8m.gbc)**.
-Across 216 controller routes on all 54 courses it averages **28.30 physics
-updates per emulated second**, up from **28.04** in test28. The 24 longer
-routes average **27.13**, and the full Freefall descent averages **29.20**.
-The target is **29.86**. Fifty-six standard routes kept the two-display-frame
-deadline throughout. All 75,252 recorded physics substeps and all 25,112
-published updates in the standard and extended replays matched test28.
+**[0.96 test30 — 8 MiB](build/elma-gbc-v0.96-test30-8m.gbc)**.
+Across 216 controller routes on all 54 courses it averages **28.65 physics
+updates per emulated second**, up from **28.30** in test29. The 24 longer
+routes average **27.44**, and the full Freefall descent averages **29.43**.
+The target is **29.86**. Sixty standard routes and two long routes kept the
+two-display-frame deadline throughout. All 75,252 recorded physics substeps
+and 25,112 published updates in these two suites matched test29.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.

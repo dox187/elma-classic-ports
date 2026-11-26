@@ -24,6 +24,8 @@ def main():
     for n in range(1024):
         coordinates=[rng.choice(values) if n<256 else rng.randrange(-2**31,2**31) for _ in range(8)]
         origin=[rng.choice(values) if n<256 else rng.randrange(-2**31,2**31) for _ in range(2)]
+        # Alternate between integral cartridge origins and arbitrary fractional ones.
+        if n%2:origin=[v&~65535 for v in origin]
         if n>=512:
             coordinates=[signed(origin[i&1]+rng.randrange(-16777217,16777218)) for i in range(8)]
         if 512<=n<512+len(boundaries):

@@ -107,8 +107,40 @@ def read_pattern(image,row,cx,sub,extended,quarters=False):
     return image[source+w+16*(index-1)+sub]
 
 
+def read_refinements(image, symbols, levels):
+    if '_wheel_refinement_levels' not in symbols:
+        return {}
+    def location(name):
+        return offset(20, symbols[name] & 65535)
+    directory = location('_wheel_refinement_levels')
+    rows = location('_wheel_refinement_rows')
+    end = location('_wheel_refinement_end')
+    expected = directory+3*len(levels)
+    regions = {}
+    for l, level in enumerate(levels):
+        n, address = struct.unpack_from('<BH',image,directory+3*l)
+        first = offset(20,address)
+        assert first == expected
+        expected += 8*n
+        keys = []
+        for i in range(n):
+            cx,cy,sub,high,*indices = image[first+8*i:first+8*i+8]
+            assert cx < level['grid'][0] and cy < level['grid'][1] and sub < 16 and high < 16
+            keys.append((cx,cy,sub))
+            answers = bytearray()
+            for qy,index in enumerate(indices):
+                ptr = rows+4*(index+256*((high>>qy)&1))
+                assert rows <= ptr <= end-4
+                answers += image[ptr:ptr+4]
+            regions[l,cx,cy,sub] = answers
+        assert keys == sorted(set(keys))
+    assert expected == rows
+    return regions
+
+
 def linked_rows(gen, image, symbols, baseline, previous=None):
     levels = json.loads((gen/'physics_bank_manifest.json').read_text())['levels']
+    refinements = read_refinements(image,symbols,levels)
     maps = offset(9,symbols['_wheel_terrain_maps'] & 65535)
     patterns = offset(9,symbols['_wheel_terrain_patterns'] & 65535)
     if baseline:
@@ -120,6 +152,10 @@ def linked_rows(gen, image, symbols, baseline, previous=None):
         prev_rom,prev_symbols = previous
         prev_maps = offset(9,prev_symbols['_wheel_terrain_maps'] & 65535)
         prev_patterns = offset(9,prev_symbols['_wheel_terrain_patterns'] & 65535)
+        prev_quarters = prev_symbols.get('_wheel_quarter_patterns')
+        if prev_quarters is not None:
+            prev_quarters = offset(5, prev_quarters & 65535)
+        prev_regions = read_refinements(prev_rom,prev_symbols,levels)
     rng = random.Random(0x73511)
     samples, totals, interrupts = [], Counter(), {}
     for level,desc in enumerate(levels):
@@ -139,16 +175,31 @@ def linked_rows(gen, image, symbols, baseline, previous=None):
                     if baseline:
                         old_pattern = read_pattern(old_rom,old_row,cx,sub,False)
                     if previous:
-                        prev_pattern = read_pattern(prev_rom,prev_row,cx,sub,True)
+                        prev_pattern = read_pattern(prev_rom,prev_row,cx,sub,True,prev_quarters is not None)
+                        prev_detail = prev_regions.get((level,cx,cy,sub))
+                    detail = refinements.get((level,cx,cy,sub))
                     for quarter in range(16):
                         half = (quarter//8)*2 + (quarter%4)//2
                         if pattern >= 512:
                             code = image[quarter_patterns+16*(pattern-512)+quarter]
                         else:
                             code = image[patterns+4*pattern+half]
+                        refined = detail is not None and code >= WINDOW and detail[quarter] != GENERAL
+                        if refined:
+                            code = detail[quarter]
                         if previous:
-                            old = prev_rom[prev_patterns+4*prev_pattern+half]
-                            assert old == GENERAL or old == code
+                            old = (prev_rom[prev_quarters+16*(prev_pattern-512)+quarter] if prev_pattern >= 512
+                                   else prev_rom[prev_patterns+4*prev_pattern+half])
+                            if prev_detail is not None and old >= WINDOW and prev_detail[quarter] != GENERAL:
+                                old = prev_detail[quarter]
+                            if old != GENERAL and old != code:
+                                assert refined and old >= WINDOW
+                                base,length = divmod(old-WINDOW,4)
+                                if code >= WINDOW:
+                                    new,n = divmod(code-WINDOW,4)
+                                    assert base <= new and new+n <= base+length
+                                elif code:
+                                    assert base < code <= base+length+1
                             if old == GENERAL and old != code:
                                 totals['refined'] += 1
                         if baseline:
@@ -158,6 +209,11 @@ def linked_rows(gen, image, symbols, baseline, previous=None):
                         kind = ('empty' if code == 0 else 'general' if code == GENERAL else
                                 'window' if code >= WINDOW else 'plane')
                         totals[kind] += 1
+                        if refined:
+                            x = cx*16 + sub%4*4 + quarter%4
+                            y = cy*16 + sub//4*4 + quarter//4
+                            groups.setdefault('refinement',[]).append((x,y,code))
+                            interrupts.setdefault('refinement',(level,x,y,code,20))
                         # Retain a deterministic sample of each type on every level.
                         if kind == 'window' or rng.randrange(15 if kind=='plane' else 60) == 0:
                             x = cx*16 + sub%4*4 + quarter%4
@@ -249,7 +305,9 @@ def native(image, sy, samples, interrupts):
                 assert call('_riding_wheel_lookup',x,y)==GENERAL
         # Inject a VBlank at the first instruction with the full data bank visible.
         for key,(lev,x,y,code,bank) in interrupts.items():
-            if key == 'quarter':
+            if key == 'refinement':
+                target = reader = sy['_riding_wheel_refinement_mapped']
+            elif key == 'quarter':
                 reader = sy['_riding_wheel_read_quarter']
                 target = image.index(bytes([0x3e,5,0xea,0,0x20]),reader,reader+64)+5
             else:
@@ -275,7 +333,7 @@ def native(image, sy, samples, interrupts):
             p.hook_deregister(0,target)
             p.hook_deregister(0,0x40)
             counts['VBlank'] += 1
-        assert counts['VBlank'] == 3
+        assert counts['VBlank'] == len(interrupts)
         for path in ('window warm','window cold'):
             assert all(counts[path,n] for n in (0,1,2))
     finally:

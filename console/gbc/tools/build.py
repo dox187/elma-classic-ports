@@ -73,6 +73,8 @@ def validate_linked_layout(symbol_path,rom_mib):
                 raise ValueError(f'Unaligned or misplaced square-root lookup page {name}')
     if '_riding_div20_rows' in symbols and symbols['_riding_div20_rows'] != 0x234000:
         raise ValueError('Force division rows must be page-aligned at bank 35 address 0x4000')
+    if '_riding_rider_rows' in symbols and symbols['_riding_rider_rows'] != 0x24000:
+        raise ValueError('Rider spring and damper rows must start at bank 2 address 0x4000')
     if '_riding_small_squares' in symbols:
         for label, address in (('_riding_small_squares', 0x4000), ('_riding_endpoint_square_rows', 0x4100),
                                ('_riding_square_rows', 0x4500), ('_riding_contact_high', 0x6500),
@@ -105,6 +107,10 @@ def validate_linked_layout(symbol_path,rom_mib):
         projection_tables.validate_layout(symbols)
     if 'ground_rows_29' in symbols:
         rolling_tables.validate_shallow_layout(symbols)
+    if 'near_rows_positive_134' in symbols:
+        start = symbols['near_rows_positive_134']
+        if start >> 16 != 13 or start & 255 or symbols.get('near_upper_digits') != start + 6 * 512:
+            raise ValueError('Near-horizontal rolling products require six aligned rows in bank 13')
     return {'rom0_end':fixed_end,'rom0_free_bytes':0x4000-fixed_end}
 
 
@@ -316,7 +322,11 @@ def main():
             'physics_supports_fast.s','physics_ordered_pair.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
             'physics_angle.c','physics_body_angle.s','physics_geometry.c','physics_pose_lookup.s','physics_head_pose.s','physics_brake_fast.s',
             'physics_suspension_scheduled.s','physics_step_scheduled.s','physics_level_bounds.s','physics_recip_fast.s','physics_contact_filter.s','physics_reaction_division.s')]
-        sources.extend((BASE/'src/physics_rider_coeff.s', a.gen/'physics_rider_rows.c', a.gen/'physics_q24_dispatch.c'))
+        sources.insert(0, a.gen/'physics_rider_rows.c')
+        rider_game = a.gen/'physics_rider_coeff_game.s'
+        rider_source = BASE/'src/physics_rider_coeff.s'
+        head_clearance.write_if_changed(rider_game, 'RIDING_ALIGNED_RIDER_ROWS = 1\n'+rider_source.read_text())
+        sources.extend((rider_game, a.gen/'physics_q24_dispatch.c'))
         sources.extend((BASE/'src/head_clearance.s', a.gen/'physics_head_map.c'))
         suspension = BASE/'src/physics_suspension_scheduled.s'
         sources[sources.index(suspension)] = rolling_tables.generate_reaction(
@@ -353,7 +363,7 @@ def main():
             sources[sources.index(source)] = game_source
         rider_source = BASE/'src/physics_rider_response.s'
         rider_game = a.gen/'physics_rider_response_game.s'
-        head_clearance.write_if_changed(rider_game, 'RIDING_PAIRED_ROTATION = 1\n'+rider_source.read_text()+
+        head_clearance.write_if_changed(rider_game, 'RIDING_PAIRED_ROTATION = 1\nRIDING_PROJECTION_TABLES = 1\n'+rider_source.read_text()+
                                         '\n'+(BASE/'src/physics_rider_rotation.s').read_text())
         sources[sources.index(rider_source)] = rider_game
         geometry_math = BASE/'src/physics_math.s'
@@ -409,6 +419,7 @@ def main():
         sprites = a.gen/'riding16_parts.c'
         sources.remove(sprites)
         sources.insert(sources.index(BASE/'src/bike_render16.c'), sprites)
+        sources.insert(sources.index(sprites) + 1, BASE/'src/roll_near_rows.s')
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
     for name in ('lcc','sdcc','sdasgb','sdldgb'):

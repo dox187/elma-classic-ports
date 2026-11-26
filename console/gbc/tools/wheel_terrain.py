@@ -6,6 +6,7 @@ import re
 import struct
 
 from head_clearance import packed_inputs, write_if_changed
+from wheel_refinement import refinement_tables
 
 GENERAL = 255
 WINDOW = 64
@@ -255,6 +256,7 @@ def generate(gen, dest=None):
     for pattern in quarter_patterns:
         out.extend(data_lines(pattern))
     out += ['_wheel_quarter_patterns_end::']
+    out += refinement_tables(levels, banks, rows, codes, patterns)
     path = dest/'wheel_terrain_rows.s'
     write_if_changed(path,'\n'.join(out)+'\n')
     return path
@@ -269,6 +271,16 @@ def validate_layout(symbols):
     if '_riding_leaf_dispatch' in symbols and (symbols['_riding_leaf_dispatch'] >= 0x4000 or
             symbols['_riding_leaf_classify'] >> 16 != 31 or symbols['_riding_leaf_general'] >> 16 != 9):
         raise ValueError('Wheel neighborhood queries require a fixed reader and classifiers in banks 31 and 9')
+    if '_riding_wheel_refinement' in symbols:
+        begin = symbols['_riding_wheel_refinement']
+        levels = symbols['_wheel_refinement_levels']
+        rows = symbols['_wheel_refinement_rows']
+        end = symbols['_wheel_refinement_end']
+        directory_end = levels + 3*symbols['_wheel_terrain_levels']
+        if (begin >> 16 != 20 or not begin < levels <= directory_end <= rows < end <= 0x148000
+                or (rows-directory_end) % 8 or (end-rows) % 4 or end-rows > 512*4
+                or end != symbols['s__CODE_20']+symbols['l__CODE_20']):
+            raise ValueError('Wheel refinement directory and rows must fit the tail of bank 20')
     start = symbols['_wheel_quarter_patterns']
     end = symbols['_wheel_quarter_patterns_end']
     if (start >> 16 != 5 or not 0 <= end-start <= 2048 or end > 0x58000

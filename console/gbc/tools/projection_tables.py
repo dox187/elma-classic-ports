@@ -324,7 +324,11 @@ def validate_layout(symbols):
         expected_size = count * 1280
         end = start + symbols.get(f'l__CODE_{bank}',0)
         tail = symbols.get(f'_head_quarter_tail_{bank}',end)
+        tail_end = symbols.get(f'_head_quarter_end_{bank}',tail)
+        if bank == 20 and '_riding_wheel_refinement' in symbols:
+            tail = symbols['_riding_wheel_refinement']
+            tail_end = symbols.get('_wheel_refinement_end')
         if (symbols.get(f'_riding_projection_bank_{bank}') != start or
                 symbols.get(f's__CODE_{bank}') != start or
-                tail != start+expected_size or symbols.get(f'_head_quarter_end_{bank}',tail) != end):
+                tail != start+expected_size or tail_end != end):
             raise ValueError(f'Overlapping or misaligned signed projection table in bank {bank}')

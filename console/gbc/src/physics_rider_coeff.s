@@ -52,6 +52,19 @@ rider_lookup:
 rider_full:
  add a,c
 rider_lookup_page:
+ .ifdef RIDING_ALIGNED_RIDER_ROWS
+ ; Page-aligned planes use each raw input byte directly as L.
+ add a,#>_riding_rider_rows
+ ld h,a
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld c,(hl)
+ inc h
+ ld b,(hl)
+ inc h
+ ld l,d
+ .else
  ld hl,#_riding_rider_rows
  add a,h
  ld h,a
@@ -71,6 +84,7 @@ rider_lookup_page:
  ld a,h
  adc a,#3
  ld h,a
+ .endif
  ld a,e
  cp a,(hl)
  ccf                          ; carry iff low rank reaches the threshold

@@ -271,27 +271,25 @@ geometry_reduce_q14:
  ld a,d
  add a,#32
  ld d,a
- ld a,l
- adc a,#0
- ld l,a
- ld a,h
- adc a,#0
- ld h,a
- ; bits14..29 are the result: shift toward the high end twice.
- ; First check that the unshifted high byte is within signed[-32,31].
+ jr nc,geometry_q14_biased
+ inc hl
+geometry_q14_biased:
+ ; The high word supplies the result shifted left twice. The two
+ ; remaining result bits come directly from the biased middle byte.
  ld a,h
  add a,#32
  cp a,#64
  jr nc,scale_mulq14_sat
- sla d
- rl l
- rl h
- sla d
- rl l
- rl h
+ ld a,d
+ rlca
+ rlca
+ and #3
+ add hl,hl
+ add hl,hl
+ or l
+ ld c,a
  ld b,h
- ld c,l
- jr scale_mulq14_done
+ ret
 scale_mulq14_sat:
  bit 7,h
  jr z,scale_mulq14_pos
@@ -442,27 +440,21 @@ geometry_dot_products:
  .else
  call _riding_mul16_regs
  .endif
+ ; Combine the low words using ADD HL,DE. Only their carry and the
+ ; second byte survive the Q14 reduction.
  ld b,h
  ld c,l
- ldhl sp,#0
- ld a,e
- add a,(hl)
- ld e,a
- inc hl
- ld a,d
- adc a,(hl)
- ld d,a
- inc hl
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,b
- adc a,(hl)
- ld b,a
- ld h,b
- ld l,c
- add sp,#6
+ pop hl
+ add hl,de
+ ld d,h
+ pop hl
+ ld a,l
+ adc c
+ ld l,a
+ ld a,h
+ adc b
+ ld h,a
+ add sp,#2
  call geometry_reduce_q14
 geometry_dot_return:
  pop hl

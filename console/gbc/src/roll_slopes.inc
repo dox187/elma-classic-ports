@@ -1,3 +1,10 @@
+.globl near_rows_negative_120
+.globl near_rows_negative_123
+.globl near_rows_negative_163
+.globl near_rows_negative_170
+.globl near_rows_negative_169
+.globl near_rows_positive_134
+.globl near_upper_digits
 ; Bank 35 resolves each tangent once for the two rolling input vectors.
 ; The fixed reader can visit all product banks without changing __current_bank.
 ; Each descriptor packs the mapped bank's low byte in B and its page in C.
@@ -87,6 +94,11 @@ slope_bias: .ds 3
 slope_inputs:
  ; Hash the low bytes. Compare all four tangent bytes before using a row.
  ldhl sp,#0
+ ld a,(hl)
+ dec a
+ cp #2
+ jp c,near_check
+slope_original_inputs:
  call slope_find
  jp nc,slope_fallback_dots
  ld a,(hl)
@@ -630,3 +642,330 @@ slope_vertical_project:
  inc de
  .endm
  jp ground_return
+
+.area _HRAM
+near_page: .ds 1
+near_slot: .ds 1
+near_round: .ds 1
+.area _CODE_35
+; The low X byte has selected e=1 or 2. Check the remaining three
+; tangent bytes before entering a factored path, including hash aliases.
+near_check:
+ ld a,(hl+)
+ cp #2
+ ld a,(hl+)
+ jr z,near_e2
+ cp #192
+ jr nz,near_original
+ ld a,(hl+)
+ ld c,(hl)
+ ld b,a
+ ld a,c
+ or a
+ jr nz,near_e1_negative
+ ld a,b
+ cp #134
+ jr nz,near_original
+ ld a,#>near_rows_positive_134
+ ld c,#32
+ jp near_map_inputs
+near_e1_negative:
+ inc a
+ jr nz,near_original
+ ld c,#33
+ ld a,b
+ cp #87
+ ld a,#>near_rows_negative_169
+ jp z,near_map_inputs
+ ld a,b
+ cp #86
+ ld a,#>near_rows_negative_170
+ jp z,near_map_inputs
+ ld a,b
+ cp #93
+ jr nz,near_original
+ ld a,#>near_rows_negative_163
+ jp near_map_inputs
+near_e2:
+ cp #192
+ jr nz,near_original
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl)
+ inc a
+ jr nz,near_original
+ ld c,#17
+ ld a,b
+ cp #10
+ ld a,#>near_rows_negative_123
+ jp z,near_map_inputs
+ ld a,b
+ cp #16
+ ld a,#>near_rows_negative_120
+ jp z,near_map_inputs
+ ld a,b
+ or a
+ jr nz,near_original
+ ld c,#16
+ ld a,#255
+ jp near_map_inputs
+near_original:
+ ldhl sp,#0
+ jp slope_original_inputs
+.area _CODE
+; Six row pairs occupy consecutive 512-byte slots. Their top-digit
+; records occupy consecutive 32-byte slots. Page 255 selects -128*y.
+near_map_inputs:
+ ldh (#near_page),a
+ sub #>near_rows_positive_134
+ swap a
+ ldh (#near_slot),a
+ ld a,c
+ ldh (#near_round),a
+ ld a,#13
+ ld (#0x2000),a
+ jp near_inputs
+
+; Only a roll which selected a coefficient here can reuse it. Direct
+; callers of the public output-pair ABI retain its complete tangent check.
+near_project_select:
+ ldh a,(#near_page)
+ or a
+ jp z,_riding_roll_project_pair
+ ld a,#13
+ ld (#0x2000),a
+ jp near_project
+near_project_miss:
+ call ground_restore
+ jp _riding_roll_project_pair
+
+.area _CODE_13
+; With tangent (-16384+e,e*m), e=1 or 2, the input dot is exactly
+; -x + round((x+m*y)/(16384/e)). The output pair uses the same denominator
+; and signed m for (-s+round(s/(16384/e)),round(m*s/(16384/e))).
+near_inputs:
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld bc,#8
+ add hl,bc
+ call near_dot
+ jp nc,slope_fallback_dots
+ push de
+ push bc
+ ldhl sp,#8
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call near_dot
+ jp c,ground_resume_deltas
+ add sp,#4
+ jp slope_fallback_dots
+
+near_dot:
+ push hl
+ inc hl
+ inc hl
+ ld a,(hl+)
+ add a
+ sbc a
+ cp (hl)
+ jr nz,near_dot_miss
+ inc hl
+ call near_product
+ jr nc,near_dot_miss
+ pop hl
+ push hl
+ ld a,(hl+)
+ add c
+ ld a,(hl+)
+ adc b
+ ld b,a
+ ld a,(hl+)
+ adc e
+ ld e,a
+ ld a,(hl)
+ adc d
+ ld d,a
+ call near_shift
+ pop hl
+near_subtract:
+ ld a,c
+ sub (hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc (hl)
+ ld b,a
+ inc hl
+ ld a,e
+ sbc (hl)
+ ld e,a
+ inc hl
+ ld a,d
+ sbc (hl)
+ ld d,a
+ scf
+ ret
+near_dot_miss:
+ pop hl
+ and a
+ ret
+
+; U[y0]+256*U[y1]+65536*S[y2] is m*y, biased by -256 for negative
+; table factors. Full signed20 Y and signed24 X fit the factored sum.
+; The signed top digit occupies one of sixteen slots in the shared page.
+near_product:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ add #8
+ ld b,a
+ sbc a
+ cp (hl)
+ jr nz,near_product_miss
+ ld a,b
+ cp #16
+ jr nc,near_product_miss
+ ldh a,(#near_page)
+ inc a
+ jr z,near_power
+ ldh a,(#near_slot)
+ or b
+ ld b,a
+ ldh a,(#near_page)
+ ld h,a
+ ld l,e
+ ld c,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ ld e,(hl)
+ dec h
+ add (hl)
+ ld d,a
+ ld l,b
+ ld h,#>near_upper_digits
+ ld a,e
+ adc (hl)
+ ld e,a
+ set 4,l
+ ld a,#0
+ adc (hl)
+ ld b,d
+ ld d,a
+ scf
+ ret
+near_power:
+ ; Multiply by -128 by putting -y in the upper three bytes and
+ ; shifting right once. The width check above bounds the negation.
+ ld a,b
+ sub #8
+ ld b,a
+ xor a
+ sub e
+ ld c,a
+ ld a,#0
+ sbc d
+ ld e,a
+ ld a,#0
+ sbc b
+ ld d,a
+ ld b,c
+ ld c,#0
+ sra d
+ rr e
+ rr b
+ rr c
+ scf
+ ret
+near_product_miss:
+ and a
+ ret
+
+; The rounding byte supplies the Q13 or Q14 half and compensates the
+; -256 table bias when present. The lowest product byte already contributed
+; its carry to byte one.
+near_shift:
+ ldh a,(#near_round)
+ add b
+ ld b,a
+ ld a,e
+ adc #0
+ ld e,a
+ ld a,d
+ adc #0
+ ld d,a
+near_shift_biased:
+ add a
+ sbc a
+ ld l,a
+ ld h,a
+ ldh a,(#near_round)
+ cp #32
+ ld a,b
+ jr nc,near_shift14
+ add a
+ rl e
+ rl d
+ rl l
+near_shift14:
+ .rept 2
+ add a
+ rl e
+ rl d
+ rl l
+ .endm
+ ld c,e
+ ld b,d
+ ld e,l
+ ld d,h
+ ret
+
+near_project:
+ push hl
+ ldhl sp,#4
+ call near_product
+ jr nc,near_project_wide
+ call near_shift
+ pop hl
+ push hl
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+ call near_store
+ ldhl sp,#4
+ inc hl
+ ldh a,(#near_round)
+ and #48
+ add (hl)
+ inc hl
+ ld b,a
+ ld a,(hl+)
+ adc #0
+ ld e,a
+ ld a,(hl)
+ adc #0
+ ld d,a
+ call near_shift_biased
+ ldhl sp,#4
+ call near_subtract
+ pop hl
+ call near_store
+ jp ground_return
+near_project_wide:
+ pop hl
+ jp near_project_miss
+near_store:
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ld a,e
+ ld (hl+),a
+ ld (hl),d
+ ret

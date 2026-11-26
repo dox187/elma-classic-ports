@@ -20,6 +20,10 @@ _riding_roll_inputs::
  ld a,(hl+)
  ld d,a
 roll_start:
+ .ifdef RIDING_GROUND_ROWS
+ xor a
+ ldh (#near_page),a
+ .endif
  push de
  push hl
  ld h,b
@@ -235,7 +239,11 @@ roll_moving:
  ; HL is at omega+3. The pair writes vx and vy directly into the wheel.
  ld de,#-15
  add hl,de
+ .ifdef RIDING_GROUND_ROWS
+ call near_project_select
+ .else
  call _riding_roll_project_pair
+ .endif
  add sp,#10
  pop hl
  jp _riding_wheel_move_hl

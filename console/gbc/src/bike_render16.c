@@ -28,121 +28,43 @@ static void body16(uint8_t x,uint8_t y,uint8_t mask) __sdcccall(0) __naked {
     inc hl
     ld b,(hl)
 _body16_registers:
+    .macro body_position
+    srl b
+    sbc a,a
+    and e
+    ld (hl+),a
+    ld (hl),d
+    inc l
+    inc l
+    inc l
+    .endm
+    .macro body_row
+    .rept 3
+    body_position
+    ld a,d
+    add a,#8
+    ld d,a
+    .endm
+    body_position
+    .endm
     ld hl,#_shadow_OAM
-    srl b
-    ld a,#0
-    jr nc,000$
-    ld a,e
-000$:
-    ld (hl+),a
-    ld (hl),d
-    inc hl
-    inc hl
-    inc hl
-    ld a,d
-    add a,#8
-    ld d,a
-    srl b
-    ld a,#0
-    jr nc,001$
-    ld a,e
-001$:
-    ld (hl+),a
-    ld (hl),d
-    inc hl
-    inc hl
-    inc hl
-    ld a,d
-    add a,#8
-    ld d,a
-    srl b
-    ld a,#0
-    jr nc,002$
-    ld a,e
-002$:
-    ld (hl+),a
-    ld (hl),d
-    inc hl
-    inc hl
-    inc hl
-    ld a,d
-    add a,#8
-    ld d,a
-    srl b
-    ld a,#0
-    jr nc,003$
-    ld a,e
-003$:
-    ld (hl+),a
-    ld (hl),d
-    inc hl
-    inc hl
-    inc hl
+    body_row
     ld a,d
     sub a,#24
     ld d,a
     ld a,e
     add a,#16
     ld e,a
-    srl b
-    ld a,#0
-    jr nc,004$
-    ld a,e
-004$:
-    ld (hl+),a
-    ld (hl),d
-    inc hl
-    inc hl
-    inc hl
-    ld a,d
-    add a,#8
-    ld d,a
-    srl b
-    ld a,#0
-    jr nc,005$
-    ld a,e
-005$:
-    ld (hl+),a
-    ld (hl),d
-    inc hl
-    inc hl
-    inc hl
-    ld a,d
-    add a,#8
-    ld d,a
-    srl b
-    ld a,#0
-    jr nc,006$
-    ld a,e
-006$:
-    ld (hl+),a
-    ld (hl),d
-    inc hl
-    inc hl
-    inc hl
-    ld a,d
-    add a,#8
-    ld d,a
-    srl b
-    ld a,#0
-    jr nc,007$
-    ld a,e
-007$:
-    ld (hl+),a
-    ld (hl),d
-    inc hl
-    inc hl
-    inc hl
-
+    body_row
     ret
     __endasm;
 }
 
 static uint8_t last_body,last_wheel[2];
-static uint16_t last_head;
+static uint16_t last_head,previous_head;
 static uint16_t head_upload_frame;
 static uint8_t head_tile;
-static uint8_t positions_valid;
+static uint8_t positions_valid,center_x,center_y,center_mask;
 static uint8_t prepared,prepared_changed;
 static bike_screen_t last_screen;
 
@@ -150,10 +72,11 @@ void bike_render16_init_sprites(void) BANKED;
 
 void bike_render_init(void) BIKE_FIXED {
     last_body=last_wheel[0]=last_wheel[1]=255;
-    last_head=256;
+    previous_head=last_head=256;
     head_tile=BIKE_HEAD_TILE;
     head_upload_frame=0;
     positions_valid=0;
+    center_y=0;
     prepared=0;
     bike_render16_init_sprites();
 }
@@ -162,6 +85,7 @@ void bike_render_hide(void) BIKE_FIXED {
     uint8_t i;
     for(i=0;i<BIKE_OBJECT_OAM_BASE;++i)move_sprite(i,0,0);
     positions_valid=0;
+    center_y=0;
     prepared=0;
 }
 
@@ -309,43 +233,63 @@ static uint8_t draw_centered(const bike_screen_t *s,uint8_t mask) __sdcccall(0) 
     ld a,(hl+)
     sub a,#16
     cp a,#129
-    jr nc,021$
+    jp nc,021$
     add a,#8
     ld d,a
     ld a,(hl+)
     or a
-    jr nz,021$
+    jp nz,021$
     ld a,(hl+)
     sub a,#16
     cp a,#105
-    jr nc,021$
+    jp nc,021$
     add a,#16
     ld e,a
     ld a,(hl+)
     or a
-    jr nz,021$
+    jp nz,021$
+    ; The camera often keeps the body on the same pixel while the head and
+    ; wheels continue to move. Only these three bytes determine all eight
+    ; coordinate pairs. Zero is outside the admitted centered Y range.
+    ld a,(_center_y)
+    cp e
+    jr nz,023$
+    ld a,(_center_x)
+    cp d
+    jr nz,023$
+    ld a,(_center_mask)
+    cp b
+    jr z,024$
+023$:
+    ld a,e
+    ld (_center_y),a
+    ld a,d
+    ld (_center_x),a
+    ld a,b
+    ld (_center_mask),a
     push hl
     call _body16_registers
     pop hl
+024$:
     ld de,#4
     add hl,de
     ; Head origin is (center - 4,center - 4), hardware offsets (8,16).
     ld a,(hl+)
     cp a,#164
-    jr nc,021$
+    jp nc,021$
     add a,#4
     ld d,a
     ld a,(hl+)
     or a
-    jr nz,021$
+    jp nz,021$
     ld a,(hl+)
     cp a,#140
-    jr nc,021$
+    jp nc,021$
     add a,#12
     ld e,a
     ld a,(hl+)
     or a
-    jr nz,021$
+    jp nz,021$
     ld a,d
     ld (_shadow_OAM+49),a
     ld a,e
@@ -353,14 +297,14 @@ static uint8_t draw_centered(const bike_screen_t *s,uint8_t mask) __sdcccall(0) 
     ; The contiguous wheel words are x0,x1,y0,y1.
     ld c,#145
     call 022$
-    jr nc,021$
+    jp nc,021$
     ld d,a
     call 022$
-    jr nc,021$
+    jp nc,021$
     ld e,a
     ld c,#121
     call 022$
-    jr nc,021$
+    jp nc,021$
     add a,#8
     ld (_shadow_OAM+32),a
     ld (_shadow_OAM+36),a
@@ -369,7 +313,7 @@ static uint8_t draw_centered(const bike_screen_t *s,uint8_t mask) __sdcccall(0) 
     add a,#8
     ld (_shadow_OAM+37),a
     call 022$
-    jr nc,021$
+    jp nc,021$
     add a,#8
     ld (_shadow_OAM+40),a
     ld (_shadow_OAM+44),a
@@ -401,8 +345,9 @@ static uint8_t draw_centered(const bike_screen_t *s,uint8_t mask) __sdcccall(0) 
  * displacements and the two separately rounded products out of SDCC's
  * 32-bit stack temporaries. No scratch RAM or interrupt masking is needed. */
 typedef char rider_frame_layout[
-    offsetof(gbc_bike_t,body)==0 && offsetof(gbc_bike_t,rider)==30 &&
-    offsetof(gbc_pose_t,y)==4 ? 1 : -1];
+    offsetof(gbc_bike_t,body)==0 && offsetof(gbc_bike_t,wheel)==10 &&
+    offsetof(gbc_bike_t,rider)==30 && sizeof(gbc_pose_t)==10 &&
+    offsetof(gbc_pose_t,y)==4 && offsetof(gbc_pose_t,angle)==8 ? 1 : -1];
 static uint8_t rider_compression(const gbc_bike_t *bike,uint8_t angle) __sdcccall(0) BIKE_FIXED __naked {
     __asm
     ldhl sp,#2
@@ -530,36 +475,163 @@ static uint8_t rider_compression(const gbc_bike_t *bike,uint8_t angle) __sdcccal
     add sp,#6
     ret
 010$:
-    ; Signed DE * signed C, modulo 16 bits, then arithmetic >>1. Products
-    ; fit int16_t for the accepted displacement and int8_t atlas vectors.
+    ; Signed DE * signed C. Initialize from the sign bit, then append
+    ; the remaining seven bits. The common cardinal coefficients use
+    ; 127*d = 128*d - d. Both paths retain each product's own floor.
     ld a,c
-    push af
+    or a
     ld hl,#0
-    ld b,#8
-011$:
-    add hl,hl
-    sla c
-    jr nc,012$
-    add hl,de
-012$:
-    dec b
-    jr nz,011$
-    pop af
-    bit 7,a
-    jr z,013$
+    ret z
+    cp a,#127
+    jr z,015$
+    cp a,#-127
+    jr nz,016$
+    xor a
+    sub e
+    ld e,a
+    sbc a,a
+    sub d
+    ld d,a
+015$:
+    ld h,e
+    ld a,d
+    rra
+    rr h
+    rr l
+    ld a,l
+    sub e
+    ld l,a
     ld a,h
-    sub a,e
+    sbc d
+    ld h,a
+    jr 018$
+016$:
+    sla c
+    jr nc,013$
+    xor a
+    sub e
+    ld l,a
+    sbc a,a
+    sub d
     ld h,a
 013$:
+    .rept 7
+    add hl,hl
+    sla c
+    jr nc,.+3
+    add hl,de
+    .endm
+018$:
     sra h
     rr l
     ret
     __endasm;
 }
 
+/* Moving the two factors of two out of 12*x reduces the half-pixel phase to
+ * bit 13 of 3*x. Keep both words in registers and assemble the two bits
+ * in screen order. */
+static uint8_t head_phase(const gbc_pose_t *head) __sdcccall(0) BIKE_FIXED __naked {
+    __asm
+    ldhl sp,#2
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    ld a,(hl+)
+    ld e,a
+    ld a,(hl+)
+    ld d,a
+    inc hl
+    inc hl
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    xor a
+    sub l
+    ld l,a
+    sbc a,a
+    sub h
+    ld h,a
+    ld b,h
+    ld c,l
+    add hl,hl
+    add hl,bc
+    ld a,h
+    rlca
+    rlca
+    rlca
+    rlca
+    and a,#2
+    ld c,a
+    ld h,d
+    ld l,e
+    add hl,hl
+    add hl,de
+    ld a,h
+    rlca
+    rlca
+    rlca
+    and a,#1
+    or c
+    ld e,a
+    ret
+    __endasm;
+}
+
+#ifdef RIDING_PAIRED_MASKS
+/* Each wheel has two adjacent OAM entries. A resident atlas never overwrites
+ * pattern data, so these four tile attributes can be selected directly. */
+static void resident_wheels(const gbc_bike_t *bike) __sdcccall(0) BIKE_FIXED __naked {
+    __asm
+    ldhl sp,#2
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    ld de,#19
+    add hl,de
+    ld a,(hl)
+    ld de,#10
+    add hl,de
+    ld b,(hl)
+    ld hl,#_riding_wheel_tiles
+    ld d,h
+    ld e,l
+    add a,#16
+    swap a
+    rrca
+    and a,#7
+    ld (_last_wheel),a
+    add a,l
+    ld l,a
+    jr nc,001$
+    inc h
+001$:
+    ld a,(hl)
+    ld (_shadow_OAM+34),a
+    add a,#2
+    ld (_shadow_OAM+38),a
+    ld a,b
+    add a,#16
+    swap a
+    rrca
+    and a,#7
+    ld (_last_wheel+1),a
+    add a,e
+    ld e,a
+    jr nc,002$
+    inc d
+002$:
+    ld a,(de)
+    ld (_shadow_OAM+42),a
+    add a,#2
+    ld (_shadow_OAM+46),a
+    ret
+    __endasm;
+}
+#endif
+
 void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
     uint8_t angle,compression,body,head,wheel,bank,oldbank,i,phase;
-    uint16_t fraction;
     uint16_t frame;
     angle=(uint8_t)((bike->body.angle+1024U)>>11)&31;
     /* Use subpixel physical displacement so the selected rider pose does not
@@ -569,12 +641,7 @@ void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
     /* OAM uses floor(world pixels), while the atlas retains half-pixel phase.
      * The camera and level origin are whole pixels, so only world low words
      * contribute. Positive screen Y is the negative of physical world Y. */
-    fraction=(uint16_t)bike->head.x;
-    fraction=(fraction<<3)+(fraction<<2);
-    phase=fraction>>15;
-    fraction=0-(uint16_t)bike->head.y;
-    fraction=(fraction<<3)+(fraction<<2);
-    phase|=(fraction>>15)<<1;
+    phase=head_phase(&bike->head);
     head=(((bike->turned ? 32 : 0)+angle)<<2)|phase;
     oldbank=CURRENT_BANK;
     prepared_changed=body!=last_body;
@@ -592,26 +659,27 @@ void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
          * At most one publication per display frame prevents a second prepare
          * call from recycling the pattern that hardware OAM still references. */
         head_tile=head_tile==BIKE_HEAD_TILE ? BIKE_HEAD_BACK_TILE : BIKE_HEAD_TILE;
-        SWITCH_ROM(13);
-        upload(head_tile,1,riding_heads+((uint16_t)head<<5));
+        /* The other head buffer still holds the preceding publication, even
+         * after a skipped display frame. Reuse its pixels when a half-pixel
+         * phase returns. The same frame gate still controls the OAM change. */
+        if(head!=previous_head) {
+            SWITCH_ROM(13);
+            upload(head_tile,1,riding_heads+((uint16_t)head<<5));
+        }
+        previous_head=last_head;
         shadow_OAM[12].tile=head_tile;
         head_upload_frame=frame;
         last_head=head;
     }
+#ifdef RIDING_PAIRED_MASKS
+    if(riding_wheel_tiles[0])resident_wheels(bike);
+    else
+#endif
     for(i=0;i<2;++i) {
         wheel=(uint8_t)((bike->wheel[i].angle+4096U)>>13)&7;
         if(wheel!=last_wheel[i]) {
-#ifdef RIDING_PAIRED_MASKS
-            if(riding_wheel_tiles[0]) {
-                uint8_t first=riding_wheel_tiles[wheel];
-                shadow_OAM[8+i*2].tile=first;
-                shadow_OAM[9+i*2].tile=first+2;
-            } else
-#endif
-            {
-                SWITCH_ROM(13);
-                upload(208+i*4,4,riding_wheels+((uint16_t)wheel<<6));
-            }
+            SWITCH_ROM(13);
+            upload(208+i*4,4,riding_wheels+((uint16_t)wheel<<6));
             last_wheel[i]=wheel;
         }
     }
@@ -640,6 +708,7 @@ void bike_render_draw(const gbc_bike_t *bike,const bike_screen_t *s) BIKE_DRAW_C
         |(uint8_t)(((original_mask>>4)|(original_mask>>8))&240);
 #endif
     if(draw_centered(s,mask)) {positions_valid=0;return;}
+    center_y=0;
     if(positions_valid && !prepared_changed && !memcmp(s,&last_screen,sizeof(last_screen)))return;
     memcpy(&last_screen,s,sizeof(last_screen));
     positions_valid=1;

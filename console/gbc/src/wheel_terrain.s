@@ -3,6 +3,8 @@
 .module wheel_terrain
 .area _CODE_9
 _riding_wheel_lookup::
+ jp wheel_refinement_lookup
+wheel_initial_lookup:
  ld a,d
  or b
  and #0xf0
@@ -614,4 +616,172 @@ wheel_clip_max_store:
  ret
 wheel_clip_outside:
  scf
+ ret
+
+.area _CODE
+; Preserve the complete quarter-square coordinates across the base map.
+; Only an ordered window or an unresolved region can benefit from refinement.
+wheel_refinement_lookup:
+ push bc
+ push de
+ call wheel_initial_lookup
+ cp #64
+ jr c,wheel_refinement_done
+ push af
+ ldhl sp,#2
+ ld a,#20
+ ld (#0x2000),a
+_riding_wheel_refinement_mapped::
+ call _riding_wheel_refinement
+ ld e,a
+ ld a,#9
+ ld (#0x2000),a
+ ld a,e
+ inc a
+ jr z,wheel_refinement_fallback
+ pop af
+ ld a,e
+ jr wheel_refinement_done
+wheel_refinement_fallback:
+ pop af
+wheel_refinement_done:
+ add sp,#4
+ ret
+
+.area _CODE_20
+_riding_wheel_refinement::
+ ; Map the two unsigned quarter-metre values to the coarse cell and its
+ ; one-metre subcell. Queries outside the collision grid use the old answer.
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ cp #16
+ jr nc,wheel_refinement_out
+ swap a
+ ld d,a
+ ld a,e
+ swap a
+ and #15
+ or d
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl)
+ cp #16
+ jr nc,wheel_refinement_out
+ swap a
+ ld b,a
+ ld a,c
+ swap a
+ and #15
+ or b
+ ld b,a
+ ld a,e
+ and #3
+ ld h,a
+ ld a,c
+ and #3
+ add a
+ add a
+ or h
+ push af
+ ld a,e
+ rrca
+ rrca
+ and #3
+ ld e,a
+ ld a,c
+ and #12
+ or e
+ ld c,a
+ ld e,b
+ ld a,(#_physics_level_index)
+ cp #_wheel_terrain_levels
+ jr nc,wheel_refinement_miss
+ ld l,a
+ ld h,#0
+ add hl,hl
+ add l
+ ld l,a
+ ld a,h
+ adc #0
+ ld h,a
+ push de
+ ld de,#_wheel_refinement_levels
+ add hl,de
+ pop de
+ ld a,(hl+)
+ ld b,a
+ or a
+ jr z,wheel_refinement_miss
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+wheel_refinement_record:
+ ld a,d
+ cp (hl)
+ inc hl
+ jr c,wheel_refinement_miss
+ jr nz,wheel_refinement_skip7
+ ld a,(hl+)
+ cp e
+ jr nz,wheel_refinement_skip6
+ ld a,(hl+)
+ cp c
+ jr z,wheel_refinement_found
+ inc hl
+wheel_refinement_skip4:
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+ dec b
+ jr nz,wheel_refinement_record
+wheel_refinement_miss:
+ pop af
+wheel_refinement_out:
+ ld a,#255
+ ret
+wheel_refinement_skip7:
+ inc hl
+wheel_refinement_skip6:
+ inc hl
+ inc hl
+ jr wheel_refinement_skip4
+wheel_refinement_found:
+ pop af
+ ld c,a
+ ld a,(hl+)
+ bit 3,c
+ jr z,wheel_refinement_pair
+ rrca
+ rrca
+wheel_refinement_pair:
+ bit 2,c
+ jr z,wheel_refinement_page
+ rrca
+wheel_refinement_page:
+ and #1
+ ld b,a
+ ld a,c
+ rrca
+ rrca
+ and #3
+ add l
+ ld l,a
+ jr nc,wheel_refinement_row
+ inc h
+wheel_refinement_row:
+ ld l,(hl)
+ ld h,b
+ add hl,hl
+ add hl,hl
+ ld a,c
+ and #3
+ ld e,a
+ ld d,#0
+ add hl,de
+ ld de,#_wheel_refinement_rows
+ add hl,de
+ ld a,(hl)
  ret

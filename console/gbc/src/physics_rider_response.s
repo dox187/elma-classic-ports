@@ -224,6 +224,13 @@ rider_spin_u8:
 
 _riding_q14_word_regs::
 rider_spin_word:
+ .ifdef RIDING_PROJECTION_TABLES
+ ; The exact projector already selects a single signed table or combines
+ ; both byte rows and restores bank 8. Its low byte drops out of Q14.
+ call _riding_projection_signed16
+ ld a,d
+ jp rider_spin_round
+ .else
  push bc                       ; original tangent
  push de                       ; original omega
  call _riding_mul16u8_unsigned ; unsigned omega * low tangent byte
@@ -276,6 +283,9 @@ rider_spin_word_ready:
  ld h,b
  ld l,d
  ld a,e
+ .endif
+
+.area _CODE_8
 
 rider_spin_round:
  ; HL is the signed high word, A holds bits 8..15. Add the rounding
