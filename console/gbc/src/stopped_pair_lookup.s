@@ -14,8 +14,6 @@ _riding_stopped_pair_proof::
  ld a,(hl)
  dec a
  jp nz,stopped_unknown
- ; Identify the candidate from its low normal byte, then verify every byte.
- ld a,(#_Ct)
  jp stopped_match
 
 stopped_check:
@@ -30,6 +28,7 @@ stopped_check:
  inc de
  ld a,(de)
  ld b,a
+stopped_table:
  push bc                       ; geometry's first table row
  ld hl,#_riding_pair_impulse
  ld a,(hl+)
@@ -180,3 +179,88 @@ stopped_digit:
 stopped_invalid:
  ld a,#255
  ret
+
+.area _CODE
+; For M=65536*(1+max(U(vx)>>16,U(vy)>>16)), |vx| and |vy| <= M.
+ ; Any signed16 tangent therefore gives |round(dot/2^14)|<=4*M.
+ ; Lengths in [0,511] give |floor(dot*length/1024)|<=2*M. For a
+ ; nonnegative Q24 coefficient <=250000 and M>=65536, the rounded
+ ; magnitude is strictly less than M/32. A signed16 angular velocity
+ ; with magnitude >=M/32 fixes the moment sign without signed32 wrap.
+_riding_pair_fast_side::
+ .if PAIR_FAST_BOUND
+ ld hl,#2
+ add hl,de
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ inc a
+ cp #2
+ jr nc,pair_side_unknown
+ dec a
+ xor c
+ ld b,a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ inc a
+ cp #2
+ jr nc,pair_side_unknown
+ dec a
+ xor c
+ cp b
+ jr c,pair_side_max
+ ld b,a
+pair_side_max:
+ ld de,#5
+ add hl,de
+ ld a,(hl+)
+ ld c,a
+ add a
+ sbc a
+ cp (hl)
+ jr nz,pair_side_unknown
+ inc hl
+ cp (hl)
+ jr nz,pair_side_unknown
+ xor c
+ rrca
+ rrca
+ rrca
+ and #31
+ cp b
+ jr c,pair_side_unknown
+ jr z,pair_side_unknown
+ ; Rolling always publishes Q24. Airborne motion publishes it on the
+ ; partial substep, or when a nonzero torque invokes the free coefficient.
+ ; Full-substep free motion with zero torque can preserve the pivot state.
+ ld a,(#_riding_subphase)
+ or a
+ jr nz,pair_side_known
+ ld hl,#_riding_pair_impulse
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ ld a,(hl+)
+ or (hl)
+ inc hl
+ or (hl)
+ inc hl
+ or (hl)
+ jr z,pair_side_unknown
+pair_side_known:
+ ld a,c
+ and #128
+ ret nz
+ ld a,#2
+ ret
+ .endif
+pair_side_unknown:
+ xor a
+ ret
+
+.area _CODE_5

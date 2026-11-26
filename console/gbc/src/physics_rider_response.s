@@ -3,10 +3,72 @@
 ; retain their signed narrowing, rounded products and wrapping32 updates.
 ; The vectors use eight stack bytes. Each acceleration goes straight to motion.
 .module physics_rider_response
+.ifdef RIDING_PAIRED_ROTATION
+.area _DATA
+; Low bytes of each wrapped rider-minus-body coordinate and the high
+; byte of its saturated Q8 displacement. A strip hit bounds both axes.
+; A miss validates their size before leaving the general projection.
+rider_delta_x: .ds 3
+rider_delta_y: .ds 3
+.endif
 .area _CODE_8
+
+; The step caller has just limited the rider and supplies the cached pose's
+; rest vector, whose components have magnitude at most 7210. A certified
+; raw delta or a restored small rotation therefore cannot saturate either
+; Q4 result. The public entry still covers every possible 32-bit position
+; and every signed16 rest argument independently.
+_riding_rider_response_after_limit::
+ .ifdef RIDING_PAIRED_ROTATION
+ ld a,(#rider_delta_x+2)
+ cp #0x80
+ jr z,_riding_rider_response32
+ add sp,#-8
+.macro rider_cached_axis delta,rest,direction,tangent
+ ld hl,#delta
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld c,a
+ xor e
+ and #0x0f
+ xor e
+ swap a
+ ld b,a                       ; low byte of floor(delta / 16)
+ ld a,(hl)
+ xor c
+ and #0x0f
+ xor c
+ swap a
+ ld c,a                       ; high byte
+ ldhl sp,#tangent
+ ld (hl),b
+ inc hl
+ ld (hl),c
+ ; floor(-delta / 16) = -floor(delta / 16) - (delta mod 16 != 0).
+ ld a,e
+ and #15
+ ld e,a
+ ldhl sp,#rest
+ xor a
+ sub e
+ ld a,(hl+)
+ sbc b
+ ld e,a
+ ld a,(hl)
+ sbc c
+ ldhl sp,#(direction+1)
+ ld (hl-),a
+ ld (hl),e
+.endm
+ rider_cached_axis rider_delta_x,10,0,4
+ rider_cached_axis rider_delta_y,12,2,6
+ jr rider_response_ready
+ .endif
 _riding_rider_response32::
  add sp,#-8
  call _riding_rider_vectors_frame
+rider_response_ready:
 ; The spring displacement always fits signed16. If relative velocity
 ; also fits, compute the independently rounded spring and damper products
 ; in one bank visit. Wider velocities retain the full Q24 damper.
@@ -154,7 +216,11 @@ _riding_rider_spin14::
  jr z,rider_spin_negbyte
  ; Move the two unsigned table products to fixed ROM in one call. Only
  ; the upper 24 bits of the product survive to Q14 rounding.
+ .ifdef RIDING_PROJECTION_TABLES
+ jp rider_spin_full_word
+ .else
  jp rider_spin_word
+ .endif
 rider_spin_wide:
  dec hl
  dec hl
@@ -225,8 +291,95 @@ rider_spin_u8:
 _riding_q14_word_regs::
 rider_spin_word:
  .ifdef RIDING_PROJECTION_TABLES
- ; The exact projector already selects a single signed table or combines
- ; both byte rows and restores bank 8. Its low byte drops out of Q14.
+ ; Dynamic torque and body speed have no fixed terrain normal. For two
+ ; full words combine unsigned byte rows directly, keeping only product
+ ; bits 8..31. The low byte cannot carry into the half-Q14 bias.
+ ld a,d
+ inc a
+ cp #2
+ jr c,rider_spin_short_word
+rider_spin_full_word:
+ ld a,b
+ inc a
+ cp #2
+ jr c,rider_spin_short_word
+
+ ; x*y = unsigned(x)*unsigned(y) + (correction << 16) modulo 2^32.
+ ; The signed16 product fits signed32, including both -32768 operands.
+ ld hl,#0
+ bit 7,d
+ jr z,rider_word_x_positive
+ xor a
+ sub c
+ ld l,a
+ sbc a,a
+ sub b
+ ld h,a
+rider_word_x_positive:
+ bit 7,b
+ jr z,rider_word_sign_ready
+ ld a,l
+ sub e
+ ld l,a
+ ld a,h
+ sbc d
+ ld h,a
+rider_word_sign_ready:
+ push hl
+ .macro rider_word_row digit
+ ld l,digit
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ inc h
+ ld h,(hl)
+ .endm
+ rider_word_row d
+ ld l,c
+ ld d,(hl)                      ; low byte of x_hi * unsigned(y)
+ inc h
+ ld a,(hl)
+ ld l,b
+ ld b,(hl)
+ dec h
+ add (hl)
+ ld h,a
+ ld a,b
+ adc #0
+ ld b,l                         ; recover y_hi from its row index
+ ld l,h
+ ld h,a
+ push hl                        ; upper two bytes of that partial
+ rider_word_row e
+ inc h
+ ld l,c
+ ld a,(hl)                      ; floor(x_lo*y_lo/256)
+ ld l,b
+ ld b,(hl)
+ dec h
+ add (hl)
+ ld c,a
+ ld a,b
+ adc #0
+ ld h,a
+ ld a,c
+ add d
+ ld e,a                         ; complete product byte 1
+ ld a,h
+ pop hl
+ adc l
+ ld l,a
+ ld a,h
+ adc #0
+ ld h,a
+ pop bc
+ add hl,bc
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
+ ld a,e
+ jp rider_spin_round
+
+rider_spin_short_word:
  call _riding_projection_signed16
  ld a,d
  jp rider_spin_round
@@ -322,13 +475,19 @@ rider_spin_rounded:
 ; selects one of 32 symmetric sets of world-space strips. A certified
 ; strip can return without either rounded dot or the later constraints.
 ; The original wrapped, saturated deltas remain on the stack for every miss.
-.macro rider_delta rider,body,done
+.macro rider_delta rider,body,done,cache
  ld hl,#_Bike+body
  ld a,(#_Bike+rider)
  sub a,(hl)
+ .ifdef RIDING_PAIRED_ROTATION
+ ld (#cache),a
+ .endif
  inc hl
  ld a,(#_Bike+rider+1)
  sbc a,(hl)
+ .ifdef RIDING_PAIRED_ROTATION
+ ld (#cache+1),a
+ .endif
  ld e,a
  inc hl
  ld a,(#_Bike+rider+2)
@@ -348,6 +507,10 @@ rider_spin_rounded:
  jr z,done
  inc de
 done:
+ .ifdef RIDING_PAIRED_ROTATION
+ ld a,d
+ ld (#cache+2),a
+ .endif
  push de
 .endm
 
@@ -378,8 +541,8 @@ done:
 
 _riding_rider_phase_local::
  push de
- rider_delta 72,0,rider_saved_x
- rider_delta 76,4,rider_saved_y
+ rider_delta 72,0,rider_saved_x,rider_delta_x
+ rider_delta 76,4,rider_saved_y,rider_delta_y
  ldhl sp,#2
  ld a,(hl+)
  ld b,(hl)
@@ -487,6 +650,22 @@ rider_strip_cell:
  ret
 
 rider_project:
+ .ifdef RIDING_PAIRED_ROTATION
+ ; After an unchanged seat lookup the raw fractions are still required.
+ ; A Q8 coordinate in [-1024,1023] gives a Q4 magnitude <= 16384,
+ ; leaving room for the rest offset. A saturated Q8 cannot pass.
+ ld a,(#rider_delta_x+2)
+ add #4
+ ld c,a
+ ld a,(#rider_delta_y+2)
+ add #4
+ or c
+ cp #8
+ jr c,rider_project_size_known
+ ld a,#0x80
+ ld (#rider_delta_x+2),a
+rider_project_size_known:
+ .endif
  ; On exact quarter turns the dots are just a swap and saturated signs.
  ld a,(#_riding_pose_phase)
  or a,a

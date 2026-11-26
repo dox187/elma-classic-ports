@@ -74,6 +74,34 @@ class Cartridge:
                 for key, size in FIELDS.items()}
 
 
+def check_moving_pivots(reference, target, rng):
+    # The first and second pivots face opposite separation signs. Positive
+    # normal impulse and velocity can leave the wheel airborne, including
+    # the full-substep zero torque case that preserves the last Q24 result.
+    checked = 0
+    for vx in (-1048576, -65537, -65536, -32769, 32768, 65535, 65536, 1048575):
+        magnitude_bin = (vx if vx >= 0 else ~vx) >> 16
+        limit = 2048 * (magnitude_bin + 1)
+        for omega in (limit-1, limit, limit+1, -limit+1, -limit, -limit-1, 32768, -32769):
+            for phase in (0, 1):
+                for torque in (0, 1234):
+                    for direction in (-1, 1):
+                        fields = {key: rng.randbytes(size) for key, size in FIELDS.items()}
+                        bike = bytearray(fields['_Bike'])
+                        struct.pack_into('<ii', bike, 32, vx, 1600*direction)
+                        struct.pack_into('<i', bike, 44, omega)
+                        fields['_Bike'] = bike
+                        fields['_Ct'] = struct.pack('<10h', 0,16384,404,110,80,
+                                                    0,16384,409,-110,75)
+                        fields['_move_residual'] = bytes(32)
+                        force = (2400, direction*2048, torque)
+                        expected = reference.run(fields,phase,0,force,False)
+                        actual = target.run(fields,phase,0,force,False)
+                        assert expected == actual, (vx, omega, phase, torque, direction)
+                        checked += 1
+    return checked
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, required=True)
@@ -151,13 +179,15 @@ def main():
                 assert value == actual[key], (i, cached, phase, slot, key, value.hex(), actual[key].hex())
             results[(cached, actual['_riding_landing_contact'][slot],
                      actual['_riding_audio_impact'][slot])] += 1
+        moving = check_moving_pivots(reference, target, rng)
     finally:
         reference.emu.stop(save=False)
         target.emu.stop(save=False)
     assert set(results) == {(cached, n, impact) for cached in (False, True)
                             for n, impact in ((0, 0), (1, 0), (1, 1), (2, 0), (2, 1))}, results
     print(f'{sum(results.values())} native ordered-pair comparisons passed, including '
-          '700 real cache hits, full-width impulses, residuals, Q24 and reporting.')
+          '700 real cache hits, full-width impulses, residuals, Q24 and reporting. '
+          f'{moving} additional moving-pivot boundary and Q24 visibility comparisons passed.')
 
 if __name__ == '__main__':
     main()

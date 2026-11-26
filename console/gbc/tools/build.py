@@ -308,6 +308,14 @@ def main():
            'physics_contacts.c','physics_collision.c','physics_sweep.c','video_screen_fast.s','video_strip_pair.s','objects_touch_fast.s','objects_draw_fast.s','objects_bounds_fast.s','objects_visible_fast.s']
     sources=[BASE/'src'/name for name in names]
     sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
+    if rom_mib==8:
+        # Only world.c and its near acquisition kernel call these SRAM helpers.
+        # Keep the ROM-mapping readers fixed while the raw cart streams scenery.
+        for name in ('world_memory', 'world_alloc_fast', 'world_lookup_raw'):
+            source = BASE/'src'/(name+'.s')
+            raw = a.gen/(name+'_game.s')
+            head_clearance.write_if_changed(raw, 'WORLD_RAW_STREAM_BANK6 = 1\n'+source.read_text())
+            sources[sources.index(source)] = raw
     if rom_mib==4:
         sources=[path for path in sources if path.name!='world_upload_raw.s']
         sources.extend((BASE/'src/world_decompress.c', BASE/'src/world_zx0.s'))

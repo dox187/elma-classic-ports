@@ -18,8 +18,12 @@ static void retain_reject(uint16_t ox,uint16_t oy,uint16_t x,uint16_t y,uint16_t
 }
 #endif
 static void retain_clear_patterns(void) {
- VBK_REG=0;memset((void *)0x8000,0,0x1800);
- VBK_REG=1;memset((void *)0x8000,0,0x1800);VBK_REG=0;
+ /* Hidden cells retain earlier speculative work. Give both implementations
+  * identical starting bytes before comparing the complete ring. */
+ uint16_t i;rRAMB=0;
+ for(i=0;i<2048;++i)((volatile uint8_t *)0xb000)[i]=(uint8_t)(i*29+(i>>8));
+ VBK_REG=0;memset((void *)0x8000,0,0x1800);memset((void *)0x9800,0x4f,1024);
+ VBK_REG=1;memset((void *)0x8000,0,0x1800);memset((void *)0x9800,0x52,1024);VBK_REG=0;
 }
 void fixture_retain_cases(void) BANKED {
  uint16_t x,y,ox,oy,px,py,i,next,start;int8_t dx,dy;uint8_t stage;
@@ -133,6 +137,7 @@ hooks=r'''
         # fixture_verify checks the visible source pixels. Also compare the
         # complete ring mirror, both pattern banks and all allocator state.
         fields['mirror']=hashlib.sha256(bytes(p.memory[0,0xb000:0xb800])).hexdigest()
+        fields['tilemaps']=hashlib.sha256(b''.join(bytes(p.memory[b,0x9800:0x9c00]) for b in range(2))).hexdigest()
         fields['uploads']=word('world_uploads')
         fields['patterns']=hashlib.sha256(b''.join(bytes(p.memory[b,0x8000:0x9800])for b in range(2))).hexdigest()
         fields['lookup']=hashlib.sha256(bytes(p.memory[0,0xa000:0xb000])+b''.join((bytes(p.memory[b,0xa000:0xbfff])+bytes([p.memory[b,0xbfff]]))for b in range(1,4))).hexdigest()

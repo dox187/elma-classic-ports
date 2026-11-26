@@ -10,7 +10,7 @@ import sys
 from check_ordered_pair import Cartridge
 from check_grounded_wheel import FIELDS
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from stopped_pair import NORMALS, COLUMNS, SIDE, Y_MIN, Y_CELLS, cell
+from stopped_pair import NORMALS, COLUMNS, SIDE, Y_MIN, Y_CELLS, cell, normal_corners, normal_region
 
 
 def checks(rom, reference, constants):
@@ -61,21 +61,25 @@ def checks(rom, reference, constants):
                         probe(dx, dy, torque, expected)
                         if expected:
                             # Independent unreduced products and signed Q24 reference.
-                            for coefficient in scales:
-                                assert (dx*nx+dy*ny+8192)//16384 <= 0
-                                assert (dx*px+dy*py+8192)//16384 <= 0
-                                tangent = (-dx*py+dy*px+8192)//16384
-                                moment = ((tangent*length//64)*coefficient + 8388608)//16777216
-                                assert (moment+torque < 0) == (expected == 128)
-                                assert moment + torque != 0
-                                counts['integer witnesses'] += 1
+                            for cnx, cny, cpx, cpy in normal_corners(normal):
+                                assert (dx*cnx+dy*cny+8192)//16384 <= 0
+                                assert (dx*cpx+dy*cpy+8192)//16384 <= 0
+                                tangent = (-dx*cpy+dy*cpx+8192)//16384
+                                for coefficient in scales:
+                                    moment = ((tangent*length//64)*coefficient + 8388608)//16777216
+                                    assert (moment+torque < 0) == (expected == 128)
+                                    assert moment + torque != 0
+                                    counts['integer witnesses'] += 1
             matching = bytearray(struct.pack('<10h', nx,ny,405,1,2,px,py,405,-1,-2))
             for byte in (0,1,2,3,10,11,12,13):
                 for bit in range(8):
                     mutated = matching.copy()
                     mutated[byte] ^= 1 << bit
                     mem[ct:ct+20] = mutated
-                    probe(-14336,-24576,0,0)
+                    values = struct.unpack('<10h', mutated)
+                    region = normal_region(values[:2] + values[5:7])
+                    margin = cell(region,-16384,4096,-24576,scales) if region else 0
+                    probe(-14336,-24576,0,2 if margin > 0 else 128 if margin < 0 else 0)
             for length in (-32768,383,448,32767):
                 mem[ct:ct+20] = matching
                 mem[ct+14:ct+16] = struct.pack('<h', length)
@@ -97,7 +101,9 @@ def checks(rom, reference, constants):
                 value = cart.symbols['_riding_pair_'+method]
                 cart.emu.hook_register(value >> 16, value & 65535,
                                        lambda k: counts.update([k]), f'{tag} {method}')
-        for i,(nx,ny,px,py) in enumerate(NORMALS):
+        normals = [*NORMALS, (-27,16384,16376,497), (402,16379,16207,2401),
+                   (134,16383,16384,16), (-9606,13272,394,16379)]
+        for i,(nx,ny,px,py) in enumerate(normals):
             for slot,direction in enumerate((1,-1)):
                 for x1,y1 in ((0,0),(direction*510,direction*65),(direction*140,direction*300)):
                     records = struct.pack('<10h',nx,ny,406,0,0,px,py,405,x1,y1)

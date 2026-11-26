@@ -131,6 +131,9 @@ void world_cache_upload(uint16_t slot,uint16_t id) __sdcccall(0) {
 #else
 typedef char world_raw_pattern_bank_offset[(offsetof(world_level_t,patterns)+offsetof(world_far_t,bank)==14)?1:-1];
 typedef char world_raw_pattern_address_offset[(offsetof(world_level_t,patterns)+offsetof(world_far_t,address)==16)?1:-1];
+typedef char world_raw_map_layout[(offsetof(world_level_t,width)==0 && offsetof(world_level_t,height)==2
+    && offsetof(world_level_t,chunks)==18 && offsetof(world_level_t,chunks_x)==30
+    && sizeof(world_far_t)==4)?1:-1];
 void world_cache_upload_raw(uint16_t slot,uint16_t id) __sdcccall(0);
 void world_cache_upload(uint16_t slot,uint16_t id) __sdcccall(0) __naked {
     __asm jp _world_cache_upload_raw __endasm;

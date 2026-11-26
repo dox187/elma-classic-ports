@@ -293,8 +293,10 @@ def main():
     labels=('geometry','wheel inputs','spring products','damper products')
     if len(sites)>=6:
         labels=('geometry','wheel velocities and symmetry','first moment','second moment','spring products','damper products')
-    if len(sites)==7:
+    if len(sites)>=7:
         labels+=('angular damping moment',)
+    if len(sites)==8:
+        labels+=('base forces',)
     paths=bounds(a.rom,sy,{k:pc+5 for k,(pc,_) in zip(labels,sites)},
                  {pc for pc,_ in sites})
     print('Worst-case reachable SM83 T-cycles after each guard',paths)

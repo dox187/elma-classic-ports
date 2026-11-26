@@ -131,7 +131,10 @@ fixture_bank_marker: .db 0xa5
         objects[index] = out / objects[index].name
         subprocess.run([*flags, '-c', '-o', objects[index], replacement], check=True)
     rom = out / 'check.gbc'
-    subprocess.run([*flags, '-o', rom, *objects], check=True)
+    result = subprocess.run([*flags, '-o', rom, *objects], text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
+    if any(text in result.stdout for text in ('spans into the next', 'Multiple write', 'Possible overflow')):
+        raise ValueError(f'Fixture ROM banks overlap: {result.stdout}')
     return rom
 
 

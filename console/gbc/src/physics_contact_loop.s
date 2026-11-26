@@ -938,71 +938,6 @@ terrain_miss:
  or a
  ret
 
-; DE is the cache entry. The original bases remain available for the
-; first projection (and for the full coordinate-wrap fallback).
-terrain_plane_setup:
- ld hl,#5
- add hl,de
- push hl
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- inc hl
- inc hl
- ld a,(hl+)
- ld c,a
- ld b,(hl)
- call _riding_projection_signed16
- push hl
- push de
- ldhl sp,#4
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- inc hl
- inc hl
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- inc hl
- inc hl
- ld a,(hl+)
- ld c,a
- ld b,(hl)
- call _riding_projection_signed16
- pop bc
- ld a,c
- add e
- ld e,a
- ld a,b
- adc d
- ld d,a
- pop bc
- ld a,c
- adc l
- ld c,a
- ld a,b
- adc h
- ld b,a
- pop hl
- dec hl
- set 3,(hl)
- ld a,#13
- add l
- ld l,a
- jr nc,terrain_plane_store
- inc h
-terrain_plane_store:
- ld a,e
- ld (hl+),a
- ld a,d
- ld (hl+),a
- ld a,c
- ld (hl+),a
- ld (hl),b
- ret
 terrain_lookup_end:
  ; Two bytes for every 128 consecutive positive input magnitudes. Their
  ; rounded values differ by at most one. Store the initial value, a tie
@@ -1033,22 +968,15 @@ terrain_n = terrain_n+1
 
  .ifdef RIDING_NORMAL_ATLAS
 .area _CODE
-; The initial raw intercept is the dot at offset (0,0). All later
+; The cached intercept includes the Q14 bias at offset (0,0). Later
 ; products use the unsigned byte offsets within the same 256u square.
 _riding_plane_fill::
  push bc
  push de
- ld a,#34
- ld (#0x2000),a
- ld (#__current_bank),a
- call terrain_plane_setup
  ld a,#6
  ld (#0x2000),a
  ld (#__current_bank),a
- ; The builder only reads the WRAM plane and writes its private tail.
- pop de
- push de
- call plane_shallow_build
+ call terrain_plane_setup
  ld a,#9
  ld (#0x2000),a
  ld (#__current_bank),a
@@ -1114,7 +1042,7 @@ plane_general:
  push hl                      ; normal pointer for the contact writer
  push de
  ld de,#8
- add hl,de                    ; raw dot at the origin of the cache square
+ add hl,de                    ; biased dot at the origin of the cache square
  pop de
  ld a,e
  add (hl)
@@ -1131,20 +1059,125 @@ plane_general:
  adc (hl)
  ld h,a
  ld l,c
- call _riding_terrain_reduce_q14
+ ; Only biased high words -103..102 can produce an accepted
+ ; rounded distance. At -103 the low two bits must be 3. At 102 they
+ ; must be 0 or 1. Wider saturated projections also reject here.
+ ld a,h
+ or a
+ jr z,plane_raw_positive
+ inc a
+ jr nz,plane_raw_out
+ ld a,l
+ cp #153
+ jr c,plane_raw_out
+ jr nz,plane_raw_inside
+ ld a,d
+ cp #192
+ jr c,plane_raw_out
+ jr plane_raw_inside
+plane_raw_positive:
+ ld a,l
+ cp #102
+ jr c,plane_raw_inside
+ jr nz,plane_raw_out
+ ld a,d
+ cp #128
+ jr nc,plane_raw_out
+plane_raw_inside:
+ ld a,d
+ rlca
+ rlca
+ and #3
+ add hl,hl
+ add hl,hl
+ or l
+ ld c,a
+ ld b,h
  pop hl
- jp _riding_plane_distance
+ bit 7,b
+ jp nz,_riding_plane_negative
+ jp _riding_plane_positive
+plane_raw_out:
+ pop hl
+ xor a
+ ret
 
 .area _CODE_6
-; The full row uses d(0,0), signed Y and zero, one or two crossings in X.
-; For a signed unit Y normal the Y term is exactly integral. A minor normal
-; of magnitude <=127 changes the rounded result by at most two over 255u.
-plane_shallow_build:
- ld hl,#21
+; DE is the cache entry. The original bases remain available for the
+; first projection (and for the full coordinate-wrap fallback).
+terrain_plane_setup:
+ ld hl,#5
  add hl,de
+ push hl
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ call _riding_projection_signed16
+ push hl
+ push de
+ ldhl sp,#4
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ call _riding_projection_signed16
+ pop bc
+ ld a,c
+ add e
+ ld e,a
+ ld a,b
+ adc d
+ ld d,a
+ pop bc
+ ld a,c
+ adc l
+ ld c,a
+ ld a,b
+ adc h
+ ld b,a
+ pop hl
+ dec hl
+ set 3,(hl)
+ ld a,#13
+ add l
+ ld l,a
+ jr nc,terrain_plane_store
+ inc h
+terrain_plane_store:
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ add #32                     ; include the single Q14 rounding bias here
+ ld (hl+),a
+ ld a,c
+ adc #0
+ ld (hl+),a
+ ld a,b
+ adc #0
+ ld (hl),a
+
+ ; HL points at the final intercept byte. A signed unit Y plane
+ ; can finish the X threshold setup while the same ROM bank is selected.
+ inc hl
  ld (hl),#0
- ld hl,#9
- add hl,de
+ ld de,#-12
+ add hl,de                    ; normal at entry+9
  ld a,(hl+)
  ld c,a
  add a
@@ -1174,6 +1207,11 @@ plane_shallow_check_x:
  ld c,a
  set 7,b
 plane_shallow_magnitude:
+ ; HL points at the signed major coefficient's high byte.
+ ld de,#-12
+ add hl,de
+ ld d,h
+ ld e,l
  ld hl,#21
  add hl,de
  ld a,b
@@ -1184,15 +1222,10 @@ plane_shallow_magnitude:
  ld a,(hl+)
  ld e,a
  ld a,(hl+)
- add #32
  ld d,a
  ld a,(hl+)
- adc #0
  ld h,(hl)
- jr nc,plane_shallow_no_carry
- inc h
-plane_shallow_no_carry:
- ld l,a                      ; high word of biased raw
+ ld l,a
  push de
  ld a,d
  rlca

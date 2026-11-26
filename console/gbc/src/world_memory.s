@@ -1,8 +1,9 @@
-; MBC5 scratch-SRAM and nine-bit ROM data access. All entry points use ABI0
-; and remain in ROM0. Interrupts stay enabled; handlers must not bank switch.
+; MBC5 scratch-SRAM and nine-bit ROM data access, ABI0. Only the ROM readers
+; switch ROM banks. Interrupt handlers must preserve the selected ROM bank.
 .module gbc_world_memory
 .area _CODE
 
+.ifndef WORLD_RAW_STREAM_BANK6
 ; bank@SP+2, source@3, dest@5, count@7, stride@8. SRAM already enabled.
 _world_sram_gather::
  ldhl sp,#2
@@ -39,6 +40,8 @@ _world_sram_gather::
  xor a,a
  ld (#0x4000),a
  ret
+
+.endif
 
 ; bank@SP+2, source@4, dest@6, length@8. The caller splits bank crossings.
 _world_far_copy::
@@ -81,6 +84,7 @@ _world_far_copy::
  ld (#__current_bank),a
  ret
 
+.ifndef WORLD_RAW_STREAM_BANK6
 ; bank@SP+2, source@4, dest@6, count@8, stride@9. No window crossing.
 _world_far_gather::
  ld a,(#__current_bank)
@@ -125,6 +129,10 @@ _world_far_gather::
  ld (#0x2000),a
  ld (#__current_bank),a
  ret
+
+.else
+.area _CODE_6
+.endif
 
 ; x@SP+2,y@3,vertical@4,count@5,WRAM slots@6. Bank0 B000 word map,32x32.
 _world_slot_strip_get::
@@ -335,6 +343,7 @@ mirror_word_next:
  jr nz,mirror_word_next
  ret
 
+.area _CODE
 ; Three independent destination arrays, map planes separated by 512 bytes.
 ; bank@2 source@4 low@6 high@8 attrs@10 count@12 stride@13.
 ; Count zero is a no-op; source fragments cannot cross the ROM window.

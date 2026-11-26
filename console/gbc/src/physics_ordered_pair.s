@@ -73,6 +73,13 @@ pair_other_point:
  sbc (hl)
  ld b,a
  pop de
+ push de
+ push bc
+ call pair_separation_bound
+ pop bc
+ pop de
+ or a
+ jr nz,pair_store_sign
  ld hl,#pair_tangent+2
  ld a,(hl+)
  ld h,(hl)
@@ -118,6 +125,21 @@ pair_project:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+ ; A proved rejection ends in rolling or a free response that replaces
+ ; Q24. Accepted pivots still publish their exact fraction in case two
+ ; supports eventually hold.
+ ld a,h
+ cp #2
+ jr nc,pair_exact_moment
+ ld a,(#_riding_pair_moment_side)
+ or a
+ jr z,pair_exact_moment
+ ld b,a
+ pop af
+ cp b
+ jr nz,pair_reject_moment
+ push af
+pair_exact_moment:
  push hl
  ld hl,#_riding_pair_vector
  ld a,(hl+)
@@ -125,8 +147,186 @@ pair_project:
  ld e,a
  ld hl,#pair_tangent
  call _riding_dotq14_regs
- ; vn = HL:DE, length on the stack. When vn is signed16 the product
- ; needs only 32 bits, even for -32768 * -32768.
+ pop bc
+ call pair_length_scale
+ ld a,(#_riding_pair_coefficient)
+ dec sp
+ call _q24_apply_a
+ ld hl,#_riding_pair_moment
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,(hl+)
+ add c
+ ld c,a
+ ld a,(hl+)
+ adc b
+ ld b,a
+ ld a,(hl+)
+ adc e
+ ld e,a
+ ld a,(hl)
+ adc d
+ ld d,a
+ pop af
+ ; m=0 is supported on either side. Otherwise the signs must agree.
+ xor d
+ bit 7,a
+ jr z,pair_true
+ ld a,d
+ or e
+ or b
+ or c
+ jr z,pair_true
+ xor a
+ ret
+pair_reject_moment:
+ xor a
+ ret
+pair_true:
+ ld a,#1
+ ret
+
+.area _CODE
+ ; DE=dx and BC=dy. U(v) is v for v>=0 and ~v otherwise, so
+ ; U(v)<=abs(v)<=U(v)+1. A strictly larger U identifies a coordinate
+ ; at least as large in magnitude. Limit both U values to 16383 to
+ ; exclude signed32 overflow in the reference geometry dot.
+pair_separation_bound:
+ ld a,d
+ add a
+ sbc a
+ ld h,a
+ xor e
+ ld e,a
+ ld a,h
+ xor d
+ ld d,a
+ ld a,b
+ add a
+ sbc a
+ ld l,a
+ xor c
+ ld c,a
+ ld a,l
+ xor b
+ ld b,a
+ ld a,c
+ sub e
+ ld a,b
+ sbc d
+ jr c,pair_larger_x
+ ld a,b
+ xor d
+ jr nz,pair_larger_y
+ ld a,c
+ cp e
+ jr z,pair_bound_unknown
+pair_larger_y:
+ ld a,h
+ ld h,l
+ ld l,a
+ ld a,(#pair_tangent+3)
+ ld d,a
+ ld a,(#pair_tangent+1)
+ ld e,a
+ jr pair_compare_terms
+pair_larger_x:
+ ld b,d
+ ld c,e
+ ld a,(#pair_tangent+1)
+ ld d,a
+ ld a,(#pair_tangent+3)
+ ld e,a
+pair_compare_terms:
+ ld a,b
+ cp #64
+ jr nc,pair_bound_unknown
+ or a
+ jr nz,pair_compare_normals
+ ld a,c
+ cp #33
+ jr c,pair_bound_unknown
+pair_compare_normals:
+ ; The dominant coordinate has magnitude at least 33. With like-signed
+ ; terms a coefficient of at least 256 already exceeds the half-Q14 tie.
+ ; With opposite signs, a two-bin lead in U(coefficient)>>8 gives a
+ ; coefficient difference of at least 256, with the same strict margin.
+ ld a,d
+ xor h
+ ld b,a
+ ld a,d
+ add a
+ sbc a
+ xor d
+ jr z,pair_bound_unknown
+ ld d,a
+ ld a,e
+ xor l
+ xor b
+ bit 7,a
+ jr z,pair_bound_known
+ ld a,e
+ add a
+ sbc a
+ xor e
+ inc a
+ inc a
+ cp d
+ jr z,pair_bound_known
+ jr nc,pair_bound_unknown
+pair_bound_known:
+ ld a,b
+ and #128
+ ret nz
+ ld a,#2
+ ret
+pair_bound_unknown:
+ xor a
+ ret
+
+; HL:DE is the rounded tangent and BC is the signed contact length.
+; For a length 256+k and a tangent in [-65536,65535], its exact
+; product is (low16*k) + (low16<<8) - (negative ? length<<16 : 0).
+; This needs one existing scale-table row and the product fits signed32.
+pair_length_scale:
+ ld a,b
+ dec a
+ jr nz,pair_length_general
+ ld a,h
+ cp l
+ jr nz,pair_length_general
+ inc a
+ cp #2
+ jr nc,pair_length_general
+ push hl
+ push bc
+ push de
+ call _riding_mul16u8_unsigned
+ ld a,#9
+ ld (#0x2000),a
+ pop bc
+ ld a,d
+ add c
+ ld d,a
+ ld a,l
+ adc b
+ ld l,a
+ ld a,h
+ adc #0
+ ld h,a
+ pop bc
+ pop af
+ or a
+ jr z,pair_length_shift
+ ld a,l
+ sub c
+ ld l,a
+ ld a,h
+ sbc b
+ ld h,a
+ jr pair_length_shift
+pair_length_general:
  ld a,d
  add a
  sbc a
@@ -134,8 +334,8 @@ pair_project:
  jr nz,pair_wide_product
  cp l
  jr nz,pair_wide_product
- pop bc
  call _riding_mul16_regs
+pair_length_shift:
  ld a,(#_riding_pair_shift)
  cp #6
  jr nz,pair_new_product
@@ -169,9 +369,8 @@ pair_narrow_result:
  ld b,l
  ld e,h
  ld d,a
- jr pair_coefficient
+ ret
 pair_wide_product:
- pop bc
  ld a,(#_riding_pair_shift)
  push af
  inc sp
@@ -184,42 +383,9 @@ pair_wide_product:
  ld c,e
  ld d,h
  ld e,l
-pair_coefficient:
- ld a,(#_riding_pair_coefficient)
- dec sp
- call _q24_apply_a
- ld hl,#_riding_pair_moment
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld a,(hl+)
- add c
- ld c,a
- ld a,(hl+)
- adc b
- ld b,a
- ld a,(hl+)
- adc e
- ld e,a
- ld a,(hl)
- adc d
- ld d,a
- pop af
- ; m=0 is supported on either side. Otherwise the signs must agree.
- xor d
- bit 7,a
- jr z,pair_true
- ld a,d
- or e
- or b
- or c
- jr z,pair_true
- xor a
- ret
-pair_true:
- ld a,#1
  ret
 
+.area _CODE_9
 ; DE=contact. Accept and remove its inward normal velocity, or reject
 ; without mutation. Each call reads the velocity left by the previous one.
 _riding_pair_supports::

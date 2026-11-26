@@ -20,7 +20,11 @@
 .area _DATA
 _world_lookup_direct::
  .ds 1
+.ifdef WORLD_RAW_STREAM_BANK6
+.area _CODE_6
+.else
 .area _CODE
+.endif
 ; id@SP+2. uint16 result in DE. Cartridge RAM was enabled by lookup_clear.
 _world_lookup_get::
  ld a,(#_world_lookup_direct)
@@ -272,6 +276,7 @@ lookup_direct_set:
  ret
 
 .area _CODE_6
+.ifndef WORLD_RAW_STREAM_BANK6
 ; Private bank6 entry for one raw acquisition. Carry means HL points to
 ; the selected direct SRAM entry. The caller may use the WRAM allocator
 ; while it is selected and must restore SRAM0 before upload or yield. Otherwise the ordinary lookup
@@ -286,3 +291,4 @@ _world_lookup_open_raw::
  lookup_direct_address
  scf
  ret
+.endif

@@ -3,7 +3,11 @@
 ; Bytes 0..54 are full; only bits 0..3 of byte55 are valid. No shared RAM,
 ; bank-register writes or interrupt changes. Reentrant private stack only.
 .module world_alloc_fast
+.ifdef WORLD_RAW_STREAM_BANK6
+.area _CODE_6
+.else
 .area _CODE
+.endif
 _world_find_free::
  ldhl sp,#2
  ld e,(hl)

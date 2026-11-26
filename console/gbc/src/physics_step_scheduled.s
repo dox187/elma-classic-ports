@@ -217,7 +217,7 @@ step_gravity_y:
 step_rider_response:
  step_push32 _riding_suspension_state+step_oms
  step_push32 _riding_pose_rest
- call _riding_rider_response32
+ call _riding_rider_response_after_limit
  add sp,#16
  ; Only now can the rider's old body velocity and residual be replaced.
  step_load32 _riding_suspension_state+step_dwb

@@ -6,7 +6,7 @@
 .area _DATA
 ; Completed work for the next full substep: 1 arms, 2 spin, 3 wheel inputs,
 ; 4 first moment, 5 both moments, 6 spring products, 7 damper products,
-; 8 certified angular damping moment.
+; 8 certified angular damping moment, 9 base wheel and body forces.
 _riding_spring_ready:: .ds 1
 ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
 ss_spin_mid: .ds 16
@@ -20,6 +20,10 @@ ss_reaction_high: .ds 1
 ss_paired: .ds 1
 ss_damp_long: .ds 1                 ; 0 certified, 1 wide, 2 prepared moment
 ss_prepared_damping: .ds 4
+; The 18-byte split body sums and four wheel impulses are input-independent.
+; Only the consumer publishes them after the next control sample.
+ss_prepared_sums: .ds 18
+ss_prepared_wheels: .ds 16
 _riding_spring_scratch_end::
 
 ss_wheel_dvx = 10
@@ -28,6 +32,17 @@ ss_wheel_tq = 18
 ss_wheel_stride = 14
 
 ; Scheduled register convention is BC:DE, high word first.
+; Synthetic levels share bank 8 with the generic math kernels. These near
+; entries run with bank 8 already mapped, so they can also live in ROM0.
+; The cartridge's table-backed layout keeps them beside the main solver.
+.macro ss_near_area
+ .ifdef RIDING_GAS_REACTION
+ .area _CODE_8
+ .else
+ .area _CODE
+ .endif
+.endm
+
 .macro ss_read address
  ld hl,#(address)
  ld a,(hl+)
@@ -225,7 +240,7 @@ selected:
  ld b,a
 .endm
 
-.macro ss_force_fraction pair,axis
+.macro ss_force_fraction pair,axis,sums,live
  ld hl,#(ss_force_products+pair)
  ldh a,(ss_force_products+pair+7)
  add a,(hl)
@@ -246,20 +261,30 @@ selected:
  ld hl,#(_force_residual+axis*8)
  ld a,(hl)
  sub a,e
+ .if live
  ld (hl+),a
+ .else
+ inc hl
+ .endif
  ld e,a
  ld a,(hl)
  sbc a,d
+ .if live
  ld (hl+),a
+ .else
+ inc hl
+ .endif
  ld d,a
  ld a,(hl)
  sbc a,c
+ .if live
  ld (hl),a
+ .endif
  ld c,a
  ld a,#2
  sbc a,b
  ld b,a
- ss_store _riding_force_sums+axis*9
+ ss_store sums+axis*9
 .endm
 
 ; Return a full signed33 spring+damper in A:BCDE and publish its wrapped
@@ -355,16 +380,16 @@ positive:
  add a,a
  sbc a,a
  ld b,a
- ss_store _riding_suspension_state+destination
+ ss_store destination
 .endm
 
-.macro ss_narrow_force_axis pair,axis
- ss_narrow_force_pair pair,ss_wheel_dvx+axis*4
+.macro ss_narrow_force_axis pair,axis,sums,wheel0,wheel1
+ ss_narrow_force_pair pair,wheel0
  push de
- ss_narrow_force_pair pair+7,ss_wheel_dvx+axis*4+ss_wheel_stride
+ ss_narrow_force_pair pair+7,wheel1
  pop hl
  add hl,de
- ld a,(#_riding_suspension_state+ss_wheel_dvx+axis*4+2)
+ ld a,(#wheel0+2)
  adc a,c
  ld c,a
  add a,a
@@ -390,9 +415,9 @@ positive:
  ld l,a
  ld a,h
  sbc a,b
- ld (#_riding_force_sums+axis*9+8),a
+ ld (#sums+axis*9+8),a
  ld b,l
- ss_store _riding_force_sums+axis*9+4
+ ss_store sums+axis*9+4
 .endm
 
 ; Divide the integer force and the signed carry from the fractional sum. The
@@ -780,6 +805,7 @@ ss_prepared_moments:
  ld a,#12                       ; 8,908 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
+ push de
  call ss_damp_cert_entry
  ld b,h
  ld c,l
@@ -787,6 +813,18 @@ ss_prepared_moments:
  ld a,#2
  ld (#ss_damp_long),a
  ld a,#8
+ ld (#_riding_spring_ready),a
+ pop de
+ ldh a,(ss_force_wide_used)
+ or a
+ ret nz
+ ld a,#5                        ; 2,208 T plus two reserved LCD lines
+ call _riding_spring_budget
+ ret nc
+ ld e,#15
+ ld hl,#ss_prepare_base_forces
+ call ___sdcc_bcall_ehl
+ ld a,#9
  ld (#_riding_spring_ready),a
  ret
 ss_prepared_wide:
@@ -1031,7 +1069,11 @@ _riding_suspension_scheduled::
  jr z,ss_have_inputs
  dec b
  jr z,ss_have_spring_products
- jr ss_have_products
+ ld a,b
+ cp #3
+ jr nz,ss_have_products
+ call ss_publish_base_forces
+ jr ss_reactions
 ss_need_both_moments:
  call ss_both_moments
  jr ss_have_inputs
@@ -1192,6 +1234,7 @@ ss_spring_difference:
  ld b,l
  ret
 
+ss_near_area
 ss_prepare_reaction:
  ss_write ss_tr
  ; tr = (int16_t)tr + H*65536. Cache H once for both axes.
@@ -1328,6 +1371,7 @@ ss_reaction_input:
  sbc a,a
  ld h,a
  ret
+.area _CODE_8
 ; HL -> signed32 arm, DE -> signed32 speed. Return all 64 product bits in
 ; ss_product_upper:BC:HL:DE. Most speeds need just one signed32 x signed16
 ; product. The ROM0 multiplier restores the caller bank after table reads.
@@ -1747,6 +1791,15 @@ ss_spin_unsigned_rows:
  ld a,(#_riding_suspension_state+4)
  ld de,#ss_damping
  call ss_spin_rows
+ ; A negative high digit below 65536 in magnitude can be subtracted
+ ; directly. This saves four full arm subtractions after the merge.
+ ld a,(#_riding_suspension_state+6)
+ inc a
+ jr nz,ss_spin_middle_unsigned
+ ld a,(#_riding_suspension_state+5)
+ or a
+ jp nz,ss_spin_negative_middle
+ss_spin_middle_unsigned:
  ld a,(#_riding_suspension_state+5)
  ld de,#ss_spin_mid
  call ss_spin_rows
@@ -1835,6 +1888,61 @@ label:
  or a
  ret
 
+ss_near_area
+ss_spin_negative_middle:
+ cpl
+ inc a
+ ld de,#ss_spin_mid
+ call ss_spin_rows
+ ; P = lo*arm - 256*abs(mid)*arm. Byte zero cannot borrow.
+ ; The signed24 floor(P/65536) fits because abs(omega)<65536.
+ .macro ss_spin_subtract_lane offset,?nonnegative,?rounded
+ ld hl,#ss_spin_mid+offset
+ ld a,(#ss_damping+offset+1)
+ sub (hl)
+ inc hl
+ ld a,(#ss_damping+offset+2)
+ sbc (hl)
+ ld e,a
+ inc hl
+ ld a,(#ss_damping+offset+3)
+ sbc (hl)
+ ld d,a
+ inc hl
+ ld a,(#ss_damping+offset+3)
+ bit 7,a
+ ld a,#0
+ jr z,nonnegative
+ dec a
+nonnegative:
+ sbc (hl)
+ ld c,a
+ sra c
+ rr d
+ rr e
+ sra c
+ rr d
+ rr e
+ jr nc,rounded
+ inc de
+ ld a,d
+ or e
+ jr nz,rounded
+ inc c
+rounded:
+ ld a,c
+ add a,a
+ sbc a,a
+ ld b,a
+ ss_store ss_damping+offset
+ .endm
+ .irp i,0,4,8,12
+ ss_spin_subtract_lane i
+ .endm
+ or a
+ ret
+
+.area _CODE_8
 ; For omega +/-1 or +/-2, use each arm directly. Bit 7 of B records
 ; the sign and bit 0 selects the 17-bit shift for a magnitude of two.
 ss_spin_unit:
@@ -3488,14 +3596,54 @@ ss_wide_force_sums:
  ret
 
 .area _CODE_8
+ss_near_area
+ss_publish_base_forces:
+ ; Stream both adjacent split sums. Their low three digits also become
+ ; the persistent fractional remainder before any reaction torque.
+ ld hl,#ss_prepared_sums
+ ld de,#_riding_force_sums
+ .irp axis,0,1
+ .irp digit,0,1,2
+ ld a,(hl+)
+ ld (#_force_residual+axis*8+digit),a
+ ld (de),a
+ inc de
+ .endm
+ .rept 6
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ .endm
+ ld hl,#ss_prepared_wheels
+ .irp wheel,0,1
+ ld de,#(_riding_suspension_state+ss_wheel_dvx+wheel*ss_wheel_stride)
+ .rept 8
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ .endm
+ ret
+
+.area _CODE_8
+.area _CODE_15
+ss_prepare_base_forces:
+ ss_force_fraction 0,0,ss_prepared_sums,0
+ ss_force_fraction 14,1,ss_prepared_sums,0
+ ss_narrow_force_axis 0,0,ss_prepared_sums,ss_prepared_wheels,(ss_prepared_wheels+8)
+ ss_narrow_force_axis 14,1,ss_prepared_sums,(ss_prepared_wheels+4),(ss_prepared_wheels+12)
+ ret
+
+.area _CODE_8
 ss_general_force_sums:
- ss_force_fraction 0,0
- ss_force_fraction 14,1
+ ss_force_fraction 0,0,_riding_force_sums,1
+ ss_force_fraction 14,1,_riding_force_sums,1
  ldh a,(ss_force_wide_used)
  or a
  jp nz,ss_need_wide_sums
- ss_narrow_force_axis 0,0
- ss_narrow_force_axis 14,1
+ ss_narrow_force_axis 0,0,_riding_force_sums,(_riding_suspension_state+ss_wheel_dvx+0),(_riding_suspension_state+ss_wheel_dvx+ss_wheel_stride+0)
+ ss_narrow_force_axis 14,1,_riding_force_sums,(_riding_suspension_state+ss_wheel_dvx+4),(_riding_suspension_state+ss_wheel_dvx+ss_wheel_stride+4)
  ret
 ss_need_wide_sums:
  ld e,#15

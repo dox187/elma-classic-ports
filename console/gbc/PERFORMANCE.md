@@ -3111,3 +3111,45 @@ SHA-256 `7e4e45bf45b013ed08d7f667c955d46a251ddfc05308ee61d67a007b193eceb8`.
 The ROM uses MBC5 and 32 KiB SRAM with 320 bytes free in fixed ROM.
 Build with `tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test31-8m.gbc`.
 Reports are in `build/v096-test31/`. All timing is emulated.
+
+## 0.96 test32 — rider motion and ground contact
+
+The seat limiter passes the exact rider displacement to its spring and spin
+consumers. Dynamic Q14 word products discard the low byte after propagating
+every carry that affects rounding. Negative wheel angular velocities can use
+a signed middle byte for all four arms. The ordered contact solver uses a
+bounded sign proof where the next exact operation overwrites the intermediate
+Q24 values. The plane filter tests the biased raw distance before reducing it.
+
+A spare interval of five LCD lines can prepare the base wheel and body forces
+after angular damping. That final stage needs at most 2,208 T-cycles and
+publishes its result only after the next input. The cartridge links world
+allocation and strip helpers in bank 6. The linked bank-placement change on
+its own preserved all 216 traces, including their cycle counts.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 28.974 | 238,171 | 417,128 | 1,222 | 76/216 |
+| Eight courses, three longer inputs each | 5,227 | 27.954 | 256,343 | 516,484 | 699 | 2/24 |
+| Full Freefall neutral descent | 439 | 29.560 | 250,120 | 412,900 | 9 | 0/1 |
+
+All 75,252 substeps and 25,112 published states on the standard and
+extended routes, plus all 439 Freefall updates, matched test31. The 45 PC
+rebound and braking cases passed, and the 20 existing extreme spin results
+were unchanged. Native tests matched 9,210 ordinary and 3,170 speed-limit
+states. The suspension passed 12,769 raw product cases and 39,424 deadline
+guard checks. The ordered solver passed 5,600 comparisons plus 512 moving
+pivot cases. PyBoy matched 1,216 presentations and 61,845 background cells.
+SameBoy matched 878 presentations. Menu, audio, results and save checks
+passed. One idle timer update missed its deadline.
+
+Gravity Ride's long braking route still has a 516,484 T-cycle update. Its
+physics alone took 409,108 T, of which the six wheel queries and responses
+accounted for 247,032 T. Suspension took 109,176 T on the same update.
+Spring preparation and scenery also ran during the wait after the missed
+deadline. The continued work targets those expensive physics paths.
+
+SHA-256 `a93a551d2b8a60581306d6bcc7bc773b3e8ca3ee60fa67ab6a775732fd214287`.
+Fixed ROM has 691 bytes free. Build using
+`tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test32-8m.gbc`.
+Reports are in `build/v096-test32/`. All timing is emulated.

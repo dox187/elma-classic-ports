@@ -222,7 +222,15 @@ _riding_restore_small::
  add sp,#6
  pop bc
  pop de
- .macro rider_restore_axis offset,lo,hi,?positive
+ ; A restored world position equals the body plus the rounded displacement
+ ; shifted by eight. Publish those original digits for the spring and spin.
+ .macro rider_restore_axis offset,lo,hi,cache,?positive
+ xor a
+ ld (#cache),a
+ ld a,lo
+ ld (#cache+1),a
+ ld a,hi
+ ld (#cache+2),a
  ld hl,#_Bike+offset
  ld a,(hl+)
  ld (#_Bike+72+offset),a
@@ -240,10 +248,13 @@ _riding_restore_small::
 positive:
  ld (#_Bike+75+offset),a
  .endm
- rider_restore_axis 0,e,d
- rider_restore_axis 4,c,b
+ rider_restore_axis 0,e,d,rider_delta_x
+ rider_restore_axis 4,c,b,rider_delta_y
  ld a,#1
  ret
 rider_restore_wide:
+ ; The caller recomputes the position with full-width Q14 dots.
+ ld a,#0x80
+ ld (#rider_delta_x+2),a
  xor a
  ret

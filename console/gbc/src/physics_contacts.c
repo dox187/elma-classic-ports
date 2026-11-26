@@ -1060,6 +1060,9 @@ _riding_plane_distance::
     jr nc,ws_no_contact
     bit 7,b
     jr nz,ws_negative
+#ifdef RIDING_WHEEL_TERRAIN
+_riding_plane_positive::
+#endif
     ld de,#_Ct
     ld a,(hl+)
     ld (de),a
@@ -1075,6 +1078,9 @@ _riding_plane_distance::
     inc de
     jr ws_length
 ws_negative:
+#ifdef RIDING_WHEEL_TERRAIN
+_riding_plane_negative::
+#endif
     ld de,#_Ct
     xor a,a
     sub (hl)
@@ -1433,6 +1439,8 @@ int32_t *riding_pair_velocity;
 const int32_t *riding_pair_impulse;
 const int32_t *riding_pair_vector, *riding_pair_moment;
 uint8_t riding_pair_shift, riding_pair_coefficient, riding_pair_stopped;
+uint8_t riding_pair_moment_side;
+uint8_t riding_pair_fast_side(const int32_t *velocity);
 uint8_t riding_pair_sure(const contact_t *pivot,uint8_t *separation);
 uint8_t riding_pair_supports(const contact_t *contact);
 
@@ -1444,11 +1452,15 @@ static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
     circle_t *k=input->k;
     riding_pair_velocity=&k->vx;
     riding_pair_impulse=&input->dvx;
+    riding_pair_moment_side=0;
     riding_pair_stopped=!(k->vx || k->vy);
     if(!riding_pair_stopped && faster_1ms(k)) {
         riding_pair_vector=riding_pair_velocity;
         riding_pair_moment=&k->omega;
         riding_pair_shift=10;
+#ifdef RIDING_STOPPED_PAIR
+        riding_pair_moment_side=riding_pair_fast_side(riding_pair_velocity);
+#endif
         riding_pair_coefficient=q24_index_C_NEW[riding_subphase];
     } else {
         riding_pair_vector=riding_pair_impulse;
