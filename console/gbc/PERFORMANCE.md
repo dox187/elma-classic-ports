@@ -3386,3 +3386,35 @@ SHA-256 `9e199e1f709c5a938e93a4a6d5d4800a8b194db541400cc9d2d5d968c9acb668`.
 ROM0 has 54 bytes free. Banks 508–511 remain erased. Build with
 `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test38-8m.gbc`.
 Reports are in `build/v096-test38/`. Timings were measured in emulation.
+
+## 0.96 test39 — body and wheel integration
+
+The body and both wheels use paired position and residual updates. A signed
+byte lookup supplies the upper bits of the full-step displacement. For the
+fractional step, page tables combine the original coefficient products for
+both axes. Velocities outside the table's range take the full-width path.
+The wheel angle table rounds the original product at its original precision.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.453 | 224,880 | 418,012 | 546 | 117/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.139 | 238,514 | 507,584 | 259 | 6/24 |
+| Full Freefall neutral descent | 439 | 29.796 | 234,721 | 416,468 | 2 | 0/1 |
+
+In emulation, test39 reproduced all 75,252 captured substeps, 25,112
+published states and the separate 439-update Freefall descent from test38.
+An independent integer oracle checked 54,000 position/residual axes and
+18,000 wheel angles against the linked cartridge. All 45 PC landing/braking
+cases and the 20 extreme-spin comparisons retained their previous results.
+PyBoy matched 1,216 presentations and 61,845 visible background cells.
+SameBoy matched 878 presentations. Frontend, player records and save
+reload checks passed.
+
+A separate attempt to prepare the next wheel contact in idle time reproduced
+5,400 native queries. With the conservative execution bound, it increased
+display intervals on the longer routes. It stays outside the playable build.
+
+SHA-256 `b88938316811834f82a019983164bd421bff8c44b7b13a8c357e22d13e7bdad2`.
+Fixed ROM has 47 bytes free and banks 508–511 remain erased. Build with
+`tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test39-8m.gbc`.
+Reports are in `build/v096-test39/`.

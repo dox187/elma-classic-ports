@@ -98,7 +98,7 @@ phase_second:
 ; fraction in BC and q24_fraction+2. A full signed32 miss keeps DEBC
 ; intact for the original wide multiply. D already sign-extends every
 ; direct row's signed8 quotient.
- .macro phase_lookup publish,?phase_negative,?phase_positive_wide,?phase_negative_wide,?phase_page,?phase_words,?phase_direct,?phase_ready
+ .macro phase_lookup ?phase_negative,?phase_positive_wide,?phase_negative_wide,?phase_page,?phase_words,?phase_direct,?phase_ready
  push hl
  ; Positive and negative high words use different canonical top bytes.
  ; The common 0000 and FFFF words can select their planes immediately.
@@ -113,7 +113,7 @@ phase_second:
  ld a,b
  cp #8
  jr c,phase_direct
- ld a,#0x40
+ ld a,#0x45
  jr phase_words
 phase_negative:
  ld a,e
@@ -122,7 +122,7 @@ phase_negative:
  ld a,b
  cp #0xf8
  jr nc,phase_direct
- ld a,#0x7c
+ ld a,#0x6f
  jr phase_words
 phase_positive_wide:
  cp #7
@@ -133,15 +133,19 @@ phase_negative_wide:
  cp #0xf8
  jp c,phase_product_saved
  and #15
+ dec a
 phase_page:
+ ld l,a
  add a,a
- add a,a
- or #0x40
+ add l
+ add #0x45
 phase_words:
  ld h,a
  ld l,b
+ push hl
+ ld h,#0x40
  ld e,c
- ld d,#0x5c
+ ld d,#0x41
  ld a,#32
  ld (#0x2000),a
  ld a,(de)
@@ -150,8 +154,8 @@ phase_words:
  ld a,(de)
  add (hl)
  ld b,a
+ pop hl
  inc d
- inc h
  ld a,(de)
  adc (hl)
  ldh (#_q24_fraction+2),a
@@ -167,19 +171,20 @@ phase_words:
  jr phase_ready
 
 phase_direct:
- ; Signed12 velocity selects the four consecutive byte planes of a
- ; complete product. Its integer floor fits signed8 throughout.
- ld a,b
- and #15
- add a,a
- add a,a
- or #0x40
- ld h,a
- ld l,c
+ ; Signed12 velocity selects its common low plane and three upper
+ ; planes. Its integer floor fits signed8 throughout.
  ld a,#33
  ld (#0x2000),a
+ ld l,c
+ ld h,#0x40
  ld c,(hl)
- inc h
+ ld a,b
+ and #15
+ ld b,a
+ add a,a
+ add a,b
+ add #0x41
+ ld h,a
  ld b,(hl)
  inc h
  ld a,(hl)
@@ -187,7 +192,6 @@ phase_direct:
  ld e,(hl)
  ldh (#_q24_fraction+2),a
 phase_ready:
- .if publish
  ldh a,(#_q24_fraction+2)
  add a,a
  sbc a,a
@@ -200,17 +204,13 @@ phase_ready:
  ldh (#_q24_saturated),a
  ld a,(#__current_bank)
  ld (#0x2000),a
- .endif
  .endm
 
+; Public and wide-fallback axes share the scratch-publishing reader.
+; The paired circle kernel keeps its first coordinate private in bank 32.
 _riding_phase_second_carry::
- phase_lookup 1
- jr phase_residual_word
-
-; The first circle axis has no observer before the second axis replaces
-; all five published Q24 bytes and restores the caller's ROM bank.
 _riding_phase_second_x::
- phase_lookup 0
+ phase_lookup
 phase_residual_word:
  pop hl
  ld a,(hl)
@@ -442,6 +442,80 @@ phase_pair:
  ld b,a
  ret
 
+; Wheel angle's fractional scratch is overwritten by the following partial
+ ; Y translation. Standalone phase_move retains its published Q24 result.
+_riding_wheel_angle_regs::
+.ifdef RIDING_PHASE_TABLES
+ ld a,(#_riding_subphase)
+ or a
+ jr z,angle_first
+ ; The two-digit table spans exactly signed16. Wider values keep the
+ ; generic saturating multiply; those limits cannot be hit by signed16.
+ ld a,b
+ add a,a
+ sbc a,a
+ cp d
+ jr nz,angle_partial
+ cp e
+ jr nz,angle_partial
+ ld a,#33
+ ld (#0x2000),a
+ jp wheel_angle_near
+ .macro wheel_angle_reader
+wheel_angle_near:
+ ld l,c
+ ld a,b
+ or a
+ jr z,angle_low_positive
+ inc a
+ jr z,angle_low_negative
+ ld h,#>angle_low_rows
+ ld d,#>angle_high_rows
+ ld e,b
+ ld a,(de)
+ add (hl)
+ inc d
+ inc h
+ ld a,(de)
+ adc (hl)
+ inc d
+ inc h
+ ld a,(de)
+ adc (hl)
+ ld c,a
+ inc d
+ inc h
+ ld a,(de)
+ adc (hl)
+ ld b,a
+ inc d
+ ld a,(de)
+ adc #0
+ ld e,a
+ add a,a
+ sbc a,a
+ ld d,a
+ jp angle_restore
+angle_low_positive:
+ ld h,#>(angle_low_rows+512)
+ jr angle_low_load
+angle_low_negative:
+ ld h,#>angle_minus_one
+angle_low_load:
+ ld c,(hl)
+ inc h
+ ld b,(hl)
+ ; D and E already contain the narrowed input's sign.
+ jp angle_restore
+ .endm
+angle_restore:
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+.else
+ jp _riding_angle_regs
+.endif
+
 _phase_move::
  pop hl
  inc sp
@@ -450,6 +524,7 @@ _riding_angle_regs::
  ld a,(#_riding_subphase)
  or a,a
  jr z,angle_first
+angle_partial:
  ld a,(#_riding_angle_index)
  dec sp
  call _q24_apply_a

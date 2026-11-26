@@ -13,6 +13,11 @@ def generate(gen, source):
     if not 0 < scale <= (1 << 20):
         return source
 
+    angle_index = int(re.search(r'^#define Q24_ANGLE (\d+)$', header, re.M)[1])
+    angle = manifest['coefficient_values'][angle_index]
+    if not 0 < angle < 1 << 30:
+        raise ValueError('Wheel angular coefficient exceeds the signed16 product table')
+
     lines = ['RIDING_PHASE_TABLES = 1', source.read_text()]
 
     def pages(values, shifts):
@@ -22,22 +27,55 @@ def generate(gen, source):
                 lines.append(' .db ' + ','.join(map(str, data[offset:offset+32])))
 
     lines.extend(('.area _CODE_32', '_riding_phase_words::'))
-    for nibble in range(16):
-        if nibble == 7:
-            # This hole in the high-word range holds the unsigned low byte.
-            pages([low * scale for low in range(256)], (0, 8, 16, 24))
-        else:
-            upper = nibble if nibble < 8 else nibble - 16
-            pages([((upper * 256 + low) << 8) * scale for low in range(256)],
-                  (8, 16, 24, 32))
-
+    pages([n * scale for n in range(256)], (0,))
+    pages([n * scale for n in range(256)], (0, 8, 16, 24))
+    for upper in (*range(7), *range(-8, 0)):
+        pages([((upper * 256 + low) << 8) * scale for low in range(256)],
+              (16, 24, 32))
+    lines.append('motion_s32_high::')
+    pages([(n if n < 128 else n-256) >> 4 for n in range(256)], (0,))
+    lines.append('motion_low_nibble:')
+    pages([n << 4 for n in range(256)], (0,))
+    lines.append('motion_high_nibble:')
+    pages([n >> 4 for n in range(256)], (0,))
+    lines.append('motion_signed_page::')
+    pages([0 if n < 128 else 255 for n in range(256)], (0,))
+    lines.append('motion_upper_page:')
+    directory = [0] * 256
+    for i, upper in enumerate((*range(7), *range(-8, 0))):
+        directory[upper & 255] = 0x45 + 3*i
+    pages(directory, (0,))
     lines.extend(('.area _CODE_33', '_riding_phase_direct::'))
+    pages([low * scale for low in range(256)], (0,))
     for nibble in range(16):
         upper = nibble if nibble < 8 else nibble - 16
-        pages([(upper * 256 + low) * scale for low in range(256)], (0, 8, 16, 24))
+        pages([(upper * 256 + low) * scale for low in range(256)], (8, 16, 24))
 
+    # Wheel motion consumes only the rounded quotient. Bits 0..7 of the
+    # low product cannot carry into the high byte term, which starts at bit 8.
+    lines.append('angle_low_rows:')
+    bias = 1 << 23
+    pages([n * angle + bias for n in range(256)], (8, 16, 24, 32))
+    lines.append('angle_high_rows:')
+    pages([((n if n < 128 else n-256) << 8) * angle for n in range(256)],
+          (8, 16, 24, 32, 40))
+    lines.append('angle_minus_one:')
+    pages([(n-256) * angle + bias for n in range(256)], (24, 32))
+
+    lines.append(' wheel_angle_reader')
     output = gen / 'physics_phase_game.s'
     text = '\n'.join(lines) + '\n'
+    if not output.exists() or output.read_text() != text:
+        output.write_text(text)
+    return output
+
+
+def circle_source(gen, source, phase):
+    """Link the positioned circle kernel only when its product pages are present."""
+    if phase.name != 'physics_phase_game.s':
+        return source
+    output = gen / 'physics_circle_game.s'
+    text = 'RIDING_PAIRED_CIRCLES = 1\n' + source.read_text()
     if not output.exists() or output.read_text() != text:
         output.write_text(text)
     return output

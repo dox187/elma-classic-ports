@@ -385,7 +385,10 @@ def main():
         head_clearance.write_if_changed(bounds_game, 'RIDING_BANKED_BOUNDS = 1\n'+bounds_source.read_text())
         sources[sources.index(bounds_source)] = bounds_game
         phase_source = BASE/'src/physics_phase.s'
-        sources[sources.index(phase_source)] = phase_tables.generate(a.gen, phase_source)
+        phase = phase_tables.generate(a.gen, phase_source)
+        sources[sources.index(phase_source)] = phase
+        circle_source = BASE/'src/physics_circle_scheduled.s'
+        sources[sources.index(circle_source)] = phase_tables.circle_source(a.gen, circle_source, phase)
         angle_source = BASE/'src/physics_body_angle.s'
         sources[sources.index(angle_source)] = phase_tables.body_angle(a.gen, angle_source)
         free_source = BASE/'src/physics_free_fast.s'

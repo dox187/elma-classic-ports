@@ -104,20 +104,34 @@ wheel_angle:
  push hl
  ; The partial substep uses the saturating coefficient and publishes its
  ; fraction. For the full substep, omega*32 wraps in the phase word.
- call _riding_angle_regs
+ call _riding_wheel_angle_regs
  pop hl
  call _riding_circle_add
 wheel_translate:
  pop hl
+ .ifdef RIDING_FREE_THROTTLE
+ jp wheel_circle_slot
+.area _CODE
+wheel_circle_slot:
+ .endif
  ld a,l
  cp a,#<(_Bike+24)
  jr nz,wheel_move_other
  ld a,h
  cp a,#>(_Bike+24)
  ld bc,#(_move_residual+10)
- jr z,wheel_move_slot
+ jr nz,wheel_move_other
+ jp _motion_wheel1
 wheel_move_other:
  ld bc,#(_move_residual+18)
+ ld a,l
+ cp #<(_Bike+48)
+ jr nz,wheel_move_check_body
+ ld a,h
+ cp #>(_Bike+48)
+ jr nz,wheel_move_slot
+ jp _motion_wheel2
+wheel_move_check_body:
  ld a,l
  cp a,#<_Bike
  jr nz,wheel_move_slot
@@ -129,6 +143,7 @@ wheel_move_slot:
  jp _riding_circle_axes
 
 .ifdef RIDING_FREE_THROTTLE
+.area _CODE_9
 ; DEBC is a nonzero torque. For constant throttle, publish the same
 ; fractional remainder and saturation byte as q24_apply, even in free fall.
 ; A miss preserves all four input bytes and clears carry.
