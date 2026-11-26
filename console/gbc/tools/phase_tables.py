@@ -62,3 +62,25 @@ def body_angle(gen, source, out=None):
     if not output.exists() or output.read_text() != text:
         output.write_text(text)
     return output
+
+
+def torque_words(gen):
+    """Exact low and signed high byte products for both angular moments."""
+    constants = (gen / 'riding_constants.h').read_text()
+    lines = ['.module torque_words', '.area _CODE_1']
+    for name, width in (('C_SPRING_T', 4), ('C_FRIC_T', 3)):
+        pair = re.search(r'q24_'+name+r'\[2\]=\{(\d+),(\d+)\}', constants)
+        for phase, scale in enumerate(map(int, pair.groups())):
+            lines.append(f'_torque_{name}_{phase}::')
+            if scale*255 >= 1 << (width*8):
+                raise ValueError(f'Angular coefficient exceeds its digit width: {name}')
+            for signed in (False, True):
+                values = [(n-256 if signed and n >= 128 else n)*scale for n in range(256)]
+                for b in range(width):
+                    for i in range(0,256,32):
+                        lines.append(' .db '+','.join(str((v>>(8*b))&255) for v in values[i:i+32]))
+    out = gen/'torque_words.s'
+    text = '\n'.join(lines)+'\n'
+    if not out.exists() or out.read_text()!=text:
+        out.write_text(text)
+    return out

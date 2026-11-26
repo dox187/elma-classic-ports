@@ -129,6 +129,10 @@ static void merge_normal_slow(int16_t x,int16_t y) {
 
 uint8_t riding_contact_merge(void) __naked {
     __asm
+    ld b,#0
+_riding_contact_merge_kind::
+    ; B is one only when the iterator just copied the physical atlas
+    ; normal into Ct[1]. The six-byte equality check also proves Ct[0].
     ld hl,#_Ct
     ld de,#(_Ct+10)
     .rept 6
@@ -139,7 +143,13 @@ uint8_t riding_contact_merge(void) __naked {
     inc de
     .endm
     ; Equal projected points still require normalization after Q14 rounding.
+    dec b
+    jr nz,merge_equal_unverified
+    call _riding_ring_equal_known
+    jr merge_equal_result
+merge_equal_unverified:
     call _riding_ring_equal_points
+merge_equal_result:
     or a
     jp nz,merge_complete
     ld de,#_Ct
@@ -156,9 +166,17 @@ uint8_t riding_contact_merge(void) __naked {
     ld c,e
     jr merge_average
 merge_different:
-    ld de,#_Ct
-    call merge_project
     ld de,#(_Ct+10)
+    dec b
+    jr nz,merge_second
+    call _riding_ring_point_known
+    or a
+    jr nz,merge_first
+    ld de,#(_Ct+10)
+merge_second:
+    call merge_project
+merge_first:
+    ld de,#_Ct
     call merge_project
     ld hl,#(_Ct+6)
     ld a,(#_Ct+16)
@@ -279,6 +297,14 @@ merge_project:
     __endasm;
 }
 #else
+#ifdef RIDING_NORMAL_ATLAS
+/* Alternate merge radii retain the ordinary point and distance solver. */
+uint8_t riding_contact_merge_kind(void) __naked {
+    __asm
+    jp _riding_contact_merge
+    __endasm;
+}
+#endif
 uint8_t riding_contact_merge(void) {
  int16_t qx=riding_contact_qx,qy=riding_contact_qy;
  /* Equal normals and lengths project to the same point. Keep the final

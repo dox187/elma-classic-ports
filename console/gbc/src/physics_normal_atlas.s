@@ -295,13 +295,21 @@ ring_cached_vector:
  and #0xc0
  ret z
  ld hl,#normal_cache_value
- .rept 6
+ ld b,#6
+ring_vector_compare:
  ld a,(de)
  cp (hl)
  jr nz,ring_vector_miss
  inc de
  inc hl
- .endm
+ dec b
+ jr nz,ring_vector_compare
+ jr ring_read_vector
+ring_known_vector:
+ ld a,(#normal_cache_valid)
+ and #0xc0
+ ret z
+ring_read_vector:
  ld hl,#normal_cache_key
  ld a,(hl+)
  ld e,a
@@ -344,9 +352,13 @@ ring_vector_miss:
  xor a
  ret
 
+_riding_ring_equal_known::
+ call ring_known_vector
+ jr ring_equal_result
 _riding_ring_equal_points::
  ld de,#_Ct
  call ring_cached_vector
+ring_equal_result:
  or a
  ret z
  push af
@@ -377,9 +389,14 @@ _riding_ring_equal_points::
  ret z                            ; same vector, same normalization
  jp _riding_normal_merge_ring     ; publishes normal or defers to caller
 
+_riding_ring_point_known::
+ push de
+ call ring_known_vector
+ jr ring_project_vector
 _riding_ring_cached_point::
  push de
  call ring_cached_vector
+ring_project_vector:
  pop hl
  or a
  ret z

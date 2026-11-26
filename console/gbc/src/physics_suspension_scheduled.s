@@ -14,8 +14,8 @@ ss_spin_top: .ds 16
 ss_product_upper: .ds 2
 ss_moment: .ds 9
 ss_ts: .ds 5                       ; low 36 bits of (floored spring sum << 4)
-ss_coarse: .ds 4
-ss_tr: .ds 4
+ss_coarse:: .ds 4
+ss_tr:: .ds 4
 ss_reaction_high: .ds 1
 ss_paired: .ds 1
 ss_damp_long: .ds 1                 ; 0 certified, 1 wide, 2 prepared moment
@@ -1286,6 +1286,37 @@ ss_spring_rounded:
  add a,a
  sbc a,a
  ld b,a
+ .ifdef RIDING_TORQUE_WORDS
+ jp ss_check_torques
+.area _CODE
+ss_check_torques:
+ ; Keep the wide path available for either moment outside the signed-word range.
+ ss_store ss_coarse
+ call ss_damping_scheduled
+ ld b,h
+ ld c,l
+ ss_store ss_tr
+ ld a,d
+ add a
+ sbc a,a
+ cp c
+ jp nz,ss_wide_torque
+ cp b
+ jp nz,ss_wide_torque
+ ld hl,#ss_coarse+1
+ ld a,(hl+)
+ add a
+ sbc a,a
+ cp (hl)
+ jp nz,ss_wide_torque
+ inc hl
+ cp (hl)
+ jp z,ss_word_torque
+ jp ss_wide_torque
+.area _CODE_8
+ss_wide_torque:
+ ss_read ss_coarse
+ .endif
  ss_q24_phase _q24_index_C_SPRING_T,ss_c_spring_t_index
  ss_negate
  push bc
@@ -1294,9 +1325,13 @@ ss_spring_rounded:
  ss_delta32 _angular_residual,_q24_fraction
  push bc
  push de
+ .ifdef RIDING_TORQUE_WORDS
+ ss_read ss_tr
+ .else
  call ss_damping_scheduled
  ld b,h
  ld c,l
+ .endif
  ss_q24_phase _q24_index_C_FRIC_T,ss_c_fric_t_index
  ldhl sp,#4
  ss_reverse_sub_hl

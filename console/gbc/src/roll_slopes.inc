@@ -10,9 +10,22 @@
 ; Each descriptor packs the mapped bank's low byte in B and its page in C.
 .area _CODE
 slope_begin_dots:
+ .ifdef ROLL_DIRECTORY_BANK
+ ; Six factored near-horizontal tangents have low X byte 1 or 2.
+ ; For other inputs the packed directory is the first exact tag check.
+ ldhl sp,#0
+ ld a,(hl)
+ dec a
+ cp #2
+ jp nc,rom_slope_begin
+ .endif
  ld a,#35
  ld (#0x2000),a
+ .ifdef ROLL_DIRECTORY_BANK
+ jp near_check
+ .else
  jp slope_inputs
+ .endif
 slope_fallback_dots:
  call ground_restore
  jp roll_default_dots
@@ -1009,19 +1022,15 @@ slope_extra_miss:
 
 .ifdef ROLL_DIRECTORY_BANK
 
-; The missing terrain tangent still has exact products when its vector inputs
-; fit signed words. Resolve the input type once, then use the two universal
-; byte rows directly for both dots and the final projection.
+; The missing terrain tangent shares each multiplier row across the
+; velocity and impulse. Each pair returns two signed 32-bit products.
 .area _DATA
-slope_word_tangent: .ds 4
-
+batch_code: .ds batch_end-batch_start
+batch_installed: .ds 1
+.area _HRAM
+batch_scalar: .ds 2
+batch_high: .ds 6
 .area _CODE
-slope_word_raw:
- call _riding_projection_plain_word
- ld a,#35
- ld (#0x2000),a
- scf
- ret
 slope_word_project_entry:
  push hl
  ld a,#35
@@ -1029,13 +1038,52 @@ slope_word_project_entry:
  jp slope_word_project
 
 .area _CODE_35
-slope_word_inputs:
+batch_legacy_guard:
+ ; DE:BC still holds the full tangent on a packed-directory miss.
+ ; Legacy-only rows have low X bytes 1, 2, 3, 15 and 20. A skipped
+ ; row still uses the exact word or wide projection.
+ ld a,e
+ dec a
+ cp #3
+ jr c,batch_maybe_legacy
+ cp #14
+ jr z,batch_maybe_legacy
+ cp #19
+ jr nz,slope_word_inputs
+batch_maybe_legacy:
  ldhl sp,#0
- ld de,#slope_word_tangent
- .rept 4
+ jp rom_slope_legacy_inputs
+slope_word_inputs:
+ ; Handle the X pair first. A later Y width miss drops the two
+ ; temporary products before resuming the original full-width dot.
+ ld a,(#batch_installed)
+ or a
+ jr nz,batch_ready
+ ld hl,#batch_start
+ ld de,#batch_code
+ ld b,#(batch_end-batch_start)
+batch_copy:
  ld a,(hl+)
  ld (de),a
  inc de
+ dec b
+ jr nz,batch_copy
+ inc b
+ ld a,b
+ ld (#batch_installed),a
+batch_ready:
+ .macro batch_word lo,hi,lnext
+ ld a,(hl+)
+ ld lo,a
+ ld a,(hl+)
+ ld hi,a
+ add a
+ sbc a
+ cp (hl)
+ jp nz,lnext
+ inc hl
+ cp (hl)
+ jp nz,lnext
  .endm
  ldhl sp,#6
  ld a,(hl+)
@@ -1043,47 +1091,93 @@ slope_word_inputs:
  ld l,a
  ld de,#8
  add hl,de
- call slope_word_dot
- jp nc,slope_fallback_dots
- push de
- push bc
- ldhl sp,#8
+ batch_word e,d,slope_fallback_dots
+ ldhl sp,#4
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- call slope_word_dot
- jr nc,slope_word_wide
+ batch_word c,b,slope_fallback_dots
+ ldhl sp,#0
+ add sp,#-4
+ call batch_code
+ push hl
+ push de
+ ldhl sp,#14
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#12
+ add hl,de
+ batch_word e,d,batch_wide_y
+ ldhl sp,#12
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld bc,#4
+ add hl,bc
+ batch_word c,b,batch_wide_y
+ ldhl sp,#10
+ add sp,#-4
+ call batch_code
+ push hl
+ push de
+ ; Stack contains impulse Y, velocity Y, impulse X and velocity X.
+ ldhl sp,#4
+ ld d,h
+ ld e,l
+ ldhl sp,#12
+ call batch_sum
+ ldhl sp,#12
+ call slope_store
+ ldhl sp,#0
+ ld d,h
+ ld e,l
+ ldhl sp,#8
+ call batch_sum
+ add sp,#12
  ld a,#5
  ldh (#near_page),a
  jp ground_resume_deltas
-slope_word_wide:
- add sp,#4
+
+batch_wide_y:
+ add sp,#8
  jp slope_fallback_dots
 
-slope_word_dot:
- push hl
- ld bc,#slope_word_tangent
- call slope_word_component
- jr nc,slope_word_first_miss
- push bc
- push hl
- push de
- ldhl sp,#6
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld de,#4
- add hl,de
- ld bc,#(slope_word_tangent+2)
- call slope_word_component
- jp c,slope_dot_sum
- add sp,#6
-slope_word_first_miss:
- add sp,#2
- and a
- ret
+; The sum of the two signed products has 33 bits before Q14 rounding.
+batch_sum:
+ ld a,(de)
+ add (hl)
+ inc de
+ inc hl
+ ld a,(de)
+ adc (hl)
+ ld c,a
+ inc de
+ inc hl
+ ld a,(de)
+ adc (hl)
+ ld b,a
+ inc de
+ inc hl
+ ld a,(de)
+ ld e,a
+ adc (hl)
+ ld d,a
+ ; XOR the two input signs and the carry above bit 31 to get bit 32.
+ ld a,#0
+ rra
+ xor (hl)
+ xor e
+ add a
+ sbc a
+ ld h,d
+ ld l,b
+ ld d,c
+ ld b,a
+ jp slope_round
 
-slope_word_component:
+slope_word_project:
+ ldhl sp,#4
  ld a,(hl+)
  ld e,a
  ld a,(hl+)
@@ -1091,36 +1185,151 @@ slope_word_component:
  add a
  sbc a
  cp (hl)
- jr nz,slope_word_miss
+ jp nz,slope_pair_miss
  inc hl
  cp (hl)
- jr nz,slope_word_miss
- ld h,b
- ld l,c
+ jp nz,slope_pair_miss
+ ldhl sp,#8
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
  ld a,(hl+)
  ld b,(hl)
  ld c,a
- jp slope_word_raw
-slope_word_miss:
- and a
- ret
-
-slope_word_project:
  ldhl sp,#4
- ld bc,#slope_word_tangent
- call slope_word_component
- jp nc,slope_pair_miss
- call slope_round
- pop hl
+ add sp,#-4
+ call batch_code
+ call batch_round_regs
+ ldhl sp,#4
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ inc hl
+ inc hl
+ inc hl
+ inc hl
  call slope_store
- push hl
- ldhl sp,#4
- ld bc,#(slope_word_tangent+2)
- call slope_word_component
- call slope_round
+ pop de
+ pop hl
+ call batch_round_regs
  pop hl
  call slope_store
  jp ground_return
+batch_round_regs:
+ ld a,h
+ add a
+ sbc a
+ ld b,a
+ jp slope_round
+
+; The row reader runs from WRAM while switching the low ROM-bank byte.
+; Interrupts keep their normal stack. Relative branches stay within the copy.
+batch_start:
+ ld a,(hl+)
+ ldh (#batch_scalar),a
+ ld a,(hl)
+ ldh (#batch_scalar+1),a
+ .macro batch_map
+ ld l,a
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ inc h
+ ld h,(hl)
+ .endm
+ batch_map
+ .macro batch_high_lane lo,hi,off
+ ld l,lo
+ ld a,(hl)
+ ldh (#batch_high+off),a
+ inc h
+ ld a,(hl)
+ ld l,hi
+ dec h
+ add (hl)
+ ldh (#batch_high+off+1),a
+ inc h
+ ld a,(hl)
+ adc #0
+ ldh (#batch_high+off+2),a
+ .endm
+ batch_high_lane e,d,0
+ dec h
+ batch_high_lane c,b,3
+ ldh a,(#batch_scalar)
+ batch_map
+ push bc
+ push hl
+ ; DE holds the first input, then the second. The upper-word
+ ; corrections convert the unsigned multiply to signed modulo 2^32.
+ .macro batch_low_lane off,lpos,lval
+ ld b,d
+ ld c,e
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ dec h
+ add (hl)
+ ld d,a
+ inc h
+ ld a,(hl)
+ adc #0
+ ld h,a
+ ldh a,(#batch_high+off)
+ add d
+ ld d,a
+ ldh a,(#batch_high+off+1)
+ adc h
+ ld l,a
+ ldh a,(#batch_high+off+2)
+ adc #0
+ ld h,a
+ ldh a,(#batch_scalar+1)
+ add a
+ jr nc,lpos
+ ld a,l
+ sub c
+ ld l,a
+ ld a,h
+ sbc b
+ ld h,a
+lpos:
+ bit 7,b
+ jr z,lval
+ ldh a,(#batch_scalar)
+ ld c,a
+ ld a,l
+ sub c
+ ld l,a
+ ldh a,(#batch_scalar+1)
+ ld b,a
+ ld a,h
+ sbc b
+ ld h,a
+lval:
+ .endm
+ batch_low_lane 0,batch_pos1,batch_val1
+ ; The caller reserved the first result above its return address.
+ ld b,h
+ ld c,l
+ ldhl sp,#6
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
+ pop hl
+ pop de
+ batch_low_lane 3,batch_pos2,batch_val2
+ ld a,#35
+ ld (#0x2000),a
+ ret
+batch_end:
 
 .area _CODE
 .globl ground_projection_bank
@@ -1138,8 +1347,7 @@ rom_slope_begin:
 rom_slope_miss::
  ld a,#35
  ld (#0x2000),a
- ldhl sp,#0
- jp rom_slope_legacy_inputs
+ jp batch_legacy_guard
 rom_slope_map::
  ld (#0x2000),a
  jp (hl)

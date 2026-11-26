@@ -339,29 +339,56 @@ contact_loop_original_endpoint:
  ld a,b
  or a,c
  jr z,contact_loop_endpoint_ready
+ ; Keep the vector in registers until a rare atlas miss needs the slow normal.
+ call contact_loop_xy
  ld hl,#contact_loop_seg
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- ld de,#4
- add hl,de
- ld a,(#contact_loop_x)
- sub a,(hl)
+ .rept 4
  inc hl
- ld (#contact_loop_x),a
- ld a,(#contact_loop_x+1)
- sbc a,(hl)
+ .endm
+ ld a,e
+ sub (hl)
  inc hl
- ld (#contact_loop_x+1),a
- ld a,(#contact_loop_y)
- sub a,(hl)
+ ld e,a
+ ld a,d
+ sbc (hl)
  inc hl
- ld (#contact_loop_y),a
- ld a,(#contact_loop_y+1)
- sbc a,(hl)
- ld (#contact_loop_y+1),a
+ ld d,a
+ ld a,c
+ sub (hl)
+ inc hl
+ ld c,a
+ ld a,b
+ sbc (hl)
+ ld b,a
+ jr contact_loop_radial
 contact_loop_endpoint_ready:
  call contact_loop_xy
+contact_loop_radial:
+ .ifndef RIDING_NORMAL_ATLAS
+ ld hl,#contact_loop_x
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
+ .endif
+ .ifdef RIDING_NORMAL_ATLAS
+ ; A physical atlas hit is always inside the strict disk. A definite
+ ; outside result is final. A miss preserves the full signed input.
+ ld hl,#contact_loop_k
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call _riding_normal_ring
+ jp c,contact_loop_next
+ or a
+ jr nz,contact_loop_accept_radial
+ .endif
  ld a,e
  add a,#0x99
  ld l,a
@@ -385,16 +412,19 @@ contact_loop_endpoint_ready:
  sbc a,#3
  jp nc,contact_loop_next
  .ifdef RIDING_NORMAL_ATLAS
- ; Coordinates are bounded to [-409,409]. An atlas hit proves d2 < 410^2.
  ld hl,#contact_loop_k
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- call _riding_normal_ring
- jp c,contact_loop_next
- or a
- jr nz,contact_loop_accept
- push hl                      ; a miss restores the contact pointer and both coordinates
+ push hl
+ ld hl,#contact_loop_x
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
  call _riding_endpoint_squared
  .else
  ; Existing exact multiply kernel, with its register entry avoiding ABI spills.
@@ -450,7 +480,17 @@ contact_loop_normalize:
  push de
  call _riding_normal_fast
  add sp,#10
+ .ifdef RIDING_NORMAL_ATLAS
+ jr contact_loop_accept
+contact_loop_accept_radial:
+ ld b,#1
+ jr contact_loop_accept_kind
+ .endif
 contact_loop_accept:
+ .ifdef RIDING_NORMAL_ATLAS
+ ld b,#0
+contact_loop_accept_kind:
+ .endif
  ld a,(#contact_loop_found)
  or a,a
  jr nz,contact_loop_merge
@@ -465,7 +505,11 @@ contact_loop_merge:
  .ifdef RIDING_LEAF_REGION
  ld (#_riding_dense_merged),a   ; nonzero first-contact flag
  .endif
+ .ifdef RIDING_NORMAL_ATLAS
+ call _riding_contact_merge_kind
+ .else
  call _riding_contact_merge
+ .endif
  or a,a
  jp z,contact_loop_next
  ret
@@ -1394,14 +1438,6 @@ corner_cap_query:
  sbc (hl)
  ld b,a
 corner_cap_vector:
- ld hl,#contact_loop_x
- ld a,e
- ld (hl+),a
- ld a,d
- ld (hl+),a
- ld a,c
- ld (hl+),a
- ld (hl),b
  ret
 
 .area _CODE
@@ -1411,7 +1447,7 @@ corner_cap_dispatch:
  call corner_cap_query
  ld a,#9
  ld (#0x2000),a
- jp contact_loop_endpoint_ready
+ jp contact_loop_radial
 
 .area _CODE_9
 corner_position:
@@ -1461,7 +1497,7 @@ corner_position_inner:
  ret nc
 corner_start:
  ld a,#2
- jr corner_guard
+ jp corner_guard
 corner_after_end:
  ld hl,#contact_loop_seg
  ld a,(hl+)
@@ -1517,6 +1553,51 @@ corner_guard:
  cp #<775
  jr c,corner_guard_ok
 corner_guard_fail:
+ ; For an axial cap the strict disk itself proves the perpendicular
+ ; guard. An end cap additionally needs its vertex on the source line.
+ ; Check both packed coefficients, including the signed unit magnitude.
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ ld a,(hl+)
+ or a
+ jr nz,corner_guard_no
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ or a
+ jr nz,corner_guard_no
+ ld a,(hl)
+ or a
+ jr nz,corner_guard_vertical_cap
+ ld a,e
+ and #127
+ cp #64
+ jr nz,corner_guard_no
+ ld de,#-5                 ; dy at offset 6
+ jr corner_axis_endpoint
+corner_guard_vertical_cap:
+ and #127
+ cp #64
+ jr nz,corner_guard_no
+ ld a,e
+ or a
+ jr nz,corner_guard_no
+ ld de,#-7                 ; dx at offset 4
+corner_axis_endpoint:
+ pop af
+ cp #2
+ jr z,corner_install        ; original start is on its own line
+ add hl,de
+ ld a,(hl+)
+ or (hl)
+ ret nz
+ ld a,#3
+ jr corner_install
+corner_guard_no:
  pop af
  ret
 corner_guard_ok:
@@ -1561,7 +1642,7 @@ corner_cached_cap_inner:
  cp #5
  jr c,corner_cached_proven
  sub #3
- jr corner_guard
+ jp corner_guard
 corner_cached_proven:
  dec a
  jr corner_install

@@ -185,7 +185,9 @@ def main():
     finally:
         current.p.stop(save=False)
         old.p.stop(save=False)
-    assert all(counts[n] for n in (0, 1, 2)) and all(kinds[n] for n in (1, 2, 3, 5, 12))
+    assert all(counts[n] for n in (0, 1, 2)) and all(kinds[n] for n in (1, 2, 3, 12))
+    # Unit-Y retains the low three kind bits when its plane distance is cached.
+    assert kinds[5] + kinds[13] > 0
     print(f'{ambiguous_checks} ambiguous queries, {sum(counts.values())} catalog queries, counts {dict(counts)}, cache kinds {dict(kinds)}')
 
 

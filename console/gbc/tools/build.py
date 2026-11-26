@@ -61,6 +61,12 @@ def validate_linked_layout(symbol_path,rom_mib):
             fixed_end=max(fixed_end,start+size)
         elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
             raise ValueError(f'ROM bank {bank} exceeds its linked address window')
+    if '_torque_C_SPRING_T_0' in symbols:
+        for name in ('C_SPRING_T', 'C_FRIC_T'):
+            for phase in (0, 1):
+                address = symbols[f'_torque_{name}_{phase}']
+                if address >> 16 != 1 or address & 255:
+                    raise ValueError('Angular torque digit tables require aligned pages in bank 1')
     if 'pose_bank_18' in symbols:
         pose_products.validate_layout(symbols)
     if '_riding_scale_directory' in symbols and (symbols.get('_riding_projection_hash'), symbols['_riding_scale_directory'], symbols.get('_riding_scale_pages')) != (0x200, 0x600, 0x700):
@@ -451,6 +457,12 @@ def main():
     # Validate the complete packed source first, then remove only verified
     # padding. The shortened object keeps its original place in link order.
     if scheduled and rom_mib == 8:
+        sources.insert(0, phase_tables.torque_words(a.gen))
+        suspension = a.gen/'physics_suspension_game.s'
+        paired = a.gen/'physics_suspension_torque_game.s'
+        head_clearance.write_if_changed(paired, 'RIDING_TORQUE_WORDS = 1\n'+suspension.read_text()
+                                        +'\n'+(BASE/'src/torque_words.inc').read_text())
+        sources[sources.index(suspension)] = paired
         packed = pose_products.generate(a.gen, BASE/'src')
         for bank in (16, 17, 18, 19):
             sources.remove(a.gen/f'physics_sine_{bank}.c')

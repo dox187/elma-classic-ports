@@ -3348,3 +3348,41 @@ SHA-256 `76b16889b8a90617f5c4c6ad1d1176093f0f2fda4d6c1aa9dee3fa95b29c25a9`.
 ROM0 has 119 bytes free. Banks 508–511 remain erased for FlashMaster.
 Use `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test37-8m.gbc`.
 Reports are in `build/v096-test37/`.
+
+## 0.96 test38 — combined angular torque and wheel contact products
+
+The suspension subtracts both unrounded moment products from the previous
+angular residual before rounding. Four coefficient tables in bank 1 cover
+every signed-word input, with the original wide calculation for larger
+moments. A cartridge check compared 14,890 pairs against independent
+integer arithmetic around exact half-unit ties, checking the impulse,
+the carried residual and the published damping fraction.
+
+Rolling uses a WRAM routine to share multiplication rows between two
+signed-word vectors while switching ROM banks. The terrain iterator keeps
+endpoint vectors in registers and can carry a radial lookup into the final
+contact merge. The 8,064 moving queries and 144 signed-width boundary
+queries matched the old contact bytes and cursor. An additional 6,960
+catalogue queries and 200 ambiguous queries passed.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.439 | 226,117 | 417,348 | 562 | 117/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.108 | 239,785 | 510,320 | 267 | 6/24 |
+| Full Freefall neutral descent | 439 | 29.796 | 235,372 | 416,484 | 3 | 0/1 |
+
+The two-refresh budget is 280,896 T. The peak increased by 18,468 T on
+the longer routes. Freefall gained one marginal miss including the DMA
+surcharge and retained its measured input cadence. All 75,252 substeps,
+25,112 published updates and the separate Freefall run reproduced test37.
+All 45 PC landing/braking cases passed. The 20 extreme-spin comparisons
+retained the previous results. The native solver matched all 9,210 ordinary
+and 3,170 speed-boundary states. The wheel oracle passed 21,340 cases.
+PyBoy matched 1,216 presentations and 61,845 visible background cells.
+SameBoy matched 878 presentations. The player timer recorded zero idle
+deadline misses. Frontend, audio and save checks passed.
+
+SHA-256 `9e199e1f709c5a938e93a4a6d5d4800a8b194db541400cc9d2d5d968c9acb668`.
+ROM0 has 54 bytes free. Banks 508–511 remain erased. Build with
+`tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test38-8m.gbc`.
+Reports are in `build/v096-test38/`. Timings were measured in emulation.
