@@ -251,23 +251,15 @@ static uint8_t extend_ready(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y)
 }
 
 static void prepare_run(uint16_t start,uint8_t budgeted) {
-    while(prepare_stage!=PREP_NONE && prepare_stage!=PREP_READY) {
-        if(prepare_stage==PREP_COL_FETCH) {
-            prepare_strip_x=prepare_x>prepare_old_x?prepare_left+20:prepare_left;
-            prepare_strip_y=prepare_vertical&&prepare_horizontal&&prepare_y<prepare_old_y?prepare_top+1:prepare_top;
-            prepare_count=prepare_vertical&&prepare_horizontal?18:19;
-        } else if(prepare_stage==PREP_ROW_FETCH) {
-            prepare_strip_x=prepare_left;
-            prepare_strip_y=prepare_y>prepare_old_y?prepare_top+18:prepare_top;
-            prepare_count=21;
-        }
-        if(budgeted) {
-            uint16_t lines=prepare_stage==PREP_COL_ACQUIRE||prepare_stage==PREP_ROW_ACQUIRE?20
-                :prepare_stage==PREP_COL_FETCH||prepare_stage==PREP_ROW_FETCH?PREP_FETCH_LINES:25;
-            if(!prepare_budget(start,lines))return;
-        }
+    while(1) {
         switch(prepare_stage) {
             case PREP_COL_FETCH:
+                if(!prepare_index) {
+                    prepare_strip_x=prepare_x>prepare_old_x?prepare_left+20:prepare_left;
+                    prepare_strip_y=prepare_vertical&&prepare_horizontal&&prepare_y<prepare_old_y?prepare_top+1:prepare_top;
+                    prepare_count=prepare_vertical&&prepare_horizontal?18:19;
+                }
+                if(budgeted && !prepare_budget(start,PREP_FETCH_LINES))return;
                 prepare_index+=fetch_strip(prepare_strip_x,prepare_strip_y+prepare_index,1,
                                           prepare_count-prepare_index,prepare_index,budgeted);
                 if(prepare_index==prepare_count) {
@@ -280,11 +272,18 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
                 }
                 break;
             case PREP_COL_PUBLISH:
+                if(budgeted && !prepare_budget(start,25))return;
                 prepare_publish(1);
                 prepare_index=0;
                 prepare_stage=prepare_vertical&&prepare_horizontal?PREP_ROW_FETCH:PREP_READY;
                 prepare_horizontal=1;break;
             case PREP_ROW_FETCH:
+                if(!prepare_index) {
+                    prepare_strip_x=prepare_left;
+                    prepare_strip_y=prepare_y>prepare_old_y?prepare_top+18:prepare_top;
+                    prepare_count=21;
+                }
+                if(budgeted && !prepare_budget(start,PREP_FETCH_LINES))return;
                 prepare_index+=fetch_strip(prepare_strip_x+prepare_index,prepare_strip_y,0,
                                           prepare_count-prepare_index,prepare_index,budgeted);
                 if(prepare_index==prepare_count) {
@@ -299,14 +298,16 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
             case PREP_COL_ACQUIRE:
             case PREP_ROW_ACQUIRE:
                 do {
-                    prepare_acquire();
-                    if(prepare_index==prepare_count)break;
                     if(budgeted && !prepare_budget(start,20))return;
-                } while(1);
+                    prepare_acquire();
+                } while(prepare_index!=prepare_count);
                 ++prepare_stage;
                 break;
             case PREP_ROW_PUBLISH:
+                if(budgeted && !prepare_budget(start,25))return;
                 prepare_publish(0);prepare_vertical=1;prepare_stage=PREP_READY;break;
+            default:
+                return;
         }
     }
 }

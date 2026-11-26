@@ -9,6 +9,8 @@ the deadline to turn a failed result into a pass.
 For each candidate, record the hypothesis, actual implementation, reproduction
 command, ROM/source hash, before/after costs, correctness checks and decision.
 Revisit a rejected candidate only when new evidence changes its assumptions.
+Historical build paths identify the inputs and outputs of a run. Raw traces
+and private comparison binaries are removed when the next comparison finishes.
 Host high-precision physics research is documented separately in the README;
 it is not the physics running in these ROMs.
 
@@ -3630,4 +3632,31 @@ survival checks. The standard suite's worst active update rose by 156 T.
 
 SHA-256 `2fbd8abc7f1d27aebc7d8677a4db4137ecc709ff4c5bc23ebf915089afc11396`.
 Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test45-8m.gbc`.
+Timing is from emulation.
+
+## 0.96 test46 — wheel terrain lookup and background preparation
+
+Wheel terrain lookups carry the coarse tile coordinates and the quarter-cell
+position into the more detailed check. When a background row or column spans
+several preparation calls, the streamer now computes its strip bounds once.
+Each fetch, acquisition and publication still checks its existing deadline.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.642 | 215,910 | 416,724 | 295 | 154/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.328 | 227,401 | 414,596 | 191 | 9/24 |
+| Full Freefall neutral descent | 439 | 29.864 | 223,322 | 277,736 | 0 | 1/1 |
+
+All 25,551 published updates and 76,568 substeps matched test45, including a
+separate substep-level Freefall replay. PyBoy matched 1,216 presentations and
+61,845 visible background cells. The mixed-run scenery check found zero cache,
+map or tile-pattern errors. Freefall's peak active cost increased by 1,196 T.
+
+On test43, preloading initial wheel queries or combining the return paths
+raised extended deadline misses from 206 to 208 and 211, respectively. On
+test44, a scenery directory cache and a camera-clamp change also increased
+extended misses. Those alternatives were discarded.
+
+SHA-256 `128d481e75a66277e2e958e0aa8c1da4dc50babd1d3bf52f4dd2aa07d86fbf67`.
+Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test46-8m.gbc`.
 Timing is from emulation.
