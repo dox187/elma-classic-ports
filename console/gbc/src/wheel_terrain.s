@@ -96,7 +96,8 @@ wheel_real_row:
  ld b,a
  ld a,c
  ld c,b
- call _riding_wheel_read_map
+ jp _riding_wheel_read_map
+wheel_half_pattern:
  ; BA indexes four row-major half-metre certificates in bank 9.
  ld l,a
  ld h,b
@@ -143,8 +144,9 @@ wheel_cell_addr:
  ld b,#0
  or a
  jr z,wheel_read_done
- bit 7,a
- jr nz,wheel_read_extended
+ cp #64
+ jr nc,wheel_tagged_layout
+wheel_plain_layout:
  dec a
  ld e,d
  ld d,#0
@@ -160,7 +162,20 @@ wheel_cell_addr:
  ld d,a
  add hl,de
  ld a,(hl)
- jr wheel_read_done
+ bit 0,b
+ jr z,wheel_read_done
+ ld b,#0
+ bit 7,a
+ jr z,wheel_read_done
+ res 7,a
+ jp _riding_wheel_read_quarter
+
+wheel_tagged_layout:
+ bit 7,a
+ jr nz,wheel_read_extended
+ and #63
+ inc b
+ jr wheel_plain_layout
 
 wheel_read_extended:
  ; This layout starts 18*abs(index) bytes before the row's cell IDs.
@@ -222,6 +237,40 @@ wheel_read_done:
  ld c,a
  xor a
  ld (#0x3000),a
+ ld a,#9
+ ld (#0x2000),a
+ ld a,c
+ jp wheel_half_pattern
+
+; Only quarter-coded entries come here, with the graphics bank still mapped.
+; Skip an intermediate switch to bank 9 and return directly to the game.
+_riding_wheel_read_quarter::
+ ld l,a
+ ld h,#0
+ add hl,hl
+ add hl,hl
+ add hl,hl
+ add hl,hl
+ pop af
+ ld b,a
+ and #3
+ add a,a
+ add a,a
+ ld c,a
+ ld a,b
+ swap a
+ and #3
+ or c
+ ld e,a
+ ld d,#0
+ add hl,de
+ ld de,#_wheel_quarter_patterns
+ add hl,de
+ xor a
+ ld (#0x3000),a
+ ld a,#5
+ ld (#0x2000),a
+ ld c,(hl)
  ld a,#9
  ld (#0x2000),a
  ld a,c

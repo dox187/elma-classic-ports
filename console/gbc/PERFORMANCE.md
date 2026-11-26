@@ -2470,3 +2470,39 @@ Banks 508–511 are erased. Rebuild from a copy of the test16 generated
 profile using `tools/build.py --gen build/gen-v096-test17-8m --rom-mib 8
 --out build/elma-gbc-v0.96-test17-8m.gbc`. Reports are in
 `build/v096-test17/`. Physical cartridge timing is pending.
+
+### 0.96 test18 — combined cartridge
+
+| Full-game PyBoy workload | Test17 | Test18 |
+| --- | ---: | ---: |
+| Average updates/s across 216 routes | 22.748 | 22.826 |
+| Freefall updates/s, full descent | 23.174 | 23.195 |
+| Longest active update, SM83 T-cycles | 556,912 | 556,904 |
+| Updates over 280,896 cycles / 19,885 | 12,056 | 11,874 |
+| Routes within budget throughout / 216 | 18 | 18 |
+
+The stationary-wheel lookup covers five ordered pairs of contact normals.
+A precomputed bound certifies the first pivot and both supports for a box of
+impulse inputs. The second pivot retains its exact Q24 calculation. Terrain
+lookup covers 8,472 additional quarter-metre cells. Near-horizontal fine
+contacts use an integer rounding threshold. Full-substep motion skips shifts
+of a high word already filled with its sign bit.
+
+All 19,885 controller updates matched test17 at both state boundaries. All
+12,380 native states matched the frozen physics reference. All 45 PC landing
+and braking checks passed, and the 20 extreme-spin comparisons reproduced the
+test17 deviations. The linked cartridge passed 24,102 shallow contact checks,
+12,400 stationary-wheel box probes, 3,600 ordered wheel comparisons and
+2,400 grounded wheel comparisons. The motion oracle passed 42,080 axis calls.
+The display matched on 1,216 synchronized updates and 61,845 visible tile
+checks. Menus, sound, profiles, results and battery saves passed their
+functional checks. The timer cadence test saw 88 physics publications and
+87 LCD changes in 180 display frames and recorded 32 deadline misses.
+
+The 8 MiB ROM SHA-256 is
+`d2e7463244a297d569829455e26ede30310897a901cb57b5ff2fce8c2fdd9318`.
+Four bytes remain in fixed ROM. Banks 508–511 are erased. Rebuild using
+`tools/build.py --gen build/gen-v096-test18-8m --rom-mib 8
+--out build/elma-gbc-v0.96-test18-8m.gbc` with a copy of the test17
+generated profile and the project Python. Reports are in `build/v096-test18/`.
+Physical cartridge timing is pending.

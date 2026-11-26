@@ -1374,6 +1374,10 @@ uint8_t riding_pair_shift, riding_pair_coefficient, riding_pair_stopped;
 uint8_t riding_pair_sure(const contact_t *pivot,uint8_t *separation);
 uint8_t riding_pair_supports(const contact_t *contact);
 
+#ifdef RIDING_STOPPED_PAIR
+uint8_t riding_stopped_pair_proof(void) __banked;
+#endif
+
 static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
     circle_t *k=input->k;
     riding_pair_velocity=&k->vx;
@@ -1390,6 +1394,22 @@ static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
         riding_pair_shift=6;
         riding_pair_coefficient=q24_index_C_OLD[riding_subphase];
     }
+#ifdef RIDING_STOPPED_PAIR
+    if(riding_pair_stopped && (signs[0] == 2 || signs[0] == 128)) {
+        uint8_t proof = riding_stopped_pair_proof();
+        if(proof && proof != signs[0]) {
+            /* The first pivot rejected. Its proven support becomes Ct[0].
+             * Rolling publishes the final fraction after this decision. */
+            Ct[0]=Ct[1];
+            return 1;
+        }
+        if(proof && (signs[1] == 2 || signs[1] == 128)) {
+            /* Both supports are inward at rest and remove exactly zero.
+             * The second pivot still publishes its complete Q24 result. */
+            return 1+riding_pair_sure(&Ct[0],signs+1);
+        }
+    }
+#endif
     if(!riding_pair_sure(&Ct[1],signs)) {
         Ct[0]=Ct[1];
     } else if(riding_pair_sure(&Ct[0],signs+1) && riding_pair_supports(&Ct[1])) {

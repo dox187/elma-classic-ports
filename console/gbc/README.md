@@ -3,11 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test17 — 8 MiB](build/elma-gbc-v0.96-test17-8m.gbc)**.
-Across 216 routes on all 54 courses this ROM averages **22.75 physics
-updates per emulated second**, up from **22.53** in test16. Freefall
-averages **23.17**. The two-display-frame target is **29.86**.
-All 19,885 compared gameplay updates reproduce test16.
+**[0.96 test18 — 8 MiB](build/elma-gbc-v0.96-test18-8m.gbc)**.
+Across 216 controller routes on all 54 courses this ROM averages **22.83
+physics updates per emulated second**, up from **22.75** in test17. The
+full Freefall descent averages **23.19**. The target is **29.86**.
+All 19,885 compared gameplay updates reproduce test17.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +57,15 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test18 — wheel contacts and position updates
+
+For common pairs of terrain normals, a lookup can establish how a stationary
+wheel responds to both contacts. More quarter-metre terrain cells have a
+precomputed list of candidate edges. Near-horizontal contacts and full-step
+position updates also take shorter arithmetic paths with the same rounding.
+Across the 216 routes, 11,874 updates exceeded budget, down from 12,056.
+[Full timings and validation](PERFORMANCE.md#096-test18--combined-cartridge)
 
 ## 0.96 test17 — partial-step movement and timer
 

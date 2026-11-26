@@ -1,4 +1,4 @@
-"""Check the shipped half-metre wheel map, both cache paths and MBC5 interrupts."""
+"""Check the shipped quarter-metre wheel map, both cache paths and MBC5 interrupts."""
 import argparse
 import json
 from collections import Counter
@@ -35,7 +35,7 @@ def leaves(image, level, cx, cy):
     return tuple(records(pointer(level['base_bank']+root[1],root[0]+4*i)) for i in range(16))
 
 
-def verify_square(code, records, x, y):
+def verify_square(code, records, x, y, size=512):
     """Bound each possible contributor independently using the four clipped corners."""
     if code==GENERAL:
         return
@@ -50,8 +50,8 @@ def verify_square(code, records, x, y):
     for i,(px,py,dx,dy,ex,ey,flags,bx,bX,by,bY) in enumerate(records,1):
         if i-1 in keep:
             continue
-        xmin,xmax = max(x,64*(bx-128)), min(x+511,64*(bX-127)-1)
-        ymin,ymax = max(y,64*(by-128)), min(y+511,64*(bY-127)-1)
+        xmin,xmax = max(x,64*(bx-128)), min(x+size-1,64*(bX-127)-1)
+        ymin,ymax = max(y,64*(by-128)), min(y+size-1,64*(bY-127)-1)
         if xmin>xmax or ymin>ymax:
             continue
         corners = [(xx-px,yy-py) for xx in (xmin,xmax) for yy in (ymin,ymax)]
@@ -89,7 +89,7 @@ def read_row(image,maps,level,cy):
     return w,h,addr,bank,offset(bank,addr & 0x7fff)
 
 
-def read_pattern(image,row,cx,sub,extended):
+def read_pattern(image,row,cx,sub,extended,quarters=False):
     w,_,addr,bank,source = row
     if addr <= 1:
         return addr
@@ -101,10 +101,13 @@ def read_pattern(image,row,cx,sub,extended):
         assert layout >= bank*16384 and layout+18 <= source
         flags = int.from_bytes(image[layout+16:layout+18],'little')
         return image[layout+sub] + 256*((flags>>sub)&1)
+    if quarters and index & 64:
+        data = image[source+w+16*((index&63)-1)+sub]
+        return 512+(data&127) if data & 128 else data
     return image[source+w+16*(index-1)+sub]
 
 
-def linked_rows(gen, image, symbols, baseline):
+def linked_rows(gen, image, symbols, baseline, previous=None):
     levels = json.loads((gen/'physics_bank_manifest.json').read_text())['levels']
     maps = offset(9,symbols['_wheel_terrain_maps'] & 65535)
     patterns = offset(9,symbols['_wheel_terrain_patterns'] & 65535)
@@ -112,6 +115,11 @@ def linked_rows(gen, image, symbols, baseline):
         old_rom, old_symbols = baseline
         old_maps = offset(9,old_symbols['_wheel_terrain_maps'] & 65535)
         old_patterns = offset(9,old_symbols['_wheel_terrain_patterns'] & 65535)
+    quarter_patterns = offset(5,symbols['_wheel_quarter_patterns'] & 65535)
+    if previous:
+        prev_rom,prev_symbols = previous
+        prev_maps = offset(9,prev_symbols['_wheel_terrain_maps'] & 65535)
+        prev_patterns = offset(9,prev_symbols['_wheel_terrain_patterns'] & 65535)
     rng = random.Random(0x73511)
     samples, totals, interrupts = [], Counter(), {}
     for level,desc in enumerate(levels):
@@ -122,26 +130,42 @@ def linked_rows(gen, image, symbols, baseline):
             row = read_row(image,maps,level,cy)
             if baseline:
                 old_row = read_row(old_rom,old_maps,level,cy)
+            if previous:
+                prev_row = read_row(prev_rom,prev_maps,level,cy)
             for cx in range(w):
                 cell = leaves(image,desc,cx,cy)
                 for sub,records in enumerate(cell):
-                    pattern = read_pattern(image,row,cx,sub,True)
+                    pattern = read_pattern(image,row,cx,sub,True,True)
                     if baseline:
                         old_pattern = read_pattern(old_rom,old_row,cx,sub,False)
-                    for half in range(4):
-                        code = image[patterns+4*pattern+half]
+                    if previous:
+                        prev_pattern = read_pattern(prev_rom,prev_row,cx,sub,True)
+                    for quarter in range(16):
+                        half = (quarter//8)*2 + (quarter%4)//2
+                        if pattern >= 512:
+                            code = image[quarter_patterns+16*(pattern-512)+quarter]
+                        else:
+                            code = image[patterns+4*pattern+half]
+                        if previous:
+                            old = prev_rom[prev_patterns+4*prev_pattern+half]
+                            assert old == GENERAL or old == code
+                            if old == GENERAL and old != code:
+                                totals['refined'] += 1
                         if baseline:
                             old = old_rom[old_patterns+4*old_pattern+half]
                             assert old == GENERAL or code == old, (level,cx,cy,sub,half,old,code)
-                        verify_square(code,records,sub%4*1024+half%2*512,sub//4*1024+half//2*512)
+                        verify_square(code,records,sub%4*1024+quarter%4*256,sub//4*1024+quarter//4*256,256)
                         kind = ('empty' if code == 0 else 'general' if code == GENERAL else
                                 'window' if code >= WINDOW else 'plane')
                         totals[kind] += 1
                         # Retain a deterministic sample of each type on every level.
                         if kind == 'window' or rng.randrange(15 if kind=='plane' else 60) == 0:
-                            x = cx*16 + sub%4*4 + half%2*2
-                            y = cy*16 + sub//4*4 + half//2*2
+                            x = cx*16 + sub%4*4 + quarter%4
+                            y = cy*16 + sub//4*4 + quarter//4
                             groups[kind].append((x,y,code))
+                            if pattern >= 512:
+                                groups.setdefault('quarter',[]).append((x,y,code))
+                                interrupts.setdefault('quarter',(level,x,y,code,5))
                             if row[2] > 1 and code not in (0,GENERAL):
                                 interrupts.setdefault(row[3]>=256,(level,x,y,code,row[3]))
         selected = []
@@ -150,7 +174,7 @@ def linked_rows(gen, image, symbols, baseline):
             selected.extend(rng.sample(points, min(limit,len(points))))
         samples.append(selected)
         assert groups['window'], ('course without an ordered window', level)
-    assert sum(totals.values()) == 64*sum(w*h for w,h in (l['grid'] for l in levels))
+    assert sum(totals[k] for k in ('plane','window','general','empty')) == 256*sum(w*h for w,h in (l['grid'] for l in levels))
     assert totals['plane'] > 100000 and totals['empty'] > 1000000
     assert totals['window'] > 10000
     return samples,totals,interrupts
@@ -188,8 +212,6 @@ def native(image, sy, samples, interrupts):
         for lev,points in enumerate(samples):
             assert call('_physics_collision_select',a=lev)
             for i,(x,y,code) in enumerate(points):
-                x += i&1
-                y += (i>>1)&1
                 assert call('_riding_wheel_lookup',x,y) == code, (lev,x,y,code)
                 mr[sy['_wheel_surface_cache']+4] = 0
                 for j in range(2):
@@ -226,9 +248,13 @@ def native(image, sy, samples, interrupts):
             for x,y in ((65535,0),(0,65535),(4096,0),(0,4096)):
                 assert call('_riding_wheel_lookup',x,y)==GENERAL
         # Inject a VBlank at the first instruction with the full data bank visible.
-        reader = sy['_riding_wheel_read_map']
-        target = image.index(bytes([0xea,0,0x30]),reader,reader+32)+3
-        for lev,x,y,code,bank in interrupts.values():
+        for key,(lev,x,y,code,bank) in interrupts.items():
+            if key == 'quarter':
+                reader = sy['_riding_wheel_read_quarter']
+                target = image.index(bytes([0x3e,5,0xea,0,0x20]),reader,reader+64)+5
+            else:
+                reader = sy['_riding_wheel_read_map']
+                target = image.index(bytes([0xea,0,0x30]),reader,reader+32)+3
             assert call('_physics_collision_select',a=lev)
             seen = []
             requested = []
@@ -249,7 +275,7 @@ def native(image, sy, samples, interrupts):
             p.hook_deregister(0,target)
             p.hook_deregister(0,0x40)
             counts['VBlank'] += 1
-        assert counts['VBlank'] == 2
+        assert counts['VBlank'] == 3
         for path in ('window warm','window cold'):
             assert all(counts[path,n] for n in (0,1,2))
     finally:
@@ -262,6 +288,7 @@ if __name__ == '__main__':
     parser.add_argument('--rom',type=Path,required=True)
     parser.add_argument('--gen',type=Path,required=True)
     parser.add_argument('--baseline-rom',type=Path,help='original 16-byte terrain layout for per-tile coverage regression')
+    parser.add_argument('--previous-rom',type=Path,help='previous ordered-window ROM for coverage comparison')
     args = parser.parse_args()
     def symbols(rom):
         return {k:int(v,16) for k,v in re.findall(r'^DEF (\S+) 0x([\da-fA-F]+)$',
@@ -270,6 +297,7 @@ if __name__ == '__main__':
     validate_layout(sy)
     image = args.rom.read_bytes()
     baseline = (args.baseline_rom.read_bytes(),symbols(args.baseline_rom)) if args.baseline_rom else None
-    samples,totals,interrupts = linked_rows(args.gen,image,sy,baseline)
-    print('Linked half-metre certificates:',dict(totals),flush=True)
+    previous = (args.previous_rom.read_bytes(),symbols(args.previous_rom)) if args.previous_rom else None
+    samples,totals,interrupts = linked_rows(args.gen,image,sy,baseline,previous)
+    print('Linked quarter-metre certificates:',dict(totals),flush=True)
     print('Native contacts:',dict(native(image,sy,samples,interrupts)))

@@ -22,13 +22,13 @@ def projected_range(x0, x1, y0, y1, dx, dy):
             (max(a, b) + max(c, d) + 8192) >> 14)
 
 
-def classify(records, x, y):
+def classify(records, x, y, size=SIZE):
     # Keep the legacy plane classification as well as every record whose
     # interior or real radial cap might contribute anywhere in this square.
     single = first = last_index = 0
     for i, (px, py, dx, dy, ex, ey, length, bx, bx1, by, by1) in enumerate(records, 1):
-        x0, x1 = max(x, (bx-128)*64)-px, min(x+SIZE-1, (bx1-127)*64-1)-px
-        y0, y1 = max(y, (by-128)*64)-py, min(y+SIZE-1, (by1-127)*64-1)-py
+        x0, x1 = max(x, (bx-128)*64)-px, min(x+size-1, (bx1-127)*64-1)-px
+        y0, y1 = max(y, (by-128)*64)-py, min(y+size-1, (by1-127)*64-1)-py
         if x0 > x1 or y0 > y1:
             continue
         # The native loop subtracts in signed16 before either rounded dot.
@@ -91,13 +91,18 @@ def level_rows(level, banks):
                 child = pointer(base+ptr[1], ptr[0]+i*4) if ptr[2] == 255 else ptr
                 leaf = records(child)
                 if not leaf:
-                    blocks.append((bytes(4), bytes(4)))
+                    blocks.append((bytes(4), bytes(4), bytes(16)))
                 else:
                     tx, ty = (i%4)*1024, (i//4)*1024
                     squares = [classify(leaf, tx+sx*SIZE, ty+sy*SIZE)
                                for sy in range(2) for sx in range(2)]
                     original, refined = zip(*squares)
-                    blocks.append((bytes(original), bytes(refined)))
+                    quarters = bytes(classify(leaf, tx+qx*256, ty+qy*256, 256)[1]
+                                     if refined[2*(qy//2)+qx//2] == GENERAL or
+                                        original[2*(qy//2)+qx//2] == GENERAL
+                                     else refined[2*(qy//2)+qx//2]
+                                     for qy in range(4) for qx in range(4))
+                    blocks.append((bytes(original), bytes(refined), quarters))
             row.append(tuple(blocks))
         yield row
 
@@ -113,7 +118,7 @@ def generate(gen, dest=None):
     rows = [[*level_rows(level,banks)] for level in levels]
     # Retain the original 256 patterns. An additional page describes the
     # most useful exact refinements, selected independently for each metre.
-    pairs = Counter(block for level in rows for row in level for cell in row for block in cell)
+    pairs = Counter(block[:2] for level in rows for row in level for cell in row for block in cell)
     frequencies = Counter()
     for (old, new), count in pairs.items():
         frequencies[old] += count
@@ -133,9 +138,50 @@ def generate(gen, dest=None):
     if extra:
         patterns += [unknown] * (256-len(patterns)) + extra
     def pack_cell(cell):
-        ids = [codes.get(new, codes.get(old,1)) for old,new in cell]
+        ids = [codes.get(new, codes.get(old,1)) for old,new,_ in cell]
         flags = sum((index >> 8) << bit for bit,index in enumerate(ids))
         return bytes(i & 255 for i in ids) + flags.to_bytes(2,'little')
+    # Plain rows have a second 128-entry dictionary. Keep the originally
+    # selected non-general answer in every quarter. Intersect refinements
+    # across cells sharing a row-local layout, so the row takes no more ROM.
+    quarter_candidates = Counter()
+    prepared = []
+    for level in rows:
+        level_rows_prepared = []
+        for row in level:
+            layouts = {}
+            cells = [pack_cell(cell) for cell in row]
+            for cell, data in zip(row, cells):
+                if data[-2:] == bytes(2) and max(data[:16]) < 128 and any(data):
+                    layouts.setdefault(data, []).append(cell)
+            variants = {}
+            for layout, members in layouts.items():
+                alternatives = []
+                for sub, index in enumerate(layout[:16]):
+                    old = patterns[index]
+                    if GENERAL not in old:
+                        alternatives.append(None)
+                        continue
+                    # Each cell in a shared layout can have different records.
+                    values = bytearray(16)
+                    for q in range(16):
+                        h = (q//8)*2 + (q%4)//2
+                        if old[h] != GENERAL:
+                            values[q] = old[h]
+                        else:
+                            code = members[0][sub][2][q]
+                            values[q] = code if all(c[sub][2][q] == code for c in members) else GENERAL
+                    key = bytes(values)
+                    gain = sum(old[(q//8)*2+(q%4)//2] == GENERAL and v != GENERAL
+                               for q,v in enumerate(key))
+                    alternatives.append(key if gain else None)
+                    if gain:
+                        quarter_candidates[key] += gain * len(members)
+                variants[layout] = alternatives
+            level_rows_prepared.append((cells, variants))
+        prepared.append(level_rows_prepared)
+    quarter_patterns = [p for p,_ in quarter_candidates.most_common(128)]
+    quarter_codes = {p:i for i,p in enumerate(quarter_patterns)}
     # Each level_bank array starts at 0x4000, as required by the graphics
     # engine. Append row records to the available tails *after* these objects.
     graphics = json.loads((gen/'level_manifest.json').read_text())
@@ -154,10 +200,9 @@ def generate(gen, dest=None):
         w,h = level['grid']
         out.extend([f' .db {w},{h}', f' .dw wheel_rows_{i}'])
     starts = {bank: 0x8000 - room for bank, room in free.items()}
-    for i, level in enumerate(rows):
+    for i, level in enumerate(prepared):
         out.append(f'wheel_rows_{i}:')
-        for j,row in enumerate(level):
-            cells = [pack_cell(cell) for cell in row]
+        for j,(cells, variants) in enumerate(level):
             layouts = dict.fromkeys(c for c in cells if c != bytes(18))
             if not layouts:
                 out += [' .dw 0',' .db 0']
@@ -170,10 +215,27 @@ def generate(gen, dest=None):
             if len(plain) > 127 or len(extended) > 128:
                 out += [' .dw 1',' .db 0']
                 continue
+            # Keep low six bits for plain layout indices. Spill unusually
+            # diverse rows into the existing 18-byte representation.
+            extended += plain[63:]
+            plain = plain[:63]
+            if len(extended) > 128:
+                out += [' .dw 1',' .db 0']
+                continue
             ids = {cell:k+1 for k,cell in enumerate(plain)}
+            plain_data = []
+            for cell in plain:
+                alts = variants.get(cell, ())
+                alt = bytes(128+quarter_codes[v] if v in quarter_codes else orig
+                            for v,orig in zip(alts,cell[:16]))
+                if alt and alt != cell[:16]:
+                    ids[cell] |= 64
+                    plain_data.append(alt)
+                else:
+                    plain_data.append(cell[:16])
             ids.update((cell,255-k) for k,cell in enumerate(extended))
             prefix = b''.join(reversed(extended))
-            payload = bytes(ids.get(cell,0) for cell in cells) + b''.join(c[:16] for c in plain)
+            payload = bytes(ids.get(cell,0) for cell in cells) + b''.join(plain_data)
             size = len(prefix) + len(payload)
             # First fit in numerical order. A missing row always uses the
             # general query if an alternate graphics pack has less free room.
@@ -189,6 +251,10 @@ def generate(gen, dest=None):
         out += [f'.globl _wheel_graphics_end_{bank}', f'_wheel_graphics_end_{bank} = {starts[bank]}',
                 f'.area _CODE_{bank}',f'_wheel_terrain_tail_{bank}::',*lines,
                 f'_wheel_terrain_end_{bank}::']
+    out += ['.area _CODE_5', '_wheel_quarter_patterns::']
+    for pattern in quarter_patterns:
+        out.extend(data_lines(pattern))
+    out += ['_wheel_quarter_patterns_end::']
     path = dest/'wheel_terrain_rows.s'
     write_if_changed(path,'\n'.join(out)+'\n')
     return path
@@ -200,6 +266,11 @@ def validate_layout(symbols):
             or symbols.get('_riding_wheel_cached_window', 0) >> 16 != 9
             or symbols.get('_riding_wheel_read_map', 65535) >= 0x4000):
         raise ValueError('Wheel terrain requires its caller in bank 9 and a fixed-ROM reader')
+    start = symbols['_wheel_quarter_patterns']
+    end = symbols['_wheel_quarter_patterns_end']
+    if (start >> 16 != 5 or not 0 <= end-start <= 2048 or end > 0x58000
+            or symbols['_riding_wheel_read_quarter'] >= 0x4000):
+        raise ValueError('Wheel quarter patterns require a bank 5 table and a fixed reader')
     for name, addr in symbols.items():
         match = re.fullmatch(r'_wheel_terrain_tail_(\d+)',name)
         if match:

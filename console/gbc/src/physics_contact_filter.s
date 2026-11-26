@@ -136,7 +136,65 @@ fine_push_round:
  pop de
  ret
 
+; With ny=16384 and nx in [-64,-1], the exact fractional dot is
+; fy or fy-1. A negative half tie rounds up. For |nx| <=32 even fx=255
+; cannot cross the half-unit boundary. Carry reports a certified result.
+fine_shallow_fraction:
+ ld h,b
+ ld l,c
+ inc hl
+ ld a,(hl+)
+ inc a
+ jr nz,fine_shallow_miss
+ ld a,(hl+)
+ or a
+ ret nz
+ ld a,(hl)
+ cp #64
+ jr nz,fine_shallow_miss
+ ld h,b
+ ld l,c
+ ld a,(hl)
+ cp #192
+ jr c,fine_shallow_miss
+ push hl
+ ld h,d
+ ld l,e
+ ld e,(hl)
+ .rept 4
+ inc hl
+ .endm
+ ld d,(hl)
+ cp #224
+ jr nc,fine_shallow_result
+ sub #192
+ add a,#<fine_shallow_cut
+ ld l,a
+ ld a,#>fine_shallow_cut
+ adc a,#0
+ ld h,a
+ ld a,(hl)
+ cp e
+fine_shallow_result:
+ ld a,d
+ sbc a,#0
+ ld c,a
+ sbc a,a
+ ld b,a
+ pop hl
+ .rept 4
+ inc hl
+ .endm
+ scf
+ ret
+fine_shallow_miss:
+ or a
+ ret
+
 .area _CODE_9
+fine_shallow_cut:
+ ; floor(8192/abs(nx)), indexed by nx+64. nx=-32..-1 takes no correction.
+ .db 128,130,132,134,136,138,141,143,146,148,151,154,157,160,163,167,170,174,178,182,186,190,195,199,204,210,215,221,227,234,240,248
 _riding_contact_push::
  ld h,b
  ld l,c
@@ -247,6 +305,8 @@ fine_surface_bound:
  jr c,fine_in_band
  jr z,fine_in_band
 fine_calculate:
+ call fine_shallow_fraction
+ jr c,fine_length
  ld h,d
  ld l,e
  ld e,(hl)
@@ -292,6 +352,9 @@ fine_sum:
  sla d
  rl c
  rl b
+ pop hl
+ add sp,#6
+fine_length:
  ; push=(404-length)*256 + (123-fraction). For all signed16 normals,
  ; 123-fraction is in [-897,1143]. Its high byte is in [-4,4].
  ld a,#123
@@ -300,7 +363,6 @@ fine_sum:
  ld a,#0
  sbc a,b
  add a,#0x94
- pop hl
  sub a,(hl)
  ld b,a
  inc hl
@@ -315,7 +377,6 @@ fine_length_positive:
  ld a,#0
  sbc a,d
  ld d,a
- add sp,#6
  bit 7,d
  jr nz,fine_negative
  or a,e

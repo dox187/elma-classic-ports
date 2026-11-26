@@ -59,6 +59,15 @@ _riding_phase_advance_hl::
  .endm
  shift_four c,b
  shift_four b,e
+ ; An upper word of 0000 or FFFF already equals its arithmetic shift.
+ ld a,e
+ xor d
+ jr nz,phase_shift_upper
+ ld a,d
+ inc a
+ cp #2
+ jr c,phase_shift_carry
+phase_shift_upper:
  shift_four e,d
  ld a,d
  add a,a
@@ -68,6 +77,7 @@ _riding_phase_advance_hl::
  xor a,d
  swap a
  ld d,a
+phase_shift_carry:
  ld a,l
  or a,a
  ret z
