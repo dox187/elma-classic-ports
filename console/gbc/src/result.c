@@ -1,6 +1,7 @@
 #include "result.h"
 #include <gb/cgb.h>
 #include "menu.h"
+#include "bike_render16.h"
 #pragma bank 7
 #include "ui_font.h"
 
@@ -32,11 +33,11 @@ static void protect_background(void) {
 
 static uint16_t text_tile(void) {
     uint16_t tile;
-    /* Bank 1's HUD/reserved range supplies 28 cells. World slots supply the
-     * other 32: at most 21x16=336 of their 444 patterns are protected above
+    /* Bank 1's HUD/reserved range supplies 24 cells. World slots supply the
+     * other 36: at most 21x16=336 of their 444 patterns are protected above
      * the window, leaving at least 108 choices. Allocation advances once per
      * candidate, excluding bank 0's killers and bank 1's sprite ranges. */
-    if(next_hud_tile<248)return 256U+next_hud_tile++;
+    if(next_hud_tile<BIKE_WHEEL_EXTRA_TILE)return 256U+next_hud_tile++;
     do {
         tile=next_world_tile++;
         if(next_world_tile==252)next_world_tile=256;

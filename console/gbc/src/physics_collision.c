@@ -3,6 +3,7 @@
 #include "riding_level.h"
 #ifdef __SDCC
 #include <gb/gb.h>
+#include <stddef.h>
 #endif
 #include <string.h>
 
@@ -76,6 +77,232 @@ uint8_t physics_collision_select(uint8_t index) {
     return 1;
 }
 
+#ifdef __SDCC
+typedef char cache_query_layout[offsetof(physics_level_desc_t,width)==22 &&
+    offsetof(physics_level_desc_t,height)==23 &&
+    offsetof(physics_level_desc_t,base_bank)==16 && offsetof(physics_level_desc_t,directory_bank)==18 &&
+    offsetof(physics_level_desc_t,directory_address)==20 && sizeof(seg_t)==18 ? 1 : -1];
+
+void seg_query(uint8_t cx,uint8_t cy,uint8_t subcell) __naked {
+    cx;cy;subcell;
+    __asm
+    ; ABI1 A=cx, E=cy, SP+2=subcell. FFFF never names an in-range cell.
+    ld d,a
+    ld hl,#(_riding_level+22)
+    cp (hl)
+    jr nc,seg_outside
+    inc hl
+    ld a,e
+    cp (hl)
+    jr nc,seg_outside
+    ldhl sp,#2
+    ld c,(hl)
+    ld hl,#_cell_ids
+    ld a,(hl+)
+    cp d
+    jr nz,seg_test_slot1
+    ld a,(hl)
+    cp e
+    jr nz,seg_test_slot1
+    ld a,(#_cell_subcells)
+    cp c
+    jr z,seg_hit0
+    cp #255
+    jr nz,seg_test_slot1
+seg_hit0:
+    ld (#_Seg_subcell),a
+    ld a,(#_cell_counts)
+    ld hl,#_cells
+    jr seg_hit
+
+seg_test_slot1:
+    ld hl,#(_cell_ids+2)
+    ld a,(hl+)
+    cp d
+    jr nz,seg_test_slot2
+    ld a,(hl)
+    cp e
+    jr nz,seg_test_slot2
+    ld a,(#(_cell_subcells+1))
+    cp c
+    jr z,seg_hit1
+    cp #255
+    jr nz,seg_test_slot2
+seg_hit1:
+    ld (#_Seg_subcell),a
+    ld a,(#(_cell_counts+1))
+    ld hl,#(_cells+18*RIDING_CELL_MAX)
+    jr seg_hit
+
+seg_test_slot2:
+    ld hl,#(_cell_ids+4)
+    ld a,(hl+)
+    cp d
+    jr nz,seg_miss
+    ld a,(hl)
+    cp e
+    jr nz,seg_miss
+    ld a,(#(_cell_subcells+2))
+    cp c
+    jr z,seg_hit2
+    cp #255
+    jr nz,seg_miss
+seg_hit2:
+    ld (#_Seg_subcell),a
+    ld a,(#(_cell_counts+2))
+    ld hl,#(_cells+36*RIDING_CELL_MAX)
+seg_hit:
+    ld (#_Seg_left),a
+    ld a,l
+    ld (#_Seg_cur),a
+    ld a,h
+    ld (#_Seg_cur+1),a
+seg_return:
+    pop hl
+    inc sp
+    jp (hl)
+seg_outside:
+    xor a
+    ld (#_Seg_left),a
+    dec a
+    ld (#_Seg_subcell),a
+    jr seg_return
+seg_miss:
+    ; DE = cx:cy, C = subcell. Directory entries are four bytes.
+    push de
+    push bc
+    ld a,(#(_riding_level+22))
+    ld c,a
+    ld b,#0
+    ld d,b
+    call __mulint
+    ldhl sp,#3
+    ld l,(hl)
+    ld h,#0
+    add hl,bc
+    add hl,hl
+    add hl,hl
+    ld d,h
+    ld e,l
+    ld hl,#(_riding_level+18)
+    ld a,(hl+)
+    ld (#0x2000),a
+    ld a,(hl+)
+    ld (#0x3000),a
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    add hl,de
+    call seg_read_pointer
+    ld a,b
+    cp #255
+    jr nz,seg_whole_cell
+    call seg_map_relative
+    pop hl
+    push hl
+    ld h,#0
+    add hl,hl
+    add hl,hl
+    add hl,de
+    call seg_read_pointer
+    pop hl
+    ld a,l
+    jr seg_install
+seg_whole_cell:
+    pop hl
+    ld a,#255
+seg_install:
+    ; Save the record source and the key while installing the next FIFO slot.
+    pop hl
+    push bc
+    push de
+    push hl
+    push af
+    ld a,(#_next_cell)
+    ld e,a
+    ld d,#0
+    inc a
+    cp #3
+    jr nz,seg_next_slot
+    xor a
+seg_next_slot:
+    ld (#_next_cell),a
+    ld hl,#_cell_subcells
+    add hl,de
+    pop af
+    ld (hl),a
+    ld (#_Seg_subcell),a
+    ld hl,#_cell_ids
+    add hl,de
+    add hl,de
+    pop bc
+    ld (hl),b
+    inc hl
+    ld (hl),c
+    ld hl,#_cell_records
+    add hl,de
+    add hl,de
+    ld a,(hl+)
+    ld (#_Seg_cur),a
+    ld a,(hl)
+    ld (#_Seg_cur+1),a
+    ld hl,#_cell_counts
+    add hl,de
+    pop de
+    pop bc
+    ld (hl),b
+    ld a,b
+    ld (#_Seg_left),a
+    or a
+    jr z,seg_restore
+    call seg_map_relative
+    ld h,d
+    ld l,e
+    ld a,(#_Seg_cur)
+    ld e,a
+    ld a,(#_Seg_cur+1)
+    ld d,a
+seg_copy_record:
+    ; A counted record copy has one loop branch per 18-byte segment. Both
+    ; full pointers advance across pages, including the last byte in a bank.
+    .rept 18
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    .endm
+    dec b
+    jr nz,seg_copy_record
+seg_restore:
+    ; IRQ handlers execute in fixed ROM. As in the terrain lookup reader,
+    ; keep the logical GBDK bank and restore both physical bank bits.
+    xor a
+    ld (#0x3000),a
+    ld a,(#__current_bank)
+    ld (#0x2000),a
+    jp seg_return
+
+seg_read_pointer:
+    ; DE = record address, C = bank relative to base_bank, B = count.
+    ld a,(hl+)
+    ld e,a
+    ld a,(hl+)
+    ld d,a
+    ld a,(hl+)
+    ld c,a
+    ld b,(hl)
+    ret
+seg_map_relative:
+    ld hl,#(_riding_level+16)
+    ld a,(hl+)
+    add c
+    ld (#0x2000),a
+    ld a,(hl)
+    adc #0
+    ld (#0x3000),a
+    ret
+    __endasm;
+}
+#else
 void seg_query(uint8_t cx,uint8_t cy,uint8_t subcell) {
     uint16_t id;
     uint8_t c,sub=255;
@@ -87,7 +314,6 @@ void seg_query(uint8_t cx,uint8_t cy,uint8_t subcell) {
      * row multiplication until a miss; all levels are smaller than256 cells
      * on either axis, so FFFF remains reserved for an invalid entry. */
     id=((uint16_t)cy<<8)|cx;
-    /* The fixed three slots let SM83 compare each key directly in WRAM. */
     if(cell_ids[0]==id && (cell_subcells[0]==255 || cell_subcells[0]==subcell)){c=0;goto found;}
     if(cell_ids[1]==id && (cell_subcells[1]==255 || cell_subcells[1]==subcell)){c=1;goto found;}
     if(cell_ids[2]==id && (cell_subcells[2]==255 || cell_subcells[2]==subcell)){c=2;goto found;}
@@ -106,6 +332,7 @@ void seg_query(uint8_t cx,uint8_t cy,uint8_t subcell) {
 found:
     Seg_cur=cell_records[c];Seg_left=cell_counts[c];Seg_subcell=cell_subcells[c];
 }
+#endif
 
 const seg_t *seg_next(void) {
     if(!Seg_left)return 0;

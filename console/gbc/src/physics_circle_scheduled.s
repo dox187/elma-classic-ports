@@ -58,6 +58,9 @@ circle_translate:
  ld b,a
 _riding_circle_axes::
 circle_axes:
+ ld a,(#_riding_subphase)
+ or a
+ jr z,circle_full_axes
  push bc
  call circle_axis
  pop bc
@@ -73,9 +76,85 @@ circle_axis:
  add hl,de
  call circle_load
  pop hl
- call _riding_phase_advance_hl
+ call _riding_phase_second_hl
  pop hl
  jp circle_add
+
+circle_full_axes:
+ push bc
+ call circle_full_axis
+ pop bc
+ .rept 4
+ inc bc
+ .endm
+circle_full_axis:
+ ; Position advances by floor(v/16) plus the carry from the biased
+ ; residual. Save that carry for the low position byte, so neither
+ ; axis needs to form and increment an intermediate displacement.
+ push hl
+ ld de,#8
+ add hl,de
+ ld a,(bc)
+ xor #0x80
+ ld e,a
+ ld a,(hl)
+ swap a
+ and #0xf0
+ add a,e
+ push af
+ xor #0x80
+ ld (bc),a
+ inc bc
+ rlca
+ sbc a,a
+ ld (bc),a
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ ; Join adjacent nibbles. When the upper word already sign-extends
+ ; a 16-bit velocity, both upper bytes of its quotient are unchanged.
+ .macro circle_shift_four low,high
+ ld a,high
+ xor a,low
+ and #0x0f
+ xor a,low
+ swap a
+ ld low,a
+ .endm
+ circle_shift_four c,b
+ circle_shift_four b,e
+ ld a,d
+ inc a
+ cp #2
+ jr nc,circle_full_wide
+ ld a,e
+ xor a,d
+ jr z,circle_full_add
+ and #0xf0
+ xor a,d
+ swap a
+ ld e,a
+ jr circle_full_add
+circle_full_wide:
+ circle_shift_four e,d
+ ld a,d
+ add a,a
+ sbc a,a
+ xor a,d
+ and #0x0f
+ xor a,d
+ swap a
+ ld d,a
+circle_full_add:
+ pop af
+ pop hl
+ ld a,(hl)
+ adc a,c
+ jr circle_add_low
 _riding_circle_load::
 circle_load:
  ld a,(hl+)
@@ -90,6 +169,7 @@ _riding_circle_add::
 circle_add:
  ld a,(hl)
  add a,c
+circle_add_low:
  ld (hl+),a
  ld a,(hl)
  adc a,b

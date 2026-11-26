@@ -121,11 +121,12 @@ def native_check(source,arithmetic,out,models,descriptors,data,includes):
 uint8_t physics_select_level(uint8_t) GBC_BANKED;void physics_reset_current(void) GBC_BANKED;void physics_set_gravity(uint8_t) GBC_BANKED;
 extern const uint8_t fixture_widths[],fixture_heights[],fixture_dense[];
 extern const uint16_t fixture_magic;
+extern uint8_t Seg_subcell;
 volatile uint8_t fixture_level,fixture_x,fixture_y,fixture_sub,fixture_kind,fixture_done,fixture_ready;
 volatile uint16_t fixture_failures;
 void fixture_mark(void){}
 void main(void) {
- uint16_t cell=0;uint8_t n,g;
+ uint16_t cell=0;uint8_t n,g,count,tag;const seg_t *start,*advanced;
  cpu_fast();SWITCH_ROM(14);fixture_ready=1;
  for(fixture_level=0;fixture_level<RIDING_LEVEL_COUNT;++fixture_level) {
   if(!physics_select_level(fixture_level))++fixture_failures;
@@ -139,6 +140,19 @@ void main(void) {
      seg_query(fixture_x,fixture_y,fixture_sub);
      if(CURRENT_BANK!=14 || fixture_magic!=0xb14f)++fixture_failures;
      fixture_kind=2;fixture_mark();
+     start=Seg_cur;count=Seg_left;tag=Seg_subcell;
+     if(tag!=(n==1?255:fixture_sub))++fixture_failures;
+     /* A consumer may have advanced the iterator before asking for a cell
+      * outside the grid. That query clears the count and preserves the cursor. */
+     seg_next();advanced=Seg_cur;
+     seg_query(fixture_widths[fixture_level],fixture_y,0);
+     if(Seg_left || Seg_subcell!=255 || Seg_cur!=advanced)++fixture_failures;
+     seg_query(fixture_x,255,15);
+     if(Seg_left || Seg_subcell!=255 || Seg_cur!=advanced)++fixture_failures;
+     /* Whole cells accept every subcell. A dense cell revisits the exact child. */
+     seg_query(fixture_x,fixture_y,n==1?15:fixture_sub);
+     if(Seg_cur!=start || Seg_left!=count || Seg_subcell!=tag ||
+        CURRENT_BANK!=14 || fixture_magic!=0xb14f)++fixture_failures;
     }
    }
  }

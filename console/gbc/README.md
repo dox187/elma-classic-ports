@@ -3,13 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test21 — 8 MiB](build/elma-gbc-v0.96-test21-8m.gbc)**.
-Across 216 controller routes on all 54 courses this ROM averages **23.22
-physics updates per emulated second**, up from **23.04** in test20. The
-full Freefall descent averages **23.73**. The target is **29.86**.
-All 59,599 native physics substeps across 19,885 updates reproduce test20
-on the measured routes. Twenty-four routes met the two-display-frame
-deadline throughout.
+**[0.96 test22 — 8 MiB](build/elma-gbc-v0.96-test22-8m.gbc)**.
+Across 216 controller routes on all 54 courses this ROM averages **23.54
+physics updates per emulated second**, up from **23.22** in test21. The
+full Freefall descent averages **24.01**. The target is **29.86**.
+All 59,599 native physics substeps across 19,885 updates reproduce test21.
+Another 15,653 substeps matched in longer runs with a different input seed.
+Twenty-seven of the 216 standard routes met the two-display-frame deadline throughout.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -59,6 +59,15 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test22 — terrain queries and wheel motion
+
+Both wheels use the same three original wheel images resident in VRAM.
+Changing rotation phase updates their sprite tile indices. Wheel translation
+carries its fractional remainder directly into the position update. Terrain
+queries now search the three cached cells in registers and copy missed records
+directly from ROM. Row and column scenery reads share a length-specific copy.
+[Full timings and validation](PERFORMANCE.md#096-test22--combined-cartridge)
 
 ## 0.96 test21 — suspension, rider and wheel motion
 

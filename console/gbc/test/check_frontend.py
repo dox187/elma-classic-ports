@@ -9,6 +9,23 @@ from play import BASE,Driver,MENU,PAUSED,RIDING
 from all_levels import font_pixels,ui_pixels,menu_check
 
 
+def verify_wheel_tiles(driver):
+    table = driver.symbols.get('_riding_wheel_tiles')
+    if table is None:
+        return
+    slots = driver.rom_far((table >> 16, table & 65535), 8)
+    source = driver.symbols['_riding_wheels']
+    atlas = driver.rom_far((source >> 16, source & 65535), 512)
+    frames = [atlas[k:k+64] for k in range(0, 512, 64)]
+    if len(set(frames)) > 3:
+        assert slots == bytes(8), 'streaming fallback'
+        return
+    for phase, (slot, frame) in enumerate(zip(slots, frames)):
+        assert slot in (208, 212, 244), (phase, slot)
+        start = 0x8000 + 16 * slot
+        assert bytes(driver.p.memory[1, start:start+64]) == frame, ('wheel pixel mismatch', phase)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     version=(BASE/'VERSION').read_text().strip()
@@ -34,6 +51,7 @@ def main():
         d.level_menu();menu_check(d,1,names)
         d.snapshot('levels');d.pulse('a');d.ready()
         assert d.byte('game_state')==RIDING and d.level_index()==1
+        verify_wheel_tiles(d)
         audio=[]
         def engine_segment(keys):
             # Isolate the two engine channels for pitch/level assertions;
@@ -82,6 +100,7 @@ def main():
         assert d.byte('game_state')==RIDING and d.level_index()==1
         assert d.time_frames()<frozen[0],'Restart did not reset the current ride'
         d.visible_vram(force=True);d.snapshot('restarted')
+        verify_wheel_tiles(d)
         pcm=np.concatenate(audio)
         with wave.open(str(args.out/'engine.wav'),'wb')as output:
             output.setnchannels(2);output.setsampwidth(1);output.setframerate(d.p.sound.sample_rate)

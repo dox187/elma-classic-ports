@@ -2643,3 +2643,59 @@ Fixed ROM has 553 bytes free. Banks 508–511 are erased. Rebuild with
 `tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8
 --out build/elma-gbc-v0.96-test21-8m.gbc` using the project Python.
 The reports are in `build/v096-test21/`. Physical cartridge timing is pending.
+
+### 0.96 test22 — combined cartridge
+
+| Complete cartridge in PyBoy | test21 | test22 |
+| --- | ---: | ---: |
+| Controller updates/s, 216 routes across 54 courses | 23.223 | 23.538 |
+| Updates/s, full Freefall descent | 23.727 | 24.013 |
+| Mean active update, SM83 T-cycles | 307,994 | 303,894 |
+| Longest active update, SM83 T-cycles | 557,336 | 556,332 |
+| Updates over 280,896 cycles / 19,885 | 11,075 | 10,438 |
+| Routes within budget throughout / 216 | 24 | 27 |
+
+Native wheel motion dispatches on the phase once per circle. On a full
+substep the biased residual carry feeds the low byte of the new position.
+Terrain directory hits match the three cache slots directly in registers.
+Misses read the packed pointer and copy each 18-byte segment in order.
+The world renderer reuses a length-specific copy for the three strip planes.
+The wheel atlas contains three distinct 64-byte images across eight phases.
+Both wheels use these three images in VRAM bank 1 (tiles 208–215 and
+244–247). The finish panel reserves those tiles while the last pose is
+visible. Builds with more than three distinct wheel images stream as before.
+
+All 59,599 substep results, 19,885 update returns and 19,885 game publications
+matched test21 across the 216 controller routes. A separate 24-route replay
+used up to 650 updates per route and input seed 0x9322. These longer routes
+averaged 20.97 updates/s on test21 and 21.27 on test22. An additional
+15,653 substep results and 5,227 updates matched. These comparisons include
+velocity, wheel/body angles, position, survival, contacts and the signed
+integrator residuals. The complete 439-update Freefall trace also matched.
+The native fixtures matched the frozen physics reference on all 9,210
+standard states and 3,170 speed-limit states.
+All 45 PC landing and braking comparisons met their configured gates.
+The 20 seeded extreme-spin comparisons retained test21's measured PC
+deviations, up to 15.75 degrees of body angle and 0.276 m position error
+while both simulations were alive.
+
+The terrain cache oracle covered all 54 levels, including directory and
+segment banks on both sides of bank 256, off-grid rejection, FIFO eviction,
+segment order and interrupt-time bank restoration. The three-plane map
+reader matched the reference on 12,132 cases with interrupts off and again
+with interrupts enabled. The scheduled wheel fixture matched 900 wheel pairs
+and the native wheel fixture passed 4,034 cases. The linked spring scheduler
+passed 29,568 deadline guard cases. The atlas check verified all eight wheel
+frames against original ROM pixels after start and restart. Seven controller
+routes matched the visible sprite patterns, positions and attributes over
+1,216 updates, including 61,845 visible scenery tile comparisons. Player
+records, frozen-frame result text, restart and menu/audio checks passed.
+The live HUD changed 90 times in 180 display frames; ten active idle updates
+exceeded the deadline.
+
+The 8 MiB ROM SHA-256 is
+`3cdbbedd40418465797eb65ef48a15e4a70771d75e48cf562326270a3b068959`.
+Fixed ROM has 359 bytes free. Banks 508–511 are erased. Build with the same
+8 MiB asset profile as test21 using `tools/build.py --gen build/gen-v096-test21-8m
+--rom-mib 8 --out build/elma-gbc-v0.96-test22-8m.gbc`. Reports are in
+`build/v096-test22/`. Physical cartridge timing is pending.

@@ -89,6 +89,7 @@ phase_increment:
  inc de
  ret
 
+_riding_phase_second_hl::
 phase_second:
  ld a,d
  or a,e

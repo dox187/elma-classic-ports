@@ -72,6 +72,13 @@ def finish_fixture(d, at_frames=None, expect_new=True):
                 frozen_patterns[bank,start] = bytes(d.p.memory[bank,start:start+16])
         shadow = d.symbols['_shadow_OAM']
         frozen_sprites.append(bytes(d.p.memory[shadow:shadow+160]))
+        for offset in range(0, 160, 4):
+            y, x, tile, attr = frozen_sprites[-1][offset:offset+4]
+            if x and y:
+                start = 0x8000 + (tile & 254) * 16
+                bank = (attr >> 3) & 1
+                for addr in (start, start+16):
+                    frozen_patterns[bank,addr] = bytes(d.p.memory[bank,addr:addr+16])
     d.p.hook_register(overlay >> 16, overlay & 65535, freeze, None)
     def touch(_):
         if called or (at_frames is not None and d.time_frames() < at_frames):

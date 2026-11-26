@@ -315,7 +315,8 @@ def main():
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
     def source_flags(path):
-        if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_PAIRED_MASKS']
+        if scheduled and path in (BASE/'src/bike_render16.c', BASE/'src/bike_render16_init.c'):
+            return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
         if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR']
         if scheduled and path==sweep_path:return ['-DRIDING_HEAD_TERRAIN']

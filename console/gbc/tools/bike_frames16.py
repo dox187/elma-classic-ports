@@ -40,6 +40,15 @@ def paired_metadata(gen):
              for mask in masks]
     dst = gen / 'riding16_meta.c'
     data = source[:match.start()] + array('riding_body_pair_masks', pairs) + source[match.end():]
+    wheels = read_array(gen / 'riding16_parts.c', 'riding_wheels')
+    if len(wheels) != 8 * 64:
+        raise ValueError('Expected eight 16x16 wheel frames')
+    frames = [wheels[i:i+64] for i in range(0, len(wheels), 64)]
+    unique = list(dict.fromkeys(frames))
+    slots = ['208', '212', 'BIKE_WHEEL_EXTRA_TILE']
+    # Zero selects the streamed renderer for an atlas with more distinct frames.
+    tiles = [slots[unique.index(frame)] for frame in frames] if len(unique) <= len(slots) else ['0'] * 8
+    data += '#include "bike_render16.h"\nconst uint8_t riding_wheel_tiles[]={' + ','.join(tiles) + '};\n'
     if not dst.exists() or dst.read_text() != data:
         dst.write_text(data)
     return dst

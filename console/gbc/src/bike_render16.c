@@ -393,8 +393,17 @@ void bike_render_prepare(const gbc_bike_t *bike) {
     for(i=0;i<2;++i) {
         wheel=(uint8_t)((bike->wheel[i].angle+4096U)>>13)&7;
         if(wheel!=last_wheel[i]) {
-            SWITCH_ROM(13);
-            upload(208+i*4,4,riding_wheels+((uint16_t)wheel<<6));
+#ifdef RIDING_PAIRED_MASKS
+            if(riding_wheel_tiles[0]) {
+                uint8_t first=riding_wheel_tiles[wheel];
+                shadow_OAM[8+i*2].tile=first;
+                shadow_OAM[9+i*2].tile=first+2;
+            } else
+#endif
+            {
+                SWITCH_ROM(13);
+                upload(208+i*4,4,riding_wheels+((uint16_t)wheel<<6));
+            }
             last_wheel[i]=wheel;
         }
     }
