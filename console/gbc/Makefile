@@ -82,6 +82,7 @@ ifndef SCHEDULE_CHECK_DIR
 	$(call check_in_temp,SCHEDULE_CHECK_DIR)
 else
 	$(PYTHON) test/check_wheel_pair.py --rom $(GAME_ROM)
+	$(PYTHON) test/check_reaction_coefficient.py --gen $(GEN) --rom $(GAME_ROM)
 	$(PYTHON) test/check_shallow_push.py --rom $(GAME_ROM)
 	$(PYTHON) test/check_wheel_terrain.py --gen $(GEN) --rom $(GAME_ROM)
 	$(PYTHON) test/check_normal_atlas.py --rom $(GAME_ROM)

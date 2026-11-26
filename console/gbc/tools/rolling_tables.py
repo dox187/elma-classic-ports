@@ -4,9 +4,11 @@ import re
 
 from head_clearance import write_if_changed
 from math_q24_coefficients import signed16_quotient_pages
+import head_lane_tables
 import projection_tables
 
 BANKS = (14, 6)
+REACTION_WORD_BANK = 472
 
 
 def rounded(value, multiplier):
@@ -309,3 +311,25 @@ def generate_reaction(gen, assembly, reciprocal_source):
     dest = gen / 'physics_suspension_game.s'
     write_if_changed(dest, '\n'.join(output) + '\n')
     return dest
+
+
+def reaction_word_table(gen, original, dest=None):
+    """Store two exhaustive signed16 C_REACT products before the first live scenery."""
+    constants = (gen / 'riding_constants.h').read_text()
+    scales = re.search(r'q24_C_REACT\[2\]=\{(-?\d+),(-?\d+)\}', constants)
+    pages = [page for scale in map(int, scales.groups()) for page in signed16_quotient_pages(scale)]
+    rows = bytes(value for page in pages for value in page)
+    head_lane_tables.verify_graphics_range(gen, len(rows), REACTION_WORD_BANK, 0)
+    data = original.read_text().split('{', 1)[1].split('}', 1)[0]
+    payload = bytes(map(int, data.strip().rstrip(',').split(',')))
+    if len(rows) != 14 * 256 or len(rows) > len(payload):
+        raise ValueError('Reaction coefficient pages exceed the graphics bank')
+    lines = [f'.module reaction_words_{REACTION_WORD_BANK}', f'.area _CODE_{REACTION_WORD_BANK}',
+             f'_level_bank_{REACTION_WORD_BANK}::', '_riding_reaction_words::']
+    for label, block in ((None, rows), ('_riding_reaction_words_end', payload[len(rows):])):
+        if label:
+            lines.append(label + '::')
+        lines.extend(' .db ' + ','.join(map(str, block[i:i+32])) for i in range(0, len(block), 32))
+    result = (dest or gen) / f'reaction_words_{REACTION_WORD_BANK}.s'
+    write_if_changed(result, '\n'.join(lines) + '\n')
+    return result

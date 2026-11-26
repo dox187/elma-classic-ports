@@ -69,6 +69,14 @@ def validate_linked_layout(symbol_path,rom_mib):
                 address = symbols[f'_torque_{name}_{phase}']
                 if address >> 16 != 1 or address & 255:
                     raise ValueError('Angular torque digit tables require aligned pages in bank 1')
+    if '_riding_reaction_coefficient' in symbols:
+        bank = rolling_tables.REACTION_WORD_BANK
+        start = (bank << 16) + 0x4000
+        if (symbols['_riding_reaction_coefficient'] >= 0x4000 or
+                symbols.get(f'_level_bank_{bank}') != start or
+                symbols.get('_riding_reaction_words') != start or
+                symbols.get('_riding_reaction_words_end') != start + 14 * 256):
+            raise ValueError('Reaction reader requires fixed ROM and two aligned signed16 tables')
     if '_world_scenery_pins' in symbols:
         scenery_pins.validate_layout(symbols)
     if 'pose_bank_18' in symbols:
@@ -156,6 +164,8 @@ def dependencies(path,gen,seen=None):
 def mismatched_map_banks(rom, sources):
     """Check each linked map and tile bank against the packer's exact bytes."""
     mismatches = []
+    packed = {f'scenery_pins_{scenery_pins.BANK}.s': scenery_pins.BANK,
+              f'reaction_words_{rolling_tables.REACTION_WORD_BANK}.s': rolling_tables.REACTION_WORD_BANK}
     for source in sources:
         if source.name == f'head_lanes_bank_{head_lane_tables.BANK}.s':
             data = bytearray()
@@ -168,10 +178,10 @@ def mismatched_map_banks(rom, sources):
             continue
         match = re.fullmatch(r'level_bank_(\d+)\.c', source.name)
         helper = re.fullmatch(r'rolling_(directory|products)_(\d+)\.s', source.name)
-        if source.name == f'scenery_pins_{scenery_pins.BANK}.s':
+        if source.name in packed:
             data = bytes(int(value) for line in source.read_text().splitlines()
                          if line.startswith(' .db ') for value in line[5:].split(','))
-            start = scenery_pins.BANK*16384
+            start = packed[source.name]*16384
             if rom[start:start+len(data)] != data:
                 mismatches.append(source)
             continue
@@ -496,7 +506,13 @@ def main():
         sources.insert(0, phase_tables.torque_words(a.gen))
         suspension = a.gen/'physics_suspension_game.s'
         paired = a.gen/'physics_suspension_torque_game.s'
-        head_clearance.write_if_changed(paired, 'RIDING_TORQUE_WORDS = 1\n'+suspension.read_text()
+        prefix = 'RIDING_TORQUE_WORDS = 1\n'
+        if graphics['map_codec'] == rolling_map_banks.CODEC:
+            bank = rolling_tables.REACTION_WORD_BANK
+            original = a.gen/f'level_bank_{bank}.c'
+            sources[sources.index(original)] = rolling_tables.reaction_word_table(a.gen, original)
+            prefix += f'RIDING_REACTION_WORDS = 1\nreaction_word_bank = {bank}\n'
+        head_clearance.write_if_changed(paired, prefix+suspension.read_text()
                                         +'\n'+(BASE/'src/torque_words.inc').read_text())
         sources[sources.index(suspension)] = paired
         packed = pose_products.generate(a.gen, BASE/'src')

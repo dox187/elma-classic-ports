@@ -3607,3 +3607,27 @@ updates increased by 352 and 580 T respectively.
 SHA-256 `b25810ed08b6dd0e777c46274268244fd1eab8eaa743c7babd823d7efb15614f`.
 Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test44-8m.gbc`.
 Timing is from emulation.
+
+## 0.96 test45 — wheel reaction coefficient
+
+The two scheduled phases use 3,584 bytes of lookup tables for wheel reaction
+inputs that fit in a signed 16-bit word. Larger inputs take the existing
+signed 32-bit path. Scenery references are checked before linking. Bank 472
+matches test44 past the table, and the last four banks remain erased.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.632 | 216,219 | 417,124 | 306 | 152/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.312 | 227,830 | 415,252 | 197 | 8/24 |
+| Full Freefall neutral descent | 439 | 29.864 | 224,689 | 276,540 | 0 | 1/1 |
+
+Replay results matched test44 across 25,551 updates. The catalog and extended
+suites matched all 75,252 substeps. A separate replay also matched the 1,316
+Freefall substeps. On the linked ROM, all 131,072 short products and 1,048
+wide fallback products matched the integer oracle and restored the caller's
+bank. All 122 speed-limit scenarios passed the existing drive-cutoff and spin
+survival checks. The standard suite's worst active update rose by 156 T.
+
+SHA-256 `2fbd8abc7f1d27aebc7d8677a4db4137ecc709ff4c5bc23ebf915089afc11396`.
+Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test45-8m.gbc`.
+Timing is from emulation.

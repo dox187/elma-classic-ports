@@ -104,15 +104,15 @@ def course_lanes(level, edges):
     return (qx,qy//8),data
 
 
-def verify_graphics_range(gen, size):
+def verify_graphics_range(gen, size, bank=BANK, offset=OFFSET):
     manifest = json.loads((gen/'level_manifest.json').read_text())
-    first = BANK*16384 + OFFSET
+    first = bank*16384 + offset
     end = first + size
     def verify(location, length):
         bank,addr = location
         start = (bank & 511)*16384+addr-0x4000
         if length and start < end and first < start+length:
-            raise ValueError(f'Head lanes overlap scenery at {location}')
+            raise ValueError(f'Numeric table overlaps scenery at {location}')
     for level in manifest['levels']:
         for pointer in level['chunks']:
             verify(pointer,1024 if pointer[0]&0xc000 else 1536)
@@ -120,8 +120,8 @@ def verify_graphics_range(gen, size):
         verify(level['palette'],56)
         verify(level['chunk_directory'],4*len(level['chunks']))
         verify(level['objects_pointer'],14*len(level['objects']))
-    if BANK in manifest['rolling_map_banks'] or manifest['rider_product_first_bank']<=BANK<manifest['rider_product_first_bank']+8:
-        raise ValueError('Head lanes overlap indexed physics tables')
+    if bank in manifest['rolling_map_banks'] or manifest['rider_product_first_bank']<=bank<manifest['rider_product_first_bank']+8:
+        raise ValueError('Numeric table overlaps indexed physics tables')
 
 
 def generate(gen, template, dest=None):

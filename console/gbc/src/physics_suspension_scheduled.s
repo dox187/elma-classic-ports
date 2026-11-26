@@ -852,9 +852,13 @@ ordinary:
  .endif
  call ss_reaction_input
  add sp,#8
+ .ifdef RIDING_REACTION_WORDS
+ call _riding_reaction_coefficient
+ .else
  ld b,h
  ld c,l
  ss_q24_phase _q24_index_C_REACT,reaction_index
+ .endif
  .ifdef RIDING_GAS_REACTION
 have_reaction:
  .endif
@@ -4720,6 +4724,69 @@ gas_read_fixed:
  ld a,(#__current_bank)
  ld (#0x2000),a
  scf
+ ret
+.endif
+
+.ifdef RIDING_REACTION_WORDS
+.area _CODE
+; HL:DE is the full signed reaction input. The wheel and body consume
+; only its rounded coefficient. Neither consumes this product's fraction.
+_riding_reaction_coefficient::
+ ld a,d
+ add a,a
+ sbc a,a
+ cp h
+ jr nz,ss_reaction_wide
+ cp l
+ jr nz,ss_reaction_wide
+ ld a,(#_riding_subphase)
+ or a
+ ld h,#>_riding_reaction_words
+ jr z,ss_reaction_page
+ ld h,#>(_riding_reaction_words+7*256)
+ss_reaction_page:
+ ; The gameplay ISR runs in fixed ROM. Restore both MBC5 bytes before
+ ; returning to bank 8, just as the general coefficient reader does.
+ ld a,#<reaction_word_bank
+ ld (#0x2000),a
+ ld a,#1
+ ld (#0x3000),a
+ ld c,d
+ ld l,e
+ ld b,(hl)                       ; rank of low-byte remainder
+ inc h
+ ld e,(hl)
+ inc h
+ ld d,(hl)                       ; low-byte quotient in DE
+ ld l,c
+ inc h
+ ld a,b
+ cp (hl)
+ ccf                             ; rank >= high-byte threshold
+ inc h
+ ld a,e
+ adc a,(hl)
+ ld e,a
+ inc h
+ ld a,d
+ adc a,(hl)
+ ld d,a
+ inc h
+ ld a,#0
+ adc a,(hl)
+ ld c,a
+ add a,a
+ sbc a,a
+ ld b,a
+ xor a
+ ld (#0x3000),a
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+ss_reaction_wide:
+ ld b,h
+ ld c,l
+ ss_q24_phase _q24_index_C_REACT,ss_reaction_wide_index
  ret
 .endif
 
