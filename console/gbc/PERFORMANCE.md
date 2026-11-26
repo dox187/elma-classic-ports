@@ -3495,3 +3495,46 @@ SHA-256 `a79219733c295db589a45a05380b78395d0d3402aad914a4740643ef50d5de50`.
 The fixed ROM has 24 bytes free. Build with
 `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test41-8m.gbc`.
 Reports are in `build/v096-test41/s-{catalog,extended,fullfall}/`.
+
+## 0.96 test42 — level bounds, damping and head collisions
+
+Level selection prepares a small rectangle in which the wheel and body
+boundary tests can accept both axes with upper-byte comparisons. The
+original signed 32-bit comparisons handle its boundaries. A prepared
+force-width flag identifies additional exact damping products. The head
+sweep now multiplies into registers to calculate its signed cross product
+and checks a finite segment's coordinate bounds before its distance test.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.578 | 219,080 | 416,744 | 383 | 143/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.248 | 231,677 | 415,844 | 219 | 8/24 |
+| Full Freefall neutral descent | 439 | 29.864 | 226,892 | 276,784 | 0 | 1/1 |
+
+The neutral descent first met every 280,896 T deadline in this build.
+All 75,252 captured substeps, 25,112 published updates and the separate
+439-update descent matched test41. The 45 PC landing/braking cases and
+20 extreme-spin scenarios reproduced their reference results. The linked
+boundary oracle checked 15,696 wheel pairs, 7,188 head/body pairs and
+11,605 level descriptor preparations. The finite-segment oracle compared
+25,169 cases. The linked damping fixture matched 42,166 vectors. PyBoy
+matched 1,216 presentations and 61,845 visible cells.
+SameBoy matched 878 presentations. All 54 source-image checks and the
+frontend and save checks passed. The course-entry sweep reported three
+display overruns.
+
+Two experimental brake caches shared recent integer results. Reusing
+the scaled torque cut the average physics cost on the long level 11 brake
+route, but increased late updates from 151 to 157. Reusing complete
+two-axis impulses increased them to 162, with 253 late updates in the
+long suite. Both experiments were excluded. Reducing the size of a dense
+terrain program's cell from 16 to 8 units also increased late updates
+on both suites. A strict disk proof for all 256 integer positions of a
+16-unit cap cell also reproduced the reference, but gave 416 catalog and
+227 extended late updates on test41.
+
+SHA-256 `aecf8224f8b98d5f5baf643539a8f58495ab48e6aced87b90438bb083ef14dfc`.
+Fixed ROM has 6 bytes free. Build with
+`tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test42-8m.gbc`.
+Reports are in `build/v096-test42/all-{catalog,extended,fullfall}/`.
+All timing figures are from emulation.

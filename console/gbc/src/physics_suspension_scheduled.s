@@ -18,7 +18,7 @@ ss_coarse:: .ds 4
 ss_tr:: .ds 4
 ss_reaction_high: .ds 1
 ss_paired: .ds 1
-ss_damp_long: .ds 1                 ; 0 certified, 1 wide, 2 prepared moment
+ss_damp_long: .ds 1                 ; bit 0 wide, bit 2 wider spring, 2 prepared
 ss_prepared_damping: .ds 4
 ; The 18-byte split body sums and four wheel impulses are input-independent.
 ; Only the consumer publishes them after the next control sample.
@@ -945,8 +945,8 @@ ss_prepared_moments:
  or a
  ret nz
  ld a,(#ss_damp_long)
- or a
- ret nz
+ rra                            ; bit zero requests the general determinant
+ ret c
  ld a,#7                        ; 4,428 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
@@ -2714,8 +2714,10 @@ ss_damping_scheduled:
  ld a,(#ss_damp_long)
  or a
  jr z,ss_damp_cert_entry
+ rra
+ jp c,ss_damping_torque18
  dec a
- jp z,ss_damping_torque18
+ jp nz,ss_damp_cert_entry
  ss_read ss_prepared_damping
  ld h,b
  ld l,c
@@ -2737,8 +2739,8 @@ ss_damping_scheduled:
 ss_damp_cert_entry:
  ; Each axis of a rotated pose anchor has magnitude at most
  ; 222822 + 157286 + 2. Adding the certified spring displacement
- ; (magnitude <= 2^17) leaves a signed20 wheel arm. Each individual
- ; product has magnitude below 2^36. The exact four-term sum fits
+ ; (magnitude <= 2^19) leaves an arm strictly below 2^20 in magnitude.
+ ; Each product has magnitude below 2^37. The exact four-term sum fits
  ; signed40. Keep each certified speed within its individual signed18
  ; range. Its unsigned magnitude has at most one high unit unless the
  ; entire speed is -131072, in which case the low word is exactly zero.
@@ -4364,18 +4366,27 @@ ss_force_positive24:
 ss_force_width24:
  ldh (ss_force_byte3),a
  xor a,b
- and a,#0xe0
- jr nz,ss_force_mark_wide
- ldh a,(ss_force_byte3)
- xor a,b
- and a,#0xfe                     ; high word is -2, -1, 0 or 1
- jr z,ss_force_wide
- jr ss_force_long
+ cp a,#32                       ; signed22 velocity or displacement
+ jr nc,ss_force_mark_wide
+ cp a,#2                        ; signed18 velocity or displacement
+ jr c,ss_force_wide
+ cp a,#8
+ jr nc,ss_force_long
+ ld a,c
+ cp a,#<(ss_force_products+28)
+ jr nc,ss_force_long
+ ; A signed20 displacement plus the rotated pose fits a signed21 arm.
+ ; Accept the wider spring while preserving any earlier wide lane.
+ ld a,#4
+ jr ss_force_set_width
 ss_force_mark_wide:
  ldh (ss_force_wide_used),a
 ss_force_long:
  ld a,#1
- ld (#ss_damp_long),a
+ss_force_set_width:
+ ld hl,#ss_damp_long
+ or a,(hl)
+ ld (hl),a
 ss_force_wide:
  ss_force_word_prefix
  ldh a,(#ss_force_byte3)

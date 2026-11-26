@@ -15,7 +15,53 @@ extern uint8_t Seg_subcell;
 #define minimum(a,b) ((int16_t)((a)<(b)?(a):(b)))
 #define maximum(a,b) ((int16_t)((a)>(b)?(a):(b)))
 #define absolute(x) ((int16_t)((x)<0?-(x):(x)))
+#ifdef __SDCC
+/* The two signed products return their high and low words in HL and DE.
+ * Keep the first result on the stack while computing the second, then
+ * subtract directly into the DE:BC return registers. */
+static int32_t cross(int16_t ax,int16_t ay,int16_t bx,int16_t by) __naked {
+    ax;ay;bx;by;
+    __asm
+        push bc
+        ldhl sp,#6
+        ld a,(hl+)
+        ld b,(hl)
+        ld c,a
+        call _riding_mul16_regs
+        push hl
+        push de
+        ldhl sp,#4
+        ld a,(hl+)
+        ld d,(hl)
+        ld e,a
+        ldhl sp,#8
+        ld a,(hl+)
+        ld b,(hl)
+        ld c,a
+        call _riding_mul16_regs
+        pop bc
+        ld a,c
+        sub e
+        ld c,a
+        ld a,b
+        sbc d
+        ld b,a
+        pop de
+        ld a,e
+        sbc l
+        ld e,a
+        ld a,d
+        sbc h
+        ld d,a
+        pop hl
+        pop hl
+        add sp,#4
+        jp (hl)
+    __endasm;
+}
+#else
 static int32_t cross(int16_t ax,int16_t ay,int16_t bx,int16_t by){return mul16(ax,by)-mul16(ay,bx);}
+#endif
 static uint8_t straddles(int32_t a,int32_t b){return(a<=0&&b>=0)||(a>=0&&b<=0);}
 #if defined(__SDCC) && R_HEAD == 244
 /* Largest |y| strictly inside the circle, at every possible |x|. The
@@ -119,58 +165,145 @@ static uint8_t close_vertex(int16_t x,int16_t y,int16_t dx,int16_t dy,uint16_t r
     return close_line(dx,dy,d2,radius,r2,cross(x,y,dx,dy));
 }
 
-/* Keep the infinite-line rejection first, then reuse its exact cross
- * products through the finite capsule. With d=q-p and e=b-a, c0=(p-a)x e,
- * cd=d x e and ca=(a-p)x d give the other three crosses by addition.
- * Bounded8m pieces keep all relative vectors in signed16 and products32. */
-static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
-                       const seg_t *s,uint16_t radius,int32_t c0){
+/* The finite endpoint tests reuse the crosses at p and q. With d=q-p
+ * and e=b-a, cd=c1-c0 gives d x e. The cross at b is ca-cd. The 8 m
+ * pieces keep relative vectors in signed 16 bits and products in 32. */
+static uint8_t capsule_ends(int16_t px,int16_t py,int16_t qx,int16_t qy,
+                       const seg_t *s,uint16_t radius,int32_t c0,int32_t c1){
     int16_t ax=s->px,ay=s->py,ex=s->dx,ey=s->dy;
     int16_t bx=ax+ex,by=ay+ey,dx=qx-px,dy=qy-py,x=px-ax,y=py-ay;
     uint32_t d2,e2,r2;
-    /* A sweep whose endpoints project inside a horizontal or vertical
-     * edge stays above its finite span. The exact test then needs only
-     * the transverse interval, including a strict miss at tangency. */
-    if(!ey && ex){
-        int16_t y1=qy-ay;
-        if((y>=(int16_t)radius && y1>=(int16_t)radius) ||
-           (y<=-(int16_t)radius && y1<=-(int16_t)radius))return 0;
-        if(minimum(px,qx)>=minimum(ax,bx) && maximum(px,qx)<=maximum(ax,bx))return 1;
-    }else if(!ex && ey){
-        int16_t x1=qx-ax;
-        if((x>=(int16_t)radius && x1>=(int16_t)radius) ||
-           (x<=-(int16_t)radius && x1<=-(int16_t)radius))return 0;
-        if(minimum(py,qy)>=minimum(ay,by) && maximum(py,qy)<=maximum(ay,by))return 1;
-    }
-    int32_t cd=0,ca=0;
-    /* Stored length is nearest-integer; len+1 bounds its exact length. */
-    int32_t limit=mul16((int16_t)radius,SEG_LENGTH(s)+1);
-    uint8_t have_cd=0,have_ca=0;
-    if(!(c0<limit && c0>-limit)){
-        cd=cross(dx,dy,ex,ey);have_cd=1;
-        if(c0>=limit ? c0+cd>=limit : c0+cd<=-limit)return 0;
-    }
+    int32_t cd=c1-c0,ca=0;
+    uint8_t have_ca=0;
     if(behind(x,qx-ax,ex)&&behind(y,qy-ay,ey))
         return close_vertex(-x,-y,dx,dy,radius);
     if(behind(bx-px,bx-qx,ex)&&behind(by-py,by-qy,ey))
         return close_vertex(bx-px,by-py,dx,dy,radius);
-    if(!have_cd)cd=cross(dx,dy,ex,ey);
     /* Nonparallel segments intersect exactly when both pairs of endpoints
      * straddle the other line. For parallel or degenerate segments the
      * four finite point-to-segment distances below already include overlap. */
-    if(cd && straddles(c0,c0+cd)){
+    if(cd && straddles(c0,c1)){
         ca=cross(-x,-y,dx,dy);have_ca=1;
         if(straddles(ca,ca-cd))return 1;
     }
     e2=(uint32_t)(mul16(ex,ex)+mul16(ey,ey));r2=(uint32_t)mul16(radius,radius);
     /* The advancing centre ordinarily enters the capsule at the new end.
      * Its distance to the terrain segment does not need the path length. */
-    if(close_segment(x+dx,y+dy,ex,ey,e2,radius,r2,c0+cd))return 1;
+    if(close_segment(x+dx,y+dy,ex,ey,e2,radius,r2,c1))return 1;
     if(close_segment(x,y,ex,ey,e2,radius,r2,c0))return 1;
     d2=(uint32_t)(mul16(dx,dx)+mul16(dy,dy));
     if(!have_ca)ca=cross(-x,-y,dx,dy);
     if(close_segment(-x,-y,dx,dy,d2,radius,r2,ca))return 1;
     return close_segment(ex-x,ey-y,dx,dy,d2,radius,r2,ca-cd);
+}
+
+/* If a point is less than one radius from the infinite line, its
+ * perpendicular foot moves by less than that radius on either axis.
+ * Keeping one coordinate this far inside the edge guarantees that the
+ * foot lies on the finite segment, regardless of the other coordinate. */
+static uint8_t inset(int16_t position,int16_t delta,int16_t radius){
+    if(delta<0){delta=-delta;position=-position;}
+    return position>=radius && delta-position>=radius;
+}
+
+/* The distance between the projected intervals on one axis bounds the
+ * separation of the two segments. The two independent gaps give the
+ * exact distance between their closed bounding boxes. */
+#ifdef __SDCC
+static int16_t box_gap(int16_t p,int16_t q,int16_t edge) __naked {
+    p;q;edge;
+    __asm
+        ; DE and BC are the query endpoints relative to the edge origin.
+        ; If their signs differ, the query interval contains the origin.
+        ld a,d
+        xor b
+        bit 7,a
+        jr nz,box_gap_zero
+        ldhl sp,#2
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+        bit 7,d
+        jr z,box_gap_nearest
+        ; Reflect both intervals so that both query endpoints are positive.
+        xor a
+        sub e
+        ld e,a
+        ld a,#0
+        sbc d
+        ld d,a
+        xor a
+        sub c
+        ld c,a
+        ld a,#0
+        sbc b
+        ld b,a
+        xor a
+        sub l
+        ld l,a
+        ld a,#0
+        sbc h
+        ld h,a
+box_gap_nearest:
+        ld a,e
+        sub c
+        ld a,d
+        sbc b
+        jr nc,box_gap_extent
+        ld b,d
+        ld c,e
+box_gap_extent:
+        ; BC is the nearest query endpoint. Subtract the positive edge
+        ; extent and clamp to zero if the intervals overlap.
+        bit 7,h
+        jr nz,box_gap_done
+        ld a,c
+        sub l
+        ld c,a
+        ld a,b
+        sbc h
+        ld b,a
+        jr nc,box_gap_done
+box_gap_zero:
+        ld bc,#0
+box_gap_done:
+        pop hl
+        inc sp
+        inc sp
+        jp (hl)
+    __endasm;
+}
+#else
+static int16_t box_gap(int16_t p,int16_t q,int16_t edge){
+    if((p^q)<0)return 0;
+    if(p<0){p=-p;q=-q;edge=-edge;}
+    if((uint16_t)p<(uint16_t)q)q=p;
+    if(edge<0)return q;
+    return (uint16_t)q>(uint16_t)edge ? q-edge : 0;
+}
+#endif
+
+static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
+                       const seg_t *s,uint16_t radius,int32_t c0){
+    int16_t x=qx-s->px,y=qy-s->py;
+    int16_t gx=box_gap(px-s->px,x,s->dx);
+    if(gx>=(int16_t)radius)return 0;
+    int16_t gy=box_gap(py-s->py,y,s->dy);
+    if(gy>=(int16_t)radius)return 0;
+    if(gx && gy && !close_point(gx,gy,radius,(uint32_t)mul16(radius,radius)))return 0;
+    int32_t c1=cross(x,y,s->dx,s->dy);
+    /* Stored edge length is rounded. Both bounds also hold when a
+     * fixture stores the truncated length. Equality in the upper bound
+     * is already a miss under the strict-radius rule. */
+    int32_t limit=mul16(radius,SEG_LENGTH(s)+1);
+    if(c1>=limit){if(c0>=limit)return 0;}
+    else if(c1<=-limit){if(c0<=-limit)return 0;}
+    else{
+        limit-=2*(int16_t)radius;
+        if(c1<limit && c1>-limit &&
+           (inset(x,s->dx,radius) || inset(y,s->dy,radius)))return 1;
+    }
+    return capsule_ends(px,py,qx,qy,s,radius,c0,c1);
 }
 
 /* The cached box spans [edge_min-R_WHEEL, edge_max+R_WHEEL] on each

@@ -140,6 +140,20 @@ def scheduled_vectors():
                     arms = [arm, -arm, arm, other]
                     displacements = [max(-131072, min(131071, -a)) for a in arms]
                     yield [first, second, second, first] + arms, displacements
+    # Combine the signed20 displacement endpoints with the signed18 speed
+    # endpoints. A later wide spring or speed must override an earlier
+    # qualifying spring without losing carries in the four-term sum.
+    for lane in range(4):
+        for limit in (1 << 17, 1 << 19):
+            for spring in (-limit - 1, -limit, limit - 1, limit):
+                for speed in (-131073, -131072, 131071, 131072):
+                    displacement = [-(1 << 19), (1 << 19) - 1] * 2
+                    velocities = [131071, -131072, -131072, 131071]
+                    displacement[lane] = spring
+                    velocities[3 - lane] = speed
+                    arms = [anchor - delta for anchor, delta in zip(
+                        (-380110, 380110, 380110, -380110), displacement)]
+                    yield velocities + arms, displacement
     # A long spring lane in either wheel must survive the second force batch.
     for position in range(8):
         for value in (-2**31, -131073, -131072, 131071, 131072, 2**31 - 1):

@@ -78,6 +78,10 @@ void physics_collision_reset(void) {
     next_cell=0;Seg_left=0;
 }
 
+#if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
+void riding_prepare_level_bounds(void) __banked;
+#endif
+
 uint8_t physics_collision_select(uint8_t index) {
     if(index>=RIDING_LEVEL_COUNT)return 0;
 #ifdef __SDCC
@@ -101,6 +105,9 @@ uint8_t physics_collision_select(uint8_t index) {
     physics_level_origin_y=riding_level.origin_y;
     physics_level_start_x=riding_level.start_x;
     physics_level_start_y=riding_level.start_y;
+#endif
+#if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
+    riding_prepare_level_bounds();
 #endif
     physics_level_index=index;
     physics_collision_reset();
