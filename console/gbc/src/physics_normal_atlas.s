@@ -81,10 +81,8 @@ ring_sorted:
  ld (#normal_octant),a
  srl d
  rr e
- ld a,#0
- rla
- add a,a
- add a,a
+ sbc a,a
+ and #4
  ld d,a                     ; 4 * (smaller component & 1)
  ld a,e
  cp #145
@@ -204,6 +202,7 @@ ring_lengths:
 ring_length_selected:
  rrca
  ld a,(#normal_entry+4)
+ res 6,a
  adc a,#0
  ld (#normal_cache_value+4),a
  ld a,#1
@@ -325,6 +324,32 @@ ring_read_vector:
  ret
 ring_vector_adjust:
  ld h,a
+ ld a,(#normal_entry+4)
+ bit 6,a
+ jr z,ring_major_only
+ ; The normalized vector shifts one unit along each canonical axis.
+ ld a,h
+ rlca
+ rlca
+ xor h
+ bit 0,a                        ; grow XOR sign of the smaller coordinate
+ jr nz,ring_grow_small
+ bit 2,h
+ jr z,ring_shrink_x
+ dec bc
+ jr ring_major_only
+ring_shrink_x:
+ dec de
+ jr ring_major_only
+ring_grow_small:
+ bit 2,h
+ jr z,ring_grow_x
+ inc bc
+ jr ring_major_only
+ring_grow_x:
+ inc de
+ring_major_only:
+ ld a,h
  rlca
  rlca
  rlca

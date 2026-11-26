@@ -39,7 +39,14 @@ def encode(x, y, roots):
     if len(set(projected_errors)) == 1:
         flags |= {(0, 0): 0x40, (0, -1): 0x80, (0, 1): 0xc0}.get(projected_errors[0], 0)
     assert 256 <= base < 511 and d2 >> 16 == 2
-    return RECORD.pack(nx, ny, base & 255, flags, d2 & 65535)
+    base_byte = base & 255
+    assert not base_byte & 64
+    if not flags & 0xc0 and len(set(projected_errors)) == 1:
+        delta = projected_errors[0]
+        if delta in ((-1, -1), (1, 1)):
+            flags |= 0x80 if delta[1] < 0 else 0xc0
+            base_byte |= 64
+    return RECORD.pack(nx, ny, base_byte, flags, d2 & 65535)
 
 
 def generate(gen, roots_path, wheel_rows, dest=None):

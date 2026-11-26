@@ -12,6 +12,7 @@ import bike_frames16
 import brake_dispatch
 import head_clearance
 import head_refinement
+import head_lane_tables
 import mul_table
 import normal_atlas
 import pose_products
@@ -105,6 +106,8 @@ def validate_linked_layout(symbol_path,rom_mib):
                 raise ValueError(f'Head-clearance directory requires bank {bank} at 0x4000')
         if symbols['_riding_head_cell_mask'] >> 16 != 4 or symbols['_riding_head_read_map'] >= 0x4000:
             raise ValueError('Head-clearance reader requires caller bank 4 and fixed-ROM bank switching')
+    if '_head_strip_filtered' in symbols:
+        head_lane_tables.validate_layout(symbols)
     if '_riding_head_quarters' in symbols:
         head_refinement.validate_layout(symbols)
     if '_riding_phase_words' in symbols:
@@ -118,6 +121,12 @@ def validate_linked_layout(symbol_path,rom_mib):
         projection_tables.validate_layout(symbols)
     if 'rom_slope_find' in symbols:
         rolling_map_banks.validate_layout(symbols)
+    if 'roll_first_0' in symbols:
+        for phase, bank in enumerate(rolling_tables.BANKS):
+            for label in ('first', 'short', 'second'):
+                address = symbols[f'roll_{label}_{phase}']
+                if address >> 16 != bank or address & 255:
+                    raise ValueError(f'Unaligned rolling scalar table in bank {bank}')
     if 'ground_rows_29' in symbols:
         rolling_tables.validate_shallow_layout(symbols)
     if 'near_rows_positive_134' in symbols:
@@ -145,6 +154,15 @@ def mismatched_map_banks(rom, sources):
     """Check each linked map and tile bank against the packer's exact bytes."""
     mismatches = []
     for source in sources:
+        if source.name == f'head_lanes_bank_{head_lane_tables.BANK}.s':
+            data = bytearray()
+            for line in source.read_text().splitlines():
+                if line.startswith(' .db '):
+                    data.extend(map(int, line[5:].split(',')))
+            offset = head_lane_tables.BANK * 16384
+            if not data or rom[offset:offset + len(data)] != data:
+                mismatches.append(source)
+            continue
         match = re.fullmatch(r'level_bank_(\d+)\.c', source.name)
         helper = re.fullmatch(r'rolling_(directory|products)_(\d+)\.s', source.name)
         if match or helper:
@@ -399,6 +417,8 @@ def main():
         sources.remove(brake_source)
         roll_source = BASE/'src/physics_roll_fast.s'
         sources[sources.index(roll_source)] = rolling_tables.generate(a.gen, roll_source)
+        # Both scalar banks start with low-byte-indexed quotient pages.
+        sources.insert(0, a.gen/'physics_roll_scalar.s')
         for name in ('physics_contact_loop', 'physics_normal_fast'):
             source = BASE/'src'/(name+'.s')
             game_source = a.gen/(name+'_game.s')
@@ -489,6 +509,11 @@ def main():
         sources.insert(sources.index(sprites) + 1, BASE/'src/roll_near_rows.s')
     if scheduled and graphics['map_codec']==rolling_map_banks.CODEC:
         sources = rolling_map_banks.bank_sources(sources, graphics, a.gen, BASE/'src')
+    head_lanes = scheduled and rom_mib == 8 and graphics['map_codec'] == rolling_map_banks.CODEC
+    if head_lanes:
+        lane_code, lane_table = head_lane_tables.generate(a.gen, BASE/'src/head_lanes.s')
+        sources[sources.index(a.gen/'level_bank_469.c')] = lane_table
+        sources.insert(sources.index(a.gen/'head_quarters.s'), lane_code)
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
     for name in ('lcc','sdcc','sdasgb','sdldgb'):
@@ -507,7 +532,8 @@ def main():
         if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
         if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR']
-        if scheduled and path==sweep_path:return ['-DRIDING_HEAD_TERRAIN']
+        if scheduled and path==sweep_path:
+            return ['-DRIDING_HEAD_TERRAIN'] + (['-DRIDING_HEAD_LANES'] if head_lanes else [])
         return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []
     def source_key(path):
         extra=b''.join(b' '+flag.encode() for flag in source_flags(path))

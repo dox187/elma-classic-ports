@@ -1,4 +1,4 @@
-"""Fuse the two rounded rolling impulses for constant throttle and changing brake torques."""
+"""Generate exact rounded wheel impulses and tangent projections."""
 import json
 import re
 
@@ -6,7 +6,6 @@ from head_clearance import write_if_changed
 from math_q24_coefficients import signed16_quotient_pages
 import projection_tables
 
-LIMIT = 1536
 BANKS = (14, 6)
 
 
@@ -219,18 +218,14 @@ def validate_shallow_layout(symbols):
 
 def generate(gen, assembly):
     constants = (gen / 'riding_constants.h').read_text()
-    gas = int(re.search(r'^#define GAS_TQ (\d+)$', constants, re.M)[1])
-    if not 0 < gas <= 32767:
-        raise ValueError('The torque lookup requires a positive signed16 throttle impulse')
 
     def coefficients(name):
         match = re.search(r'q24_C_' + name + r'\[2\]=\{(-?\d+),(-?\d+)\}', constants)
         return tuple(map(int, match.groups()))
 
-    output = ['RIDING_ROLL_TABLES = 1', 'RIDING_GROUND_ROWS = 1', f'roll_gas = {gas}', f'roll_bias_pages = {LIMIT//256}',
-              f'roll_pages = {2*LIMIT//256}', f'roll_data_size = {2*LIMIT}',
-              f'roll_group_bytes = {2*LIMIT//32*2}', f'roll_full_bank = {BANKS[0]}',
-              f'roll_partial_bank = {BANKS[1]}', assembly.read_text()]
+    output = ['RIDING_ROLL_TABLES = 1', 'RIDING_GROUND_ROWS = 1',
+              f'roll_full_bank = {BANKS[0]}', f'roll_partial_bank = {BANKS[1]}',
+              assembly.read_text()]
     # The common wheel-speed coefficient has a nonnegative low-byte
     # quotient below 256 and a signed16 quotient for any signed17 input.
     # Wider products retain the scheduled Q24 entry and its saturation rules.
@@ -242,36 +237,24 @@ def generate(gen, assembly):
         bank = manifest['first_bank'] + index//2
         output[:0] = ['RIDING_ROLL_OMEGA = 1', f'roll_omega_bank = {bank & 255}',
                       f'roll_omega_high = {bank >> 8}', f'roll_omega_page = {0x40 + (index%2)*0x20}']
+    scalar = ['.module physics_roll_scalar', '.area _CODE']
     for phase, (torque, speed, bank) in enumerate(zip(coefficients('ROLL_T'), coefficients('ROLL_DV'), BANKS)):
-        groups = [[] for _ in range(3)]
-        packed = []
-        steps = (0, gas, -gas)
-        offsets = [t * speed // (1 << 24) for t in steps]
-        for start in range(-LIMIT, LIMIT, 32):
-            anchor = rounded(rounded(start, torque), speed)
-            for group, offset in zip(groups, offsets):
-                group.append(anchor + offset)
-            for value in range(start, start + 32):
-                tangential = rounded(value, torque)
-                answers = [rounded(tangential + t, speed) for t in steps]
-                delta = answers[0] - anchor
-                carries = [answer - answers[0] - offset for answer, offset in zip(answers, offsets)]
-                if (not 0 <= delta < 64 or any(bit not in (0, 1) for bit in carries)
-                        or any(not -32768 <= answer <= 32767 for answer in answers)):
-                    raise ValueError('Rolling impulse exceeds its exact table representation')
-                packed.append(delta | (carries[1] << 6) | (carries[2] << 7))
-        output += [f'.area _CODE_{bank}', f'roll_data_{phase}::']
-        for i in range(0, len(packed), 32):
-            output.append(' .db ' + ','.join(map(str, packed[i:i+32])))
-        for mode, group in enumerate(groups):
-            output.append(f'roll_bases_{phase}_{mode}::')
-            for i in range(0, len(group), 16):
-                output.append(' .dw ' + ','.join(map(str, group[i:i+16])))
-        output.append(f'roll_transform_{phase}::')
-        for scale in (torque, speed):
-            for page in signed16_quotient_pages(scale):
-                for i in range(0, 256, 32):
-                    output.append(' .db ' + ','.join(map(str, page[i:i+32])))
+        first = signed16_quotient_pages(torque)
+        if any(first[2]) or any(not -32768 <= rounded(i, torque) < 32768
+                                for i in (-32768, 32767)):
+            raise ValueError('Rolling torque quotient must fit signed16 with an unsigned-byte low term')
+        first = [first[i] for i in (0, 1, 3, 4, 5)]
+        direct = [rounded(i, speed) for i in range(-1024, 1024)]
+        if any(not -32768 <= q < 32768 for q in direct):
+            raise ValueError('Direct rolling speed quotient must fit signed16')
+        short = [[(q >> shift) & 255 for q in direct] for shift in (0, 8)]
+        scalar.append(f'.area _CODE_{bank}')
+        for name, planes in [('first', first), ('short', short),
+                             ('second', signed16_quotient_pages(speed))]:
+            scalar.append(f'roll_{name}_{phase}::')
+            for plane in planes:
+                scalar.extend(projection_tables.byte_lines(plane))
+    write_if_changed(gen / 'physics_roll_scalar.s', '\n'.join(scalar) + '\n')
     output.extend(shallow_tangent_banks(assembly))
     output.extend(slope_rows(assembly))
     graphics_file = gen / 'level_manifest.json'

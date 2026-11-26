@@ -3418,3 +3418,43 @@ SHA-256 `b88938316811834f82a019983164bd421bff8c44b7b13a8c357e22d13e7bdad2`.
 Fixed ROM has 47 bytes free and banks 508–511 remain erased. Build with
 `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test39-8m.gbc`.
 Reports are in `build/v096-test39/`.
+
+## 0.96 test40 — rolling and head clearance
+
+Both phases of the wheel solver combine the same rounded impulse products
+from digit tables. Paired tangent projection handles signed speeds crossing
+a word boundary without a second full-width multiplication. Endpoint
+normals can reconstruct both coordinates directly when the numeric table
+proves a one-unit displacement along each axis in every octant. All 35,520
+signed endpoint permutations and 9,600 independent tangent projections
+matched the arithmetic reference.
+
+The head solver skips the finite-segment sweep in strips where the original
+course geometry proves the entire swept head clear. It checks both strips
+when a movement crosses a boundary. The strips occupy 6,048 bytes in a
+verified gap in bank 469. The native checker exercised 84,672 boundary
+queries and tested 3,015 rectangles against the original course edges.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.503 | 223,771 | 418,380 | 484 | 123/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.166 | 237,301 | 504,848 | 247 | 7/24 |
+| Full Freefall neutral descent | 439 | 29.796 | 234,504 | 416,468 | 2 | 0/1 |
+
+All 75,252 captured substeps, 25,112 published states and the separate
+439-update descent matched test39. The previous PC results were reproduced
+on all 45 landing/braking cases and 20 extreme-spin cases. Native checks
+matched 21,340 wheel cases. PyBoy matched 1,216 presentations and 61,845
+visible background cells. SameBoy matched 878 presentations. Player records,
+audio and frontend tests passed. The frontend test observed one display overrun.
+
+An alternative encoding reconstructed the endpoint projection for every
+annulus entry. It passed the exhaustive arithmetic check but raised the
+catalog's late-update count from 546 to 556 on the test39 baseline.
+Test40 uses the smaller correction for the 253 additional canonical entries
+where both components share the same one-unit displacement.
+
+SHA-256 `f49bc467d372f960ea9b90f3427adcac732c3b512b04a0c370e57639a4df888c`.
+Fixed ROM has 46 bytes free. Banks 508–511 remain erased. Build with
+`tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test40-8m.gbc`.
+Reports are in `build/v096-test40/`. All timing figures were measured in emulation.

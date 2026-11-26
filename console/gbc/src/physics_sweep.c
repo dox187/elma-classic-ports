@@ -531,7 +531,11 @@ _riding_head_terrain_query::
         jr nz,head_read_map
         ld a,(hl)
         or a
+#ifdef RIDING_HEAD_LANES
+        jp z,_head_strip_filtered
+#else
         jp z,_riding_swept_head_uncached
+#endif
 head_read_map:
         ; Native banked stack still contains both Q10 endpoints. Extract the
         ; eight metre bits only after checking all remaining high bits.
@@ -597,7 +601,11 @@ head_map_clear:
         ret
 head_original:
 #endif
+#ifdef RIDING_HEAD_LANES
+        jp _head_strip_filtered
+#else
         jp _riding_swept_head_uncached
+#endif
     __endasm;
 }
 #define HEAD_QUERY riding_swept_head_uncached

@@ -1072,6 +1072,10 @@ batch_copy:
  ld a,b
  ld (#batch_installed),a
 batch_ready:
+ ; The output pair can use the arbitrary word reader independently of
+ ; whether all four coordinates fit the input-dot fast path.
+ ld a,#5
+ ldh (#near_page),a
  .macro batch_word lo,hi,lnext
  ld a,(hl+)
  ld lo,a
@@ -1135,8 +1139,6 @@ batch_ready:
  ldhl sp,#8
  call batch_sum
  add sp,#12
- ld a,#5
- ldh (#near_page),a
  jp ground_resume_deltas
 
 batch_wide_y:
@@ -1185,43 +1187,198 @@ slope_word_project:
  add a
  sbc a
  cp (hl)
- jp nz,slope_pair_miss
+ jr nz,batch_project_wide
  inc hl
  cp (hl)
  jp nz,slope_pair_miss
+batch_project_word:
+ ; Reverse the two lanes so the live product is X. Store Y immediately
+ ; after X using the destination pointer left by the first store.
  ldhl sp,#8
  ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld a,(hl+)
- ld b,(hl)
  ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
  ldhl sp,#4
  add sp,#-4
  call batch_code
- call batch_round_regs
+ call batch_project_round
  ldhl sp,#4
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- inc hl
- inc hl
- inc hl
- inc hl
- call slope_store
+ call batch_project_store
+ ld b,h
+ ld c,l
  pop de
  pop hl
- call batch_round_regs
+ push bc
+ call batch_project_round
  pop hl
- call slope_store
+ call batch_project_store
+ add sp,#2
  jp ground_return
-batch_round_regs:
+
+; s = signed16(lo) + 65536*k. The integral correction to each rounded
+; Q14 product is 4*k*tangent. A full-width lookup covers larger k.
+batch_project_wide:
+ ld a,d
+ add a
+ ld a,(hl+)
+ adc #0
+ ld c,a
+ ld a,(hl)
+ adc #0
+ ld b,a
+ ld a,c
+ inc a
+ jr z,batch_project_negative
+ dec a
+ dec a
+ jp nz,slope_pair_miss
+ ld a,b
+ or a
+ jp nz,slope_pair_miss
+ ld a,#1
+ jr batch_project_correct
+batch_project_negative:
+ ld a,b
+ inc a
+ jp nz,slope_pair_miss
+ ld a,#255
+batch_project_correct:
+ ld (#batch_correction),a
+ ldhl sp,#8
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ ldhl sp,#4
+ add sp,#-4
+ call batch_code
+ call batch_project_round
+ ldhl sp,#12
+ call batch_correct_axis
+ ldhl sp,#4
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call batch_project_store
+ ld b,h
+ ld c,l
+ pop de
+ pop hl
+ push bc
+ call batch_project_round
+ ldhl sp,#12
+ call batch_correct_axis
+ pop hl
+ call batch_project_store
+ add sp,#2
+ jp ground_return
+
+batch_correct_axis:
+ push bc
+ push de
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,(#batch_correction)
+ inc a
+ jr nz,batch_correct_sign
+ ; Negate in 32 bits, including -32768.
+ xor a
+ sub l
+ ld l,a
+ ld a,#0
+ sbc h
+ ld h,a
+ ; The carry from 0 - coefficient records a nonzero source. The sign
+ ; of the original coefficient is available through the result except
+ ; for +32768, whose high byte is 128.
+ ld a,h
+ xor #128
+ or l
+ jr nz,batch_correct_sign
+ xor a
+ jr batch_correct_extend
+batch_correct_sign:
  ld a,h
  add a
  sbc a
+batch_correct_extend:
+ ; A:HL is the signed winding correction before its two binary shifts.
+ add hl,hl
+ rla
+ add hl,hl
+ rla
  ld b,a
- jp slope_round
+ add a
+ sbc a
+ ld c,a
+ pop de
+ add hl,de
+ ld d,h
+ ld e,l
+ pop hl
+ ld a,b
+ adc h
+ ld b,a
+ ld a,c
+ adc l
+ ld c,a
+ ret
+
+; HL:DE is the signed 32-bit product. The Q14 half can only carry
+; from byte one into HL. The top two bits of the biased product become
+; the signed quotient's third byte, including +65536 at (-32768)^2.
+batch_project_round:
+ ld a,d
+ add #32
+ jr nc,batch_project_biased
+ inc hl
+batch_project_biased:
+ rlca
+ rlca
+ and #3
+ ld e,a
+ ld a,h
+ rlca
+ rlca
+ and #3
+ xor #2
+ sub #2
+ ld b,a
+ add hl,hl
+ add hl,hl
+ ld a,l
+ or e
+ ld e,a
+ ld d,h
+ ld a,b
+ add a
+ sbc a
+ ld c,a
+ ret
+batch_project_store:
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ret
+.area _DATA
+batch_correction: .ds 1
+.area _CODE_35
 
 ; The row reader runs from WRAM while switching the low ROM-bank byte.
 ; Interrupts keep their normal stack. Relative branches stay within the copy.

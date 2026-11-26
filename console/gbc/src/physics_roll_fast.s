@@ -299,12 +299,12 @@ roll_projected_inputs:
  ; The following omega multiply publishes the last observable Q24 fraction.
  ldhl sp,#8
  ld a,(hl+)
+ add #8
  ld h,(hl)
  ld l,a
- push de
- ld de,#8
- add hl,de
- pop de
+ jr nc,roll_torque_address
+ inc h
+roll_torque_address:
  ; With zero impulse and torque, both rounded operations yield zero.
  ld a,d
  or e
@@ -390,12 +390,12 @@ roll_moving:
  .endif
  ldhl sp,#10
  ld a,(hl+)
+ add #20
  ld h,(hl)
  ld l,a
- push bc
- ld bc,#20
- add hl,bc
- pop bc
+ jr nc,roll_omega_address
+ inc h
+roll_omega_address:
  ld a,c
  ld (hl+),a
  ld a,b
@@ -767,27 +767,19 @@ roll_restore_bank:
  ld (#0x2000),a
  ret
 
-; BC=input, HL=seven coefficient planes (the base need not be page-aligned).
-; Return the complete signed24 quotient sign-extended to DEBC.
-.macro roll_transform_word label
-label:
+; Each table begins at a page boundary. The low digit supplies its integer
+; contribution and fractional rank. The high digit supplies the threshold
+; for rounding the full product and the remaining signed quotient.
+.macro roll_phase_delta first,short,second,?large,?miss,?done
+ push bc                        ; restore the original input on a wide sum
  push hl
- ld d,b
- ld b,#0
- add hl,bc
- ld e,(hl)
+ ld l,c
+ ld h,#>first
+ ld a,(hl)
  inc h
  ld c,(hl)
  inc h
- ld b,(hl)
- pop hl
- ld a,d
- add l
- ld l,a
- ld a,h
- adc #3
- ld h,a
- ld a,e
+ ld l,b
  cp (hl)
  ccf
  inc h
@@ -795,131 +787,12 @@ label:
  adc (hl)
  ld c,a
  inc h
- ld a,b
- adc (hl)
- ld b,a
- inc h
  ld a,#0
  adc (hl)
- ld e,a
+ ld b,a
  add a
  sbc a
- ld d,a
- ret
-
-.endm
-
-; Each phase executes directly alongside its two coefficient tables.
-.macro roll_phase_delta data,rows,transform,?compose,?drop_torque,?torque_zero,?torque_gas,?table_valid,?table_sum,?table_positive,?compose_wide
- ld a,b
- add a,#roll_bias_pages
- cp #roll_pages
- jr nc,compose
- push hl
- ld a,(hl+)
- or a
- jr z,torque_zero
- cp #<roll_gas
- jr z,torque_gas
- cp #<(-roll_gas)
- jr nz,drop_torque
- ld a,(hl+)
- cp #>(-roll_gas)
- jr nz,drop_torque
- ld a,(hl+)
- and (hl)
- inc a
- jr nz,drop_torque
- ld a,#2
- jr table_valid
-torque_gas:
- ld a,(hl+)
- cp #>roll_gas
- jr nz,drop_torque
- ld a,(hl+)
- or (hl)
- jr nz,drop_torque
- ld a,#1
- jr table_valid
-torque_zero:
- ld a,(hl+)
- or (hl)
- inc hl
- or (hl)
- jr z,table_valid
-drop_torque:
- pop hl
- jr compose
-table_valid:
- pop hl
- push af
- ld a,b
- add a,#roll_bias_pages
- ld b,a
- ld hl,#data
- ld d,h
- ld e,l
- add hl,bc
- ld a,(hl)
- push af
- ; Two bytes per 32-input base, followed by independently rounded carries.
- ld a,b
- xor c
- and #15
- xor c
- swap a
- and #254
- ld l,a
- ld a,b
- swap a
- and #15
- ld h,a
- add hl,de
- ld de,#roll_data_size
- add hl,de
- pop bc
- ld a,b
- and #63
- ld c,a
- pop af
- or a
- jr z,table_sum
- dec a
- jr z,table_positive
- ld de,#(roll_group_bytes*2)
- add hl,de
- ld a,b
- rlca
- jr table_sum
-table_positive:
- ld de,#roll_group_bytes
- add hl,de
- ld a,b
- rlca
- rlca
-table_sum:
- ld a,c
- adc a,(hl)
- ld c,a
- inc hl
- ld a,(hl)
- adc a,#0
- ld b,a
- add a,a
- sbc a,a
- ld d,a
  ld e,a
- scf
- jp roll_restore_bank
-
-; Reuse the phase bank for both separately rounded Q24 operations. Each byte
-; of a signed16 input selects an integer contribution. A single comparison
-; between the low fractional rank and high threshold supplies its exact carry.
-compose:
- push bc                        ; original dvn for a wide intermediate
- push hl                        ; original torque pointer
- ld hl,#rows
- call transform
  pop hl
  ld a,(hl+)
  add c
@@ -929,41 +802,82 @@ compose:
  ld b,a
  ld a,(hl+)
  adc e
- ld e,a
- ld a,(hl)
- adc d
  ld d,a
+ ld a,(hl)
+ adc e
+ ld e,a
  ld a,b
  add a
  sbc a
- cp e
- jr nz,compose_wide
  cp d
- jr nz,compose_wide
- ld hl,#(rows+7*256)
- call transform
+ jr nz,miss
+ cp e
+ jr nz,miss
+ ; For small net torques a direct signed word gives the second round.
+ ld a,b
+ add #4
+ cp #8
+ jr nc,large
+ add #>short
+ ld h,a
+ ld l,c
+ ld c,(hl)
+ ld a,h
+ add #8
+ ld h,a
+ ld a,(hl)
+ ld b,a
+ add a
+ sbc a
+ jr done
+large:
+ ld l,c
+ ld h,#>second
+ ld a,(hl)
+ inc h
+ ld c,(hl)
+ inc h
+ ld e,(hl)
+ inc h
+ ld l,b
+ cp (hl)
+ ccf
+ inc h
+ ld a,c
+ adc (hl)
+ ld c,a
+ inc h
+ ld a,e
+ adc (hl)
+ ld b,a
+ inc h
+ ld a,#0
+ adc (hl)
+done:
+ ld e,a
+ add a
+ sbc a
+ ld d,a
  pop hl
  scf
  jp roll_restore_bank
-compose_wide:
+miss:
  pop bc
  ld a,b
  add a
  sbc a
- ld d,a
  ld e,a
+ ld d,a
  and a
  jp roll_restore_bank
 .endm
 
 .area _CODE_14
 roll_delta_full:
- roll_phase_delta roll_data_0,roll_transform_0,roll_full_word
- roll_transform_word roll_full_word
+ roll_phase_delta roll_first_0,roll_short_0,roll_second_0
 .area _CODE_6
 roll_delta_partial:
- roll_phase_delta roll_data_1,roll_transform_1,roll_partial_word
- roll_transform_word roll_partial_word
+ roll_phase_delta roll_first_1,roll_short_1,roll_second_1
 .endif
 
  .ifdef RIDING_GROUND_ROWS
