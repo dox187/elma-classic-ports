@@ -17,6 +17,7 @@ import normal_atlas
 import phase_tables
 import projection_tables
 import rolling_tables
+import rolling_map_banks
 import rider_map_tables
 import seat_tables
 import sqrt_tables
@@ -106,6 +107,8 @@ def validate_linked_layout(symbol_path,rom_mib):
         wheel_terrain.validate_layout(symbols)
     if '_riding_projection_bank_477' in symbols:
         projection_tables.validate_layout(symbols)
+    if 'rom_slope_find' in symbols:
+        rolling_map_banks.validate_layout(symbols)
     if 'ground_rows_29' in symbols:
         rolling_tables.validate_shallow_layout(symbols)
     if 'near_rows_positive_134' in symbols:
@@ -134,10 +137,14 @@ def mismatched_map_banks(rom, sources):
     mismatches = []
     for source in sources:
         match = re.fullmatch(r'level_bank_(\d+)\.c', source.name)
-        if match:
-            offset = int(match[1]) * 16384
-            values = source.read_text().split('{', 1)[1].split('}', 1)[0].strip()
-            payload = bytes(map(int, values.rstrip(',').split(',')))
+        helper = re.fullmatch(r'rolling_(directory|products)_(\d+)\.s', source.name)
+        if match or helper:
+            bank = int(match[1] if match else helper[2])
+            skip = 0 if match else (512 if helper[1]=='directory' else 2048)
+            offset = bank * 16384 + skip
+            data = source if match else source.with_name(f'level_bank_{bank}.c')
+            values = data.read_text().split('{', 1)[1].split('}', 1)[0].strip()
+            payload = bytes(map(int, values.rstrip(',').split(',')))[skip:]
             if rom[offset:offset + len(payload)] != payload:
                 mismatches.append(source)
     return mismatches
@@ -153,7 +160,7 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
     coefficient_manifest='physics_q24_manifest.json' if scheduled else 'physics-coefficient-manifest.json'
     coefficients=json.loads((gen/coefficient_manifest).read_text())
     codecs={'zx0-planes32x16':(4,'zx0-512'), 'raw3-plane32x16':(8,'raw-2bpp'),
-            rider_map_tables.CODEC:(8,'raw-2bpp')}
+            rider_map_tables.CODEC:(8,'raw-2bpp'), rolling_map_banks.CODEC:(8,'raw-2bpp')}
     if levels.get('map_codec') not in codecs:
         raise ValueError('Unknown level graphics codec: '+str(levels.get('map_codec')))
     rom_mib,pattern_codec=codecs[levels['map_codec']]
@@ -162,7 +169,7 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
                          (requested_rom_mib,'compressed'if requested_rom_mib==4 else'raw',gen,levels['map_codec']))
     if levels.get('rom_mib',rom_mib)!=rom_mib or levels.get('pattern_codec',pattern_codec)!=pattern_codec:
         raise ValueError('Level manifest has inconsistent ROM size or pattern codec')
-    if levels['map_codec']==rider_map_tables.CODEC:
+    if levels['map_codec'] in (rider_map_tables.CODEC,rolling_map_banks.CODEC):
         constants=(gen/'riding_constants.h').read_bytes()
         if not scheduled or levels.get('rider_product_constants_sha256')!=hashlib.sha256(constants).hexdigest():
             raise ValueError('Direct rider scenery requires matching scheduled constants')
@@ -308,13 +315,17 @@ def main():
            'physics_contacts.c','physics_collision.c','physics_sweep.c','video_screen_fast.s','video_strip_pair.s','objects_touch_fast.s','objects_draw_fast.s','objects_bounds_fast.s','objects_visible_fast.s']
     sources=[BASE/'src'/name for name in names]
     sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
+    graphics = json.loads((a.gen/'level_manifest.json').read_text())
     if rom_mib==8:
         # Only world.c and its near acquisition kernel call these SRAM helpers.
         # Keep the ROM-mapping readers fixed while the raw cart streams scenery.
         for name in ('world_memory', 'world_alloc_fast', 'world_lookup_raw'):
             source = BASE/'src'/(name+'.s')
             raw = a.gen/(name+'_game.s')
-            head_clearance.write_if_changed(raw, 'WORLD_RAW_STREAM_BANK6 = 1\n'+source.read_text())
+            prefix = 'WORLD_RAW_STREAM_BANK6 = 1\n'
+            if name=='world_memory' and graphics['map_codec']==rolling_map_banks.CODEC:
+                prefix += 'WORLD_PACKED_HIGH = 1\n'
+            head_clearance.write_if_changed(raw, prefix+source.read_text())
             sources[sources.index(source)] = raw
     if rom_mib==4:
         sources=[path for path in sources if path.name!='world_upload_raw.s']
@@ -341,8 +352,7 @@ def main():
         rider_game = a.gen/'physics_rider_coeff_game.s'
         rider_source = BASE/'src/physics_rider_coeff.s'
         rider_prefix = 'RIDING_ALIGNED_RIDER_ROWS = 1\n'
-        graphics = json.loads((a.gen/'level_manifest.json').read_text())
-        if graphics['map_codec']==rider_map_tables.CODEC:
+        if graphics['map_codec'] in (rider_map_tables.CODEC,rolling_map_banks.CODEC):
             rider_prefix += f"RIDING_DIRECT_RIDER_BANK = {graphics['rider_product_first_bank']}\n"
         head_clearance.write_if_changed(rider_game, rider_prefix+rider_source.read_text())
         sources.extend((rider_game, a.gen/'physics_q24_dispatch.c'))
@@ -441,6 +451,8 @@ def main():
         sources.remove(sprites)
         sources.insert(sources.index(BASE/'src/bike_render16.c'), sprites)
         sources.insert(sources.index(sprites) + 1, BASE/'src/roll_near_rows.s')
+    if scheduled and graphics['map_codec']==rolling_map_banks.CODEC:
+        sources = rolling_map_banks.bank_sources(sources, graphics, a.gen, BASE/'src')
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
     for name in ('lcc','sdcc','sdasgb','sdldgb'):

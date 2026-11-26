@@ -13,6 +13,7 @@ import struct
 import shutil
 
 import assets
+import rolling_map_banks
 import rider_map_tables
 
 import numpy as np
@@ -236,13 +237,13 @@ def main():
     riding_constants=(a.out/'riding_constants.h').read_text()
     scheduled=a.rom_mib==8 and '#define RIDING_PC_SCHEDULE 1' in riding_constants
     fingerprint=hashlib.sha256(Path(__file__).read_bytes()+render_key.encode()
-        + Path(rider_map_tables.__file__).read_bytes()+riding_constants.encode()
+        + Path(rolling_map_banks.__file__).read_bytes()+Path(rider_map_tables.__file__).read_bytes()+riding_constants.encode()
         +(a.out/'physics_bank_manifest.json').read_bytes()).hexdigest()
     cache_dir=a.out
     cached=rendered_cache(cache_dir,render_key,source_hashes)
     desired_codec='zx0-planes32x16' if a.rom_mib==4 else 'raw3-plane32x16'
     if cached and cached.get('fingerprint')==fingerprint and cached.get('rom_mib')==a.rom_mib \
-       and cached.get('map_codec') in ((desired_codec,rider_map_tables.CODEC) if scheduled else (desired_codec,)) and cached['first_bank']==first \
+       and cached.get('map_codec') in ((desired_codec,rider_map_tables.CODEC,rolling_map_banks.CODEC) if scheduled else (desired_codec,)) and cached['first_bank']==first \
        and all((a.out/name).is_file()for name in ('level_catalogue.c','level_catalogue.h')) \
        and all((a.out/('level_bank_%d.c'%bank)).is_file()for bank in range(first,cached['last_bank']+1)):
         print('All-level graphics unchanged: banks %d..%d'%(first,cached['last_bank']));return
@@ -303,6 +304,7 @@ def main():
                 'blue_sky':blue_sky,'sky_base_rgb':base.tolist(),'sky_colors_rgb':sky_colors.tolist()}
         report.append(record);print('%02d %-18s %dx%d %d patterns bank%d'%(number+1,level.name,w,h,pattern_count,packer.bank),flush=True)
     rider_bank = rider_map_tables.repack(packer, report, riding_constants) if scheduled else None
+    rolling_banks = rolling_map_banks.repack(packer, report) if rider_bank is not None else None
     header='''#ifndef GBC_LEVEL_CATALOGUE_H
 #define GBC_LEVEL_CATALOGUE_H
 #include <stdint.h>
@@ -335,6 +337,8 @@ extern const uint16_t killer_palette[];
     if rider_bank is not None:
         manifest.update(map_codec=rider_map_tables.CODEC, rider_product_first_bank=rider_bank,
                         rider_product_constants_sha256=hashlib.sha256(riding_constants.encode()).hexdigest())
+    if rolling_banks:
+        manifest.update(map_codec=rolling_map_banks.CODEC, rolling_map_banks=rolling_banks)
     (a.out/'level_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print('All-level graphics banks %d..%d, %d payload bytes'%(first,packer.bank,manifest['payload_bytes']))
 

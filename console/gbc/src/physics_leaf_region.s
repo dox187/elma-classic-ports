@@ -503,14 +503,14 @@ dense_leaf_solve:
  xor a
  ld (#_riding_dense_merged),a
  or b
- jr z,dense_leaf_finish
+ jp z,dense_leaf_finish
  ; One operation for each ordered box match, learned from the exact
  ; probes already performed by the ordinary iterator on the first visit.
  ld hl,#_riding_leaf_general
  ld a,b
  dec a
  cp #4
- jr nc,dense_leaf_call
+ jp nc,dense_leaf_call
  call dense_leaf_address
  ld de,#22
  add hl,de
@@ -544,6 +544,53 @@ dense_program_ready:
  ld (#_riding_record_program+1),a
  ld a,b
  ld (#_riding_program_mode),a
+ ; Two consecutive cap operations can refer to the same physical vertex.
+ ; Each opcode already certifies both projections throughout this 16u tile.
+ ld a,(#_Seg_left)
+ cp #2
+ jr nz,dense_program_general
+ ld a,(hl+)
+ sub #2
+ cp #2
+ jr nc,dense_program_general
+ ld b,a
+ ld a,(hl)
+ sub #2
+ cp #2
+ jr nc,dense_program_general
+ push af
+ call dense_segment_pointer
+ ld a,b
+ call dense_cap_point
+ ld hl,#dense_vertex
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ inc hl
+ ld (hl),c
+ inc hl
+ ld (hl),b
+ call dense_segment_pointer
+ ld de,#18                    ; second source record
+ add hl,de
+ pop af
+ call dense_cap_point
+ ld hl,#dense_vertex
+ ld a,(hl+)
+ cp e
+ jr nz,dense_program_general
+ ld a,(hl+)
+ cp d
+ jr nz,dense_program_general
+ ld a,(hl+)
+ cp c
+ jr nz,dense_program_general
+ ld a,(hl)
+ cp b
+ jr nz,dense_program_general
+ ld hl,#_riding_shared_cap
+ jr dense_leaf_call
+dense_program_general:
  ld hl,#_riding_leaf_program
 dense_leaf_call:
  ld e,#9
@@ -650,4 +697,79 @@ dense_leaf_copy_six:
  ld (de),a
  inc de
  .endm
+ ret
+
+.area _DATA
+dense_vertex: .ds 4
+
+.area _CODE_31
+dense_segment_pointer:
+ ld hl,#_Seg_cur
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ret
+
+; Return the start (A=0) or end (A=1) of the packed WRAM record.
+dense_cap_point:
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ or a
+ ret z
+ inc hl
+ ld a,(hl+)
+ add e
+ ld e,a
+ ld a,(hl+)
+ adc d
+ ld d,a
+ ld a,(hl+)
+ add c
+ ld c,a
+ ld a,(hl)
+ adc b
+ ld b,a
+ ret
+
+.area _CODE_9
+_riding_shared_cap::
+ ld hl,#dense_vertex
+ ld a,(#_riding_contact_qx)
+ sub (hl)
+ inc hl
+ ld e,a
+ ld a,(#_riding_contact_qx+1)
+ sbc (hl)
+ inc hl
+ ld d,a
+ ld a,(#_riding_contact_qy)
+ sub (hl)
+ inc hl
+ ld c,a
+ ld a,(#_riding_contact_qy+1)
+ sbc (hl)
+ ld b,a
+ call _riding_normal_merge_ring
+ jr c,dense_cap_empty
+ or a
+ jp z,_riding_leaf_program      ; no radial certificate for this vector
+ ld hl,#_Ct
+ ld de,#(_Ct+10)
+ .rept 6
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ ld a,#1
+ ld (#_riding_dense_merged),a
+ call _riding_contact_merge    ; includes projection and final renormalization
+ ld a,#1
+ ret
+dense_cap_empty:
+ xor a
  ret

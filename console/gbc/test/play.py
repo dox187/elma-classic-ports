@@ -237,7 +237,14 @@ class Driver:
 
     def graphics_block(self, pointer, size):
         bank, address = pointer
-        if self.level_manifest.get('map_codec')=='raw-uniform-high32x16' and bank & 0x8000:
+        codec=self.level_manifest.get('map_codec')
+        if codec=='raw-packed-high32x16' and bank & 0xfe00 == 0x4000:
+            assert size==1536
+            data=self.rom_far((bank & 511,address),1024)
+            attributes=data[512:]
+            high=bytes(((value >> 3) & 3) | ((value >> 5) & 4) for value in attributes)
+            return data[:512]+high+bytes(value & 0x67 for value in attributes)
+        if codec in ('raw-uniform-high32x16','raw-packed-high32x16') and bank & 0x8000:
             assert size==1536
             data=self.rom_far((bank & 511,address),1024)
             return data[:512]+bytes([(bank >> 9) & 63])*512+data[512:]

@@ -274,6 +274,11 @@ def generate(gen, assembly):
                     output.append(' .db ' + ','.join(map(str, page[i:i+32])))
     output.extend(shallow_tangent_banks(assembly))
     output.extend(slope_rows(assembly))
+    graphics_file = gen / 'level_manifest.json'
+    if graphics_file.exists():
+        graphics = json.loads(graphics_file.read_text())
+        if graphics.get('rolling_map_banks'):
+            output.insert(0, f"ROLL_DIRECTORY_BANK = {graphics['rolling_map_banks'][0]}")
     dest = gen / 'physics_roll_game.s'
     write_if_changed(dest, '\n'.join(output) + '\n')
     return dest

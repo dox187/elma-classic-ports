@@ -3275,3 +3275,46 @@ SHA-256 `9c545d6b8afea77de3fa663d9a20ab135df40ff45cbdfb3d9d996ef18348bcd2`.
 The 8 MiB MBC5 cartridge has 207 bytes free in fixed ROM. Build with
 `tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test35-8m.gbc`.
 Reports are in `build/v096-test35/`. All timing is emulated.
+
+## 0.96 test36 — rolling tables and shared terrain vertices
+
+The 8 MiB cartridge now stores exact rolling products for 172 directions
+in 44 scenery banks. This adds 102 directions to the previous coverage.
+Map chunks whose tile indices fit 11 bits carry their upper three bits in
+spare attribute bits. The decoder restores the original tile indices and
+attributes. Tile patterns retain their original DMA addresses. A signed
+24-by-16-bit rider spin uses two byte-product rows. At a terrain corner,
+two consecutive cap operations proven for the same 16-unit tile can share
+one radial normal query. The solver checks both coordinates of the common
+vertex and retains the final contact projection and renormalization.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.358 | 229,697 | 417,644 | 682 | 112/216 |
+| Eight courses, three longer inputs each | 5,227 | 28.984 | 243,922 | 507,012 | 314 | 6/24 |
+| Full Freefall neutral descent | 439 | 29.796 | 240,588 | 416,548 | 2 | 0/1 |
+
+The extended peak rose from 417,272 T in test35 to 507,012 T in the
+seeded run on level 34. Replays matched test35 on all 75,252 physics
+substeps, 25,112 published updates and the separate 439-update Freefall
+descent. The 45 PC landing/braking cases passed and all 20 extreme-spin
+comparisons reproduced the prior results. Native solver checks matched
+9,210 ordinary and 3,170 speed-boundary states. The cartridge passed
+21,340 wheel comparisons, 39,424 suspension deadline checks, 35,520 signed
+normals, 35,520 equal contact pairs and 3,272 mixed pairs. A cold ordered
+iterator and warmed windows agreed on all 20 contact bytes and the final
+cursor in 6,144 corner queries, including all four endpoint orders.
+PyBoy matched 1,216 presentations and 61,845 visible background cells.
+SameBoy matched 878 presentations. Frontend and player/save checks passed.
+The player timer fixture recorded zero idle misses. The separate frontend
+run recorded one display overrun.
+
+A lazy cache for shared cap coordinates cost more than a fresh endpoint
+comparison on the combined routes. A wider geometric certificate improved
+standard cadence but increased late updates on the long routes. Checking
+integer position bounds before fractional parts also raised late updates.
+
+SHA-256 `abeab964d8e0a802f5fcebfa6bad5a1d4fcbd11ebb8c6272edf10869cf2bf3af`.
+Fixed ROM has 44 bytes free. Build the generated 8 MiB profile with
+`tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test36-8m.gbc`.
+Reports are in `build/v096-test36/`. Timings were measured in emulation.

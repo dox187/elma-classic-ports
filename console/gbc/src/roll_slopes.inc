@@ -119,6 +119,10 @@ slope_inputs:
  cp #2
  jp c,near_check
 slope_original_inputs:
+ .ifdef ROLL_DIRECTORY_BANK
+ jp rom_slope_begin
+rom_slope_legacy_inputs:
+ .endif
  call slope_find
  jp nc,slope_fallback_dots
  ld a,h
@@ -652,6 +656,10 @@ near_project_select:
  jp z,ground_cached_pair
  cp #3
  jp z,ground_cached_flat
+ .ifdef ROLL_DIRECTORY_BANK
+ cp #4
+ jp z,rom_slope_cached
+ .endif
  jp near_project_map
 .area _CODE
 near_project_map:
@@ -991,3 +999,35 @@ slope_extra_product_30:
 slope_extra_miss:
  and a
  ret
+
+.ifdef ROLL_DIRECTORY_BANK
+.area _CODE
+.globl ground_projection_bank
+.globl slope_descriptor
+.globl near_page
+.globl rom_slope_find
+.globl slope_fallback_dots
+.globl slope_pair_miss
+.globl ground_resume_deltas
+.globl ground_return
+rom_slope_begin:
+ ld a,#ROLL_DIRECTORY_BANK
+ ld (#0x2000),a
+ jp rom_slope_find
+rom_slope_miss::
+ ld a,#35
+ ld (#0x2000),a
+ ldhl sp,#0
+ jp rom_slope_legacy_inputs
+rom_slope_map::
+ ld (#0x2000),a
+ jp (hl)
+rom_slope_cached:
+ push hl
+ ldh a,(#slope_descriptor+1)
+ ld h,a
+ ldh a,(#slope_descriptor)
+ ld l,a
+ ldh a,(#ground_projection_bank)
+ jr rom_slope_map
+.endif

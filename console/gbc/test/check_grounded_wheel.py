@@ -8,6 +8,7 @@ import struct
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+from rolling_map_banks import TANGENTS as MAP_TANGENTS
 from rolling_tables import SLOPE_TANGENTS, VERTICAL_TANGENT
 
 from pyboy import PyBoy
@@ -128,7 +129,10 @@ def main():
     # in all four coordinates and force full-tag misses with aliased lows.
     limits = (-8388609, -8388608, -8388607, -524289, -524288, -524287, -32769, -32768, -1,
               0, 32767, 32768, 524286, 524287, 524288, 8388606, 8388607, 8388608)
-    for tx, ty in (*SLOPE_TANGENTS, VERTICAL_TANGENT):
+    tangents = dict.fromkeys((*SLOPE_TANGENTS, VERTICAL_TANGENT))
+    if 'rom_slope_find' in target.symbols:
+        tangents.update(dict.fromkeys(MAP_TANGENTS))
+    for tx, ty in tangents:
         normal = (ty, -tx)
         for i, value in enumerate(limits):
             words = [rng.randint(-32768, 32767) for _ in range(4)]

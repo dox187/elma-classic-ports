@@ -403,7 +403,15 @@ gather_selected:
  ld d,(hl)
  ldhl sp,#7
  bit 7,(hl)
+ .ifdef WORLD_PACKED_HIGH
+ jr nz,gather_uniform_high
+ bit 6,(hl)
+ jr nz,gather_packed
+ jr gather_raw_high
+gather_uniform_high:
+ .else
  jr z,gather_raw_high
+ .endif
  ld a,(hl)
  rra
  and #63
@@ -426,6 +434,7 @@ gather_attributes:
  inc hl
  ld d,(hl)
  call gather_plane
+gather_restore:
  add sp,#2
  xor a,a
  ld (#0x3000),a
@@ -433,6 +442,45 @@ gather_attributes:
  ld (#0x2000),a
  ld (#__current_bank),a
  ret
+
+ .ifdef WORLD_PACKED_HIGH
+gather_packed:
+ ldhl sp,#14
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ ld b,#2
+ call gather_plane
+ ldhl sp,#16
+ ld c,(hl)
+ ldhl sp,#12
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+gather_packed_cell:
+ ld a,(hl)
+ ld b,a
+ and #0x67
+ ld (hl+),a
+ ld a,b
+ and #0x18
+ rrca
+ rrca
+ rrca
+ bit 7,b
+ jr z,gather_id_ready
+ or #4
+gather_id_ready:
+ ld (de),a
+ inc de
+ dec c
+ jr nz,gather_packed_cell
+ jr gather_restore
+ .endif
 
 ; DE = destination, C = stride, B = added source pages (0, 2, 4).
 ; Put the selected routine on the stack, then tail-call it with HL=source.

@@ -139,6 +139,14 @@ def check_scheduled_rom(rom):
                           for _ in range(4096))
         # Odd omega times +/-8192 always lands exactly halfway between integers.
         spin_cases.extend((w, t) for w in range(-511, 512, 2) for t in (-8192, 8192))
+        # Exercise both signed24 width boundaries and carries between its
+        # three unsigned angular digits, including negative half-Q14 ties.
+        wide_edges = (-8388609, -8388608, -8388607, -4194304, -131073, -131072,
+                      -131071, -65537, -65536, -65535, 65535, 65536, 65537,
+                      131071, 131072, 131073, 4194304, 8388606, 8388607, 8388608)
+        spin_cases.extend((w, t) for w in wide_edges for t in tangents)
+        spin_cases.extend((rng.randint(-8388608, 8388607), rng.randint(-32768, 32767))
+                          for _ in range(7000))
         for omega, tangent in spin_cases:
             mem[out:out+4] = struct.pack('<i', omega)
             regs.HL, regs.B, regs.C = out, (tangent >> 8) & 255, tangent & 255

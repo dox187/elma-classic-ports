@@ -222,6 +222,17 @@ _riding_rider_spin14::
  jp rider_spin_word
  .endif
 rider_spin_wide:
+ .ifdef RIDING_PROJECTION_TABLES
+ ; The low word in DE already has its original bits. For a signed24
+ ; angular speed, compute just product bytes 1..4. Their signed value
+ ; fits 32 bits, and multiplying by 2^-14 cannot saturate the result.
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ cp (hl)
+ dec hl
+ jp z,rider_spin_three_bytes
+ .endif
  dec hl
  dec hl
  jp _riding_mulq14_regs
@@ -281,7 +292,86 @@ rider_spin_zero:
  ld de,#0
  ret
 
+ .ifdef RIDING_PROJECTION_TABLES
+rider_spin_three_bytes:
+ push bc                       ; original tangent
+ push hl                       ; address of omega's third byte
+ ld a,b
+ ld b,(hl)
+ ld c,a
+ jp rider_spin_three_rows
+ .endif
+
 .area _CODE
+ .ifdef RIDING_PROJECTION_TABLES
+rider_spin_three_rows:
+ ; The first unsigned row starts at byte 1. Subtract omega at byte 2
+ ; for a negative tangent, and tangent at byte 3 for a negative omega.
+ call _riding_product24x8_row
+ ldhl sp,#3
+ bit 7,(hl)
+ jr z,rider_spin_tangent_corrected
+ pop hl
+ push hl
+ dec hl
+ dec hl
+ ld a,d
+ sub (hl)
+ ld d,a
+ inc hl
+ ld a,c
+ sbc (hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc (hl)
+ ld b,a
+rider_spin_tangent_corrected:
+ pop hl
+ bit 7,(hl)
+ jr z,rider_spin_corrected
+ push hl
+ ldhl sp,#2
+ ld a,c
+ sub (hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc (hl)
+ ld b,a
+ pop hl
+rider_spin_corrected:
+ push bc
+ push de
+ ld b,(hl)
+ dec hl
+ ld d,(hl)
+ dec hl
+ ld e,(hl)
+ ldhl sp,#4
+ ld c,(hl)
+ call _riding_product24x8_row
+ ; Discard the low product byte. Its high three bytes start at byte 1.
+ pop hl
+ ld a,d
+ add l
+ ld e,a
+ ld a,c
+ adc h
+ ld d,a
+ pop hl
+ ld a,b
+ adc l
+ ld l,a
+ ld a,h
+ adc #0
+ ld h,a
+ ; HL:DE = signed floor(product/256). Q14 needs six more bits.
+ add sp,#2
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
+ jp rider_spin_round_three
+ .endif
 rider_spin_u8:
  call _riding_mul16u8_unsigned ; preserves multiplier C
  ld a,(#__current_bank)
@@ -469,6 +559,40 @@ rider_spin_rounded:
  sbc a,a
  ld h,a
  ret
+
+ .ifdef RIDING_PROJECTION_TABLES
+rider_spin_round_three:
+ ; Add the half-Q14 bias, then select bits 6..31 of the signed word.
+ ld a,e
+ add #32
+ ld e,a
+ ld a,d
+ adc #0
+ ld d,a
+ jr nc,rider_spin_three_rounded
+ inc hl
+rider_spin_three_rounded:
+ ld a,h
+ rlca
+ sbc a,a
+ ld b,a
+ ld a,e
+ add a,a
+ rl d
+ rl l
+ rl h
+ rl b
+ add a,a
+ rl d
+ rl l
+ rl h
+ rl b
+ ld e,d
+ ld d,l
+ ld l,h
+ ld h,b
+ ret
+ .endif
 
 ; The private caller passes the xy output pointer in DE (SDCC ABI1).
 ; The phase and Q14 pair come from the same cached pose. Each phase byte

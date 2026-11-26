@@ -1,5 +1,6 @@
 """Keep DMA ranges and terrain tails fixed while fitting direct rider products in scenery."""
 from collections import defaultdict
+import rolling_map_banks
 import re
 import struct
 
@@ -53,14 +54,16 @@ def validate(gen, manifest, constants):
         prefix = initializer.split(',', TABLE_BYTES)[:TABLE_BYTES]
         if bytes(map(int, prefix)) != expected:
             raise ValueError(f'Bad direct rider product data in graphics bank {bank}')
+    limits = rolling_map_banks.reserved_prefixes(manifest)
     for record in manifest['levels']:
         for encoded, address in record['chunks']:
             bank = encoded & 511
             compact = bool(encoded & 0x8000)
-            length = 1024 if compact else 1536
-            if (not 0 <= encoded <= 65535 or (not compact and bank != encoded) or
+            packed = manifest['map_codec']==rolling_map_banks.CODEC and encoded & 0xfe00 == 0x4000
+            length = 1024 if compact or packed else 1536
+            if (not 0 <= encoded <= 65535 or (not (compact or packed) and bank != encoded) or
                     not manifest['first_bank'] <= bank <= manifest['last_bank'] or
-                    not 0x4000 <= address <= 0x8000 - length or
+                    not 0x4000 + limits.get(bank,0) <= address <= 0x8000 - length or
                     (first <= bank < first + BANK_COUNT and address < 0x4000 + TABLE_BYTES)):
                 raise ValueError(f'Invalid direct rider scenery pointer on level {record["index"] + 1}')
 
