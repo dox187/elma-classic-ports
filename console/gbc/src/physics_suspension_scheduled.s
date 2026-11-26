@@ -4,7 +4,8 @@
 ; contribute before the complete spring and damping moments are narrowed.
 .module physics_suspension_scheduled
 .area _DATA
-; 1 carries Oms and arms, 2 also carries spin, 3 also carries wheel inputs.
+; 1 carries Oms and arms, 2 adds spin, 3 adds wheel inputs,
+; 4 adds four spring force products and 5 adds four damper products.
 _riding_spring_ready:: .ds 1
 ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
 ss_spin_mid: .ds 16
@@ -14,6 +15,7 @@ ss_moment: .ds 9
 ss_ts: .ds 4
 ss_coarse: .ds 4
 ss_tr: .ds 4
+_riding_spring_scratch_end::
 
 ss_wheel_dvx = 10
 ss_wheel_dvy = 14
@@ -470,7 +472,7 @@ _physics_prepare_spring::
  ld d,(hl)
  ld e,a                         ; next-input deadline is start + 2
  ld a,#12                       ; complete lines required by geometry
- call ss_prepare_budget
+ call _riding_spring_budget
  ret nc
  push de
  call _riding_spring_geometry
@@ -480,10 +482,28 @@ _physics_prepare_spring::
  ld (#_riding_spring_ready),a
  pop de
  ld a,#40                       ; complete lines required by both wheel inputs
- call ss_prepare_budget
+ call _riding_spring_budget
  ret nc
+ push de
  call _riding_spring_inputs
+ pop de
  ld a,#3
+ ld (#_riding_spring_ready),a
+ ld a,#7                       ; four product lanes plus guard/return margin
+ call _riding_spring_budget
+ ret nc
+ push de
+ call _riding_prepare_spring_products
+ pop de
+ ret c
+ ld a,#4
+ ld (#_riding_spring_ready),a
+ ld a,#7                       ; four product lanes plus guard/return margin
+ call _riding_spring_budget
+ ret nc
+ call _riding_prepare_damper_products
+ ret c
+ ld a,#5
  ld (#_riding_spring_ready),a
  ret
 ss_prepared_wide:
@@ -495,9 +515,9 @@ ss_prepared_wide:
 ; leaves the complete lines through 143. LY=144..153 leaves a full visible
 ; frame. Refuse pending VBlank or a changing LY during the epoch snapshot.
 ; check_spring_prepare.py walks every reachable SM83 branch of each block.
-; Both budgets reserve two full lines for guard, bank return, frame counter
+; The budgets reserve two full lines for guard, bank return, frame counter
 ; and entry to the normal wait. Only VBlank interrupts run during gameplay.
-ss_prepare_budget:
+_riding_spring_budget::
  ld b,a
  ldh a,(#0x44)
  ld c,a
@@ -558,6 +578,19 @@ _riding_spring_inputs::
  ss_wheel_inputs 48,4
  ret
 
+; Preparation is always for the first subphase of the next riding update.
+; Its predecessor can leave riding_subphase set to the fractional interval.
+_riding_prepare_spring_products::
+ ld a,(#_q24_index_C_SPRING_FW)
+ ld hl,#ss_force_products+28
+ ld de,#ss_force_products
+ jp ss_force_try
+_riding_prepare_damper_products::
+ ld a,(#_q24_index_C_FRIC_W)
+ ld hl,#ss_damping
+ ld de,#ss_force_products+28
+ jp ss_force_try
+
 _riding_suspension_scheduled::
  ld hl,#_riding_spring_ready
  ld a,(hl)
@@ -572,7 +605,11 @@ _riding_suspension_scheduled::
  jr z,ss_need_wide
  dec b
  jr z,ss_need_inputs
- jr ss_have_inputs
+ dec b
+ jr z,ss_have_inputs
+ dec b
+ jr z,ss_have_spring_products
+ jr ss_have_products
 ss_need_geometry:
  call _riding_spring_geometry
  jr nc,ss_need_inputs
@@ -591,6 +628,7 @@ ss_spring_selected:
  ld hl,#ss_force_products+28
  ld de,#ss_force_products
  call ss_force_four
+ss_have_spring_products:
  ld hl,#_q24_index_C_FRIC_W
  ld a,(#_riding_subphase)
  or a
@@ -601,6 +639,7 @@ ss_damper_selected:
  ld hl,#ss_damping
  ld de,#ss_force_products+28
  call ss_force_four
+ss_have_products:
  ss_force_axis 0,0,ss_x0_pos,ss_x1_pos
  ss_force_axis 14,1,ss_y0_pos,ss_y1_pos
  ss_wheel_reaction 0,0,ss_wheel1,ss_reaction0_index,ss_ordinary0,ss_reaction_ready0
@@ -1611,6 +1650,221 @@ ss_mt_vertical:
  adc a,(hl)
  jr z,ss_mt_zero
 ss_mt_general:
+; A Q18 arm times a speed of magnitude at most 255 fits signed32:
+; 255 * 2^23 < 2^31. Four such products need only five accumulator
+; bytes. A larger operand extends the completed prefix and resumes
+; with the first unfinished term of the signed24/full-width solver.
+.macro ss_byte_term label,speed,arm,subtract,first,ordinary
+label:
+ ld hl,#ss_damping+speed+1
+ ld a,(hl+)
+ cp a,(hl)
+ jr nz,005$
+ inc hl
+ cp a,(hl)
+ jr nz,005$
+ or a
+ jr z,001$
+ inc a
+ jr nz,005$
+ ld a,(#ss_damping+speed)
+ or a
+ jr z,005$                      ; -256 needs a second digit
+ cpl
+ inc a
+ jr 002$
+001$:
+ ld a,(#ss_damping+speed)
+ or a
+ .if first
+ jp z,ss_byte_first_zero
+ .else
+ jr z,006$
+ .endif
+002$:
+ ld c,a
+ ld hl,#ss_damping+arm
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ add a,a
+ sbc a,a
+ cp a,(hl)
+ jr nz,005$
+ call ss_byte_product
+ ld a,(#ss_damping+speed+1)
+ or a
+ .if subtract
+ jr z,003$
+ .else
+ jr nz,003$
+ .endif
+ .if first
+ call ss_byte_seed
+ .else
+ call ss_byte_add
+ .endif
+ jr 006$
+003$:
+ .if first
+ ss_negate
+ call ss_byte_seed
+ .else
+ call ss_byte_sub
+ .endif
+ jr 006$
+005$:
+ .if first
+ jp ordinary
+ .else
+ call ss_byte_extend
+ jp ordinary
+ .endif
+006$:
+.endm
+
+ ss_byte_term ss_byte_x0,8,16,0,1,ss_mt_x0
+ ss_byte_term ss_byte_y0,0,24,1,0,ss_mt_y0
+ ss_byte_term ss_byte_x1,12,20,0,0,ss_mt_x1
+ ss_byte_term ss_byte_y1,4,28,1,0,ss_mt_y1
+ ld hl,#ss_moment+2
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld l,(hl)
+ ld a,l
+ add a,a
+ sbc a,a
+ ld h,a
+ jp ss_shift18
+
+ss_byte_first_zero:
+ xor a
+ ld hl,#ss_moment
+ .rept 5
+ ld (hl+),a
+ .endm
+ jp ss_byte_y0
+
+ss_byte_seed:
+ ld hl,#ss_moment
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ add a,a
+ sbc a,a
+ ld (hl),a
+ ret
+
+.macro ss_byte_fold label,low,high
+label:
+ ld hl,#ss_moment
+ ld a,(hl)
+ low a,e
+ ld (hl+),a
+ ld a,(hl)
+ high a,d
+ ld (hl+),a
+ ld a,(hl)
+ high a,c
+ ld (hl+),a
+ ld a,(hl)
+ high a,b
+ ld (hl+),a
+ ; BIT, LD and DEC preserve the carry from the fourth byte.
+ ld e,#0
+ bit 7,b
+ jr z,001$
+ dec e
+001$:
+ ld a,(hl)
+ high a,e
+ ld (hl),a
+ ret
+.endm
+ ss_byte_fold ss_byte_add,add,adc
+ ss_byte_fold ss_byte_sub,sub,sbc
+
+ss_byte_extend:
+ ld hl,#ss_moment+4
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ ld (hl+),a
+ ld (hl),a
+ ret
+
+; The first four positive scalars need no table reads or bank changes.
+ss_byte_product:
+ ld a,c
+ cp a,#4
+ jr z,ss_byte_four
+ jp nc,ss_byte_table
+ dec a
+ jr z,ss_byte_one
+ dec a
+ jr z,ss_byte_two
+ ; 3*arm = 2*arm + arm. Both addends have the original sign above
+ ; bit 23, and the last byte addition supplies the carry into bit 24.
+ ld h,d
+ ld l,e
+ add hl,hl
+ ld a,b
+ rla
+ ld c,a
+ add hl,de
+ ld a,c
+ adc a,b
+ ld c,a
+ ld a,#0
+ bit 7,b
+ jr z,ss_byte_triple_high
+ ld a,#0xfe
+ss_byte_triple_high:
+ adc a,#0
+ ld b,a
+ ld d,h
+ ld e,l
+ ret
+ss_byte_one:
+ ld c,b
+ ld a,b
+ add a,a
+ sbc a,a
+ ld b,a
+ ret
+ss_byte_four:
+ ld h,d
+ ld l,e
+ add hl,hl
+ rl b
+ sbc a,a
+ add hl,hl
+ rl b
+ rla
+ ld c,b
+ ld b,a
+ ld d,h
+ ld e,l
+ ret
+ss_byte_two:
+ sla e
+ rl d
+ rl b
+ ld c,b
+ sbc a,a
+ ld b,a
+ ret
+
  ; Four signed24 products of magnitude at most 2^46 fit a signed56
  ; accumulator, and their Q18 result fits signed32 without saturation.
  ss_moment_term ss_mt_x0,8,16,0,0,ss_moment_wide
@@ -2075,6 +2329,24 @@ ss_mt_row_one:
  ld b,#0
  ret
 
+; B:DE is signed24, C is an unsigned speed digit. The unsigned table
+; product for a negative arm includes 2^24 * C. Correct its fourth byte
+; and return signed32 in BC:DE with the calling bank mapped.
+ss_byte_table:
+ bit 7,b
+ jr z,ss_byte_positive
+ push bc
+ call _riding_product24x8_row
+ pop hl
+ ld a,b
+ sub a,l
+ ld b,a
+ jr ss_byte_mapped_done
+ss_byte_positive:
+ call _riding_product24x8_row
+ss_byte_mapped_done:
+ jp ss_mt_product_done
+
 ; B:DE and H:L:C are unsigned 24-bit magnitudes. Preserve the three
 ; arm digits across the upper row, so the low row uses the same registers.
 ss_mt_product:
@@ -2265,6 +2537,7 @@ ss_mt_row_done:
 .area _HRAM
 ; One HRAM page holds all eight records. C can advance through the records
 ; independently of the table pointers DE/HL and the third input digit in B.
+_riding_spring_product_rows::
 ss_force_products: .ds 56
 ss_force_page: .ds 1
 ss_force_byte2: .ds 1
@@ -2273,6 +2546,13 @@ ss_force_index: .ds 1
 
 .area _CODE
 ss_force_four:
+ call ss_force_try
+ ret nc
+ jp ss_force_generic
+
+; A private batch can use the table path without touching q24_fraction or
+; q24_saturated. Unsupported scale metadata returns carry before lane zero.
+ss_force_try:
  push hl
  ld b,d
  ld c,e
@@ -2299,7 +2579,7 @@ ss_force_page_set:
  ld l,#23
  or a,(hl)
  pop hl
- jp nz,ss_force_generic
+ jr nz,ss_force_unsupported
  call ss_force_lane
  call ss_force_lane
  call ss_force_lane
@@ -2309,6 +2589,11 @@ ss_force_restore:
  ld (#0x3000),a
  ld a,(#__current_bank)
  ld (#0x2000),a
+ ret
+
+ss_force_unsupported:
+ call ss_force_restore
+ scf
  ret
 
 ; DE and HL walk rows for byte zero and byte one. Emit the biased fraction
@@ -2490,7 +2775,6 @@ ss_force_lane_done:
 
 ; Unsupported generated scales use the scalar saturation and fractional rules.
 ss_force_generic:
- call ss_force_restore
  call ss_force_generic_lane
  call ss_force_generic_lane
  call ss_force_generic_lane

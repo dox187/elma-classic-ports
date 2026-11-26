@@ -454,6 +454,29 @@ fpa_read_high:
         ld d,(hl)
 fpa_lookup:
         push de
+        call _world_lookup_open_raw
+        jr nc,fpa_general_lookup
+        ld a,(hl+)
+        ld e,a
+        ld a,(hl)
+        ld d,a
+        or a
+        jr z,fpa_direct_hit
+        dec a
+        jr nz,fpa_direct_absent
+        ld a,e
+        cp #188
+        jr nc,fpa_direct_absent
+fpa_direct_hit:
+        xor a
+        ld (#0x4000),a
+        jr fpa_hit
+fpa_direct_absent:
+        ; Keep the high-byte pointer and SRAM bank across the WRAM-only
+        ; free-slot search. On success the same entry receives the new slot.
+        push hl
+        jr fpa_allocate
+fpa_general_lookup:
         call _world_lookup_get
         ld a,d
         or a
@@ -486,6 +509,9 @@ fpa_hit_zero:
         call fpa_clear_free
         jp fpa_done_id
 fpa_miss:
+        ld hl,#0
+        push hl
+fpa_allocate:
         ld a,(#_world_cache_next)
         ld e,a
         ld a,(#_world_cache_next+1)
@@ -512,11 +538,25 @@ fpa_miss:
         inc hl
         inc (hl)
 fpa_failed:
+        pop hl
+        xor a
+        ld (#0x4000),a
         ld de,#0
         jp fpa_done_id
 fpa_direct_free:
         call fpa_clear_free
 fpa_chosen:
+        pop hl
+        bit 7,h
+        jr z,fpa_bound
+        ld (hl),d
+        dec hl
+        ld (hl),e
+        xor a
+        ld (#0x4000),a
+fpa_bound:
+        ; No IRQ accesses the lookup. Restore SRAM0 before evicting the
+        ; previous ID or starting the original one-tile GDMA upload.
         push de
         ld h,d
         ld l,e
@@ -555,29 +595,25 @@ fpa_upload:
         call _world_cache_upload
         pop de
         pop bc
-        ; Reorder once for absent insertion and retain the selected slot.
-        push de
-        push bc
-        ld h,d
-        ld l,e
-        add hl,hl
-        ld a,l
-        add a,#<(_world_cache_ids)
-        ld l,a
-        ld a,h
-        adc a,#>(_world_cache_ids)
-        ld h,a
+        ld hl,#_world_cache_ids
+        add hl,de
+        add hl,de
         ld (hl),c
         inc hl
         ld (hl),b
-        ld h,d
-        ld l,e
-        add hl,hl
-        ld bc,#_world_cache_references
-        add hl,bc
+        ld hl,#_world_cache_references
+        add hl,de
+        add hl,de
         ld (hl),#1
         inc hl
         ld (hl),#0
+        ; Valid direct IDs were bound above. Out-of-range direct stores
+        ; are no-ops. The linked table still inserts after the old unlink.
+        ld a,(#_world_lookup_direct)
+        or a
+        jr nz,fpa_outputs
+        push de
+        push bc
         call _world_lookup_insert_absent
         pop bc
         pop de

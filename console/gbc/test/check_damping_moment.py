@@ -64,6 +64,28 @@ def vectors():
             for delta in (-1, 0, 1):
                 yield [a, b, a, b + delta, a, b, a, b]
                 yield [a, 1, a, 1, b, 1 << 18, b, -delta]
+    # Exhaust every one-byte speed magnitude and its two immediate wide
+    # neighbours at each stage. Other terms keep the zero shortcut out of
+    # the path. Exercise carries across bytes 2, 3 and 4 and both arm signs.
+    for position, arm_position in ((2, 4), (0, 6), (3, 5), (1, 7)):
+        for speed in range(-256, 257):
+            for arm in (MIN24, MIN24 + 1, -65537, -1, 0, 65535, 65536, MAX24):
+                values = [7, -11, 13, -17, MAX24, MIN24, -262143, 262145]
+                values[position], values[arm_position] = speed, arm
+                yield values
+    for _ in range(8192):
+        yield ([rng.randrange(-255, 256) for _ in range(4)] +
+               [rng.randrange(MIN24, MAX24 + 1) for _ in range(4)])
+    # Transfer signed40 prefixes with large positive and negative high bytes
+    # to the signed24 and nine-byte solvers at each possible term.
+    for speed_pos, arm_pos in ((2, 4), (0, 6), (3, 5), (1, 7)):
+        for sign in (-1, 1):
+            for wide in (MIN32, MIN24 - 1, -65537, -256, 256, 65536, MAX24 + 1, MAX32):
+                for position in (speed_pos, arm_pos):
+                    values = [-255 * sign, -255 * sign, 255 * sign, 255 * sign] + [MIN24] * 4
+                    values[position] = wide
+                    yield values
+
     for width in (24, 32):
         limit = 1 << (width - 1)
         for _ in range(2048):

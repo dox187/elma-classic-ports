@@ -27,7 +27,24 @@ TWO = {0x06,0x0e,0x16,0x1e,0x26,0x2e,0x36,0x3e,0xc6,0xce,0xd6,0xde,
 THREE = {0x01,0x08,0x11,0x21,0x31,0xea,0xfa}
 
 
-def bounds(rom, symbols, starts):
+def guard_sites(rom, symbols):
+    """Return the linked LD A,lines at every optional guard, in execution order."""
+    entry = symbols['_physics_prepare_spring']
+    guard = symbols['_riding_spring_budget']
+    assert entry >> 16 == guard >> 16 and entry < guard
+    offset = (entry >> 16) * 0x4000 + (entry & 0x3fff)
+    code = Path(rom).read_bytes()[offset:offset + guard - entry]
+    call = bytes((0xcd, guard & 255, (guard >> 8) & 255))
+    sites = []
+    for i in range(2, len(code) - 3):
+        if code[i:i+3] == call:
+            assert code[i-2] == 0x3e and code[i+3] == 0xd0  # ret nc
+            sites.append((entry + i - 2, code[i-1]))
+    assert len(sites) == 4, sites
+    return sites
+
+
+def bounds(rom, symbols, starts, stops=()):
     sys.setrecursionlimit(max(10000,sys.getrecursionlimit()))
     rom=Path(rom).read_bytes()
     bankcall=symbols['___sdcc_bcall_ehl']
@@ -41,12 +58,16 @@ def bounds(rom, symbols, starts):
     seen=set()
     @cache
     def cost(bank,pc):
+        if (bank << 16 | pc) in stops:
+            return 0
         if (bank,pc) in seen:
             raise ValueError(f'Cycle at {bank}:{pc:04x}')
         seen.add((bank,pc))
         index=(bank*0x4000+(pc&0x3fff)) if pc>=0x4000 else pc
         assert 0 <= pc < 0x8000
         op=rom[index]
+        if op in (0xf3, 0xfb):
+            raise ValueError(f'Changed interrupt enable in optional work at {bank}:{pc:04x}')
         following=lambda length:cost(bank,pc+length)
         ptr=int.from_bytes(rom[index+1:index+3],'little')
         def call():

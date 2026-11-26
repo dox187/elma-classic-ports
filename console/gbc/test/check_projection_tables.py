@@ -49,6 +49,9 @@ def vectors():
                  255, 256, 257, 32767, 32768, 65535, 65536, 8388607,
                  8388608, (1 << 31) - 1)
     rng = random.Random(960010)
+    for x in range(-257, 2):
+        for y in (-32768, -32767, -16384, -256, -1, 0, 1, 255, 16384, 32767):
+            yield x, y
     for y in COEFFICIENTS:
         for x in endpoints:
             yield x, y
@@ -109,7 +112,7 @@ def check_native(image, symbols):
             assert bytes(p.memory[stack-64:stack-62]) == guards
             assert p.memory[current_bank] == bank
             assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank], (x, y, bank)
-            hits += y in COEFFICIENTS and not 0 <= x <= 255
+            hits += y in COEFFICIENTS and not -255 <= x <= 255
             started += 1
         dots = 0
         rng = random.Random(0x96d07)

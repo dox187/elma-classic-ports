@@ -35,9 +35,12 @@ def pattern(value):
     return bytes((value&255,value>>8))+bytes(((value*37)+(i*19)+(value>>(i&7)))&255 for i in range(2,16))
 
 
-def logical(level,x,y,mixed_runs=False):
+def logical(level,x,y,mixed_runs=False,direct_bank_edges=False):
     if x>=64 or y>=48:return 0,0
     value=0 if level==0 else y*64+x if level==1 else 28000+(y*64+x)%410
+    if direct_bank_edges and level==1:
+        origins=(0,4095,4096,8191,8192,12287,1024,3071)
+        value=origins[value&7]^(value>>3)
     if mixed_runs and level==2 and (x//8+y//8)%3:
         # Neighbouring 4x4 runs share a low ID byte and differ in the high byte.
         value=28000+256*((x//4+y//4)&1)+(y//8)*8+x//8
@@ -54,8 +57,11 @@ def main():
     parser.add_argument('--helper-dir',type=Path,help='private assembly snapshot; missing files use production sources')
     parser.add_argument('--compressed',action='store_true',help='exercise the production WORLD_GRAPHICS_ZX0 path')
     parser.add_argument('--mixed-runs',action='store_true',help='vary attributes within repeated IDs and cross high-byte-only ID changes')
+    parser.add_argument('--direct-bank-edges',action='store_true',help='scatter unique raw pattern IDs across both ends of SRAM banks 1, 2 and 3')
     parser.add_argument('--launch-observer',action='store_true',help='observe DMA launches and guards only; avoid PyBoy instruction-hook IRQ stalls')
     args=parser.parse_args()
+    if args.compressed and args.direct_bank_edges:
+        parser.error('--direct-bank-edges requires the raw profile')
     OUT=args.out
     OUT.mkdir(parents=True,exist_ok=True)
     source_paths={name:(args.world_source if name=='world.c' else BASE/'src'/name)
@@ -99,7 +105,7 @@ def main():
         chunks=[]
         for cy in range(3):
             for cx in range(2):
-                pairs=[logical(level,cx*32+x,cy*16+y,args.mixed_runs)for y in range(16)for x in range(32)]
+                pairs=[logical(level,cx*32+x,cy*16+y,args.mixed_runs,args.direct_bank_edges)for y in range(16)for x in range(32)]
                 chunks.append(bytes(v&255 for v,a in pairs)+bytes(v>>8 for v,a in pairs)+bytes(a for v,a in pairs))
         level_chunks.append(chunks)
     if args.compressed:
@@ -148,7 +154,7 @@ def main():
     directory_bytes=72 if args.compressed else 24
     for level in range(3):catalogue.append('const world_far_t directory%d[]={%s};\n'%(level,','.join('{%d,%d}'%pointer for pointer in chunk_pointers[level])))
     catalogue.append('const uint16_t palette_data[28]={0};\nconst uint8_t no_objects[1]={0};\nconst world_level_t world_levels[]={\n')
-    for level,count in enumerate((1,3072,28410)):
+    for level,count in enumerate((1,12288 if args.direct_bank_edges else 3072,28410)):
         catalogue.append('{512,384,0,0,%d,{%d,%d},{14,%d},{14,%d},{14,%d},2,3,0},\n'%(count,*pattern_pointer,0x4000+level*directory_bytes,0x4000+3*directory_bytes,0x4000+3*directory_bytes+56))
     catalogue.append('};\nconst char world_names[][20]={"UNIFORM","DIVERSE","HIGH IDS"};\nconst uint8_t killer_tiles[64]={0},object_tiles[128]={0};\nconst uint16_t killer_palette[4]={0},object_palette[8]={0};\n')
     (OUT/'catalogue.c').write_text(''.join(catalogue))
@@ -198,6 +204,12 @@ volatile uint8_t bad_expected,bad_actual;
 +  if(tx>=64 || ty>=48){id=0;expected=0;}
 +  else {
 +   id=level==0?0:level==1?ty*64+tx:28000U+(ty*64+tx)%410U;
++#ifdef FIXTURE_DIRECT_BANK_EDGES
++   if(level==1) {
++    static const uint16_t origins[]={0,4095,4096,8191,8192,12287,1024,3071};
++    id=origins[id&7]^(id>>3);
++   }
++#endif
 +   expected=(uint8_t)(((tx+2*ty)%7)|((tx&1)<<5)|((ty&1)<<6)|((tx+ty)%5==0?128:0));
 +#ifdef FIXTURE_MIXED_RUNS
 +   if(level==2 && ((tx>>3)+(ty>>3))%3)id=28000U+256U*(((tx>>2)+(ty>>2))&1)+(ty>>3)*8+(tx>>3);
@@ -483,6 +495,7 @@ volatile uint8_t bad_expected,bad_actual;
 +}
 +'''.replace('\n+','\n'))
     flags=[str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wf--max-allocs-per-node','-Wf100000','-Wm-yC','-Wm-yt0x1a','-Wm-yo512','-Wm-ya4','-Wl-m','-Wl-j','-I'+str(OUT),'-I'+str(BASE/'src')]
+    if args.direct_bank_edges:flags.append('-DFIXTURE_DIRECT_BANK_EDGES=1')
     if args.mixed_runs:flags.append('-DFIXTURE_MIXED_RUNS=1')
     # Keep linked instruction listings for executable code only. Looking for
     # opcode bytes across ROM data would corrupt fixtures when hooks replace
@@ -640,7 +653,7 @@ volatile uint8_t bad_expected,bad_actual;
             'gdma_launch_modes':dict(launches),
             'gdma_instruction_and_transfer_cycles':dict(dma_durations),
             'gdma_completions_without_ei_hooks':dma_unhooked_completions,
-            'allocator_probe_cycles':probe_cycles,
+            'allocator_probe_cycles':probe_cycles,'direct_bank_edges':args.direct_bank_edges,
             'compiler_register_allocation_limit':100000,
             'observer_errors':hook_errors,
             'gdma_stall_observed_in_cpu_cycles':bool(dma_durations) and all(n>=76 for n in dma_durations),

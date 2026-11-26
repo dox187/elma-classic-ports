@@ -7,14 +7,16 @@ import re
 
 from pyboy import PyBoy
 
-from spring_prepare_bound import bounds
+from spring_prepare_bound import bounds, guard_sites
 
 
 FIELDS = {
     '_Bike':119, '_gbc_bike':52, '_angular_residual':4, '_move_residual':32,
     '_force_residual':16, '_riding_subphase':1, '_riding_audio_contact':2,
     '_riding_audio_impact':2, '_riding_landing_contact':2, '_riding_landing_nx':4,
-    '_riding_landing_ny':4, '_q24_fraction':4, '_riding_pose_anchor':16,
+    '_riding_landing_ny':4, '_q24_fraction':4, '_q24_saturated':1,
+    '_riding_pose_anchor':16, '_riding_pose_trig':4, '_riding_pose_rest':4,
+    '_riding_force_sums':18,
     '_game_state':1, '_game_apples_left':1, '_game_time_frames':4, '_game_steps':2,
     '_game_frames':2, '_game_level_index':1, '_game_object_active':64,
     '_game_camera_x':2, '_game_camera_y':2,
@@ -30,7 +32,7 @@ def symbols(rom):
 
 
 class Replay:
-    def __init__(self,rom,prepare,stage_limit=None,wide=False):
+    def __init__(self,rom,prepare,stage_limit=None,wide=False,scalar=None):
         self.script=SCRIPT[:16] if wide else SCRIPT
         self.prepare=prepare
         self.wide=wide
@@ -40,17 +42,20 @@ class Replay:
         # Match real joypad's ABI1 unsigned-char result in A.
         joy=self.sy['_joypad']
         image[joy:joy+3]=b'\x3e\x00\xc9'
-        if not prepare and not wide and '_physics_prepare_spring' in self.sy:
+        self.sites = guard_sites(rom,self.sy) if prepare else []
+        if scalar:
+            # Force the existing scalar dispatch for this scale in both
+            # copies. Small inputs have the same exact coefficient table.
+            index=image[self.sy[scalar]]
+            bank=256+image[self.sy['_q24_first_bank_low']]+index//2
+            image[bank*0x4000+(index%2)*0x2000+26*256+14]=1
+        if prepare is False and not wide and '_physics_prepare_spring' in self.sy:
             s=self.sy['_physics_prepare_spring']
             image[(s>>16)*0x4000+(s&0x3fff)]=0xc9
-        elif stage_limit==2:
-            # Return immediately before the second block would start. Its
-            # unconsumed spin products still form the legitimate stage-2 state.
-            s=self.sy['_physics_prepare_spring']
-            offset=(s>>16)*0x4000+(s&0x3fff)
-            call=b'\xcd'+(self.sy['_riding_spring_inputs']&65535).to_bytes(2,'little')
-            location=image.index(call,offset,offset+64)
-            image[location]=0xc9
+        elif stage_limit is not None:
+            # Return before the next guard with the producer's stack balanced.
+            site,_ = self.sites[{2:1,3:2,4:3}[stage_limit]]
+            image[(site>>16)*0x4000+(site&0x3fff)]=0xc9
         self.emu=PyBoy(BytesIO(image),window='null',cgb=True,sound_emulated=False)
         self.emu.set_emulation_speed(0)
         self.mem=self.emu.memory
@@ -62,12 +67,17 @@ class Replay:
         self.levels=set()
         self.producer=None
         self.produced=0
+        self.declines=Counter()
+        self.attempts=Counter()
+        self.declined=None
         self.hook('_joypad',self.input)
         if prepare or wide:
             self.hook('_physics_prepare_spring',self.enter_prepare)
         if wide:
             self.hook('_riding_spring_geometry',self.seed_wide_geometry)
         if prepare:
+            for stage,(site,_) in zip((0,2,3,4),self.sites):
+                self.install(site+5, lambda _,s=stage:self.check_guard(s))
             self.hook('_riding_suspension_scheduled',self.consume)
             self.hook('_ph_turn',self.check_before_turn)
             self.hook('_ph_init',self.check_before_init)
@@ -119,6 +129,31 @@ class Replay:
         assert not stage or not self.mem[self.sy['_riding_subphase']]
         self.takes[stage]+=1
 
+    def guarded_state(self):
+        sy=self.sy
+        rows=sy['_riding_spring_product_rows']
+        state=sy['_riding_suspension_state']
+        return (bytes(self.mem[sy['_riding_spring_ready']:sy['_riding_spring_scratch_end']]),
+                bytes(self.mem[rows:rows+56]),bytes(self.mem[state:state+52]))
+
+    def check_guard(self,stage):
+        assert self.producer is not None and self.declined is None
+        assert self.mem[self.sy['_riding_spring_ready']]==stage
+        if self.emu.register_file.F & 16:
+            self.attempts[stage]+=1
+        else:
+            self.declines[stage]+=1
+            self.declined=self.guarded_state()
+
+    def publication(self):
+        # Oms at +4..7 is the existing prepared geometry. All committed
+        # wheel values, torques, body impulses and fractions stay private
+        # to the consumer. Include IE and the actual mapped cartridge data.
+        state=self.sy['_riding_suspension_state']
+        return (self.state(),self.video(),bytes(self.mem[state:state+4]),
+                bytes(self.mem[state+8:state+52]),self.mem[0xffff],
+                self.mem[self.sy['__current_bank']],bytes(self.mem[0x4000:0x4040]))
+
     def enter_prepare(self,_):
         # Compare state at entry and at the banked call return before the
         # current frame can publish its completion or sample the next input.
@@ -126,7 +161,7 @@ class Replay:
         sp=self.emu.register_file.SP
         ret=self.mem[sp]+256*self.mem[sp+1]
         start=int.from_bytes(bytes(self.mem[sp+6:sp+8]),'little')
-        self.producer=(sp,self.state(),self.video(),start)
+        self.producer=(sp,self.publication(),start)
         if not hasattr(self,'return_pc'):
             self.return_pc=ret
             self.install(ret,self.leave_prepare)
@@ -139,7 +174,7 @@ class Replay:
         omega=self.sy['_Bike']+20
         value=(0x03ffffff).to_bytes(4,'little')
         self.mem[omega:omega+4]=value
-        before=self.producer[1]
+        before=self.producer[1][0]
         before['_Bike']=before['_Bike'][:20]+value+before['_Bike'][24:]
         self.seeded=True
 
@@ -150,9 +185,12 @@ class Replay:
 
     def leave_prepare(self,_):
         if self.producer is None or self.emu.register_file.SP!=self.producer[0]+2:return
-        _,old,video,start=self.producer
+        _,old,start=self.producer
         self.producer=None
-        assert old==self.state() and video==self.video(),'published optional work'
+        assert old==self.publication(),'published optional work'
+        if self.declined is not None:
+            assert self.declined==self.guarded_state(),'rejected guard changed spring scratch'
+            self.declined=None
         ready=self.sy['_riding_spring_ready']
         if self.mem[ready]:
             self.produced+=1
@@ -162,6 +200,7 @@ class Replay:
             bank=self.sy['_physics_prepare_spring']>>16
             assert self.mem[self.sy['__current_bank']]==bank
             assert self.mem[0x4000]==self.mem[bank,0x4000]
+
         if self.wide and not self.prepare:
             # Recompute on demand in the reference after the same injection.
             self.mem[ready]=0
@@ -186,13 +225,11 @@ def guard_matrix(rom,sy,limits):
     """Run the linked guard with controlled LY, IF and sys_time samples."""
     image=bytearray(rom.read_bytes())
     bank=sy['_physics_prepare_spring']>>16
-    entry=sy['_physics_prepare_spring']&65535
-    offset=bank*0x4000+(entry&0x3fff)
-    calls=[(int.from_bytes(operand,'little'),lines[0]) for lines,operand in
-           re.findall(b'\x3e(.)\xcd(..)',image[offset:offset+60],re.S)]
-    (guard,first),(other,second)=calls[:2]
-    assert guard==other and len(limits)==2
-    assert all(cycles+2*912 <= lines*912 for cycles,lines in zip(limits,(first,second)))
+    sites=guard_sites(rom,sy)
+    guard=sy['_riding_spring_budget']&65535
+    thresholds=[lines for _,lines in sites]
+    assert len(limits)==len(thresholds)
+    assert all(cycles+2*912 <= lines*912 for cycles,lines in zip(limits,thresholds))
     start=bank*0x4000+(guard&0x3fff)
     # The three hardware samples become individually controllable HRAM bytes.
     # Leave all arithmetic, control flow and both sys_time loads intact.
@@ -216,7 +253,7 @@ def guard_matrix(rom,sy,limits):
         regs.PC,regs.SP=code,0xdf80
         states=[(line,(line+change)%154,interrupt,epoch,age,lines)
                 for line in range(154) for change in (0,1) for interrupt in (0,1)
-                for epoch in (0,0xffff) for age in (0,1,2,0xffff) for lines in (first,second)]
+                for epoch in (0,0xffff) for age in (0,1,2,0xffff) for lines in thresholds]
         pos=0
         failures=[]
         def load(_):
@@ -250,22 +287,33 @@ def main():
     ap.add_argument('--reference',type=Path)
     a=ap.parse_args()
     sy=symbols(a.rom)
-    paths=bounds(a.rom,sy,{k:sy[k] for k in ('_riding_spring_geometry','_riding_spring_inputs')})
-    print('Worst-case reachable SM83 T-cycles',paths)
+    sites=guard_sites(a.rom,sy)
+    # Count the entire suffix from RET NC through stage publication to the
+    # next guard or return, including every call, branch and stack operation.
+    labels=('geometry','wheel inputs','spring products','damper products')
+    paths=bounds(a.rom,sy,{k:pc+5 for k,(pc,_) in zip(labels,sites)},
+                 {pc for pc,_ in sites})
+    print('Worst-case reachable SM83 T-cycles after each guard',paths)
     print(guard_matrix(a.rom,sy,list(paths.values())),'deadline guard cases passed')
     immediate=Replay(a.rom,False,wide=True).run()
     wide=Replay(a.rom,True,wide=True)
     assert immediate==wide.run() and wide.takes[1],wide.takes
     print('Wide angular velocity consumed the arms-only prefix')
-    ref=Replay(a.reference or a.rom,False).run()
-    for mode in (None,2):
+    ref=Replay(a.reference,None).run() if a.reference else Replay(a.rom,False).run()
+    for mode in (None,2,3,4):
         trial=Replay(a.rom,True,mode)
         output=trial.run()
         for i,(want,have) in enumerate(zip(ref,output)):
             for k in FIELDS: assert want[k]==have[k],(i,k,want[k].hex(),have[k].hex())
-        assert trial.produced and trial.takes[mode or 3],trial.takes
+        assert trial.produced and trial.takes[mode or 5],trial.takes
         assert trial.lifecycle['turn']>0 and trial.lifecycle['reset']>=3,trial.lifecycle
-        print(len(output),'completed input samples matched, consumed stages',dict(trial.takes))
+        print(len(output),'completed input samples matched, consumed stages',dict(trial.takes),
+              'insufficient guard no-ops by retained stage',dict(trial.declines))
+    for scalar,retained in (('_q24_index_C_SPRING_FW',3),('_q24_index_C_FRIC_W',4)):
+        trial=Replay(a.rom,True,scalar=scalar)
+        assert Replay(a.rom,False,scalar=scalar).run()==trial.run()
+        assert trial.attempts[retained] and trial.takes[retained] and max(trial.takes)==retained
+        print(scalar,trial.attempts[retained],'unsupported batches deferred to the consumer')
 
 
 if __name__=='__main__':

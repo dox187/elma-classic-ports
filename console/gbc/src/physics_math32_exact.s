@@ -912,15 +912,17 @@ math32_projection_product:
  cp a,(hl)
  dec hl
  jr nz,math32_projection_wide
- ld a,d
- or a
- jr z,math32_projection_byte
  .ifdef RIDING_PROJECTION_TABLES
- ; These callers have already verified the signed16 width.
+ ; Geometry callers can enter here after verifying the signed16 width.
 _riding_projection_signed16::
+ .endif
  ld a,d
  or a
  jp z,math32_projection_byte
+ inc a                           ; OR cleared carry for the narrow table ABI
+ jp z,math32_projection_negbyte
+math32_projection_narrow_other:
+ .ifdef RIDING_PROJECTION_TABLES
 math32_projection_lookup:
  push af
  ld a,b
@@ -1025,6 +1027,30 @@ math32_projection_full_fallback:
  dec hl
  jp exact_product_nonzero
 
+; A signed x in [-255,-1] needs one unsigned byte multiply. Negate
+; the coefficient first. Its original sign also handles -(-32768).
+math32_projection_negbyte:
+ ld a,e
+ or a
+ jp z,math32_projection_narrow_other   ; -256 uses the normal signed16 path
+ cpl
+ inc a
+ push af
+ xor a
+ sub c
+ ld e,a
+ sbc a,a
+ sub b
+ ld d,a
+ pop af
+ ld c,a
+ bit 7,b
+ jr nz,math32_projection_positive
+ ld a,d
+ or e
+ jr z,math32_projection_zero
+ jr math32_projection_negative
+
 math32_projection_byte:
  ld a,e
  or a
@@ -1034,6 +1060,7 @@ math32_projection_byte:
  ld c,a
  bit 7,d
  jr nz,math32_projection_negative
+math32_projection_positive:
  call _riding_mul16u8_unsigned
  ld bc,#0
  jr math32_projection_restore

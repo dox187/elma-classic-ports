@@ -1,5 +1,22 @@
 ; Raw-only direct SRAM1..3 pattern-ID lookup with linked fallback.
 .module gbc_world_lookup_raw
+; DE is a valid direct ID. Select its SRAM bank and return the word pointer
+; in HL. Preserve BC (used for stores) and DE (used by strip acquisition).
+.macro lookup_direct_address
+ ld h,d
+ ld l,e
+ add hl,hl
+ ld a,h
+ and a,#0x1f
+ or a,#0xa0
+ ld h,a
+ ld a,d
+ swap a
+ and a,#3
+ inc a
+ ld (#0x4000),a
+.endm
+
 .area _DATA
 _world_lookup_direct::
  .ds 1
@@ -221,19 +238,9 @@ lookup_direct_get:
  ld a,(hl-)
  cp a,#0x30
  jr nc,lookup_direct_invalid
- ld c,(hl)
- ld b,a
- and a,#0x0f
- ld h,a
- ld l,c
- add hl,hl
- set 7,h
- set 5,h
- ld a,b
- swap a
- and a,#3
- inc a
- ld (#0x4000),a
+ ld e,(hl)
+ ld d,a
+ lookup_direct_address
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -256,20 +263,26 @@ lookup_direct_set:
  ld c,(hl)
  inc hl
  ld b,(hl)
- and a,#0x0f
- ld h,a
- ld l,e
- add hl,hl
- set 7,h
- set 5,h
- ld a,d
- swap a
- and a,#3
- inc a
- ld (#0x4000),a
+ lookup_direct_address
  ld (hl),c
  inc hl
  ld (hl),b
  xor a,a
  ld (#0x4000),a
+ ret
+
+.area _CODE_6
+; Private bank6 entry for one raw acquisition. Carry means HL points to
+; the selected direct SRAM entry. The caller may use the WRAM allocator
+; while it is selected and must restore SRAM0 before upload or yield. Otherwise the ordinary lookup
+; handles the full ID, including the linked course and invalid direct IDs.
+_world_lookup_open_raw::
+ ld a,(#_world_lookup_direct)
+ or a
+ ret z
+ ld a,d
+ cp a,#0x30
+ ret nc
+ lookup_direct_address
+ scf
  ret

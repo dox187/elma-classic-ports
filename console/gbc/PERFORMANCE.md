@@ -2410,3 +2410,35 @@ copy of the test14 generated profile at `build/gen-v096-test15-8m` using
 `tools/build.py --gen build/gen-v096-test15-8m --rom-mib 8
 --out build/elma-gbc-v0.96-test15-8m.gbc` with the project Python. Reports
 are in `build/v096-test15/`. Physical cartridge timing is pending.
+
+### 0.96 test16 — combined cartridge
+
+| Full-game PyBoy workload | Test15 | Test16 |
+| --- | ---: | ---: |
+| Aggregate updates/s across 216 routes | 22.387 | 22.533 |
+| Freefall samples/s, full descent | 22.567 | 22.786 |
+| Longest active update, SM83 T-cycles | 557,592 | 557,824 |
+| Active updates over 280,896 cycles / 19,885 | 12,825 | 12,514 |
+| Routes entirely within budget / 216 | 15 | 13 |
+
+Short signed wheel speeds use exact five-byte damping sums, including
+carry into the wide fallback. Negative byte-sized inputs can use a single
+product in the projection kernel. Two further suspension batches can run
+before the next input, with seven available scanlines required per batch.
+Scenery uploads retain the direct SRAM lookup address across slot allocation.
+
+All 19,885 controller updates matched test15 at both observation points.
+The 12,380 native snapshots matched the frozen test5 physics. The 45 PC
+landing and brake comparisons passed, and all 20 seeded spin comparisons
+reproduced test15. The combined image passed 19,712 deadline guard cases,
+13,294 native projection products, 9,600 geometry dots and the menu, sound,
+timer, player and save checks. The native damping oracle passed 32,508
+cases. The route suite still misses the stable 29.86 updates/s target.
+Physical cartridge timing is pending.
+
+The playable 8 MiB ROM SHA-256 is
+`834184713e96863442da00650931be6146ab2834c20a68f644e49b762682b52e`.
+Banks 508–511 remain erased. Copy the test15 generated profile to
+`build/gen-v096-test16-8m`, then run `tools/build.py --gen
+build/gen-v096-test16-8m --rom-mib 8 --out build/elma-gbc-v0.96-test16-8m.gbc`
+using the project Python. Reports are in `build/v096-test16/`.
