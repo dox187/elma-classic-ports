@@ -21,6 +21,11 @@ void bike_render_hide(void);
 /* Call immediately after vsync, before camera/map work, to upload changed
  * patterns during VBlank. draw() also prepares when used on its own. */
 void bike_render_prepare(const gbc_bike_t *bike);
-void bike_render_draw(const gbc_bike_t *bike, const bike_screen_t *screen);
+#ifdef RIDING_BANKED_DRAW
+#define BIKE_DRAW_CALL GBC_BANKED
+#else
+#define BIKE_DRAW_CALL
+#endif
+void bike_render_draw(const gbc_bike_t *bike, const bike_screen_t *screen) BIKE_DRAW_CALL;
 
 #endif

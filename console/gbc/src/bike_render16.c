@@ -1,6 +1,14 @@
 /* Rotated original LGR parts; wheel/head positions follow physics directly.
  * Limb articulation is represented by three precomputed rider-compression poses.
  */
+/* The scheduled cartridge places sprite positioning in bank 13. The upload
+ * routines execute in fixed ROM while selecting the bank containing a tile. */
+#ifdef RIDING_BANKED_DRAW
+#pragma bank 13
+#define BIKE_FIXED NONBANKED
+#else
+#define BIKE_FIXED
+#endif
 #include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stddef.h>
@@ -140,7 +148,7 @@ static bike_screen_t last_screen;
 
 void bike_render16_init_sprites(void) BANKED;
 
-void bike_render_init(void) {
+void bike_render_init(void) BIKE_FIXED {
     last_body=last_wheel[0]=last_wheel[1]=255;
     last_head=256;
     head_tile=BIKE_HEAD_TILE;
@@ -150,7 +158,7 @@ void bike_render_init(void) {
     bike_render16_init_sprites();
 }
 
-void bike_render_hide(void) {
+void bike_render_hide(void) BIKE_FIXED {
     uint8_t i;
     for(i=0;i<BIKE_OBJECT_OAM_BASE;++i)move_sprite(i,0,0);
     positions_valid=0;
@@ -163,7 +171,7 @@ void bike_render_hide(void) {
  * transfer at most three tiles (192 T), leaving 66 T of margin.
  * https://gbdev.io/pandocs/Rendering.html
  * https://gbdev.io/pandocs/VRAM_DMA_Transfers.html */
-static void upload_aligned(uint8_t tile,uint8_t count,const uint8_t *source) __sdcccall(0) __naked {
+static void upload_aligned(uint8_t tile,uint8_t count,const uint8_t *source) __sdcccall(0) BIKE_FIXED __naked {
     __asm
 _bike_dma_begin::
     ldhl sp,#2
@@ -273,7 +281,7 @@ _bike_dma_end::
     __endasm;
 }
 
-static void upload(uint8_t tile,uint8_t count,const uint8_t *data) {
+static void upload(uint8_t tile,uint8_t count,const uint8_t *data) BIKE_FIXED {
     if((uint16_t)data&15)set_sprite_data(tile,count,data);
     else upload_aligned(tile,count,data);
 }
@@ -395,7 +403,7 @@ static uint8_t draw_centered(const bike_screen_t *s,uint8_t mask) __sdcccall(0) 
 typedef char rider_frame_layout[
     offsetof(gbc_bike_t,body)==0 && offsetof(gbc_bike_t,rider)==30 &&
     offsetof(gbc_pose_t,y)==4 ? 1 : -1];
-static uint8_t rider_compression(const gbc_bike_t *bike,uint8_t angle) __sdcccall(0) __naked {
+static uint8_t rider_compression(const gbc_bike_t *bike,uint8_t angle) __sdcccall(0) BIKE_FIXED __naked {
     __asm
     ldhl sp,#2
     ld a,(hl+)
@@ -549,7 +557,7 @@ static uint8_t rider_compression(const gbc_bike_t *bike,uint8_t angle) __sdcccal
     __endasm;
 }
 
-void bike_render_prepare(const gbc_bike_t *bike) {
+void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
     uint8_t angle,compression,body,head,wheel,bank,oldbank,i,phase;
     uint16_t fraction;
     uint16_t frame;
@@ -612,7 +620,7 @@ void bike_render_prepare(const gbc_bike_t *bike) {
     prepared=1;
 }
 
-void bike_render_draw(const gbc_bike_t *bike,const bike_screen_t *s) {
+void bike_render_draw(const gbc_bike_t *bike,const bike_screen_t *s) BIKE_DRAW_CALL {
     uint8_t i,row,col,x,y;
     volatile OAM_item_t *o;
 #ifdef RIDING_PAIRED_MASKS

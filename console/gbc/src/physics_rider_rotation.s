@@ -46,11 +46,8 @@ rider_rotate_low:
  ld h,#>_riding_scale_directory
  ld a,(hl)
  ld (#0x2000),a
- ld a,c
- and #31
- add a,a
- or #0x40
- ld h,a
+ inc h
+ ld h,(hl)
  rider_trig_product _riding_pose_trig
  rider_trig_product _riding_pose_trig+2
  ld a,#31

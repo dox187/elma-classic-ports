@@ -75,49 +75,68 @@ def write_pose_tables(out, coefficients, fixed):
     first_head = min(page[0] for page in pages)
     last_head = max(page[0] for page in pages) + 255
     heads = [(hx + 8, hy + 64) for hx, hy, *_ in map(products, range(first_head, last_head + 1))]
-    # Both signs here are unsigned residuals against their own signed bases.
-    # The sine uses -rest and +ay. The cosine uses +rest and -ay.
-    suspension = [(rest, 128 - rest, ax, ay, 4096 - ay)
-                  for _, _, rest, ax, ay in map(products, range(25 + 255))]
+    suspension = [(rest, ax, ay) for _, _, rest, ax, ay in map(products, range(25 + 255))]
 
     def array(kind, name, records):
         body = ',\n'.join('{' + ','.join(map(str, row)) + '}' for row in records)
         return f'const {kind} {name}[]={{\n{body}\n}};\n'
 
-    if any(not (0 <= hx <= 255 and 0 <= hy <= 255) for hx, hy in heads):
-        raise ValueError('Pose head residual exceeds its unsigned byte')
-    for rest, neg_rest, ax, ay, neg_ay in suspension:
-        if (min(rest, neg_rest, ax, ay, neg_ay) < 0 or max(rest, neg_rest) > 255 or
-                max(ax, ay, neg_ay) > 65535):
-            raise ValueError('Pose suspension residual exceeds its packed width')
+    def planes(name, columns, stride):
+        data = bytearray()
+        for column in columns:
+            if data:
+                data.extend(bytes((-len(data)) % stride))
+            data.extend(bytes(column))
+        body = ',\n'.join(','.join(map(str, data[i:i + 32])) for i in range(0, len(data), 32))
+        return f'static const uint8_t {name}[]={{\n{body}\n}};\n'
 
-    text = 'static ' + array('pose_head_row_t', 'pose_heads', heads)
-    text += 'static ' + array('pose_suspension_row_t', 'pose_suspension', suspension)
-    for sine in (False, True):
-        output = []
-        for high, (head, row, (hx, hy), (rest, ax, ay)) in enumerate(pages, -64):
-            x_bias, y_bias = hx - 8, hy - 64
-            rest_bias = -rest - 128 if sine else rest
-            ay_bias = ay if sine else -ay - 4096
-            if not all(-32768 <= n <= 32767 for n in (x_bias, y_bias, rest_bias)):
-                raise ValueError('Pose head or rider base exceeds signed16')
-            if not all(-(1 << 23) <= n < (1 << 23) for n in (ax, ay_bias)):
-                raise ValueError('Pose anchor base exceeds signed24')
-            output.append((f'pose_heads+{head-first_head}', f'pose_suspension+{row}',
-                           x_bias, y_bias, rest_bias, ax & 65535, ax >> 16,
-                           ay_bias & 65535, ay_bias >> 16))
-            for low in range(256):
-                value = high * 256 + low
-                if value > 16384:
-                    break
-                dx, dy = heads[head - first_head + low]
-                rp, rn, xa, yp, yn = suspension[row + low]
-                decoded = (x_bias + dx, y_bias + dy, rest_bias + (rn if sine else rp),
-                           ax + xa, ay_bias + (yp if sine else yn))
-                hxq, hyq, rq, axq, ayq = products(value)
-                if decoded != (hxq, hyq, -rq if sine else rq, axq, ayq if sine else -ayq):
-                    raise ValueError(f'Pose table loses precision at {value}')
-        text += array('pose_page_t', 'riding_pose_' + ('sin' if sine else 'cos') + '_pages', output)
+    if len(heads) != 2048 or any(not (0 <= hx <= 255 and 0 <= hy <= 255) for hx, hy in heads):
+        raise ValueError('Pose head residuals exceed the two 2048-byte planes')
+    if any(not (0 <= rest <= 255 and 0 <= ax <= 65535 and 0 <= ay <= 65535)
+           for rest, ax, ay in suspension):
+        raise ValueError('Pose suspension residual exceeds its packed width')
+    # A scalar low byte indexes every plane directly. The two head planes
+    # are eight address pages apart; suspension planes are two pages apart.
+    text = planes('pose_heads', tuple(zip(*heads)), 2048)
+    rest, ax, ay = zip(*suspension)
+    columns = (rest, [x & 255 for x in ax], [x >> 8 for x in ax],
+               [y & 255 for y in ay], [y >> 8 for y in ay])
+    text += planes('pose_suspension', columns, 512)
+    output = []
+    for high, (head, row, (hx, hy), (rest, ax, ay)) in enumerate(pages, -64):
+        x_bias, y_bias = hx - 8, hy - 64
+        # A shared B-1 base supports positive B+R and negative ~R-(B-1).
+        rest_bias = rest - 1
+        ay_bias = ay - 1
+        if not all(-32768 <= n <= 32767 for n in (x_bias, y_bias, rest_bias)):
+            raise ValueError('Pose head or rider base exceeds signed16')
+        if not all(-(1 << 23) <= n < (1 << 23) for n in (ax, ay_bias)):
+            raise ValueError('Pose anchor base exceeds signed24')
+        output.append((f'pose_heads+{head-first_head}', f'pose_suspension+{row}',
+                       x_bias, y_bias, rest_bias, ax & 65535, ax >> 16,
+                       ay_bias & 65535, ay_bias >> 16))
+        for low in range(256):
+            value = high * 256 + low
+            if value > 16384:
+                break
+            dx, dy = heads[head - first_head + low]
+            rp, xa, yp = suspension[row + low]
+            decoded = (x_bias + dx, y_bias + dy, rest_bias + rp + 1,
+                       ax + xa, ay_bias + yp + 1)
+            hxq, hyq, rq, axq, ayq = products(value)
+            if decoded != (hxq, hyq, rq, axq, ayq):
+                raise ValueError(f'Pose table loses precision at {value}')
+    text += array('pose_page_t', 'riding_pose_pages', output)
+    # In the upright cosine interval, four high bytes are invariant. The
+    # direct path restores those bytes while it copies the eight stored ones.
+    hot = []
+    for value in range(0x3f00, 0x4001):
+        hx, hy, rest, ax, ay = products(value)
+        if not 0 <= rest <= 65535 or (hx >> 8, hy >> 8, ax >> 16, -ay >> 16) != (0, 2, 3, -3):
+            raise ValueError(f'Pose hot record exceeds its packed width at {value}')
+        hot.append((hx, hy & 255, rest & 255, rest >> 8,
+                    ax & 255, (ax >> 8) & 255, -ay & 255, (-ay >> 8) & 255))
+    text += array('pose_hot_row_t', 'riding_pose_hot_rows', hot)
     (out / 'physics_pose_rows.h').write_text(text)
 
 
@@ -257,7 +276,7 @@ def generate(constants,out,first_bank, *, include_pose=True):
         'coefficient_count':len(values),'tables':tables,
         'dispatch':'physics_q24_dispatch.c','header':'physics_q24_coefficients.h'}
     if include_pose:
-        manifest['geometry_format'] = 'signed-pose-ranked-angle-pages-v1'
+        manifest['geometry_format'] = 'planar-pose-ranked-angle-pages-v2'
         manifest['rider_rows_sha256'] = write_rider_tables(out, coefficients)
         manifest['geometry_sha256'] = {name: hashlib.sha256((out/name).read_bytes()).hexdigest()
                                        for name in ('physics_pose_rows.h', 'physics_angle_rows.h')}

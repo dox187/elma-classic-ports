@@ -1,11 +1,10 @@
 #pragma bank 1
 #include <stdint.h>
 
-typedef struct { uint8_t hx, hy; } pose_head_row_t;
-typedef struct { uint8_t rest, neg_rest; uint16_t ax, ay, neg_ay; } pose_suspension_row_t;
+typedef uint8_t pose_hot_row_t[8];
 typedef struct {
-    const pose_head_row_t *head;
-    const pose_suspension_row_t *suspension;
+    const uint8_t *head;
+    const uint8_t *suspension;
     int16_t hx, hy, rest;
     uint16_t ax_lo;
     int8_t ax_hi;

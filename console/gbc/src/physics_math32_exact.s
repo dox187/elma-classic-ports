@@ -208,11 +208,8 @@ _riding_torque_input32::
  ld h,#>_riding_scale_directory
  ld a,(hl)
  ld (#0x2000),a
- ld a,c
- and #31
- add a,a
- or #0x40
- ld h,a
+ inc h
+ ld h,(hl)
  .else
  ld a,c
  rlca
@@ -508,11 +505,8 @@ product_word_rows:
  ld h,#>_riding_scale_directory
  ld a,(hl)
  ld (#0x2000),a
- ld a,digit
- and #31
- add a
- or #0x40
- ld h,a
+ inc h
+ ld h,(hl)
  .endm
  product_word_row b
  ld l,e
@@ -1017,7 +1011,8 @@ math32_dot_first_unit:
  jr math32_dot_unit_term
 math32_dot_check_second:
  ld a,h
- cp #0xc0
+ and #127
+ cp #64
  jr nz,math32_dot14_general
  ld a,l
  or a
@@ -1026,6 +1021,8 @@ math32_dot_check_second:
  add #63
  cp #127
  jr nc,math32_dot14_general
+ bit 7,h
+ jr z,math32_dot_add_second
  ld hl,#4
  add hl,de
  push hl
@@ -1049,6 +1046,46 @@ math32_dot_unit_term:
  ld c,a
  inc hl
  jp math32_dot_sub_high
+math32_dot_add_second:
+ ; Round the non-unit term once, then add the unscaled coordinate.
+ ; The strict coefficient bound above keeps that term within signed32.
+ ld hl,#4
+ add hl,de
+ push hl
+ ld h,d
+ ld l,e
+ call _riding_mulq14_regs
+ ld b,h
+ ld c,l
+ pop hl
+ ld a,e
+ add (hl)
+ ld e,a
+ inc hl
+ ld a,d
+ adc (hl)
+ ld d,a
+ inc hl
+ ld a,c
+ adc (hl)
+ ld c,a
+ inc hl
+ ld a,b
+ adc (hl)
+ ld h,(hl)
+ ld l,a
+ xor b
+ bit 7,a
+ jr z,math32_dot_add_done
+ ; Equal input signs with a changed result sign imply saturation.
+ ld a,h
+ xor b
+ bit 7,a
+ jp z,exact_reduce_saturate
+math32_dot_add_done:
+ ld h,l
+ ld l,c
+ ret
 math32_dot14_general:
  .endif
  push hl
@@ -1293,25 +1330,50 @@ _riding_projection_read_directory::
 ; BC is the signed coefficient, DE is preserved. Z returns the encoded
 ; row page in H with its bank mapped. A miss leaves BC and the mapping intact.
 _riding_map_projection_row::
+ ld h,#>_riding_projection_hash
+ ld l,b
  bit 7,b
  jr nz,math32_lookup_negative
- call math32_lookup_magnitude
+ ld a,(hl)
+ add c
+ ld l,a
+ inc h
+ ld a,(hl)
+ cp b
  ret nz
  ld b,#0
  jr math32_lookup_map
 math32_lookup_negative:
- push bc
+ ; With a nonzero low byte, -y has high byte ~B. Its two table
+ ; displacements are complementary, so ~(C + displacement) gives
+ ; the positive magnitude's slot without changing BC.
+ ld a,c
+ or a
+ jr z,math32_lookup_negative_word
+ add (hl)
+ cpl
+ ld l,a
+ inc h
+ ld a,(hl)
+ cpl
+ cp b
+ ret nz
+ ld b,#128
+ jr math32_lookup_map
+math32_lookup_negative_word:
+ ; At an exact multiple of 256 the magnitude's high byte is -B.
  xor a
- sub c
- ld c,a
- sbc a,a
  sub b
- ld b,a
- call math32_lookup_magnitude
- pop bc                         ; a miss still needs the signed coefficient
+ ld l,a
+ ld a,(hl)
+ ld l,a
+ inc h
+ ld a,(hl)
+ add b
  ret nz
  ld b,#128
 math32_lookup_map:
+ inc h
  ld a,(hl)
  ld (#0x2000),a
  bit 7,a
@@ -1326,21 +1388,95 @@ math32_lookup_page:
  xor a
  ret
 
-math32_lookup_magnitude:
- ld h,#>_riding_projection_hash
- ld l,b
- ld a,(hl)
- xor c
- ld l,a
- inc h
- ld a,(hl)
- inc h                          ; point at the bank page before comparing the tag
- cp b
- ret
 math32_lookup_miss:
  pop af
  jp c,math32_projection_full_fallback
  .endif
+ .ifdef RIDING_PROJECTION_TABLES
+ ; Multiply both bytes of X by the unchanged Y register pair. The
+ ; high-byte row starts one byte later. Keep its carries in HRAM while
+ ; selecting the low-byte row. No interrupt handler uses this workspace.
+ push de
+ ld a,d
+ dec a
+ jr nz,projection_cross_high
+ ld d,c                         ; 1 * unsigned Y
+ ld a,b
+ ldh (#projection_cross_middle),a
+ xor a
+ jr projection_cross_high_ready
+projection_cross_high:
+ product_word_row d
+ ld l,c
+ ld d,(hl)                      ; byte 1 of the high partial product
+ inc h
+ ld a,(hl)
+ ld l,b
+ dec h
+ add (hl)
+ ldh (#projection_cross_middle),a
+ inc h
+ ld a,(hl)
+ adc #0
+projection_cross_high_ready:
+ ldh (#projection_cross_upper),a
+ product_word_row e
+ ld l,c
+ ld e,(hl)                      ; output byte 0
+ inc h
+ ld a,(hl)
+ ld l,b
+ dec h
+ add (hl)
+ ldh (#projection_cross_low),a
+ inc h
+ ld a,(hl)
+ adc #0
+ ld h,a
+ ldh a,(#projection_cross_low)
+ add d
+ ld d,a                         ; output byte 1
+ ldh a,(#projection_cross_middle)
+ adc h
+ ld l,a
+ ldh a,(#projection_cross_upper)
+ adc #0
+ ld h,a
+ ; Convert the unsigned high word to the signed product's high word.
+ push hl
+ ldhl sp,#3
+ bit 7,(hl)
+ pop hl
+ jr z,projection_cross_y
+ ld a,l
+ sub c
+ ld l,a
+ ld a,h
+ sbc b
+ ld h,a
+projection_cross_y:
+ bit 7,b
+ pop bc
+ jr z,projection_cross_done
+ ld a,l
+ sub c
+ ld l,a
+ ld a,h
+ sbc b
+ ld h,a
+projection_cross_done:
+ ld a,h
+ add a
+ sbc a
+ ld b,a
+ ld c,a
+ jp math32_projection_restore
+.area _HRAM
+projection_cross_low: .ds 1
+projection_cross_middle: .ds 1
+projection_cross_upper: .ds 1
+.area _CODE
+ .else
  ; Compute the unsigned product. If x or y is negative, subtract the
  ; opposite operand from its upper word to recover signed x*y modulo 2^32.
  push bc
@@ -1402,6 +1538,7 @@ math32_projection_sign:
  ld b,a
  ld c,a
  jp math32_projection_restore
+ .endif
 
 math32_projection_wide:
  .ifdef RIDING_PROJECTION_TABLES

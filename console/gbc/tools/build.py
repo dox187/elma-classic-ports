@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 
 import bike_frames16
 import brake_dispatch
@@ -57,8 +58,13 @@ def validate_linked_layout(symbol_path,rom_mib):
             fixed_end=max(fixed_end,start+size)
         elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
             raise ValueError(f'ROM bank {bank} exceeds its linked address window')
-    if '_riding_scale_directory' in symbols and (symbols.get('_riding_projection_hash'), symbols['_riding_scale_directory']) != (0x200, 0x600):
-        raise ValueError('Projection hash and scale directory must start on fixed ROM pages 2 and 6')
+    if '_riding_scale_directory' in symbols and (symbols.get('_riding_projection_hash'), symbols['_riding_scale_directory'], symbols.get('_riding_scale_pages')) != (0x200, 0x600, 0x700):
+        raise ValueError('Fixed projection hash, scale banks and scale pages must start on pages 2, 6 and 7')
+    if symbols.get('_bike_render_draw', 0) >> 16 == 13:
+        for name in ('_riding_heads', '_riding_wheels'):
+            address = symbols.get(name, 0)
+            if address >> 16 != 13 or address & 15:
+                raise ValueError(f'{name} must be GDMA-aligned in sprite bank 13')
     if '_riding_sqrt_large' in symbols:
         for name, bank in (('_riding_sqrt_large', 15), ('_riding_sqrt_upper', 15),
                            ('_riding_sqrt_small', 35), ('_riding_sqrt_byte', 35)):
@@ -114,6 +120,20 @@ def dependencies(path,gen,seen=None):
             if candidate.is_file():
                 result+=dependencies(candidate,gen,seen);break
     return result
+
+
+def mismatched_map_banks(rom, sources):
+    """Check each linked map and tile bank against the packer's exact bytes."""
+    mismatches = []
+    for source in sources:
+        match = re.fullmatch(r'level_bank_(\d+)\.c', source.name)
+        if match:
+            offset = int(match[1]) * 16384
+            values = source.read_text().split('{', 1)[1].split('}', 1)[0].strip()
+            payload = bytes(map(int, values.rstrip(',').split(',')))
+            if rom[offset:offset + len(payload)] != payload:
+                mismatches.append(source)
+    return mismatches
 
 
 def validate_profile(gen, requested_rom_mib=None, sources=()):
@@ -185,7 +205,7 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
         rider_rows = gen / 'physics_rider_rows.c'
         if not rider_rows.is_file() or hashlib.sha256(rider_rows.read_bytes()).hexdigest() != coefficients.get('rider_rows_sha256'):
             raise ValueError('Regenerate the signed rider coefficient tables for these physics constants')
-        if coefficients.get('geometry_format') != 'signed-pose-ranked-angle-pages-v1':
+        if coefficients.get('geometry_format') != 'planar-pose-ranked-angle-pages-v2':
             raise ValueError('Regenerate scheduled pose and angle tables with math_q24_coefficients.py')
         for name in ('physics_pose_rows.h', 'physics_angle_rows.h'):
             path = gen / name
@@ -384,6 +404,11 @@ def main():
     if scheduled and 'brake_tables = 1\n' in brake_game.read_text():
         terrain = a.gen/'physics_bank_93.c'
         sources[sources.index(terrain)] = brake_dispatch.terrain_object(a.gen, brake_dispatch.terrain_prefix(a.gen))
+    if scheduled:
+        # Head frames must start on a GDMA boundary before bank 13 code.
+        sprites = a.gen/'riding16_parts.c'
+        sources.remove(sprites)
+        sources.insert(sources.index(BASE/'src/bike_render16.c'), sprites)
     cache=BASE/'build/objects';cache.mkdir(parents=True,exist_ok=True)
     tool_key=[]
     for name in ('lcc','sdcc','sdasgb','sdldgb'):
@@ -397,8 +422,9 @@ def main():
     def source_flags(path):
         if scheduled and path == BASE/'src/physics_core.c':
             return ['-DRIDING_PAIRED_ROTATION'] + (['-DRIDING_SEAT_LOOKUP'] if seat_lookup else [])
-        if scheduled and path in (BASE/'src/bike_render16.c', BASE/'src/bike_render16_init.c'):
-            return ['-DRIDING_PAIRED_MASKS']
+        if scheduled and path == BASE/'src/play.c': return ['-DRIDING_BANKED_DRAW']
+        if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS']
+        if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
         if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR']
         if scheduled and path==sweep_path:return ['-DRIDING_HEAD_TERRAIN']
@@ -414,13 +440,16 @@ def main():
     def compile_one(item):
         path,obj,key=item
         extra=source_flags(path)
-        result=subprocess.run([str(compiler),*compile_flags,*extra,'-c','-o',str(obj),str(path)],capture_output=True,text=True)
-        if result.returncode:
-            obj.unlink(missing_ok=True)
-            raise RuntimeError(str(path)+'\n'+result.stdout+result.stderr)
-        if source_key(path)!=key:
-            obj.unlink(missing_ok=True)
-            raise RuntimeError('Source changed while compiling: '+str(path)+'; rerun the build after edits finish')
+        # lcc can leave a partial ASxxxx object after an interrupted write.
+        # Only a completed compilation may publish an object into the cache.
+        with tempfile.TemporaryDirectory(dir=cache) as staging:
+            candidate = Path(staging)/obj.name
+            result=subprocess.run([str(compiler),*compile_flags,*extra,'-c','-o',str(candidate),str(path)],capture_output=True,text=True)
+            if result.returncode:
+                raise RuntimeError(str(path)+'\n'+result.stdout+result.stderr)
+            if source_key(path)!=key:
+                raise RuntimeError('Source changed while compiling: '+str(path)+'; rerun the build after edits finish')
+            candidate.replace(obj)
         if result.stdout.strip() or result.stderr.strip():print(result.stdout+result.stderr,flush=True)
     print('Objects: %d cached, %d compiling'%(len(objects)-len(pending),len(pending)),flush=True)
     with ThreadPoolExecutor(max_workers=max(1,a.jobs))as pool:
@@ -433,15 +462,29 @@ def main():
     build_key=hashlib.sha256(json.dumps([keys,link_flags,tool_key]).encode()).hexdigest()
     if manifest_path.is_file() and a.out.is_file() and a.out.with_suffix('.noi').is_file():
         previous=json.loads(manifest_path.read_text())
-        if previous.get('build_key')==build_key and previous.get('rom_sha256')==hashlib.sha256(a.out.read_bytes()).hexdigest():
+        if (previous.get('build_key')==build_key and previous.get('rom_sha256')==hashlib.sha256(a.out.read_bytes()).hexdigest()
+                and not mismatched_map_banks(a.out.read_bytes(), sources)):
             layout=validate_linked_layout(a.out.with_suffix('.noi'),rom_mib)
             if previous.get('linked_layout')!=layout:
                 previous['linked_layout']=layout
                 manifest_path.write_text(json.dumps(previous,indent=2)+'\n')
             print('ROM unchanged: '+str(a.out));return
-    subprocess.run([str(compiler),*link_flags,'-o',str(a.out),*map(str,objects)],check=True)
+    def link():
+        subprocess.run([str(compiler),*link_flags,'-o',str(a.out),*map(str,objects)],check=True)
+        return a.out.read_bytes()
+
+    rom = link()
+    bad = mismatched_map_banks(rom, sources)
+    if bad:
+        # Repair interrupted objects from caches created by older builds.
+        for path in bad:
+            i = sources.index(path)
+            compile_one((path, objects[i], keys[i]))
+        rom = link()
+        bad = mismatched_map_banks(rom, sources)
+        if bad:
+            raise ValueError('Linked graphics differ from packed bytes in '+', '.join(p.name for p in bad))
     layout=validate_linked_layout(a.out.with_suffix('.noi'),rom_mib)
-    rom=a.out.read_bytes()
     if len(rom)!=rom_mib*1024*1024 or rom[0x147:0x14a]!=bytes((0x1B,{4:7,8:8}[rom_mib],3)):
         raise ValueError('Linked ROM does not match the selected MBC5+RAM+BATTERY / 32 KiB RAM profile')
     if rom_mib==8 and rom[508*16384:]!=bytes([255])*(4*16384):

@@ -209,14 +209,17 @@ selected:
  ss_add_fraction pair+28
  ss_add_fraction pair+35
  ld hl,#(_force_residual+axis*8)
- ld a,(hl+)
+ ld a,(hl)
  sub a,e
+ ld (hl+),a
  ld e,a
- ld a,(hl+)
+ ld a,(hl)
  sbc a,d
+ ld (hl+),a
  ld d,a
  ld a,(hl)
  sbc a,c
+ ld (hl),a
  ld c,a
  ld a,#2
  sbc a,b
@@ -323,12 +326,10 @@ positive:
 .macro ss_narrow_force_axis pair,axis
  ss_narrow_force_pair pair,ss_wheel_dvx+axis*4
  push de
- push bc
  ss_narrow_force_pair pair+7,ss_wheel_dvx+axis*4+ss_wheel_stride
  pop hl
- ld a,l
- pop hl
  add hl,de
+ ld a,(#_riding_suspension_state+ss_wheel_dvx+axis*4+2)
  adc a,c
  ld c,a
  add a,a
@@ -359,16 +360,11 @@ positive:
  ss_store _riding_force_sums+axis*9+4
 .endm
 
-; Commit both halves of each Q24 residual at their fixed destinations. The
+; Divide the integer force and the signed carry from the fractional sum. The
 ; register divider supplies a Euclidean remainder and a wrapped HL:DE quotient.
 .macro ss_finish_force axis
- ld hl,#(_riding_force_sums+axis*9)
- ld de,#(_force_residual+axis*8)
- .rept 3
- ld a,(hl+)
- ld (de),a
- inc de
- .endm
+ ; Fraction subtraction has already stored the three Euclidean digits.
+ ld hl,#(_riding_force_sums+axis*9+3)
  ld a,(hl+)
  add a,#10
  add a,(hl)
@@ -713,7 +709,7 @@ _physics_prepare_spring::
 ss_prepared_moments:
  ld a,#5
  ld (#_riding_spring_ready),a
- ld a,#7
+ ld a,#6
  call _riding_spring_budget
  ret nc
  push de
@@ -722,7 +718,7 @@ ss_prepared_moments:
  ret c
  ld a,#6
  ld (#_riding_spring_ready),a
- ld a,#7
+ ld a,#6
  call _riding_spring_budget
  ret nc
  call _riding_prepare_damper_products
@@ -3486,14 +3482,17 @@ ss_paired_forces:
  rla
  ld b,a
  ld hl,#(_force_residual+8)
- ld a,(hl+)
+ ld a,(hl)
  sub a,e
+ ld (hl+),a
  ld e,a
- ld a,(hl+)
+ ld a,(hl)
  sbc a,d
+ ld (hl+),a
  ld d,a
  ld a,(hl)
  sbc a,c
+ ld (hl),a
  ld c,a
  ld a,#2
  sbc a,b
@@ -3541,12 +3540,88 @@ ss_force_four:
  ret nc
  jp ss_force_generic
 
-; A private batch can use the table path without touching q24_fraction or
-; q24_saturated. Unsupported scale metadata returns carry before lane zero.
+; DE and HL walk the low and high input-byte rows. Emit the first two
+; biased fraction digits and preserve their carry for digit two.
+.macro ss_force_first_two
+ ld a,(de)
+ ldh (c),a
+ inc c
+ inc d
+ ld a,(de)
+ add a,(hl)
+ ldh (c),a
+ inc c
+ inc d
+ inc h
+.endm
+; Inline the common -65536..65535 case once per lane. Each wider case
+; uses the saved input cursor to select its signed or full-width row.
+.macro ss_force_lane ?positive,?narrow,?wide,?done
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ push hl
+ or a
+ jr z,positive
+ inc a
+ jr nz,wide
+ ld a,b
+ inc a
+ jr nz,wide
+ ld l,d
+ ldh a,(#ss_force_page)
+ ld d,a
+ add a,#11
+ jr narrow
+wide:
+ call ss_force_wider_lane
+ jr done
+positive:
+ ld a,b
+ or a
+ jr nz,wide
+ ld l,d
+ ldh a,(#ss_force_page)
+ ld d,a
+ add a,#5
+narrow:
+ ld h,a
+ ss_force_first_two
+ ld a,(de)
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ inc d
+ inc h
+ ld a,(de)
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ldh (c),a
+ inc c
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ldh (c),a
+ inc c
+ ldh (c),a
+ inc c
+done:
+ pop hl
+.endm
+
+; The private batch leaves q24_fraction and q24_saturated untouched.
+; Unsupported scale metadata returns carry before lane zero.
 .area _CODE
 ss_force_try:
  push hl
- ld b,d
  ld c,e
  ldh (#ss_force_index),a
  srl a
@@ -3571,7 +3646,7 @@ ss_force_page_set:
  ld l,#23
  or a,(hl)
  pop hl
- jr nz,ss_force_unsupported
+ jp nz,ss_force_unsupported
  ld a,(#ss_paired)
  or a
  jr z,ss_force_all_lanes
@@ -3581,13 +3656,13 @@ ss_force_page_set:
  ld a,c
  add a,#14
  ld c,a
- call ss_force_lane
- jr ss_force_restore
+ jp ss_force_last_lane
 ss_force_all_lanes:
- call ss_force_lane
- call ss_force_lane
- call ss_force_lane
- call ss_force_lane
+ ss_force_lane
+ ss_force_lane
+ ss_force_lane
+ss_force_last_lane:
+ ss_force_lane
 ss_force_restore:
  xor a
  ld (#0x3000),a
@@ -3596,81 +3671,98 @@ ss_force_restore:
  ret
 
 ss_force_unsupported:
+ ld b,#>ss_force_products
  call ss_force_restore
  scf
  ret
 
-; DE and HL walk rows for byte zero and byte one. Emit the biased fraction
-; and the first two quotient bytes. INC rr, INC r and LD preserve carry.
-.macro ss_force_emit_low
- ld a,(de)
- ldh (c),a
- inc c
- inc d
- ld a,(de)
- add a,(hl)
- ldh (c),a
- inc c
- inc d
- inc h
- .rept 2
- ld a,(de)
- adc a,(hl)
- ldh (c),a
- inc c
- inc d
- inc h
- .endm
- ld a,(hl)
- adc a,#0
- ldh (c),a
- inc c
-.endm
-ss_force_lane:
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld a,(hl+)
- ld b,a
- ld a,(hl+)
- push hl
- or a
- jr z,ss_force_positive
- inc a
- jr nz,ss_force_wide_dec
- ld a,b
- inc a
- jr nz,ss_force_negative24
- ld l,d
- ldh a,(#ss_force_page)
- ld d,a
- add a,#11
- jr ss_force_narrow16
-ss_force_positive:
- ld a,b
- or a
- jr nz,ss_force_positive24
+.macro ss_force_word_prefix
  ld l,d
  ldh a,(#ss_force_page)
  ld d,a
  add a,#5
-ss_force_narrow16:
  ld h,a
- ss_force_emit_low
+ ss_force_first_two
+ ; Bytes 3 and 4 of the low-word product stay in DE until the third
+ ; table row is added. Only byte 2 needs the HRAM scratch slot at C.
+ ld a,(de)
+ adc a,(hl)
+ ldh (c),a
+ inc d
+ inc h
+ ld a,(de)
+ adc a,(hl)
+ ld e,a
  inc h
  ld a,(hl)
  adc a,#0
- ldh (c),a
- inc c
- ldh (c),a
- inc c
- pop hl
- ret
-ss_force_wide_dec:
+ ld d,a
+.endm
+ss_force_wider_lane:
+ dec hl
+ ld a,(hl)
+ or a
+ jr z,ss_force_positive24
+ inc a
+ jr z,ss_force_negative24
  dec a
  ldh (ss_force_byte3),a
- jr ss_force_mark_wide
+ ldh (ss_force_wide_used),a
+ ld a,#1
+ ld (#ss_damp_long),a
+ ss_force_word_prefix
+ ; A non-extended fourth digit needs both upper rows. Keep bytes 3..6
+ ; of the three-digit prefix in registers and add the last row once.
+ ld l,b
+ ldh a,(ss_force_page)
+ add a,#17
+ ld h,a
+ ldh a,(c)
+ add a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ ld a,e
+ adc a,(hl)
+ ld e,a
+ inc h
+ ld a,d
+ adc a,(hl)
+ ld d,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld b,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ push af
+ ldh a,(ss_force_byte3)
+ ld l,a
+ ldh a,(ss_force_page)
+ add a,#22
+ ld h,a
+ ld a,e
+ add a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ ld a,d
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ ld a,b
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ inc h
+ pop de
+ ld a,d
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ ret
 ss_force_negative24:
  ld a,#255
  jr ss_force_width24
@@ -3692,17 +3784,7 @@ ss_force_long:
  ld a,#1
  ld (#ss_damp_long),a
 ss_force_wide:
- ld l,d
- ldh a,(#ss_force_page)
- ld d,a
- add a,#5
- ld h,a
- ss_force_emit_low
- ; Add the third table digit starting at product byte two. No upper
- ; prefix bytes exist yet: its quotient fits unsigned16 for both phases.
- dec c
- dec c
- dec c
+ ss_force_word_prefix
  ldh a,(#ss_force_byte3)
  inc a
  ldh a,(#ss_force_page)
@@ -3720,13 +3802,16 @@ ss_force_row2:
  ldh (c),a
  inc c
  inc h
- .rept 2
- ldh a,(c)
+ ld a,e
  adc a,(hl)
  ldh (c),a
  inc c
  inc h
- .endm
+ ld a,d
+ adc a,(hl)
+ ldh (c),a
+ inc c
+ inc h
  .rept 2
  ld a,(hl)
  adc a,#0
@@ -3734,33 +3819,6 @@ ss_force_row2:
  inc c
  inc h
  .endm
- ldh a,(#ss_force_byte3)
- inc a
- jr z,ss_force_lane_done
- dec a
- jr z,ss_force_lane_done
- ld l,a
- ldh a,(#ss_force_page)
- add a,#22
- ld h,a
- dec c
- dec c
- dec c
- dec c
- ldh a,(c)
- add a,(hl)
- ldh (c),a
- inc c
- inc h
- .rept 3
- ldh a,(c)
- adc a,(hl)
- ldh (c),a
- inc c
- inc h
- .endm
-ss_force_lane_done:
- pop hl
  ret
 
 ; Unsupported generated scales use the scalar saturation and fractional rules.

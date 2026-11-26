@@ -3,13 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test28 — 8 MiB](build/elma-gbc-v0.96-test28-8m.gbc)**.
-Across 216 controller routes on all 54 courses it averages **28.04 physics
-updates per emulated second**, up from **27.82** in test27. The 24 longer
-routes average **26.75**, and the full Freefall descent averages **29.04**.
-The target is **29.86**. Fifty-one standard routes kept the two-display-frame
+**[0.96 test29 — 8 MiB](build/elma-gbc-v0.96-test29-8m.gbc)**.
+Across 216 controller routes on all 54 courses it averages **28.30 physics
+updates per emulated second**, up from **28.04** in test28. The 24 longer
+routes average **27.13**, and the full Freefall descent averages **29.20**.
+The target is **29.86**. Fifty-six standard routes kept the two-display-frame
 deadline throughout. All 75,252 recorded physics substeps and all 25,112
-published updates in the standard and extended replays matched test27.
+published updates in the standard and extended replays matched test28.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -59,6 +59,14 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test29 — suspension forces, rider pose and signed projections
+
+The rider geometry shares exact planar records. Suspension forces retain
+intermediate digits in registers, and the projection multiplier has shorter
+paths for both signed coefficient lookup and general products. Standard
+misses including DMA fell from 2,584 to 2,189. The longest extended update
+took 527,472 T-cycles. [Timing and validation](PERFORMANCE.md#096-test29--combined-cartridge)
 
 ## 0.96 test28 — damping, terrain contacts and scrolling
 

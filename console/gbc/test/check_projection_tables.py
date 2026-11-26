@@ -20,7 +20,10 @@ def verify_table_bytes(image, symbols):
     accepted = {}
     for y in range(-32768, 32768):
         high, low = divmod(abs(y), 256)
-        slot = low ^ image[table + high]
+        if y < 0 and low:
+            slot = ~(y + image[table + ((y >> 8) & 255)]) & 255
+        else:
+            slot = (low + image[table + high]) & 255
         if image[table + 256 + slot] == high:
             bank = image[table + 512 + slot]
             page = image[table + 768 + slot] ^ (128 if y < 0 else 0)
@@ -81,7 +84,8 @@ def check_shallow_native(p, symbols, code, stack, source, current_bank, bank_win
         for i in range(512):
             x, y = (xs[i % len(xs)], ys[i // len(xs)]) if i < len(xs)*len(ys) else (
                 rng.choice(xs), rng.randint(-32768, 32767))
-            xy, normal = ((x, y), (-16384, weight)) if i & 1 else ((y, x), (weight, -16384))
+            unit = 16384 if i & 2 else -16384
+            xy, normal = ((x, y), (unit, weight)) if i & 1 else ((y, x), (weight, unit))
             raw = b''.join(n.to_bytes(4, 'little', signed=True) for n in xy)
             raw += b''.join(n.to_bytes(2, 'little', signed=True) for n in normal)
             p.memory[source:source+12] = raw
@@ -91,7 +95,7 @@ def check_shallow_native(p, symbols, code, stack, source, current_bank, bank_win
             bank = (5,9,14)[i % 3]
             p.memory[0x2000] = p.memory[current_bank] = bank
             p.tick(1, False)
-            expected = max(-limit, min(limit-1, (8192 + y*weight) // 16384 - x))
+            expected = max(-limit, min(limit-1, (8192 + y*weight + x*unit) // 16384))
             assert (reg.HL << 16 | reg.D << 8 | reg.E) == (expected & 0xffffffff), (x, y, weight)
             assert (reg.PC, reg.SP) == (code+4, stack)
             assert bytes(p.memory[source:source+12]) == raw
@@ -149,6 +153,10 @@ def vectors():
             y = (((high * 256 + slot) ^ 32768) - 32768)
             yield -32768, y
             yield 0x456789ab, y
+    for high in (-257, -256, -129, -128, -2, -1, 0, 1, 2, 127, 128, 255, 256):
+        for low in (0, 1, 0x7fff, 0x8000, 0xffff):
+            for y in (COEFFICIENTS[0], -COEFFICIENTS[0], COEFFICIENTS[-1], -COEFFICIENTS[-1]):
+                yield (high << 16) + low, y
     for boundary in (32768, 65536, 131072):
         for delta in (-2, -1, 0, 1, 2):
             for sign in (-1, 1):

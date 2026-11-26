@@ -85,11 +85,52 @@ projection_read_wide:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- ld e,(hl)
- inc hl
- ld d,(hl)
+ ld a,(hl+)
+ ld c,(hl)
  ld h,b
+ ld l,a
+ or c
+ jr z,projection_high_zero
+ ld a,c
+ or a
+ jr nz,projection_upper_negative
+ ; A high word in 1..255 uses one unsigned product. Its high byte
+ ; carries the unsigned table's 0x800000 bias.
+ ld d,(hl)
+ inc h
+ ld a,(hl)
+ xor #128
+ inc h
+ ld e,(hl)
+ jr projection_upper_extend
+projection_upper_negative:
+ inc a
+ jr nz,projection_upper_word
+ bit 7,l
+ jr z,projection_upper_word
+ ; Signed byte times y. The signed planes store the product minus
+ ; 0x8000, sharing the low byte with the unsigned table.
+ inc h
+ inc h
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ add #128
+ ld d,a
+ inc h
+ ld a,(hl)
+ adc #0
+projection_upper_extend:
+ ld l,a
+ add a
+ sbc a
+ ld h,a
+ jr projection_add_upper
+projection_upper_word:
+ ld e,l
+ ld d,c
  call _riding_projection_read_signed
+projection_add_upper:
  pop bc
  ld a,b
  add a,a
@@ -112,6 +153,17 @@ projection_read_wide:
  ld b,a
  ld h,d
  ld l,e
+ pop de
+ add sp,#2
+ jp _riding_projection_hit
+
+projection_high_zero:
+ pop hl
+ ld a,h
+ add a
+ sbc a
+ ld b,a
+ ld c,a
  pop de
  add sp,#2
  jp _riding_projection_hit
@@ -176,7 +228,7 @@ def row_page(index):
 
 
 def fixed_hash():
-    # For a given high byte, XOR with a displacement permutes all 256
+    # For a given high byte, addition of a displacement permutes all 256
     # low bytes. Matching the stored high byte therefore proves the whole key.
     groups = {}
     for index, coefficient in enumerate(COEFFICIENTS):
@@ -187,13 +239,14 @@ def fixed_hash():
     banks, pages = bytearray(256), bytearray(256)
     for high, rows in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0])):
         for delta in range(256):
-            if all(tags[low ^ delta] == 255 for low, _, _ in rows):
+            if all(tags[(low + delta) & 255] == 255 for low, _, _ in rows):
                 break
         else:
             raise ValueError(f'Cannot place projection magnitudes with high byte {high}')
         displacements[high] = delta
+        displacements[255 - high] = 255 - delta
         for low, index, coefficient in rows:
-            slot = low ^ delta
+            slot = (low + delta) & 255
             tags[slot] = high
             banks[slot] = BANKS[index // ROWS_PER_BANK] & 255
             pages[slot] = row_page(index) | (128 if coefficient < 0 else 0)

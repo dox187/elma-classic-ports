@@ -8,11 +8,8 @@ _riding_mul16u8_unsigned::
  ld h,#>_riding_scale_directory
  ld a,(hl)
  ld (#0x2000),a
- ld a,c
- and #31
- add a,a
- or #0x40
- ld h,a
+ inc h
+ ld h,(hl)
  .else
  ld a,c
  rlca

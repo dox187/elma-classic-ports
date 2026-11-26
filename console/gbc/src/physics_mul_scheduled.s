@@ -11,6 +11,12 @@ row = 0
  .db 36 + row/32
  row = row + 1
 .endm
+_riding_scale_pages::
+row = 0
+.rept 256
+ .db 0x40 + 2 * (row % 32)
+ row = row + 1
+.endm
 _riding_mul16::
  ldhl sp,#2
  ld a,(hl+)
