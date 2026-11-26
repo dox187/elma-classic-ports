@@ -304,34 +304,11 @@ _riding_compiled_surface::
 wheel_query:
  push bc
  ; seg_query(cx,cy,subcell) takes cx in A, cy in E and one stack byte.
- ld a,(hl+)
- ld b,a
- ld a,(hl+)
- swap a
- ld e,a
- ld a,b
- swap a
- and #15
- or e
- ld d,a
- ld a,b
- rrca
- rrca
- and #3
- ld b,a
- ld a,(hl+)
- ld c,a
- and #12
- or b
- ld b,a
- ld a,(hl)
- swap a
- ld e,a
- ld a,c
- swap a
- and #15
- or e
- ld e,a
+ ld b,h
+ ld c,l
+ ld e,#31
+ ld hl,#wheel_unpack_key
+ call ___sdcc_bcall_ehl
  ld a,d
  push bc
  inc sp
@@ -339,7 +316,7 @@ wheel_query:
  pop bc
  ld a,c
  cp #64
- jr nc,wheel_window
+ jp nc,wheel_window_gate
  ld a,(#_Seg_left)
  cp c
  jr c,wheel_fallback
@@ -372,17 +349,122 @@ wheel_clear:
  xor a
  ret
 
- ; Reacquire the leaf on every revisit. The three collision slots can
- ; be evicted by the other wheel or the swept head between two queries.
+ ; The wheel square and window index already match. The FIFO invalidates
+ ; both handles on every replacement before installing its new contents.
+_riding_wheel_full_window::
+ ld c,#255
+ pop hl
+ push hl
+ jp wheel_query
 _riding_wheel_cached_window::
  ld c,a
  pop hl
  push hl
- jr wheel_query
+wheel_window_handle:
+ ld a,l
+ cp #<_wheel_surface_cache
+ ld a,(#_riding_window_valid)
+ jr z,wheel_window_valid
+ ld a,(#(_riding_window_valid+1))
+wheel_window_valid:
+ or a
+ jp z,wheel_query
+ pop hl
+ ld de,#5
+ add hl,de
+ ld a,(hl+)
+ ld (#_Seg_cur),a
+ ld a,(hl+)
+ ld (#_Seg_cur+1),a
+ ld a,(hl+)
+ ld (#_Seg_left),a
+ ld b,(hl)
+ inc hl
+ ld a,(hl)
+ ld (#_Seg_subcell),a
+ jp wheel_window_solve
+
+.area _CODE
+; Only the cold bind needs a bank switch. The helper touches WRAM and uses
+; carry for failure, and never calls another bank reader or a banked routine.
+wheel_window_gate:
+ ld a,#31
+ ld (#0x2000),a
+ ld a,c
+ call wheel_window
+ ld a,#9
+ ld (#0x2000),a
+ jp c,wheel_fallback
+ pop hl
+ jp wheel_window_solve
+
+.area _CODE_31
+wheel_unpack_key:
+ ; Unpack the quarter-square key only on a cold lookup. Return both
+ ; cell coordinates and the subcell in the ordinary long-result registers.
+ ld h,b
+ ld l,c
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ swap a
+ ld e,a
+ ld a,b
+ swap a
+ and #15
+ or e
+ ld d,a
+ ld a,b
+ rrca
+ rrca
+ and #3
+ ld b,a
+ ld a,(hl+)
+ ld c,a
+ and #12
+ or b
+ ld b,a
+ ld a,(hl)
+ swap a
+ ld e,a
+ ld a,c
+ swap a
+ and #15
+ or e
+ ld e,a
+ ret
+
+wheel_window_save:
+ ; HL names the installed surface kind. Only window kinds use these
+ ; union bytes for their WRAM pointer, record count, suffix and subcell.
+ ld a,l
+ cp #<(_wheel_surface_cache+4)
+ ld a,#1
+ jr nz,wheel_window_second
+ ld (#_riding_window_valid),a
+ jr wheel_window_write
+wheel_window_second:
+ ld (#(_riding_window_valid+1)),a
+wheel_window_write:
+ inc hl
+ ld a,(#_Seg_cur)
+ ld (hl+),a
+ ld a,(#_Seg_cur+1)
+ ld (hl+),a
+ ld a,(#_Seg_left)
+ ld (hl+),a
+ ld (hl),b
+ inc hl
+ ld a,(#_Seg_subcell)
+ ld (hl),a
+ ret
 
 wheel_window:
  ; C = 64 + 4*start + (count-1). Verify the entire interval before
  ; installing it, and leave the fallback countdown armed on failure.
+ cp #255
+ ld b,#0
+ jr z,wheel_window_bound
  sub #64
  ld b,a
  and #3
@@ -397,7 +479,7 @@ wheel_window:
  ld d,a
  ld a,(#_Seg_left)
  sub d
- jr c,wheel_fallback
+ ret c
  ld b,a                   ; number of trailing records
  ld a,e
  ld (#_Seg_left),a
@@ -415,12 +497,22 @@ wheel_window:
  ld a,(#_Seg_cur+1)
  adc h
  ld (#_Seg_cur+1),a
- pop hl
+wheel_window_bound:
+ ldhl sp,#2
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
  inc hl
  inc hl
  inc hl
  inc hl
- ld (hl),c                ; Store the index, never a leaf slot pointer.
+ ld (hl),c
+ call wheel_window_save
+ or a
+ ret
+
+.area _CODE_9
+wheel_window_solve:
  pop hl
  inc hl
  ld e,(hl)

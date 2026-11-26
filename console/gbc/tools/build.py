@@ -362,6 +362,8 @@ def main():
         sources.insert(sources.index(div)+1, sqrt_tables.generate(a.gen))
         phase_source = BASE/'src/physics_phase.s'
         sources[sources.index(phase_source)] = phase_tables.generate(a.gen, phase_source)
+        angle_source = BASE/'src/physics_body_angle.s'
+        sources[sources.index(angle_source)] = phase_tables.body_angle(a.gen, angle_source)
         free_source = BASE/'src/physics_free_fast.s'
         sources[sources.index(free_source)] = rolling_tables.generate_free(a.gen, free_source)
         sources.append(stopped_pair.generate(a.gen, BASE/'src/stopped_pair_lookup.s'))

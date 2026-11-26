@@ -3190,3 +3190,45 @@ SHA-256 `89b4ef83ee3a7a517427f6d109be8b9979e3c859f6cfa42fb028c98fbe1f214b`.
 The 8 MiB MBC5 cartridge has 82 bytes free in fixed ROM. Build with
 `tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test33-8m.gbc`.
 Reports are in `build/v096-test33/`. All timing is emulated.
+
+## 0.96 test34 — terrain windows, camera clipping and motion
+
+The two wheel queries can reuse a span of terrain records while the FIFO
+still holds it. Replacing the records invalidates both wheel handles.
+A repeated two-edge query can retain its candidate masks and update the
+unrounded plane distance from the change in position. The original record
+order, contact writes and cursor still apply. Object clipping tracks
+camera positions at which the visible list can change on each axis.
+
+Body rotation uses a small table for the signed high velocity digit.
+Translation and the gravity commit avoid repeated operations on high
+bytes when no carry can reach them. The linked motion fixture checked
+31,855 angular velocities at the wheel anchors, 31,855 full body angles,
+26,000 axis translations, 5,000 angular carry commits and 2,500 gravity
+commits against unbounded integer arithmetic.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.186 | 233,260 | 417,012 | 917 | 88/216 |
+| Eight courses, three longer inputs each | 5,227 | 28.362 | 250,410 | 467,284 | 547 | 6/24 |
+| Full Freefall neutral descent | 439 | 29.728 | 244,841 | 416,012 | 4 | 0/1 |
+
+All 75,252 substeps and 25,112 published updates on the standard and
+extended routes, plus 439 Freefall updates, matched test33. Native
+comparisons matched 9,210 ordinary and 3,170 speed-limit states. All
+45 PC braking and rebound cases passed. The 20 extreme spin outcomes
+matched test33. The linked spring guards passed 39,424 cases. PyBoy
+matched 1,216 presentations and 61,845 background cells. SameBoy matched
+878 presentations. Frontend, audio and save checks passed. The idle
+timer met all deadlines in its dedicated fixture.
+
+In separate cartridge experiments, a 512 KiB quarter-square multiplier
+preserved the gameplay traces but increased deadline misses. Giving
+suspension unconditional priority over scenery also increased misses.
+The full quarter-metre terrain table improved average cadence, but its
+short-route peak exceeded 552,000 T. These variants stay experimental.
+
+SHA-256 `03dd29905d66179032b1d02c084b8bb17b76c6566cde4cab7bfa93e306246c99`.
+The 8 MiB MBC5 cartridge has 16 bytes free in fixed ROM. Build with
+`tools/build.py --gen build/gen-v096-test31-8m --rom-mib 8 --out build/elma-gbc-v0.96-test34-8m.gbc`.
+Reports are in `build/v096-test34/`. All timing is emulated.

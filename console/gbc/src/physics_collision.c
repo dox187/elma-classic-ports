@@ -25,6 +25,7 @@ uint8_t riding_head_clear_mask;
 #ifdef RIDING_PC_SCHEDULE
 /* The general wheel iterator memoizes projections by FIFO record address. */
 uint8_t riding_contact_regions_dirty;
+uint8_t riding_window_valid[2];
 uint8_t riding_leaf_regions_dirty;
 #endif
 #if !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
@@ -63,6 +64,7 @@ void physics_collision_reset(void) {
     riding_head_clear_mask=0;
 #ifdef RIDING_PC_SCHEDULE
     riding_leaf_regions_dirty=riding_contact_regions_dirty=1;
+    riding_window_valid[0]=riding_window_valid[1]=0;
 #endif
 #endif
     for(i=0;i<CACHES;++i)cell_ids[i]=65535;
@@ -226,6 +228,13 @@ seg_install:
     push de
     push hl
     push af
+#ifdef RIDING_PC_SCHEDULE
+    ; A different resident key, including an empty level leaf, can change
+    ; the slot which seg_query would return on the next reference.
+    xor a
+    ld (#_riding_window_valid),a
+    ld (#(_riding_window_valid+1)),a
+#endif
     ld a,(#_next_cell)
     ld e,a
     ld d,#0

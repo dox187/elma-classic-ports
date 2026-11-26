@@ -25,40 +25,35 @@ _riding_full_angle::
  .endm
  angle_shift_five d,e
  angle_shift_five e,b
- angle_shift_five b,c
- ld a,c
- rrca
- rrca
- rrca
- and a,#0xe0
- ld c,a
- ld hl,#_angular_residual+2
- ld a,(hl+)
- add a,#4
- ld l,a
- ld a,(#_angular_residual+3)
- adc a,#0
- ; Rotate the 9-bit rounded high byte right three, with its true sign.
+ ld h,b
+ ld l,c
+ .rept 5
+ add hl,hl
+ .endm
+ ; Bias the signed top fractional byte before rounding. The shift takes
+ ; the ninth-bit carry as well, so 0x7c..0x7f produce +16.
+ ld a,(#_angular_residual+2)
+ xor #0x80
+ add #4
  rra
- rr l
- sra l
- sra l
- ld a,l
- add a,a
- sbc a,a
- ld h,a
- ld a,c
- add a,l
+ rrca
+ rrca
+ and #63
+ sub #16
  ld c,a
- ld a,b
- adc a,h
+ sbc a,a
  ld b,a
+ ; BC is the signed correction. Add it to the low word in one operation
+ ; and extend its sign and the word carry through the upper half.
+ add hl,bc
  ld a,e
- adc a,h
+ adc b
  ld e,a
  ld a,d
- adc a,h
+ adc b
  ld d,a
+ ld b,h
+ ld c,l
  ld hl,#_Bike+16
  ld a,(hl)
  add a,c
@@ -312,7 +307,105 @@ b_body_oms = 3
 ; signed residual to three unsigned fractional digits by borrowing from
 ; omega. After six base-256 digits DEBC holds the quotient from bits 0..47.
 ; The last signed digit scales by exactly m, including at the clamp edges.
+ .macro oms_at page
+ add a,#<_riding_oms_product
+ ld l,a
+ ld a,#>(_riding_oms_product+256*page)
+ adc a,#0
+ ld h,a
+ .endm
 _body_oms::
+ .ifdef RIDING_OMS_NEAR
+ ; Signed13 omega uses four Q8 digit terms. Bias the top fractional
+ ; byte to unsigned: oms_near_rows subtracts the same 128 units.
+ ld hl,#_Bike+21
+ ld a,(hl+)
+ ld b,a
+ and #0xf0
+ jr z,oms_test_positive
+ cp #0xf0
+ jr nz,oms_general
+ ld a,(hl+)
+ and (hl)
+ inc a
+ jr nz,oms_general
+ jr oms_near
+oms_test_positive:
+ ld a,(hl+)
+ or (hl)
+ jr nz,oms_general
+oms_near:
+ ld a,(#_angular_residual+1)
+ oms_at 4
+ ld c,(hl)
+ ld a,(#_angular_residual+2)
+ xor #128
+ oms_at 3
+ ld a,(hl)
+ add c
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc #0
+ ld d,a
+ ld a,(#_Bike+20)
+ oms_at 2
+ ld a,(hl)
+ add c
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc d
+ ld d,a
+ inc h
+ ld a,(hl)
+ adc #0
+ ld e,a
+ ld a,b
+ and #31
+ add a,a
+ add a,a
+ add #<oms_near_rows
+ ld l,a
+ ld a,#>oms_near_rows
+ adc #0
+ ld h,a
+ ld a,(hl+)
+ add c
+ ld c,a
+ ld a,(hl+)
+ adc d
+ ld b,a
+ ld a,(hl+)
+ adc e
+ ld e,a
+ ld a,(hl)
+ adc #0
+ ld d,a
+ ; Four floor errors and the omitted low digit together are < 4.5
+ ; Q8 units. Only 124..127 can cross the rounding threshold of 128.
+ ld a,c
+ sub #124
+ cp #4
+ jr c,oms_general
+ ld a,c
+ add a,a
+ ld a,b
+ adc #0
+ ld c,a
+ ld a,e
+ adc #0
+ ld b,a
+ ld a,d
+ adc #0
+ ld e,a
+ add a,a
+ sbc a,a
+ ld d,a
+ ret
+oms_general:
+ .endif
+
  ld hl,#_Bike+20
  ld a,(hl+)
  ld c,a
@@ -339,6 +432,7 @@ oms_in_range:
 oms_borrow:
  dec bc
 oms_normalized:
+ .ifndef RIDING_OMS_NEAR
  ; A zero or sign-filled upper word allows a signed Q8 sum of four
  ; byte products. Fall back to the full six-digit calculation at a tie.
  ld a,d
@@ -352,13 +446,7 @@ oms_short:
  push de
  push bc
  ; floor(digit*m/2^(8*page)); lower bytes of each row are omitted.
- .macro oms_at page
- add a,#<_riding_oms_product
- ld l,a
- ld a,#>(_riding_oms_product+256*page)
- adc a,#0
- ld h,a
- .endm
+
  ld a,(#_angular_residual+1)
  oms_at 4
  ld c,(hl)
@@ -435,6 +523,7 @@ oms_short_round:
 oms_short_tie:
  pop bc
  pop de
+ .endif
 oms_long:
  ld hl,#_angular_residual+2
  ld a,(hl-)

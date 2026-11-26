@@ -41,3 +41,24 @@ def generate(gen, source):
     if not output.exists() or output.read_text() != text:
         output.write_text(text)
     return output
+
+
+def body_angle(gen, source, out=None):
+    """Fold the signed fractional high byte's bias into the top velocity row."""
+    constants = (gen / 'riding_constants.h').read_text()
+    match = re.search(r'q24_C_OMS\[2\]=\{(\d+),(\d+)\}', constants)
+    if not match:
+        raise ValueError('Missing scheduled body angular coefficient')
+    scale = int(match[1])
+    if scale != int(match[2]) or not 0x40000100 <= scale < 0x80000000:
+        raise ValueError('Unsupported body angular coefficient')
+    lines = ['RIDING_OMS_NEAR = 1', source.read_text(), '.area _CODE_3', 'oms_near_rows:']
+    for digit in range(32):
+        signed = digit if digit < 16 else digit - 32
+        value = ((signed * 65536 - 128) * scale) >> 24
+        lines.append(' .db ' + ','.join(str(value >> shift & 255) for shift in (0, 8, 16, 24)))
+    output = (out or gen) / 'physics_body_angle_game.s'
+    text = '\n'.join(lines) + '\n'
+    if not output.exists() or output.read_text() != text:
+        output.write_text(text)
+    return output

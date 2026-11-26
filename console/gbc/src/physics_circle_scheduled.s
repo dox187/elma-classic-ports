@@ -146,23 +146,25 @@ circle_full_axis:
  circle_join_nibbles c
  ld a,(hl+)
  ld e,a
- circle_join_nibbles b
- ld a,(hl)
- ld d,a
+ ld d,(hl)
+ ; A zero or all-ones upper word is already the quotient's high word.
+ ; Only the sign nibble still needs to join byte one.
+ or d
+ jr z,circle_word_positive
+ ld a,e
+ and d
  inc a
- jr z,circle_full_negative
- dec a
- jr nz,circle_full_wide
- ld a,e
- swap a
- and #0x0f
- ld e,a
- jr circle_full_add
-circle_full_negative:
- ld a,e
+ jr nz,circle_general_word
+ ld a,b
  swap a
  or #0xf0
- ld e,a
+ ld b,a
+ jr circle_full_add
+circle_word_positive:
+ ld a,b
+ swap a
+ and #15
+ ld b,a
 circle_full_add:
  pop af
  pop hl
@@ -172,6 +174,9 @@ circle_add_low:
  circle_store_position
  ret
 
+circle_general_word:
+ ld a,e
+ circle_join_nibbles b
 circle_full_wide:
  ld a,d
  circle_join_nibbles e

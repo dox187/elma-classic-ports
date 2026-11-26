@@ -40,6 +40,26 @@ step_fraction = 48
  adc a,b
  ld (hl),a
 .endm
+; Gravity is signed16. A carry into the upper half from a negative
+; impulse cancels its sign extension; a positive impulse needs a carry.
+.macro step_add_gravity address,?done
+ ld hl,#(address)
+ ld a,(hl)
+ add e
+ ld (hl+),a
+ ld a,(hl)
+ adc d
+ ld (hl+),a
+ ld a,c
+ adc #0
+ jr z,done
+ add (hl)
+ ld (hl+),a
+ ld a,b
+ adc (hl)
+ ld (hl),a
+done:
+.endm
 .macro step_push32 address
  step_load32 address
  push bc
@@ -154,10 +174,10 @@ step_gravity_row:
 ; Publish the pending value for the body after the rider observes the old one.
 _riding_step_commit_fraction_regs::
  ld hl,#_riding_suspension_state+step_fraction
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
  ld a,c
  ld (hl+),a
  add a,a
@@ -168,14 +188,25 @@ _riding_step_commit_fraction_regs::
  ld a,b
  adc a,#0
  ret z
- ; The rounded carry is +1 or -1. Add with its full sign extension.
- ld e,a
- add a,a
- sbc a,a
- ld d,a
- ld c,a
- ld b,a
- step_add32 _riding_suspension_state+step_dwb
+ ; Only a low-byte wrap reaches the upper bytes of the impulse.
+ ld hl,#_riding_suspension_state+step_dwb
+ inc a
+ jr z,step_decrement_impulse
+ .rept 3
+ inc (hl)
+ ret nz
+ inc hl
+ .endm
+ inc (hl)
+ ret
+step_decrement_impulse:
+ .rept 3
+ ld a,(hl)
+ sub #1
+ ld (hl+),a
+ ret nc
+ .endm
+ dec (hl)
  ret
 
 ; DE is the positive gravity magnitude (including accumulated fraction).
@@ -195,9 +226,9 @@ step_gravity_left:
  call step_neg_gravity
 step_gravity_x:
  call step_extend_gravity
- step_add32 _riding_suspension_state+step_dvx
- step_add32 _riding_suspension_state+step_dvx+step_wheel_stride
- step_add32 _riding_suspension_state+step_dvbx
+ step_add_gravity _riding_suspension_state+step_dvx
+ step_add_gravity _riding_suspension_state+step_dvx+step_wheel_stride
+ step_add_gravity _riding_suspension_state+step_dvbx
  ld hl,#0
  push hl
  push hl
@@ -206,9 +237,9 @@ step_gravity_x:
  jr step_rider_response
 step_gravity_y:
  call step_extend_gravity
- step_add32 _riding_suspension_state+step_dvy
- step_add32 _riding_suspension_state+step_dvy+step_wheel_stride
- step_add32 _riding_suspension_state+step_dvby
+ step_add_gravity _riding_suspension_state+step_dvy
+ step_add_gravity _riding_suspension_state+step_dvy+step_wheel_stride
+ step_add_gravity _riding_suspension_state+step_dvby
  push bc
  push de
  ld hl,#0
@@ -224,12 +255,12 @@ step_rider_response:
  step_add32 _Bike+20
  step_load32 _riding_suspension_state+step_fraction
  ld hl,#_angular_residual
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
  ld (hl),b
  step_load32 _riding_suspension_state+step_dvbx
  step_add32 _Bike+8

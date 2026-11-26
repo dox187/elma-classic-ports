@@ -294,6 +294,7 @@ wheel_leaf_general:
 ; the reference writes into Ct (0, 6, or 20 when a merge was attempted).
 .area _DATA
 dense_contacts: .ds 80       ; two ten-byte contacts per leaf slot
+_riding_dense_slot::
 dense_slot: .ds 2
 _riding_dense_merged:: .ds 1
 
@@ -382,6 +383,12 @@ dense_leaf_select:
  ret
 
 dense_leaf_build:
+ ld hl,#22
+ add hl,de
+ ld (hl),#255               ; no spatial program yet in this slot
+ ld hl,#27
+ add hl,de
+ ld (hl),#0                 ; this leaf has no cached plane numerator
  ld hl,#5
  add hl,de
  push hl                     ; destination for narrowed pointer and count
@@ -497,8 +504,49 @@ dense_leaf_solve:
  ld (#_riding_dense_merged),a
  or b
  jr z,dense_leaf_finish
- ld e,#9
+ ; One operation for each ordered box match, learned from the exact
+ ; probes already performed by the ordinary iterator on the first visit.
  ld hl,#_riding_leaf_general
+ ld a,b
+ dec a
+ cp #4
+ jr nc,dense_leaf_call
+ call dense_leaf_address
+ ld de,#22
+ add hl,de
+ ld a,(#_riding_contact_qx)
+ and #48
+ swap a
+ ld e,a
+ ld a,(#_riding_contact_qy)
+ and #48
+ rrca
+ rrca
+ or e
+ ld b,#2                    ; replay
+ cp (hl)
+ jr z,dense_program_ready
+ ld (hl+),a
+ xor a
+ ld (hl+),a
+ ld (hl+),a
+ ld (hl+),a
+ ld (hl-),a
+ dec hl
+ dec hl
+ dec hl
+ dec b                      ; learn
+dense_program_ready:
+ inc hl
+ ld a,l
+ ld (#_riding_record_program),a
+ ld a,h
+ ld (#_riding_record_program+1),a
+ ld a,b
+ ld (#_riding_program_mode),a
+ ld hl,#_riding_leaf_program
+dense_leaf_call:
+ ld e,#9
  call ___sdcc_bcall_ehl
 dense_leaf_finish:
  ld c,a

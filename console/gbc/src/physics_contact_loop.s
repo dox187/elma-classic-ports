@@ -4,6 +4,10 @@
 .area _DATA
 _riding_leaf_box::
 contact_loop_box: .ds 2
+ .ifdef RIDING_LEAF_REGION
+_riding_record_program:: .ds 2
+_riding_program_mode:: .ds 1
+ .endif
 contact_loop_found: .ds 1
 contact_loop_seg: .ds 2
 contact_loop_k: .ds 2
@@ -58,6 +62,9 @@ _riding_contacts_loop::
  .ifdef RIDING_LEAF_REGION
  jp _riding_leaf_dispatch
 _riding_leaf_general::
+ xor a
+ ld (#_riding_program_mode),a
+_riding_leaf_program::
  .endif
  xor a,a
  ld (#contact_loop_found),a
@@ -79,6 +86,12 @@ contact_loop_done:
  ld a,(#contact_loop_found)
  ret
 contact_loop_record:
+ .ifdef RIDING_LEAF_REGION
+ ld a,(#_riding_program_mode)
+ or a
+ jp nz,corner_record
+corner_general_record:
+ .endif
  ld hl,#contact_loop_seg
  ld a,e
  ld (hl+),a
@@ -157,11 +170,25 @@ contact_loop_general:
  or a
  jp z,contact_loop_next
  dec a
+ .ifdef RIDING_LEAF_REGION
+ jr nz,corner_not_known_plane
+ ld a,(#_riding_program_mode)
+ dec a
+ call z,corner_store_plane
+ jp contact_loop_interior
+corner_not_known_plane:
+ .else
  jr z,contact_loop_interior
+ .endif
  dec a
  jr nz,contact_loop_position
  ; An endpoint certificate supplies a representative position with the
  ; correct sign. The original endpoint flags and radial solver follow.
+ .ifdef RIDING_LEAF_REGION
+ ld a,(#_riding_program_mode)
+ dec a
+ call z,corner_cached_cap
+ .endif
  jp contact_loop_endpoint
  .else
  push bc
@@ -195,6 +222,11 @@ contact_loop_general:
  call _dotq14
  .endif
 contact_loop_position:
+ .ifdef RIDING_LEAF_REGION
+ ld a,(#_riding_program_mode)
+ dec a
+ call z,corner_position
+ .endif
  ; Low14 length; high bits identify synthetic endpoints.
  bit 7,b
  jp nz,contact_loop_endpoint
@@ -1294,5 +1326,484 @@ plane_shallow_remainder:
  dec b
  jr nz,plane_shallow_bit
  ld a,l
+ ret
+ .endif
+
+ .ifdef RIDING_LEAF_REGION
+.area _CODE_9
+; DE names an accepted box, irrespective of the two radius and tangent
+; decisions which follow it. Advance in exactly the native record order.
+corner_record:
+ ld hl,#_riding_record_program
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,(hl+)
+ push af
+ ld a,l
+ ld (#_riding_record_program),a
+ ld a,h
+ ld (#_riding_record_program+1),a
+ pop af
+ or a
+ jp z,corner_general_record
+ cp #4
+ jp z,corner_plane_dispatch
+ dec a
+ jp z,contact_loop_next
+ ld b,a
+ jp corner_cap_dispatch
+
+.area _CODE_2
+corner_cap_query:
+ ; Start/end cap: derive the exact center-relative vector. The program
+ ; proves tangent and normal guards. The regular strict disk test follows.
+ ld h,d
+ ld l,e
+ ld a,(#_riding_contact_qx)
+ sub (hl)
+ inc hl
+ ld e,a
+ ld a,(#_riding_contact_qx+1)
+ sbc (hl)
+ inc hl
+ ld d,a
+ ld a,(#_riding_contact_qy)
+ sub (hl)
+ inc hl
+ ld c,a
+ ld a,(#_riding_contact_qy+1)
+ sbc (hl)
+ inc hl
+ dec b
+ ld b,a
+ jr z,corner_cap_vector
+ ld a,e
+ sub (hl)
+ inc hl
+ ld e,a
+ ld a,d
+ sbc (hl)
+ inc hl
+ ld d,a
+ ld a,c
+ sub (hl)
+ inc hl
+ ld c,a
+ ld a,b
+ sbc (hl)
+ ld b,a
+corner_cap_vector:
+ ld hl,#contact_loop_x
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
+ ret
+
+.area _CODE
+corner_cap_dispatch:
+ ld a,#2
+ ld (#0x2000),a
+ call corner_cap_query
+ ld a,#9
+ ld (#0x2000),a
+ jp contact_loop_endpoint_ready
+
+.area _CODE_9
+corner_position:
+ ld hl,#corner_position_inner
+ jr corner_learn_banked
+corner_cached_cap:
+ ld hl,#corner_cached_cap_inner
+corner_learn_banked:
+ ld e,#2
+ jp ___sdcc_bcall_ehl
+
+.area _CODE
+corner_store_plane:
+ ld hl,#_riding_record_program
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ dec hl
+ ld (hl),#4
+ ret
+
+.area _CODE_9
+corner_plane_dispatch:
+ ld hl,#contact_loop_seg
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ld e,#2
+ ld hl,#corner_plane_query
+ call ___sdcc_bcall_ehl
+ call contact_loop_in_radius
+ jp nc,contact_loop_next
+ jp contact_loop_interior
+
+.area _CODE_2
+; Traversing a 16u tile changes a rounded projection by at most
+; ceil(15 * (sqrt(2) + 1/16384)) = 22. An interior artificial endpoint
+; has no cap. A real cap also needs the perpendicular guard everywhere.
+corner_position_inner:
+ bit 7,b
+ jr z,corner_after_end
+ ld a,b
+ inc a
+ jr nz,corner_start
+ ld a,c
+ cp #<(-22)
+ ret nc
+corner_start:
+ ld a,#2
+ jr corner_guard
+corner_after_end:
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#12
+ add hl,de
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl)
+ and #63
+ ld d,a
+ ; BC has the tangent. Distinguish a whole interior from a whole cap.
+ ld a,c
+ sub e
+ ld e,a
+ ld a,b
+ sbc d
+ jr nc,corner_beyond
+ inc a
+ jr nz,corner_interior_start
+ ld a,e
+ cp #<(-22)
+ ret nc
+corner_interior_start:
+ ld a,b
+ or a
+ jp nz,corner_store_plane
+ ld a,c
+ cp #22
+ ret c
+ jp corner_store_plane
+corner_beyond:
+ or a
+ jr nz,corner_beyond_sure
+ ld a,e
+ cp #23
+ ret c
+corner_beyond_sure:
+ ld a,#3
+corner_guard:
+ push af
+ ld hl,#contact_loop_d
+ ld a,(hl+)
+ add #<387
+ ld e,a
+ ld a,(hl)
+ adc #>387
+ cp #>775
+ jr c,corner_guard_ok
+ jr nz,corner_guard_fail
+ ld a,e
+ cp #<775
+ jr c,corner_guard_ok
+corner_guard_fail:
+ pop af
+ ret
+corner_guard_ok:
+ pop af
+corner_install:
+ ld e,a
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,#13
+ add l
+ ld l,a
+ jr nc,corner_flags
+ inc h
+corner_flags:
+ ld a,(hl)
+ bit 0,e
+ jr nz,corner_end_flag
+ add a
+corner_end_flag:
+ rlca
+ jr nc,corner_store
+ ld e,#1
+corner_store:
+ ld hl,#_riding_record_program
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ dec hl
+ ld (hl),e
+ ret
+
+corner_cached_cap_inner:
+ ; Kinds 3/4 imply the perpendicular guard over the whole 64u box.
+ ; Kinds 5/6 re-evaluated distance for this center at contact_region_distance.
+ ld hl,#contact_region_slot
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,(hl)
+ cp #5
+ jr c,corner_cached_proven
+ sub #3
+ jr corner_guard
+corner_cached_proven:
+ dec a
+ jr corner_install
+
+; The source-order plane retains its exact unrounded signed32 numerator.
+; Updating by the two integer center differences before a single final
+; rounding is algebraically identical to the native pair of products.
+.area _DATA
+corner_planes: .ds 64       ; 4 entries: record, previous XY bytes, nx,ny, raw
+corner_plane_work: .ds 2
+corner_plane_dxy: .ds 2
+.area _CODE_2
+corner_plane_query:
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ push de
+ ld hl,#_riding_dense_slot
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,l
+ sub #<_riding_leaf_regions
+ srl a
+ ld c,a
+ ld b,#0
+ ld de,#27
+ add hl,de
+ ld a,(hl)
+ ld (hl),#1
+ ld hl,#corner_planes
+ add hl,bc
+ push af
+ ld a,l
+ ld (#corner_plane_work),a
+ ld a,h
+ ld (#corner_plane_work+1),a
+ pop af
+ pop de
+ or a
+ jr z,corner_plane_new
+ ld a,(hl+)
+ cp e
+ jr nz,corner_plane_new
+ ld a,(hl+)
+ cp d
+ jr nz,corner_plane_new
+ ld a,(#_riding_contact_qx)
+ sub (hl)
+ inc hl
+ add #4
+ cp #9
+ jr nc,corner_plane_new
+ sub #4
+ ld (#corner_plane_dxy),a
+ ld a,(#_riding_contact_qy)
+ sub (hl)
+ inc hl
+ add #4
+ cp #9
+ jr nc,corner_plane_new
+ sub #4
+ ld (#corner_plane_dxy+1),a
+ ; HL names the cached X normal; raw begins four bytes later.
+ ld a,(#corner_plane_dxy)
+ call corner_plane_add
+ ld a,(#corner_plane_dxy+1)
+ call corner_plane_add
+ jr corner_plane_result
+corner_plane_new:
+ ; Install the source record and its -ey,ex normal.
+ call corner_plane_address
+ ld a,e
+ ld (hl+),a
+ ld (hl),d
+ push hl
+ ld hl,#8
+ add hl,de
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ xor a
+ sub (hl)
+ inc hl
+ ld e,a
+ ld a,#0
+ sbc (hl)
+ ld d,a
+ pop hl
+ inc hl
+ inc hl
+ inc hl
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
+ push bc
+ ld b,d
+ ld c,e
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,(#_riding_contact_qx)
+ sub (hl)
+ inc hl
+ ld e,a
+ ld a,(#_riding_contact_qx+1)
+ sbc (hl)
+ inc hl
+ ld d,a
+ push hl
+ call _riding_projection_signed16
+ pop bc
+ push hl
+ push de
+ ld h,b
+ ld l,c
+ ld a,(#_riding_contact_qy)
+ sub (hl)
+ inc hl
+ ld e,a
+ ld a,(#_riding_contact_qy+1)
+ sbc (hl)
+ ld d,a
+ ldhl sp,#4
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ call _riding_projection_signed16
+ pop bc
+ ld a,e
+ add c
+ ld e,a
+ ld a,d
+ adc b
+ ld d,a
+ pop bc
+ ld a,l
+ adc c
+ ld l,a
+ ld a,h
+ adc b
+ ld b,a
+ ld c,l
+ add sp,#2
+ call corner_plane_address
+ ld a,#8
+ add l
+ ld l,a
+ jr nc,corner_plane_install
+ inc h
+corner_plane_install:
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
+corner_plane_result:
+ call corner_plane_address
+ inc hl
+ inc hl
+ ld a,(#_riding_contact_qx)
+ ld (hl+),a
+ ld a,(#_riding_contact_qy)
+ ld (hl+),a
+ inc hl
+ inc hl
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ jp _riding_terrain_reduce_q14
+
+corner_plane_address:
+ ld hl,#corner_plane_work
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ret
+corner_plane_add:
+ ; A is an exact signed center difference in [-4,4].
+ ld c,a
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,c
+ or a
+ ret z
+ bit 7,a
+ jr z,corner_plane_positive
+ cpl
+ inc a
+ ld c,a
+ xor a
+ sub e
+ ld e,a
+ ld a,#0
+ sbc d
+ ld d,a
+corner_plane_positive:
+ push hl
+ ld a,d
+ add a
+ sbc a
+ ld b,a
+ call corner_plane_address
+ ld a,#8
+ add l
+ ld l,a
+ jr nc,corner_plane_delta
+ inc h
+corner_plane_delta:
+ push hl
+ ld a,(hl)
+ add e
+ ld (hl+),a
+ ld a,(hl)
+ adc d
+ ld (hl+),a
+ ld a,(hl)
+ adc b
+ ld (hl+),a
+ ld a,(hl)
+ adc b
+ ld (hl),a
+ pop hl
+ dec c
+ jr nz,corner_plane_delta
+ pop hl
  ret
  .endif

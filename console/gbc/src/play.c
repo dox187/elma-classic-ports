@@ -3,6 +3,7 @@
 #include <gb/cgb.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 #include "runtime.h"
 #include "bike_render16.h"
 #include "riding_constants.h"
@@ -72,7 +73,31 @@ uint16_t gbc_objects_empty_bounds[4];
 static uint8_t previous, last_hud_state,result_details;
 static uint8_t volt_wait,objects_valid,objects_apples,objects_used,object_phase;
 static uint8_t visible_objects[LEVEL_OBJECT_MAX],visible_count;
-static uint16_t objects_camera_x,objects_camera_y;
+/* Camera clipping changes at object.x-167 / object.x+8 and at
+ * object.y-143 / object.y+8. Track those boundaries modulo 256, using
+ * one cumulative four-bit count per axis. A presentation can move at
+ * most eight pixels on each axis, so a crossing cannot wrap a count. */
+static uint8_t visibility_regions[256],objects_region_x,objects_region_y;
+
+static void build_visibility_regions(void) {
+    const game_object_t *object;
+    uint8_t i,x_count=0,y_count=0;
+    memset(visibility_regions,0,sizeof(visibility_regions));
+    for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
+        visibility_regions[(uint8_t)(object->x-167)]|=1;
+        visibility_regions[(uint8_t)(object->x+8)]|=1;
+        visibility_regions[(uint8_t)(object->y-143)]|=16;
+        visibility_regions[(uint8_t)(object->y+8)]|=16;
+    }
+    i=0;
+    do {
+        uint8_t edges=visibility_regions[i];
+        x_count+=edges&1;
+        y_count+=edges&16;
+        visibility_regions[i]=(x_count&15)|y_count;
+    } while(++i);
+}
+
 static bike_screen_t screen;
 static int16_t body_world[2],next_camera_x,next_camera_y;
 static uint8_t camera_prepared;
@@ -132,14 +157,18 @@ uint8_t gbc_objects_visible(uint8_t *ids) __sdcccall(0);
 #endif
 
 static void draw_objects(void) {
-    uint8_t i,n,sprite;
+    uint8_t i,n,sprite,x_key=(uint8_t)game_camera_x,y_key=(uint8_t)game_camera_y;
+    /* The last eight pixels use the exact low byte as their key. A step
+     * cannot cross a 256-pixel wrap between two ordinary nibble keys. */
+    if(x_key<248)x_key=visibility_regions[x_key]&15;
+    if(y_key<248)y_key=visibility_regions[y_key]&240;
 #ifdef OBJECTS_VISIBLE_C_REFERENCE
     int16_t x,y;
     const game_object_t *object;
 #endif
-    if(!objects_valid || objects_camera_x!=game_camera_x || objects_camera_y!=game_camera_y
+    if(!objects_valid || objects_region_x!=x_key || objects_region_y!=y_key
        || objects_apples!=game_apples_left) {
-        objects_valid=1;objects_camera_x=game_camera_x;objects_camera_y=game_camera_y;
+        objects_valid=1;objects_region_x=x_key;objects_region_y=y_key;
         objects_apples=game_apples_left;visible_count=0;
 #ifdef OBJECTS_VISIBLE_C_REFERENCE
         for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
@@ -405,6 +434,7 @@ static void start_game(void) {
     audio_init();
     game_ready=0;DISPLAY_OFF;
     world_select(game_level_index);physics_select_level(game_level_index);physics_reset_current();
+    build_visibility_regions();
     objects_empty_valid=0;
     game_state=RIDING;game_apples_left=0;game_time_frames=0;clock_fraction=0;volt_wait=0;
     game_player_index=save_player;game_new_record=0;game_previous_best=0;

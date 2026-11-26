@@ -6,10 +6,13 @@ import random
 import re
 import struct
 import subprocess
+import sys
 from pathlib import Path
 from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BASE / 'tools'))
+from phase_tables import body_angle
 
 
 def main():
@@ -44,10 +47,11 @@ void main(void) {
 }
 ''')
     rom = out / 'phase.gbc'
+    kernel = body_angle(args.gen, BASE/'src/physics_body_angle.s', out)
     subprocess.run([BASE/'.toolchain/gbdk/bin/lcc', '-msm83:gb', '-Wm-yC',
                     '-Wm-yt0x19', '-Wm-yoA', '-Wl-j', '-I'+str(BASE/'src'),
                     '-I'+str(args.gen.resolve()), '-o', rom, driver, BASE/'src/physics_angle.c',
-                    BASE/'src/physics_body_angle.s'], check=True)
+                    kernel], check=True)
     symbols = {k:int(v,16) for k,v in re.findall(r'DEF (_\w+) 0x([0-9a-fA-F]+)', rom.with_suffix('.noi').read_text())}
     emu = PyBoy(str(rom), window='null', sound_emulated=False, cgb=True)
     emu.set_emulation_speed(0)

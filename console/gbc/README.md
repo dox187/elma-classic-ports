@@ -3,14 +3,14 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test33 — 8 MiB](build/elma-gbc-v0.96-test33-8m.gbc)**.
-The 216 controller routes on all 54 courses average **29.09 updates per
-emulated second**, up from **28.97** in test32. The 24 longer routes average
-**28.10**, and the full Freefall descent averages **29.69**. Eighty-six short
-routes and five long routes met every two-frame deadline. All 75,252 physics
-substeps and 25,112 published states on the short and long routes matched
-test32. The target is **29.86 updates/s with every update on time**.
-[Timing and verification](PERFORMANCE.md#096-test33--wheel-projection-and-suspension-moments)
+**[0.96 test34 — 8 MiB](build/elma-gbc-v0.96-test34-8m.gbc)**.
+The 216 controller routes on all 54 courses average **29.19 updates per
+emulated second**, up from **29.09** in test33. The 24 longer routes average
+**28.36**, and the full Freefall descent averages **29.73**. Eighty-eight
+short routes and six long routes met every two-frame deadline. All 75,252
+physics substeps and 25,112 published states on the short and long routes
+matched test33. The target is **29.86 updates/s with every update on time**.
+[Timing and verification](PERFORMANCE.md#096-test34--terrain-windows-camera-clipping-and-motion)
 
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**

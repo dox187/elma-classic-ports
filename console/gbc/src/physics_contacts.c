@@ -812,6 +812,12 @@ ws_slot:
     dec (hl)
     jr ws_fallback
 ws_kind_low:
+#ifdef RIDING_WHEEL_TERRAIN
+    ; The dynamic classifier marked this square ambiguous. Keep its full
+    ; ordered span under the same FIFO lifetime as a compiled window.
+    cp #4
+    jp z,_riding_wheel_full_window
+#endif
     or a,a
     jr z,ws_change
 ws_fallback:
