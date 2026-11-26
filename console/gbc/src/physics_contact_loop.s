@@ -607,10 +607,19 @@ contact_region_inside:
  ; The tangent dot is only needed on a miss. Save the exact position even
  ; on boundaries, including the artificial end's half-open ownership.
  call contact_region_coeffs
- push bc
  push de
- call contact_region_xy
- call _dotq14
+ push bc
+ ; Put the tangent's X axis in the same major-axis position as a
+ ; near-horizontal edge's cross-distance projection.
+ ld hl,#contact_loop_x
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ call _riding_terrain_dotq14
  push bc
  ld a,b
  bit 7,a
@@ -749,7 +758,7 @@ contact_region_distance:
  ld b,a
  push bc
  call contact_region_xy
- call _dotq14
+ call _riding_terrain_dotq14
  ld hl,#contact_loop_d
  ld a,c
  ld (hl+),a
@@ -771,4 +780,324 @@ contact_region_out:
 contact_region_in:
  scf
  ret
+ .endif
+
+ .ifdef RIDING_NORMAL_ATLAS
+.area _CODE
+; ABI of dotq14. For a unit second axis the first product rounds
+; independently, including a half tie. Preserve the full-dot fallback.
+_riding_terrain_dotq14::
+ ldhl sp,#4
+ ld a,(hl+)
+ or a
+ jp nz,_dotq14
+ ld a,(hl)
+ and #127
+ cp #64
+ jp nz,_dotq14
+ ldhl sp,#3
+ ld a,(hl-)
+ inc a
+ cp #2
+ jp nc,_dotq14
+ ld a,#34
+ ld (#0x2000),a
+ call terrain_minor_lookup
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ jp nc,_dotq14
+ pop hl
+ add sp,#4
+ jp (hl)
+
+.area _CODE_34
+; BC is the major coordinate, DE the minor coordinate and HL its
+; coefficient. Every failure preserves the incoming coordinates.
+terrain_minor_lookup:
+ ld a,b
+ add #129
+ cp #2
+ jr c,terrain_miss       ; leave signed16 saturation to the full dot
+ ld a,d
+ add #31
+ cp #63
+ jr nc,terrain_miss      ; accepted minor magnitude is below 8192
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ bit 7,h
+ jr z,terrain_magnitude
+ cpl
+ inc a
+ jr z,terrain_miss       ; -256
+terrain_magnitude:
+ cp #128
+ jr nc,terrain_miss
+ cp #2
+ jr c,terrain_zero
+ ld l,a
+ ld a,h
+ xor d
+ push af                 ; sign of minor product
+ bit 7,d
+ jr z,terrain_index
+ xor a
+ sub e
+ ld e,a
+ sbc a
+ sub d
+ ld d,a
+terrain_index:
+ ld a,l
+ rrca
+ ld h,a
+ and #128
+ ld l,a
+ ld a,h
+ and #63
+ or #64
+ ld h,a
+ ld a,e
+ add a
+ ld a,d
+ rla
+ add a
+ or l
+ ld l,a
+ ld a,(hl+)
+ ld d,a
+ ld a,e
+ and #127
+ ld e,a
+ cp (hl)
+ jr c,terrain_same_bin
+ inc d
+terrain_same_bin:
+ pop af
+ bit 7,a
+ jr z,terrain_positive
+ ; A half tie is possible only at an input divisible by 128 for
+ ; coefficients 2..127. Round the negative half toward positive infinity.
+ bit 7,d
+ jr z,terrain_negative
+ ld a,e
+ or a
+ jr nz,terrain_negative
+ dec d
+terrain_negative:
+ ld a,d
+ and #127
+ cpl
+ inc a
+ jr terrain_extend
+terrain_positive:
+ ld a,d
+ and #127
+terrain_extend:
+ ld e,a
+ add a
+ sbc a
+ ld d,a
+ jr terrain_major
+terrain_zero:
+ ld de,#0
+terrain_major:
+ ldhl sp,#7
+ bit 7,(hl)
+ jr z,terrain_add
+ ld a,e
+ sub c
+ ld c,a
+ ld a,d
+ sbc b
+ ld b,a
+ scf
+ ret
+terrain_add:
+ ld a,e
+ add c
+ ld c,a
+ ld a,d
+ adc b
+ ld b,a
+ scf
+ ret
+terrain_miss:
+ or a
+ ret
+
+; DE is the cache entry. The original bases remain available for the
+; first projection (and for the full coordinate-wrap fallback).
+terrain_plane_setup:
+ ld hl,#5
+ add hl,de
+ push hl
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ call _riding_projection_signed16
+ push hl
+ push de
+ ldhl sp,#4
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ call _riding_projection_signed16
+ pop bc
+ ld a,c
+ add e
+ ld e,a
+ ld a,b
+ adc d
+ ld d,a
+ pop bc
+ ld a,c
+ adc l
+ ld c,a
+ ld a,b
+ adc h
+ ld b,a
+ pop hl
+ dec hl
+ set 3,(hl)
+ ld a,#13
+ add l
+ ld l,a
+ jr nc,terrain_plane_store
+ inc h
+terrain_plane_store:
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
+ ld (hl),b
+ ret
+terrain_lookup_end:
+ ; Two bytes for every 128 consecutive positive input magnitudes. Their
+ ; rounded values differ by at most one. Store the initial value, a tie
+ ; flag, and the first offset giving the next integer (128 if absent).
+ .ds 256-(terrain_lookup_end-terrain_minor_lookup)
+terrain_n = 2
+ .rept 126
+terrain_x = 0
+ .rept 64
+terrain_raw = terrain_x*terrain_n+8192
+terrain_base = terrain_raw/16384
+terrain_cut = (16384*(terrain_base+1)-terrain_raw+terrain_n-1)/terrain_n
+ .ifeq (terrain_raw & 16383)
+ .db terrain_base+128
+ .else
+ .db terrain_base
+ .endif
+ .ifgt (terrain_cut-128)
+ .db 128
+ .else
+ .db terrain_cut
+ .endif
+terrain_x = terrain_x+128
+ .endm
+terrain_n = terrain_n+1
+ .endm
+ .endif
+
+ .ifdef RIDING_NORMAL_ATLAS
+.area _CODE
+; The initial raw intercept is the dot at offset (0,0). All later
+; products use the unsigned byte offsets within the same 256u square.
+_riding_plane_fill::
+ push bc
+ push de
+ ld a,#34
+ ld (#0x2000),a
+ ld (#__current_bank),a
+ call terrain_plane_setup
+ ld a,#9
+ ld (#0x2000),a
+ ld (#__current_bank),a
+ pop de
+ pop bc
+_riding_plane_affine::
+ ld hl,#9
+ add hl,de
+ push hl
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ push hl
+ push bc
+ call _riding_fraction_product
+ pop bc
+ ld a,b
+ pop bc
+ push hl
+ push de
+ ld h,b
+ ld l,c
+ ld c,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ call _riding_fraction_product
+ pop bc
+ ld a,c
+ add e
+ ld e,a
+ ld a,b
+ adc d
+ ld d,a
+ pop bc
+ ld a,c
+ adc l
+ ld c,a
+ ld a,b
+ adc h
+ ld b,a
+ pop hl
+ push hl
+ ld a,#8
+ add l
+ ld l,a
+ jr nc,terrain_add_intercept
+ inc h
+terrain_add_intercept:
+ ld a,e
+ add (hl)
+ inc hl
+ ld a,d
+ adc (hl)
+ ld d,a
+ inc hl
+ ld a,c
+ adc (hl)
+ ld c,a
+ inc hl
+ ld a,b
+ adc (hl)
+ ld h,a
+ ld l,c
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ call _riding_terrain_reduce_q14
+ pop hl
+ jp _riding_plane_distance
  .endif

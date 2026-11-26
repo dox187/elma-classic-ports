@@ -3,6 +3,17 @@
 ; Unsigned16 DE times unsigned8 C, raw32 return HLDE. Leaves table bank
 ; selected for the wide multiplier to restore once, after its sign correction.
 _riding_mul16u8_unsigned::
+ .ifdef RIDING_SCALE_DIRECTORY
+ ld l,c
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ ld a,c
+ and #31
+ add a,a
+ or #0x40
+ ld h,a
+ .else
  ld a,c
  rlca
  rlca
@@ -15,6 +26,7 @@ _riding_mul16u8_unsigned::
  add a,a
  or a,#>_physics_scale_planes_36
  ld h,a
+ .endif
  ld l,e
  ld e,(hl)
  inc h

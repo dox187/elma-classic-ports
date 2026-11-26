@@ -61,24 +61,34 @@ circle_axes:
  ld a,(#_riding_subphase)
  or a
  jr z,circle_full_axes
+ .macro circle_partial_axis advance
+ push hl
  push bc
- call circle_axis
+ ld de,#8
+ add hl,de
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ pop hl
+ call advance
+ pop hl
+ ld a,(hl)
+ adc a,c
+ .endm
+ push bc
+ circle_partial_axis _riding_phase_second_x
+ call circle_add_low
  pop bc
  inc bc
  inc bc
  inc bc
  inc bc
-circle_axis:
- ; HL points to the position, BC to byte 2 of its residual.
- push hl
- push bc
- ld de,#8
- add hl,de
- call circle_load
- pop hl
- call _riding_phase_second_hl
- pop hl
- jp circle_add
+ circle_partial_axis _riding_phase_second_carry
+ jr circle_add_low
 
 circle_full_axes:
  push bc

@@ -91,6 +91,15 @@ roll_axis_inputs:
  call roll_axis_value
  jr roll_projected_inputs
 roll_input_dots:
+ .ifdef RIDING_GROUND_ROWS
+ ld a,e
+ or a
+ jr nz,roll_generic_dots
+ ld a,d
+ cp #0xc0
+ jp z,ground_try_dots
+roll_generic_dots:
+ .endif
  ldhl sp,#6
  ld a,(hl+)
  ld d,(hl)
@@ -346,6 +355,23 @@ roll_coefficient_ready:
 ; Both components use round-to-nearest with positive half ties, then saturate.
 _riding_roll_project_pair::
  push hl
+ .ifdef RIDING_GROUND_ROWS
+ ldhl sp,#8
+ ld a,(hl+)
+ or a
+ jr nz,ground_generic_pair
+ ld a,(hl+)
+ cp #0xc0
+ jr nz,ground_generic_pair
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ or b
+ jp z,ground_flat_pair
+ call ground_select
+ jp nz,ground_project_29
+ground_generic_pair:
+ .endif
  .ifdef RIDING_ROLL_TABLES
  ldhl sp,#4
  ld a,(hl+)
@@ -362,6 +388,7 @@ _riding_roll_project_pair::
  ld a,d
  or e
  jr z,roll_project_zero
+ .ifndef RIDING_GROUND_ROWS
  ; For the shallow rolling tangents, X is -speed and Y is one signed
  ; byte. The same two rounding-threshold rows used by the dot product
  ; give the exact Y without visiting a general projection bank.
@@ -385,6 +412,7 @@ _riding_roll_project_pair::
  jr nz,roll_project_directory
  ld bc,#_riding_shallow_dot_9
  jr roll_project_shallow
+ .endif
 roll_project_directory:
  ldhl sp,#8
  call roll_project_component
@@ -411,6 +439,7 @@ roll_project_zero:
  ld (hl+),a
  .endm
  ret
+ .ifndef RIDING_GROUND_ROWS
 roll_project_shallow:
  ld h,#0
  ld l,d
@@ -449,6 +478,7 @@ roll_project_shallow:
  ld (hl+),a
  ld (hl),a
  ret
+ .endif
  .endif
 roll_project_wide:
  ldhl sp,#8
@@ -830,3 +860,62 @@ roll_delta_full:
 roll_delta_partial:
  roll_phase_delta roll_data_1,roll_transform_1
 .endif
+
+ .ifdef RIDING_GROUND_ROWS
+.area _CODE
+ground_flat_pair:
+ ld a,#29
+ ld (#0x2000),a
+ jp ground_flat_29
+ground_try_dots:
+ call ground_select
+ jp nz,ground_inputs_29
+ jp roll_generic_dots
+ground_resume_dots:
+ call ground_restore
+ jp roll_generic_dots
+ground_resume_deltas:
+ call ground_restore
+ jp roll_projected_inputs
+ground_resume_pair:
+ call ground_restore
+ jp ground_generic_pair
+ground_return:
+ground_restore:
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ret
+
+; On a hit, both banks have the same kernel addresses. A is the first
+; product page. The directory verifies the complete signed coefficient.
+ground_select:
+ ld a,c
+ add a
+ sbc a
+ cp b
+ jr nz,ground_unknown
+ ld a,#29
+ ld (#0x2000),a
+ ld h,#>ground_directory
+ ld l,c
+ ld a,(hl)
+ or a
+ jr z,ground_unknown_banked
+ bit 7,a
+ jr nz,ground_second_bank
+ or a
+ ret
+ground_second_bank:
+ and #127
+ ld l,a
+ ld a,#30
+ ld (#0x2000),a
+ ld a,l
+ or a
+ ret
+ground_unknown_banked:
+ call ground_restore
+ground_unknown:
+ xor a
+ ret
+ .endif

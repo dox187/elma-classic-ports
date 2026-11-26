@@ -171,12 +171,22 @@ static void move_body(void) {
 // vezeto_hatarolas: keeps the rider over the seat.
 #if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
 uint8_t riding_rider_phase_local(int16_t *xy);
+#ifdef RIDING_SEAT_LOOKUP
+uint8_t riding_seat_lookup(int16_t *xy) __banked;
+#endif
 #endif
 static void rider_limit( void ) {
 #if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
     int16_t xy[2];
     if (riding_rider_phase_local(xy)) return;
+#ifdef RIDING_SEAT_LOOKUP
+    uint8_t seat_result = riding_seat_lookup(xy);
+    if (seat_result == 1) return;
+#endif
     int16_t x = xy[0], y = xy[1];
+#ifdef RIDING_SEAT_LOOKUP
+    if (seat_result == 2) goto restore_world;
+#endif
 #else
 	int16_t dx = sat16( riding_sra8(Bike.rider_x-Bike.body.rx) );
 	int16_t dy = sat16( riding_sra8(Bike.rider_y-Bike.body.ry) );
@@ -221,6 +231,9 @@ static void rider_limit( void ) {
 	}
 	if( !moved )
 		return;
+#ifdef RIDING_SEAT_LOOKUP
+restore_world:
+#endif
 	if( Bike.turned )
 		x = -x;
 	Bike.rider_x = Bike.body.rx + ((int32_t)dotq14( x, y, Cs, -Sn ) << 8);

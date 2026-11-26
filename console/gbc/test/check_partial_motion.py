@@ -6,10 +6,14 @@ import random
 import re
 import struct
 import subprocess
+import sys
 from pathlib import Path
 from pyboy import PyBoy
 
 base = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(base / 'tools'))
+import phase_tables
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--gen', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
@@ -65,9 +69,10 @@ for b in [2,7]:
 
 rom = out/'fixture.gbc'
 lcc = base/'.toolchain/gbdk/bin/lcc'
+phase_source = phase_tables.generate(gen, base / 'src/physics_phase.s')
 cmd = [lcc,'-msm83:gb','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-j',
        f'-DMOVEINDEX={move}',f'-DFIRSTLOW={first&255}','-o',rom,
-       out/'fixture.c',base/'src/physics_phase.s',base/'src/physics_q24.s',
+       out/'fixture.c',phase_source,base/'src/physics_q24.s',
        out/'bank2.c',out/'bank7.c',gen/f'physics_q24_table_{bank}.c']
 subprocess.run(cmd,cwd=out,check=True)
 sy = {k:int(v,16) for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)', rom.with_suffix('.noi').read_text())}
@@ -89,6 +94,8 @@ edges={0,1,-1,(1<<31)-1,-(1<<31)}
 for n in range(32):
     for sg in (-1,1):
         edges.update(v for k in (-2,-1,0,1,2) if -(1<<31)<=(v:=sg*(1<<n)+k)<(1<<31))
+for high in range(-9, 9):
+    edges.update(high * 65536 + offset for offset in (-1, 0, 1))
 # Every residual carry/tie for each edge input; exercise product byte boundaries.
 pairs=[]
 for v in sorted(edges):
@@ -159,7 +166,7 @@ finally:
     emu.stop(save=False)
 report=dict(passed=True,coefficient=coef,cases=len(pairs),axis_calls=count*8,
             partial_calls=count*4,full_calls=count*4,
-            eight_axis_sequences=len(pairs)//8,source_sha256=hashlib.sha256((base/'src/physics_phase.s').read_bytes()).hexdigest(),
+            eight_axis_sequences=len(pairs)//8,source_sha256=hashlib.sha256(phase_source.read_bytes()).hexdigest(),
             rom_sha256=hashlib.sha256(rom.read_bytes()).hexdigest())
 (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
 print(report)

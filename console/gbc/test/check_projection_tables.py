@@ -76,12 +76,14 @@ def check_shallow_native(p, symbols, code, stack, source, current_bank, bank_win
     ys = (-limit, -65537, -32769, -32768, -32767, -8192, -1, 0,
           1, 8192, 32766, 32767, 32768, 65536, limit - 1)
     checked = 0
-    for weight in (-62, -61, -60, -10, -9, -8):
+    for weight in (-32768, -16384, -16129, -16128, -62, -61, -60, -10, -9, -8,
+                   1, 127, 256, 8192, 16383, 16384, 32767):
         for i in range(512):
             x, y = (xs[i % len(xs)], ys[i // len(xs)]) if i < len(xs)*len(ys) else (
                 rng.choice(xs), rng.randint(-32768, 32767))
-            raw = b''.join(n.to_bytes(width, 'little', signed=True)
-                           for n, width in ((x,4), (y,4), (-16384,2), (weight,2)))
+            xy, normal = ((x, y), (-16384, weight)) if i & 1 else ((y, x), (weight, -16384))
+            raw = b''.join(n.to_bytes(4, 'little', signed=True) for n in xy)
+            raw += b''.join(n.to_bytes(2, 'little', signed=True) for n in normal)
             p.memory[source:source+12] = raw
             reg = p.register_file
             reg.SP, reg.PC, reg.HL = stack, code, source + 8
@@ -250,7 +252,10 @@ def check_interrupts(image, symbols):
         bios.stop(save=False)
     checked = 0
     for i, bank in enumerate(BANKS):
-        canonical = COEFFICIENTS[i*ROWS_PER_BANK]
+        # Both widths must actually execute this bank's reader. Short
+        # coefficients and exact unit normals can finish wholly in fixed ROM.
+        rows = COEFFICIENTS[i*ROWS_PER_BANK:(i+1)*ROWS_PER_BANK]
+        canonical = next(y for y in rows if abs(y) > 255 and abs(y) != 16384)
         for x, y in ((-32768, canonical), (0x73ef01fd, canonical), (-0x72340123, -canonical),
                      (32767, -canonical)):
             for target in (lookup, fetch, narrow if -32768 <= x <= 32767 else wide):

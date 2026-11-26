@@ -101,6 +101,23 @@ def vectors():
         yield ([rng.randrange(-16383, 16384) for _ in range(4)] +
                [rng.randrange(MIN24, MAX24 + 1) for _ in range(4)])
 
+    # Force carries into the sign byte of the signed40 sum, then cross the
+    # signed22 arm or unsigned16 speed limit at each possible term.
+    for vi, ai in ((2, 4), (0, 6), (3, 5), (1, 7)):
+        for arm in (-(1 << 21) - 1, -(1 << 21), (1 << 21) - 1, 1 << 21):
+            for speed in (-65536, -65535, -512, 511, 512, 65535, 65536):
+                for sign in (-1, 1):
+                    values = [-65535 * sign] * 2 + [65535 * sign] * 2 + [-(1 << 21)] * 4
+                    values[vi], values[ai] = speed, arm
+                    yield values
+
+    # Equal vertical arms combine both signed horizontal velocities. Include
+    # sums outside signed24 and inputs whose wrapped signed32 sum loses a bit.
+    for x0 in (MIN32, -(1 << 24), -65535, 0, (1 << 24) - 1, MAX32):
+        for x1 in (MIN32, -(1 << 24), -65535, 0, (1 << 24) - 1, MAX32):
+            for arm in (-65537, -1, 1, 65537):
+                yield [x0, x1, 51, -37, 131073, -131075, arm, arm]
+
     for width in (24, 32):
         limit = 1 << (width - 1)
         for _ in range(2048):

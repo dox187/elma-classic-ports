@@ -9,6 +9,31 @@ import struct
 from pyboy import PyBoy
 
 
+def check_shallow_products(image, symbols):
+    directory = symbols['ground_directory']
+    first = (directory >> 16) * 16384 + (directory & 16383)
+    products = 0
+    for raw, page in enumerate(image[first:first+256]):
+        if not page:
+            continue
+        coefficient = (raw ^ 128) - 128
+        bank = 29 + (page >> 7)
+        offset = bank*16384 + ((page & 127) - 64)*256
+        rows = [image[offset+i*256:offset+(i+1)*256] for i in range(5)]
+        for word in range(-32768, 32768):
+            high = (word >> 8) & 255
+            packed = rows[0][word & 255]
+            result = ((packed + rows[1][high]) >> 8) + (packed & 3)
+            result += rows[2][high] + (rows[3][high] << 8)
+            assert (result & 65535) == (((word*coefficient + 8192) >> 14) & 65535)
+        for cell in range(32):
+            correction = rows[4][cell] + (rows[4][cell+32] << 8)
+            assert correction == (4*(cell-16)*coefficient & 65535)
+        products += 65536
+    assert products == 21*65536
+    return products
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rom', type=Path, required=True)
@@ -22,6 +47,7 @@ def main():
     stack = 0xdfa0
     assert torque_address + 4 < stack-32
     image = bytearray(args.rom.read_bytes())
+    shallow_products = check_shallow_products(image, names) if 'ground_directory' in names else 0
     image[0x100:0x102] = bytes([0x18, 0xfe])
     emu = PyBoy(BytesIO(image), window='null', cgb=True, sound_emulated=False)
     emu.set_emulation_speed(0)
@@ -119,7 +145,7 @@ def main():
                     gas_count += 1
     finally:
         emu.stop(save=False)
-    print(f'{count} native rolling cases, {gas_count} throttle reaction and {free_count} free-wheel throttle cases passed')
+    print(f'{shallow_products} signed16 shallow projections, {count} native rolling cases, {gas_count} throttle reaction and {free_count} free-wheel throttle cases passed')
 
 
 if __name__ == '__main__':

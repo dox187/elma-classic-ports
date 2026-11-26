@@ -3,6 +3,14 @@
 ; multiplier, which also handles -32768 and restores the physical ROM bank.
 .module riding_mul_scheduled
 .area _CODE
+; Each coefficient selects one physical bank. The lower five bits select
+; a pair of adjacent product planes in that bank.
+_riding_scale_directory::
+row = 0
+.rept 256
+ .db 36 + row/32
+ row = row + 1
+.endm
 _riding_mul16::
  ldhl sp,#2
  ld a,(hl+)

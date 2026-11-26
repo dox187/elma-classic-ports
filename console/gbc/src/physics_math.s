@@ -266,6 +266,7 @@ geometry_scaled_product:
  .else
  call _riding_mul16_regs
  .endif
+_riding_terrain_reduce_q14::
 geometry_reduce_q14:
  ld a,d
  add a,#32

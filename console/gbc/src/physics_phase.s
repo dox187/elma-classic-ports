@@ -91,11 +91,177 @@ phase_increment:
 
 _riding_phase_second_hl::
 phase_second:
+ call _riding_phase_second_carry
+ ret nc
+ jp phase_increment
+
+; Return the integer floor in DEBC and the extra position unit in carry.
+; Circle movement adds this carry directly into the low position byte.
+.ifdef RIDING_PHASE_TABLES
+; Both digit layouts produce a signed16 floor in DE and the 24-bit
+; fraction in BC and q24_fraction+2. A full signed32 miss keeps DEBC
+; intact for the original wide multiply. D already sign-extends every
+; direct row's signed8 quotient.
+ .macro phase_lookup publish,?phase_check_wide,?phase_words,?phase_direct,?phase_ready
+ push hl
+ ld a,e
+ xor d
+ jr nz,phase_check_wide
+ ld a,d
+ inc a
+ cp #2
+ jp nc,phase_product_saved
+ ld a,b
+ xor d
+ cp #8
+ jr c,phase_direct
+ ; E=D is either zero or FF. These are the two most frequent upper
+ ; words and their high-digit planes start at pages 40 and 7C.
+ ld a,d
+ and #0x3c
+ or #0x40
+ jr phase_words
+phase_check_wide:
+ ; A signed high word from -8 through +6 has an exact four-page
+ ; contribution. Page group 7 contains the low-digit product instead.
+ ld a,e
+ add #8
+ ld l,a
+ ld a,d
+ adc #0
+ jp nz,phase_product_saved
+ ld a,l
+ cp #15
+ jp nc,phase_product_saved
+ xor #8
+ add a,a
+ add a,a
+ or #0x40
+phase_words:
+ ld h,a
+ ld l,b
+ ld e,c
+ ld d,#0x5c
+ ld a,#32
+ ld (#0x2000),a
+ ld a,(de)
+ ld c,a
+ inc d
+ ld a,(de)
+ add (hl)
+ ld b,a
+ inc d
+ inc h
+ ld a,(de)
+ adc (hl)
+ ldh (#_q24_fraction+2),a
+ inc d
+ inc h
+ ld a,(de)
+ adc (hl)
+ ld e,a
+ inc h
+ ld a,#0
+ adc (hl)
+ ld d,a
+ jr phase_ready
+
+phase_direct:
+ ld a,b
+ or c
+ jp z,phase_fast_zero
+ ; Signed12 velocity selects the four consecutive byte planes of a
+ ; complete product. Its integer floor fits signed8 throughout.
+ ld a,b
+ and #15
+ add a,a
+ add a,a
+ or #0x40
+ ld h,a
+ ld l,c
+ ld a,#33
+ ld (#0x2000),a
+ ld c,(hl)
+ inc h
+ ld b,(hl)
+ inc h
+ ld a,(hl)
+ inc h
+ ld e,(hl)
+ ldh (#_q24_fraction+2),a
+phase_ready:
+ .if publish
+ ldh a,(#_q24_fraction+2)
+ add a,a
+ sbc a,a
+ ldh (#_q24_fraction+3),a
+ ld a,c
+ ldh (#_q24_fraction),a
+ ld a,b
+ ldh (#_q24_fraction+1),a
+ xor a
+ ldh (#_q24_saturated),a
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ .endif
+ .endm
+
+_riding_phase_second_carry::
+ phase_lookup 1
+ jr phase_residual_word
+
+; The first circle axis has no observer before the second axis replaces
+; all five published Q24 bytes and restores the caller's ROM bank.
+_riding_phase_second_x::
+ phase_lookup 0
+phase_residual_word:
+ pop hl
+ ld a,(hl)
+ xor #0x80
+ ld (hl),a
+ dec hl
+ dec hl
+ ld a,c
+ add (hl)
+ ld (hl+),a
+ ld a,b
+ adc (hl)
+ ld (hl+),a
+ ldh a,(#_q24_fraction+2)
+ adc (hl)
+ ; Unbias the signed residual, preserving the extra position unit.
+ rla
+ ld c,a
+ ccf
+ sbc a,a
+ inc hl
+ ld (hl-),a
+ ld a,c
+ rra
+ ld (hl),a
+ ld b,d
+ ld c,e
+ bit 7,d
+ ld de,#0
+ ret z
+ dec de
+ ret
+
+phase_fast_zero:
+ pop hl
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ jr phase_zero
+.else
+_riding_phase_second_carry::
+_riding_phase_second_x::
+.endif
  ld a,d
  or a,e
  or a,b
  or a,c
  jr nz,phase_product
+phase_zero:
  ; The rounded product and its fraction are both zero. Also publish the
  ; canonical fourth residual byte, as the nonzero path does.
  ld a,(hl+)
@@ -113,6 +279,7 @@ phase_second:
 
 phase_product:
  push hl
+phase_product_saved:
  ; Each coefficient has 32 byte-product pages. Pages 5..8 contain
  ; the four unbiased bytes of u8*m for the partial motion coefficient.
  ld a,(#_riding_move_index)
@@ -254,8 +421,7 @@ phase_finish:
  rra
  ld (hl),a
  pop bc
- ret nc
- jp phase_increment
+ ret
 
 phase_pair:
  ; Unbiased product of the lower two digits. For m=691380 the low

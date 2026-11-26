@@ -12,6 +12,64 @@ def rounded(value, multiplier):
     return (value * multiplier + (1 << 23)) >> 24
 
 
+# Nonzero unit-X tangents sampled on the complete scheduled controller corpus.
+# The directory verifies the full signed coefficient before selecting a row.
+SHALLOW_COEFFICIENTS = (-86, 8, -15, -108, -104, -59, -27, -33, 104, -18, -32, -61,
+                        -78, -5, -9, 50, 10, -56, -75, 24, -105)
+
+
+def shallow_tangent_rows(coefficient):
+    # Throwing away bits 0..7 before adding 256*h*k does not affect Q14.
+    # Bias the low digit by a multiple of 64 so all its possible quotients
+    # occupy two bits. The high digit's quotient cancels the same bias.
+    low = [(v * coefficient + 8192) >> 8 for v in range(256)]
+    bias = -(min(low) // 64)
+    high_products = [((v ^ 128) - 128) * coefficient for v in range(256)]
+    whole = [value // 64 - bias for value in high_products]
+    fraction = [(value % 64) * 4 for value in high_products]
+    if any(not 0 <= v // 64 + bias < 4 for v in low):
+        raise ValueError('Shallow product exceeds two-bit low quotient')
+    packed = [(v % 64) * 4 + v // 64 + bias for v in low]
+    corrections = [4 * m * coefficient for m in range(-16, 16)]
+    correction_page = ([v & 255 for v in corrections] +
+                       [(v >> 8) & 255 for v in corrections] + [0] * 192)
+    return [packed, fraction, [v & 255 for v in whole],
+            [(v >> 8) & 255 for v in whole], correction_page]
+
+
+def shallow_tangent_banks(assembly):
+    output = [assembly.with_name('physics_roll_shallow.s').read_text()]
+    directory = bytearray(256)
+    for group, bank in enumerate((29, 30)):
+        output.extend((f'.area _CODE_{bank}', f'ground_rows_{bank}::'))
+        coefficients = SHALLOW_COEFFICIENTS[group * 12:(group + 1) * 12]
+        for index, coefficient in enumerate(coefficients):
+            directory[coefficient & 255] = 0x40 + index * 5 + group * 128
+            for page in shallow_tangent_rows(coefficient):
+                for i in range(0, 256, 32):
+                    output.append(' .db ' + ','.join(map(str, page[i:i + 32])))
+        if len(coefficients) < 12:
+            output.append(f' .ds {(12 - len(coefficients)) * 5 * 256}')
+        labels = [f'ground_{name}_{bank}' for name in ('inputs', 'project', 'component', 'store')]
+        output.append('ground_reader ' + ','.join(labels))
+    output += ['.area _CODE_29', 'ground_flat_kernel', ' .bndry 256', 'ground_directory::']
+    for i in range(0, 256, 32):
+        output.append(' .db ' + ','.join(map(str, directory[i:i + 32])))
+    return output
+
+
+def validate_shallow_layout(symbols):
+    for bank in (29, 30):
+        if symbols.get(f'ground_rows_{bank}') != (bank << 16) + 0x4000:
+            raise ValueError(f'Shallow tangent rows must start at bank {bank} address 0x4000')
+        for label in ('ground_inputs', 'ground_project'):
+            if symbols.get(f'{label}_{bank}', 0) != symbols[f'{label}_29'] + ((bank-29) << 16):
+                raise ValueError('Shallow tangent readers must share switchable-window entry addresses')
+    directory = symbols['ground_directory']
+    if directory >> 16 != 29 or directory & 255:
+        raise ValueError('Shallow tangent directory must begin on a page in bank 29')
+
+
 def generate(gen, assembly):
     constants = (gen / 'riding_constants.h').read_text()
     gas = int(re.search(r'^#define GAS_TQ (\d+)$', constants, re.M)[1])
@@ -22,7 +80,7 @@ def generate(gen, assembly):
         match = re.search(r'q24_C_' + name + r'\[2\]=\{(-?\d+),(-?\d+)\}', constants)
         return tuple(map(int, match.groups()))
 
-    output = ['RIDING_ROLL_TABLES = 1', f'roll_gas = {gas}', f'roll_bias_pages = {LIMIT//256}',
+    output = ['RIDING_ROLL_TABLES = 1', 'RIDING_GROUND_ROWS = 1', f'roll_gas = {gas}', f'roll_bias_pages = {LIMIT//256}',
               f'roll_pages = {2*LIMIT//256}', f'roll_data_size = {2*LIMIT}',
               f'roll_group_bytes = {2*LIMIT//32*2}', f'roll_full_bank = {BANKS[0]}',
               f'roll_partial_bank = {BANKS[1]}', assembly.read_text()]
@@ -56,6 +114,7 @@ def generate(gen, assembly):
             for page in signed16_quotient_pages(scale):
                 for i in range(0, 256, 32):
                     output.append(' .db ' + ','.join(map(str, page[i:i+32])))
+    output.extend(shallow_tangent_banks(assembly))
     dest = gen / 'physics_roll_game.s'
     write_if_changed(dest, '\n'.join(output) + '\n')
     return dest

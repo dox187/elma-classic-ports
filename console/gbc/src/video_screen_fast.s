@@ -31,9 +31,9 @@
  push hl
 .endm
 
-; Four projected words precede the return address and the destination.
+; Three projected words precede the return address and the destination.
 .macro screen_destination offset,camera
- ldhl sp,#10
+ ldhl sp,#8
  ld a,(hl+)
  ld h,(hl)
  ld l,a
@@ -55,16 +55,43 @@
  ld (hl+),a
 .endm
 
+; The complete projection adds the two rider words before sharing the three
+; visible parts. The 8x16 renderer takes its rider pose from the body atlas.
 _gbc_video_parts_screen::
+ load_origin 4
+ ld hl,#(_gbc_bike+30)
+ call project_x
+ push hl
+ load_origin 8
+ ld hl,#(_gbc_bike+34)
+ call project_y
+ push hl
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld bc,#6
+ add hl,bc
+ ld a,(#_game_camera_y)
+ ld c,a
+ ld a,(#_game_camera_y+1)
+ ld b,a
+ store_pixel
+ dec hl
+ dec hl
+ dec hl
+ dec hl
+ ld a,(#_game_camera_x)
+ ld c,a
+ ld a,(#_game_camera_x+1)
+ ld b,a
+ store_pixel
+_gbc_video_sprite_screen::
  load_origin 4
  project_part 20,project_x
  project_part 10,project_x
- project_part 40,project_x
- project_last 30,project_x
- screen_destination 4,_game_camera_x
- store_pixel            ; rider.x
- inc hl
- inc hl
+ project_last 40,project_x
+ screen_destination 8,_game_camera_x
  store_pixel            ; head.x
  inc hl
  inc hl
@@ -74,12 +101,8 @@ _gbc_video_parts_screen::
  load_origin 8
  project_part 24,project_y
  project_part 14,project_y
- project_part 44,project_y
- project_last 34,project_y
- screen_destination 6,_game_camera_y
- store_pixel            ; rider.y
- inc hl
- inc hl
+ project_last 44,project_y
+ screen_destination 10,_game_camera_y
  store_pixel            ; head.y
  inc hl
  inc hl

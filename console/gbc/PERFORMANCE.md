@@ -2793,3 +2793,49 @@ SHA-256 `88e4873e50aa9e8d757ec5a9054eeb2c494eca0c6ab5ca9f46444c77eed1ed47`.
 Fixed ROM has 1,014 bytes free. Banks 508–511 are erased. Build using
 `tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test24-8m.gbc`.
 Reports are in `build/v096-test24/`. Physical console timing is pending.
+
+
+### 0.96 test25 — combined cartridge
+
+| Whole-game measurements in PyBoy | test24 | test25 |
+| --- | ---: | ---: |
+| Updates/s, 216 routes across 54 courses | 25.400 | 26.760 |
+| Updates/s, longer 24 routes | 22.984 | 24.458 |
+| Updates/s, complete Freefall descent | 25.673 | 27.166 |
+| Mean standard active update, T-cycles | 283,132 | 269,779 |
+| Longest standard active update, T-cycles | 529,156 | 531,188 |
+| Longest extended active update, T-cycles | 555,352 | 556,908 |
+| Standard updates over 280,896 cycles | 6,907 | 4,563 |
+| Standard updates over budget including the GDMA allowance | 6,918 | 4,569 |
+| Standard routes passing cadence and deadline throughout | 35 | 42 |
+
+The native solver uses exact table-driven projections for shallow normals,
+a cached affine intercept for single-plane terrain, signed 40-bit division
+by 20, tabulated partial-step movement and an exact 20-bit integer square
+root. The seat lookup reproduces the solver’s first-stage clearance test
+and falls back for larger corrections. Damping combines equal lever arms
+before multiplying. Other products and wheel-relative velocities use
+fewer intermediate stores. HUD updates rewrite the digits that changed.
+The complete-game peaks still exceed the deadline in both suites.
+
+All 59,599 standard and 15,653 extended substeps matched test24, as did
+19,885 and 5,227 published updates and all 439 Freefall updates. Native
+fixtures matched 12,380 host states. The PC reference passed all 45 landing
+and braking cases and reproduced the 20 previous extreme-spin results.
+Square-root tests covered all 1,048,576 table inputs. Linked tests also
+checked 20,162 seat cases, 24,772,608 tabulated signed products, 30,280
+mixed-width products and 192 interrupts during ROM lookups. All 29,568
+scheduler guard checks passed. PyBoy matched 1,216 sprite presentations
+and 61,845 background cells. In SameBoy’s CGB-E mode 578 sprite snapshots
+matched on three routes. Menus and player/save functions passed. The idle
+timer still missed nine deadlines. Physical console timing is pending.
+
+Each exact-center merge cache key includes both normals and both lengths.
+In a standard-set trace only 391 of 2,286 calls repeated the preceding key.
+Even keeping 32 keys produced only 479 hits. This build does not add that
+cache.
+
+Image SHA-256 `22a9de8b41f96f92ce46d19e19e9824cf7a87be28812e6cfeea2b9df37f5c806`.
+Fixed ROM has 139 bytes free and banks 508–511 are erased. Rebuild with
+`tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test25-8m.gbc`.
+Reports are under `build/v096-test25/`.

@@ -577,6 +577,7 @@ void riding_wheel_contact(const wheel_input_t *input,uint8_t n);
  * the original query throughout. Entries own their geometry across eviction
  * of the three collision-reader slots. Mode 9 holds a prepared pair at one
  * exact center in a square already known to have multiple candidates.
+ * Kinds 10/11 are the two interior modes with an exact affine intercept.
  * Kinds 64..254 identify contiguous windows in the original ordered leaf. */
 typedef struct {
     uint16_t x,y;
@@ -585,6 +586,7 @@ typedef struct {
         struct {
             int16_t base_x,base_y,nx,ny;
             uint8_t x0,x1,y0,y1;
+            int32_t intercept;
         } plane;
         struct {
             uint16_t low_x,low_y;
@@ -722,6 +724,7 @@ uint8_t riding_wheel_surface(circle_t *k) {
 typedef char wheel_cache_layout[sizeof(surface_cache_t)==29 &&
     offsetof(surface_cache_t,kind)==4 && offsetof(surface_cache_t,plane.base_x)==5 &&
     offsetof(surface_cache_t,plane.nx)==9 && offsetof(surface_cache_t,plane.x0)==13 &&
+    offsetof(surface_cache_t,plane.intercept)==17 &&
     offsetof(surface_cache_t,pair.low_x)==5 && offsetof(surface_cache_t,pair.low_y)==7 &&
     offsetof(surface_cache_t,pair.contacts)==9 ? 1 : -1];
 /* ABI1 DE is the wheel. A=255 falls through to the existing full query.
@@ -764,10 +767,18 @@ ws_slot:
     ld a,(hl)
     cp #1
     jr z,ws_empty
+#ifdef RIDING_WHEEL_TERRAIN
+    ld b,a
+    and #0xf6
+    cp #2
+    ld a,b
+    jr z,ws_interior
+#else
     cp #2
     jr z,ws_interior
     cp #3
     jr z,ws_interior
+#endif
     cp #5
     jr z,ws_build
     jr c,ws_kind_low
@@ -885,8 +896,8 @@ _riding_wheel_cached_plane::
     inc hl
     ld b,(hl)
     ; C,B are the within-square X,Y offsets. DE is the entry.
-    cp #3
-    jr nz,ws_compute
+    bit 0,a
+    jr z,ws_compute
     ld hl,#13
     add hl,de
     ld a,c
@@ -904,6 +915,14 @@ _riding_wheel_cached_plane::
     cp b
     jp c,ws_no_contact
 ws_compute:
+#ifdef RIDING_WHEEL_TERRAIN
+    ld hl,#4
+    add hl,de
+    bit 3,(hl)
+    jp nz,_riding_plane_affine
+    push bc
+    push de
+#endif
     ld hl,#5
     add hl,de
     ld a,c
@@ -965,6 +984,36 @@ ws_plane_neg:
     jr ws_plane_distance
 ws_full_dot:
     pop hl
+#ifdef RIDING_WHEEL_TERRAIN
+    ; Use the single-axis lookup directly for a signed unit Y axis.
+    push hl
+    inc hl
+    inc hl
+    ld a,(hl+)
+    or a
+    jr nz,ws_new_intercept
+    ld a,(hl)
+    and #127
+    cp #64
+    jr z,ws_original_dot
+ws_new_intercept:
+    ; Every within-square coordinate is at most 255u away from this
+    ; one. Exclude signed16 wrap anywhere in either relative coordinate.
+    ld a,d
+    add #129
+    cp #2
+    jr c,ws_original_dot
+    ld a,b
+    add #129
+    cp #2
+    jr c,ws_original_dot
+    pop hl
+    pop de
+    pop bc
+    jp _riding_plane_fill
+ws_original_dot:
+    pop hl
+#endif
     push hl
     push bc
     ld a,(hl+)
@@ -980,10 +1029,18 @@ ws_full_dot:
     ld a,(hl+)
     ld c,a
     ld b,(hl)
+#ifdef RIDING_WHEEL_TERRAIN
+    call _riding_terrain_dotq14
+#else
     call _dotq14
+#endif
     pop hl  ; discard saved point Y
 ws_plane_distance:
     pop hl  ; normal at offset 9
+#ifdef RIDING_WHEEL_TERRAIN
+    add sp,#4
+_riding_plane_distance::
+#endif
     ; BC is d. Wheel radius is 410, inclusive max length 409.
     ld a,c
     add a,#0x99

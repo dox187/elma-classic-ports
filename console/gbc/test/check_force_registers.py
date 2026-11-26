@@ -9,6 +9,7 @@ Q=1<<24
 def main():
  p=argparse.ArgumentParser(description=__doc__)
  p.add_argument('--out',type=Path,default=BASE/'build/force-register-check')
+ p.add_argument('--scheduled',action='store_true',help='Use the page-aligned cartridge divider')
  a=p.parse_args();out=a.out.resolve();out.mkdir(parents=True,exist_ok=True)
  (out/'driver.c').write_text('''#include <gb/gb.h>
 #include <gb/cgb.h>
@@ -49,7 +50,7 @@ void service(void) BANKED {
  answer=riding_force_finish(axis);request=0;
 }
 ''')
- rom=out/'check.gbc';cmd=[BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(BASE/'src'),'-o',rom,out/'driver.c',out/'caller.c',BASE/'src/physics_force.c',BASE/'src/physics_div20.s']
+ rom=out/'check.gbc';cmd=[BASE/'.toolchain/gbdk/bin/lcc','-msm83:gb','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yoA','-Wl-m','-Wl-j','-I'+str(BASE/'src'),'-o',rom,out/'driver.c',out/'caller.c',BASE/'src/physics_force.c',BASE/'src'/('physics_div20_scheduled.s' if a.scheduled else 'physics_div20.s')]
  proc=subprocess.run(list(map(str,cmd)),capture_output=True,text=True);(out/'compile.log').write_text(proc.stdout+proc.stderr)
  if proc.returncode:raise RuntimeError(proc.stderr)
  syms={k:int(v,16) for k,v in re.findall(r'DEF (_\w+) 0x([\dA-Fa-f]+)',rom.with_suffix('.noi').read_text())}

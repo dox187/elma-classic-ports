@@ -27,12 +27,12 @@ ss_wheel_stride = 14
 ; Scheduled register convention is BC:DE, high word first.
 .macro ss_read address
  ld hl,#(address)
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
  ld b,(hl)
 .endm
 .macro ss_write address
@@ -43,6 +43,17 @@ ss_wheel_stride = 14
  inc hl
  ld (hl),c
  inc hl
+ ld (hl),b
+.endm
+; These callers have consumed A. The incrementing store keeps BC:DE intact.
+.macro ss_store address
+ ld hl,#(address)
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ ld a,c
+ ld (hl+),a
  ld (hl),b
 .endm
 .macro ss_sub address
@@ -156,7 +167,7 @@ selected:
 .macro ss_arm body,wheel,destination
  ss_read _Bike+body
  ss_reverse_sub _Bike+wheel
- ss_write destination
+ ss_store destination
 .endm
 ; The native table products are (raw + 2^23) = integer*2^24 + biased.
 ; The wheel uses only the integer. The body gets both pieces, and four
@@ -351,10 +362,10 @@ exit_term:
 .macro ss_wheel_displacement offset
  ss_read _riding_pose_anchor+offset
  ss_sub ss_damping+16+offset
- ss_write ss_force_products+28+offset
+ ss_store ss_force_products+28+offset
  ss_read _riding_pose_anchor+8+offset
  ss_sub ss_damping+24+offset
- ss_write ss_force_products+36+offset
+ ss_store ss_force_products+36+offset
 .endm
 .macro ss_wheel_spring offset
  ss_spring_pair _riding_pose_anchor+offset,_riding_pose_anchor+8+offset,ss_force_products+28+offset,ss_force_products+36+offset
@@ -365,14 +376,26 @@ exit_term:
  .endif
 .endm
 .macro ss_wheel_relative_velocity wheel,offset
- ss_read ss_damping+offset
- ss_add _Bike+wheel+8
- ss_reverse_sub _Bike+8
- ss_write ss_damping+offset
- ss_read ss_damping+8+offset
- ss_add _Bike+12
+ ; The spin workspace becomes the relative velocity. Subtract the same
+ ; unsigned words modulo 2^32 in place, retaining the original X/Y signs.
+ ss_read _Bike+8
+ ss_sub _Bike+wheel+8
+ ld hl,#(ss_damping+offset)
+ ld a,e
+ sub (hl)
+ ld (hl+),a
+ ld a,d
+ sbc (hl)
+ ld (hl+),a
+ ld a,c
+ sbc (hl)
+ ld (hl+),a
+ ld a,b
+ sbc (hl)
+ ld (hl),a
+ ss_read _Bike+12
  ss_sub _Bike+wheel+12
- ss_write ss_damping+8+offset
+ ss_accumulate ss_damping+8+offset
 .endm
 .macro ss_wheel_reaction offset,record,next_wheel,reaction_index,ordinary,have_reaction
  ; Round coarse arms only when this wheel has a reaction torque.
@@ -1918,114 +1941,149 @@ ss_mt_vertical:
  adc a,(hl)
  jr z,ss_mt_zero
 ss_mt_general:
-; Each signed24 arm times a speed of magnitude below 2^14 has magnitude
-; below 2^37. Four such terms fit signed40, including the full Q18 fraction.
-; A wider operand extends the prefix and resumes at the first unfinished term.
-.macro ss_byte_term label,speed,arm,subtract,first,ordinary
+ ; Equal vertical arms combine the two horizontal terms before multiplication.
+ ; The top-byte bound keeps the signed sum within int32. These velocities
+ ; are private scratch and their last consumer is this damping moment.
+ ld hl,#ss_damping+28
+ .irp i,0,1,2,3
+ ld a,(#ss_damping+24+i)
+ cp a,(hl)
+ jr nz,ss_mt_unmerged
+ .if i-3
+ inc hl
+ .endif
+ .endm
+ ld a,(#ss_damping+3)
+ inc a
+ cp a,#2
+ jr nc,ss_mt_unmerged
+ ld a,(#ss_damping+7)
+ inc a
+ cp a,#2
+ jr nc,ss_mt_unmerged
+ ld hl,#ss_damping
+ .irp i,0,1,2,3
+ ld a,(#ss_damping+4+i)
+ .ifeq i
+ add a,(hl)
+ .else
+ adc a,(hl)
+ .endif
+ ld (hl+),a
+ .endm
+ xor a
+ .rept 4
+ ld (hl+),a
+ .endm
+ss_mt_unmerged:
+; A signed22 arm times a speed magnitude below 65536 has magnitude below
+; 2^37. Four terms fit signed40. Extend the partial sum to signed56 when
+; transferring to the first term whose operands exceed those bounds.
+.macro ss_short_term label,speed,arm,minus,first,wide,next,readword,?positive,?ready,?word,?addterm,?slow
 label:
- ld hl,#ss_damping+speed+1
+ ld hl,#ss_damping+speed+2
  ld a,(hl+)
  cp a,(hl)
- jr nz,007$
+ jr nz,slow
+ or a
+ jr z,positive
+ inc a
+ jr nz,slow
+ ld hl,#ss_damping+speed
+ xor a
+ sub a,(hl)
+ ld c,a
  inc hl
- cp a,(hl)
- jr nz,005$
+ ld a,#0
+ sbc a,(hl)
+ jr nc,slow                     ; -65536
+ jr ready
+positive:
+ dec hl
+ dec hl
+ ld a,(hl-)
+ ld c,(hl)
+ready:
+ ld d,a                         ; high digit of the speed magnitude
+ ld hl,#ss_damping+arm+3
+ ld a,(hl-)
  or a
- jr z,001$
+ jr z,002$
  inc a
- jr nz,005$
- ld a,(#ss_damping+speed)
+ jr nz,slow
+ ld a,(hl-)
+ cp a,#224
+ jr c,slow
+ jr 003$
+002$:
+ ld a,(hl-)
+ cp a,#32
+ jr nc,slow
+003$:
+ ld b,a
+ ld a,(hl-)
+ ld e,(hl)
+ ld l,d
+ ld d,a
+ ld a,l
  or a
- jr z,007$                      ; -256 needs a second digit
- cpl
- inc a
- jr 002$
-001$:
- ld a,(#ss_damping+speed)
+ jr nz,word
+ ld a,c
  or a
  .if first
- jp z,ss_byte_first_zero
+ jp z,ss_short_zero
  .else
- jr z,006$
+ jp z,next
  .endif
-002$:
- ld c,a
- ld hl,#ss_damping+arm
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld a,(hl+)
- ld b,a
+ call ss_byte_product
+ ld a,b
  add a,a
  sbc a,a
- cp a,(hl)
- jr nz,005$
- call ss_byte_product
- ld a,(#ss_damping+speed+2)
- or a
- .if subtract
- jr z,003$
- .else
- jr nz,003$
- .endif
- .if first
- call ss_byte_seed
- .else
- call ss_byte_add
- .endif
- jr 006$
-003$:
- .if first
- ss_negate
- call ss_byte_seed
- .else
- call ss_byte_sub
- .endif
- jr 006$
-005$:
- .if first
- jp ordinary
- .else
- call ss_byte_extend
- jp ordinary
- .endif
-007$:
- ld hl,#ss_damping+speed
- ld de,#ss_damping+arm
- call ss_word_product
- jr c,005$
- ld hl,#ss_damping+speed+2
+ jr addterm
+word:
+ dec a
+ jr nz,004$
+ call ss_short_word
+ jr addterm
+004$:
+ call readword
+addterm:
+ ld hl,#ss_damping+speed+3
  bit 7,(hl)
- .if subtract
- jr z,008$
+ .if minus
+ jr z,001$
  .else
- jr nz,008$
+ jr nz,001$
  .endif
  .if first
- call ss_word_seed
+ call ss_short_seed
  .else
- call ss_word_add
+ call ss_short_add
  .endif
- jr 006$
-008$:
+ jr next
+001$:
  .if first
- push af
- ss_negate
- pop hl
- ld a,#0
- sbc a,h
- call ss_word_seed
+ call ss_short_negative_seed
  .else
- call ss_word_sub
+ call ss_short_sub
  .endif
-006$:
+ jr next
+slow:
+ .ifeq first
+ ld hl,#ss_moment+4
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ ld (hl+),a
+ ld (hl),a
+ .endif
+ jp wide
 .endm
-
- ss_byte_term ss_byte_x0,8,16,0,1,ss_mt_x0
- ss_byte_term ss_byte_y0,0,24,1,0,ss_mt_y0
- ss_byte_term ss_byte_x1,12,20,0,0,ss_mt_x1
- ss_byte_term ss_byte_y1,4,28,1,0,ss_mt_y1
+ ss_short_term ss_short_x0,8,16,0,1,ss_mt_x0,ss_short_y0,ss_damp_word0
+ ss_short_term ss_short_y0,0,24,1,0,ss_mt_y0,ss_short_x1,ss_damp_word1
+ ss_short_term ss_short_x1,12,20,0,0,ss_mt_x1,ss_short_y1,ss_damp_word2
+ ss_short_term ss_short_y1,4,28,1,0,ss_mt_y1,ss_short_finish,ss_damp_word3
+ss_short_finish:
  ld hl,#ss_moment+2
  ld e,(hl)
  inc hl
@@ -2037,113 +2095,17 @@ label:
  sbc a,a
  ld h,a
  jp ss_shift18
-
-ss_byte_first_zero:
+ss_short_zero:
  xor a
  ld hl,#ss_moment
  .rept 5
  ld (hl+),a
  .endm
- jp ss_byte_y0
-
-ss_byte_seed:
- ld a,b
- add a,a
- sbc a,a
-ss_word_seed:
- ld hl,#ss_moment+4
- ld (hl-),a
- ld a,b
- ld (hl-),a
- ld a,c
- ld (hl-),a
- ld a,d
- ld (hl-),a
- ld (hl),e
- ret
-
-; Apply the high byte first, then propagate only the carry or borrow out
-; of the low four bytes. Byte-speed products have a sign extension of 0/-1.
-.macro ss_byte_fold label,word,low,high,adjust,propagate,subtract,merge
-word:
- .if subtract
- cpl
- inc a
- .endif
- ld hl,#ss_moment+4
- add a,(hl)
- ld (hl),a
- jr merge
-label:
+ jp ss_short_y0
+ss_short_word:
  bit 7,b
- jr z,merge
- ld hl,#ss_moment+4
- adjust (hl)
-merge:
- ld hl,#ss_moment
- ld a,(hl)
- low a,e
- ld (hl+),a
- ld a,(hl)
- high a,d
- ld (hl+),a
- ld a,(hl)
- high a,c
- ld (hl+),a
- ld a,(hl)
- high a,b
- ld (hl+),a
- ret nc
- propagate (hl)
- ret
-.endm
- ss_byte_fold ss_byte_add,ss_word_add,add,adc,dec,inc,0,ss_add_low40
- ss_byte_fold ss_byte_sub,ss_word_sub,sub,sbc,inc,dec,1,ss_sub_low40
-
-; HL points to a speed outside [-255,255], DE to its arm. Return carry for
-; wide inputs. Otherwise return abs(speed) * signed_arm in A:BC:DE.
-ss_word_product:
- push de
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- ld b,a
- ld a,(hl+)
- cp a,(hl)
- jr nz,ss_word_reject
- or a
- jr z,ss_word_speed_positive
- inc a
- jr nz,ss_word_reject
- xor a
- sub a,c
- ld c,a
- ld a,#0
- sbc a,b
- jr nc,ss_word_reject            ; -65536 has a zero low word
- jr ss_word_speed_ready
-ss_word_speed_positive:
- ld a,b
-ss_word_speed_ready:
- cp a,#64
- jr nc,ss_word_reject
- pop hl
- ld d,a
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- push de
- ld d,a
- ld a,(hl+)
- ld b,a
- add a,a
- sbc a,a
- cp a,(hl)
- pop hl
- jr nz,ss_word_wide
- bit 7,b
- jr z,ss_word_positive_arm
- ; Subtract abs(speed) * 2^24 from the unsigned product of a negative arm.
+ jr z,ss_short_unsigned
+ ld h,l
  ld l,c
  push hl
  ld l,h
@@ -2157,30 +2119,46 @@ ss_word_speed_ready:
  ld a,b
  sbc a,h
  ld b,l
- or a
  ret
-ss_word_positive_arm:
- ld l,h
+ss_short_unsigned:
  call ss_spring_rows
  ld a,c
  ld b,h
  ld c,l
- or a
  ret
-ss_word_reject:
- pop hl
-ss_word_wide:
- scf
+ss_short_negative_seed:
+ ld h,a
+ ss_negate
+ ld a,#0
+ sbc a,h
+ss_short_seed:
+ ld (#ss_moment+4),a
+ ss_write ss_moment
  ret
-
-ss_byte_extend:
- ld hl,#ss_moment+4
- ld a,(hl+)
- add a,a
- sbc a,a
+.macro ss_short_fold label,lo,hi
+label:
+ push af
+ ld hl,#ss_moment
+ ld a,(hl)
+ lo a,e
  ld (hl+),a
+ ld a,(hl)
+ hi a,d
+ ld (hl+),a
+ ld a,(hl)
+ hi a,c
+ ld (hl+),a
+ ld a,(hl)
+ hi a,b
+ ld (hl+),a
+ pop de
+ ld a,(hl)
+ hi a,d
  ld (hl),a
  ret
+.endm
+ ss_short_fold ss_short_add,add,adc
+ ss_short_fold ss_short_sub,sub,sbc
 
 ; The first four positive scalars need no table reads or bank changes.
 ss_byte_product:
@@ -2570,6 +2548,89 @@ ss_spin_rows_mapped:
  ss_spin_row ss_spin_row_x1,20
  ld a,(#__current_bank)
  ld (#0x2000),a
+ ret
+
+; The low speed digit seeds the accumulator in BC:DE. Add the upper
+; digit's three 16-bit products directly at offsets 1, 2 and 3. The
+; accumulator stays in registers throughout both table reads.
+.macro ss_damp_word label,arm,?unsigned
+label:
+ ld h,l
+ ld l,c
+ push hl
+ call _riding_product24x8_row
+ pop hl                         ; H:L = speed magnitude
+ ld a,(#ss_damping+arm+3)
+ or a
+ jr z,unsigned
+ ; Subtract magnitude << 24 from the five-byte unsigned product.
+ ld a,b
+ sub a,l
+ ld b,a
+ ld a,#0
+ sbc a,h
+unsigned:
+ push de                        ; retain final byte zero
+ ld e,a                         ; signed adjustment to byte four
+ call ss_damp_map
+ ld a,(#ss_damping+arm)
+ ld l,a
+ ld a,(hl)
+ add a,d
+ ld d,a                         ; final byte one
+ inc h
+ ld a,(hl)
+ adc a,c
+ ld c,a
+ ld a,(#ss_damping+arm+1)
+ ld l,a
+ ld a,(hl)
+ adc a,b
+ ld b,a
+ ld a,e
+ adc a,#0
+ ld e,a
+ dec h
+ ld a,(hl)
+ add a,c
+ ld c,a                         ; final byte two
+ ld a,(#ss_damping+arm+2)
+ ld l,a
+ ld a,(hl)
+ adc a,b
+ ld b,a                         ; final byte three
+ jp ss_damp_finish
+.endm
+ ss_damp_word ss_damp_word0,16
+ ss_damp_word ss_damp_word1,24
+ ss_damp_word ss_damp_word2,20
+ ss_damp_word ss_damp_word3,28
+
+ss_damp_map:
+ ld a,h
+ rlca
+ rlca
+ rlca
+ and a,#7
+ add a,#36
+ ld (#0x2000),a
+ ld a,h
+ and a,#31
+ add a,a
+ or a,#>_physics_scale_planes_36
+ ld h,a
+ ret
+ss_damp_finish:
+ inc h
+ ld a,(hl)
+ adc a,e
+ ld l,a
+ ld h,d
+ pop de
+ ld d,h
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ ld a,l
  ret
 
 ; A unit high byte contributes the arm directly at byte offset one.

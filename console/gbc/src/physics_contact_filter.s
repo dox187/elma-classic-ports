@@ -31,6 +31,7 @@ fine_fraction:
  ld (#0x2000),a
  jp fine_sum
 
+_riding_fraction_product::
 fine_product:
  ld a,c
  or a,a

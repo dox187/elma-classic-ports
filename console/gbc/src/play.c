@@ -113,12 +113,12 @@ static void position_camera(uint8_t jump) {
     camera_prepared=0;
 }
 
-void gbc_video_parts_screen(bike_screen_t *dest) __sdcccall(0);
+void gbc_video_sprite_screen(bike_screen_t *dest) __sdcccall(0);
 
 static void bike_screen(void) {
     screen.body_x=body_world_x-game_camera_x;
     screen.body_y=body_world_y-game_camera_y;
-    gbc_video_parts_screen(&screen);
+    gbc_video_sprite_screen(&screen);
 }
 
 void gbc_video_object16(uint8_t sprite,uint8_t x,uint8_t y,uint8_t tile,uint8_t prop) __sdcccall(0);
@@ -298,32 +298,78 @@ static void hud_text(const char *text,uint8_t first,uint8_t width) {
     VBK_REG=0;
 }
 
+/* The HUD uses one opaque low plane and three blank rows for every glyph
+ * pair. Within an initialized cell, only five high-plane bytes can change. */
+static void draw_clock(void) __naked {
+    __asm
+        .macro clock_cell value,previous,patterns,offset,next
+        ld a,(#value)
+        ld hl,#previous
+        cp (hl)
+        jr z,next
+        ld (hl),a
+        ld de,#(patterns+3)
+        ld c,#offset
+        call clock_upload_rows
+next:
+        .endm
+        ld a,#1
+        ldh (#0x4f),a
+        clock_cell _clock_centiseconds,_hud_centiseconds,_hud_digit_pairs,0xf3,clock_after_centiseconds
+        clock_cell _clock_seconds_ones,_hud_seconds_ones_digit,_hud_seconds_ones,0xe3,clock_after_seconds_ones
+        clock_cell _clock_seconds_tens,_hud_seconds_tens_digit,_hud_seconds_tens,0xd3,clock_after_seconds_tens
+        clock_cell _clock_minutes,_hud_minutes,_hud_digit_pairs,0xc3,clock_after_minutes
+        xor a
+        ldh (#0x4f),a
+        ret
+clock_upload_rows:
+        ld l,a
+        ld h,#0
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,hl
+        add hl,de
+        ; Clock cells 236..239 occupy 0x8ec0..0x8eff.
+        ld d,#0x8e
+        ld e,c
+        ld b,#5
+clock_glyph_row:
+        ld a,(hl+)
+        inc hl
+        ld c,a
+        ; STAT modes 0 and 1 permit a write. Even at their final dot,
+        ; mode 2 leaves enough time to write this byte before VRAM closes.
+        di
+clock_glyph_window:
+        ldh a,(#0x41)
+        and a,#2
+        jr nz,clock_glyph_window
+        ld a,c
+        ld (de),a
+        ei
+        inc e
+        inc e
+        dec b
+        jr nz,clock_glyph_row
+        ret
+    __endasm;
+}
+
 static void draw_hud(void) {
     uint8_t changed=last_hud_state!=game_state;
-    uint8_t value;
-    char apples[5]="A:00";
     last_hud_state=game_state;
     if(game_state==DEAD){hud_text("CRASH A/START RETRY B/SELECT MENU",0,40);return;}
     if(game_state==FINISHED)return;
     if(game_state==PAUSED){hud_text("PAUSED SELECT",0,40);return;}
     if(changed)hud_text("A:00                      TIME  00:00.00",0,40);
     if(hud_apples!=game_apples_left) {
+        char apples[5]="A:00";
         hud_apples=game_apples_left;
         apples[2]='0'+game_apples_left/10;apples[3]='0'+game_apples_left%10;
         hud_text(apples,0,4);
     }
-    /* Use prebuilt native glyph pairs: no string formatting or font raster
-     * work on the per-frame path. Usually only the hundredths tile changes. */
-    VBK_REG=1;
-    value=clock_centiseconds;
-    if(value!=hud_centiseconds){hud_centiseconds=value;set_bkg_data(239,1,hud_digit_pairs[value]);}
-    value=clock_seconds_ones;
-    if(value!=hud_seconds_ones_digit){hud_seconds_ones_digit=value;set_bkg_data(238,1,hud_seconds_ones[value]);}
-    value=clock_seconds_tens;
-    if(value!=hud_seconds_tens_digit){hud_seconds_tens_digit=value;set_bkg_data(237,1,hud_seconds_tens[value]);}
-    value=clock_minutes;
-    if(value!=hud_minutes){hud_minutes=value;set_bkg_data(236,1,hud_digit_pairs[value]);}
-    VBK_REG=0;
+    draw_clock();
 }
 
 static void video_init(void) {

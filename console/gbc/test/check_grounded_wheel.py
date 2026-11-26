@@ -95,13 +95,39 @@ def main():
             if low < 255:
                 speeds.add(high * 256 + low + 1)
         shallow.extend((magnitude, speed) for speed in sorted(speeds))
+    # Sweep the corrected high-word limits in all 21 atlas slopes, plus
+    # low-byte aliases that must use the full signed16 coefficient path.
+    # Dot saturation must occur before the speed delta and wheel projection.
+    atlas_cases = []
+    coefficients = (-86, 8, -15, -108, -104, -59, -27, -33, 104, -18, -32, -61,
+                    -78, -5, -9, 50, 10, -56, -75, 24, -105, 0, 170, -248)
+    for coefficient in coefficients:
+        for high in (-17, -16, -1, 0, 1, 15, 16):
+            for low in (-32768, -32767, -1, 0, 1, 32767):
+                y = high*65536 + low
+                for impulse_y in (y, -y, 0x3456789):
+                    x = rng.choice((-2**31, -2**31+1, 2**31-1, -1, 0, 1))
+                    impulse_x = rng.choice((-2**31, 2**31-1, -32768, 32767))
+                    atlas_cases.append(((coefficient, 16384), x, y,
+                                        (impulse_x, impulse_y, rng.choice((-2400, 0, 2400)))))
+    # -vx plus the two separately rounded impulses lands on INT32_MIN.
+    # The unit tangent's negated output must saturate to INT32_MAX.
+    for _ in range(4):
+        phase = ((1200 + len(shallow) + 16 + len(atlas_cases)) >> 1) & 1
+        torque_scale = (2115702, 3208767)[phase]
+        speed_scale = (112030763, 73867549)[phase]
+        torque = (-9*torque_scale + (1 << 23)) >> 24
+        delta = (torque*speed_scale + (1 << 23)) >> 24
+        atlas_cases.append(((0, 16384), (1 << 31) + delta, 0, (9, 0, 0)))
     observed = set()
     cases = 0
     try:
-        for i in range(1200 + len(shallow) + 16):
+        for i in range(1200 + len(shallow) + 16 + len(atlas_cases)):
             fields = {key: rng.randbytes(size) for key, size in FIELDS.items()}
             slot, phase, prior = i & 1, i >> 1 & 1, i >> 2 & 1
-            if i >= 1200 + len(shallow):
+            if i >= 1200 + len(shallow) + 16:
+                normal, vx, vy, impulses = atlas_cases[i - 1200 - len(shallow) - 16]
+            elif i >= 1200 + len(shallow):
                 # A nonzero normal impulse and normal velocity disappear
                 # from the rolling solution. Include a moving initial omega.
                 normal, vx, vy = (0, 16384), 0, 0x76543210

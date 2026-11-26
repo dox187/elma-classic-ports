@@ -176,6 +176,17 @@ _riding_torque_input32::
 ; C selects both byte planes. Each input digit addresses the same
 ; column in the adjacent low/high pages.
 .macro exact_product_row
+ .ifdef RIDING_PROJECTION_TABLES
+ ld l,c
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ ld a,c
+ and #31
+ add a,a
+ or #0x40
+ ld h,a
+ .else
  ld a,c
  rlca
  rlca
@@ -188,6 +199,7 @@ _riding_torque_input32::
  add a,a
  or a,#>_physics_scale_planes_36
  ld h,a
+ .endif
  ld l,e
  ld e,(hl)
  inc h
@@ -847,18 +859,65 @@ math32_dot14_pair:
  ; (-1, k/16384) projects to round(y*k/16384) - x exactly.
  ld a,b
  cp #0xc0
- jr nz,math32_dot14_general
+ jr nz,math32_dot_check_second
  ld a,c
  or a
- jr nz,math32_dot14_general
+ jr nz,math32_dot_check_second
  ld a,h
  inc a
- jr nz,math32_dot14_general
+ jr nz,math32_dot_first_unit
  ld a,l
  cp #195
  jp z,math32_dot_shallow
  cp #247
  jp z,math32_dot_shallow
+math32_dot_first_unit:
+ ; The other coefficient strictly inside (-1,1) ensures its rounded
+ ; product fits signed32 before the exact unit coordinate is subtracted.
+ ld a,h
+ add #63
+ cp #127
+ jr nc,math32_dot14_general
+ ld b,h
+ ld c,l
+ push de
+ ld hl,#4
+ add hl,de
+ jr math32_dot_unit_term
+math32_dot_check_second:
+ ld a,h
+ cp #0xc0
+ jr nz,math32_dot14_general
+ ld a,l
+ or a
+ jr nz,math32_dot14_general
+ ld a,b
+ add #63
+ cp #127
+ jr nc,math32_dot14_general
+ ld hl,#4
+ add hl,de
+ push hl
+ ld h,d
+ ld l,e
+math32_dot_unit_term:
+ call _riding_mulq14_regs
+ ld b,h
+ ld c,l
+ pop hl
+ ld a,e
+ sub (hl)
+ ld e,a
+ inc hl
+ ld a,d
+ sbc (hl)
+ ld d,a
+ inc hl
+ ld a,c
+ sbc (hl)
+ ld c,a
+ inc hl
+ jp math32_dot_sub_high
 math32_dot14_general:
  .endif
  push hl
@@ -973,6 +1032,7 @@ math32_dot_shallow_row:
  sbc (hl)
  ld c,a
  inc hl
+math32_dot_sub_high:
  ld a,b
  sbc (hl)
  ld h,(hl)                   ; sign of x
@@ -993,7 +1053,7 @@ math32_dot_shallow_wide:
  ld l,c
  ld h,#255
  ld bc,#0xc000
- jp math32_dot14_general
+ jp math32_dot_first_unit
  .endif
 
 ; Signed16 components need at most two 16-by-8 table rows. Keep the
@@ -1008,11 +1068,11 @@ math32_projection_product:
  add a,a
  sbc a,a
  cp a,(hl)
- jr nz,math32_projection_wide
+ jp nz,math32_projection_wide
  inc hl
  cp a,(hl)
  dec hl
- jr nz,math32_projection_wide
+ jp nz,math32_projection_wide
  .ifdef RIDING_PROJECTION_TABLES
  ; Geometry callers can enter here after verifying the signed16 width.
 _riding_projection_signed16::
@@ -1024,6 +1084,73 @@ _riding_projection_signed16::
  jp z,math32_projection_negbyte
 math32_projection_narrow_other:
  .ifdef RIDING_PROJECTION_TABLES
+ ; Coefficients with byte magnitude need at most one product row. Common
+ ; unit normals have an exact signed shift, including -32768 * -16384.
+ ld a,c
+ or a
+ jr nz,math32_short_coefficient
+ ld a,b
+ and #127
+ cp #64
+ jr z,math32_unit_coefficient
+math32_short_coefficient:
+ ld a,b
+ or a
+ jr z,math32_positive_coefficient
+ inc a
+ jr nz,math32_projection_lookup
+ ld a,c
+ or a
+ jr z,math32_projection_lookup  ; -256 uses the general signed-word reader
+ ld l,c
+ ld b,d
+ ld c,e
+ ld e,l
+ jp math32_projection_negbyte
+math32_positive_coefficient:
+ ld a,c
+ or a
+ jp z,math32_projection_zero
+ bit 7,d
+ jp z,math32_projection_positive
+ jp math32_projection_negative
+
+math32_unit_coefficient:
+ bit 7,b
+ jr z,math32_unit_positive
+ ; Carry is the seventeenth bit of -x. This entry has nonzero x.
+ ld a,d
+ push af
+ xor a
+ sub e
+ ld l,a
+ sbc a,a
+ sub d
+ ld h,a
+ pop af
+ cpl
+ rlca
+ jr math32_unit_shift
+math32_unit_positive:
+ ld h,d
+ ld l,e
+ ld a,d
+ rlca
+math32_unit_shift:
+ ld d,#0
+ rr h
+ rr l
+ rr d
+ sra h
+ rr l
+ rr d
+ ld e,#0
+ ld a,h
+ add a,a
+ sbc a,a
+ ld b,a
+ ld c,a
+ jp math32_projection_restore
 math32_projection_lookup:
  push af
  ld a,#20
@@ -1114,10 +1241,62 @@ math32_projection_sign:
  sbc a,a
  ld b,a
  ld c,a
- jr math32_projection_restore
+ jp math32_projection_restore
 
 math32_projection_wide:
  .ifdef RIDING_PROJECTION_TABLES
+ ; For a unit normal the complete signed48 product is x shifted left
+ ; fourteen places. Keep bit 32 of -INT32_MIN for the first right shift.
+ ld a,c
+ or a
+ jr nz,math32_wide_lookup
+ ld a,b
+ and #127
+ cp #64
+ jr nz,math32_wide_lookup
+ ld a,b
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld h,d
+ ld l,e
+ bit 7,a
+ jr z,math32_wide_unit_positive
+ ld a,b
+ push af
+ xor a
+ sub l
+ ld l,a
+ ld a,#0
+ sbc h
+ ld h,a
+ ld a,#0
+ sbc c
+ ld c,a
+ ld a,#0
+ sbc b
+ ld b,a
+ pop af
+ cpl
+ jr math32_wide_unit_shift
+math32_wide_unit_positive:
+ ld a,b
+math32_wide_unit_shift:
+ rlca
+ ld d,#0
+ rr b
+ rr c
+ rr h
+ rr l
+ rr d
+ sra b
+ rr c
+ rr h
+ rr l
+ rr d
+ ld e,#0
+ jp math32_projection_restore
+math32_wide_lookup:
  ; HL points to the high word. Keep it across the coefficient check.
  push hl
  scf

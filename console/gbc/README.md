@@ -3,13 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test24 — 8 MiB](build/elma-gbc-v0.96-test24-8m.gbc)**.
-Across 216 controller routes on all 54 courses it averages **25.40 physics
-updates per emulated second**, up from **24.74** in test23. The full Freefall
-descent averages **25.67**. The target is **29.86**. Thirty-five routes met
+**[0.96 test25 — 8 MiB](build/elma-gbc-v0.96-test25-8m.gbc)**.
+Across 216 controller routes on all 54 courses it averages **26.76 physics
+updates per emulated second**, up from **25.40** in test24. The full Freefall
+descent averages **27.17**. The target is **29.86**. Forty-two routes met
 the two-display-frame deadline throughout. Every one of the 59,599 native
-physics substeps and 19,885 published updates matched test23. A separate
-24-route replay averaged **22.98** with another 15,653 matching substeps.
+physics substeps and 19,885 published updates matched test24. A separate
+24-route replay averaged **24.46** with another 15,653 matching substeps.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -59,6 +59,15 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test25 — suspension, terrain and movement
+
+This build uses exact integer tables for partial movement, shallow slopes,
+the seat constraint and square roots. It reuses the distance to a terrain
+plane and combines matching suspension arms before accumulating their
+damping torque. Standard deadline misses including sprite DMA fell from
+6,918 to 4,569. The longest standard update took 531,188 cycles.
+[Full timings and validation](PERFORMANCE.md#096-test25--combined-cartridge)
 
 ## 0.96 test24 — terrain contacts and exact integer multiplication
 
