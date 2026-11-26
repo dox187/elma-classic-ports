@@ -3,7 +3,9 @@
 #include <stddef.h>
 
 /* The plane evaluator shares offsets 4..12 and 17..20 with the wheel
- * surface cache. A full cache key also distinguishes windows of one leaf. */
+ * surface cache. A full cache key also distinguishes windows of one leaf.
+ * Ambiguous entries use bytes 5..8 for the narrowed span, 9..12 for
+ * the exact center and 16..21 for admission and iterator results. */
 typedef struct {
     uint8_t box_x, box_y;
     const seg_t *first;
@@ -19,7 +21,8 @@ typedef char leaf_region_layout[sizeof(leaf_region_t)==32 &&
     offsetof(leaf_region_t,first)==2 && offsetof(leaf_region_t,kind)==4 &&
     offsetof(leaf_region_t,base_x)==5 && offsetof(leaf_region_t,nx)==9 &&
     offsetof(leaf_region_t,count)==13 && offsetof(leaf_region_t,end)==14 &&
-    offsetof(leaf_region_t,intercept)==17 ? 1 : -1];
+    offsetof(leaf_region_t,reserved)==16 && offsetof(leaf_region_t,intercept)==17 &&
+    offsetof(leaf_region_t,padding)==21 ? 1 : -1];
 leaf_region_t riding_leaf_regions[4];
 extern int16_t riding_contact_qx, riding_contact_qy;
 int16_t riding_terrain_dotq14(int16_t,int16_t,int16_t,int16_t);

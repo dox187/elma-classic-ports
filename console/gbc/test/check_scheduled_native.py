@@ -22,11 +22,15 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sys
 import time
 
 import compare_pc_physics as comparison
 
 BASE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BASE / "tools"))
+import brake_dispatch
+
 CORE = comparison.GBC_SOURCES
 NATIVE_EXTRA = ('physics_q24.c', 'physics_force.c', 'physics_math.s', 'physics_mul_fast.s',
                 'physics_mul16u8.s', 'physics_math32_bounds.s', 'physics_math32_exact.s', 'physics_contact_loop.s',
@@ -282,6 +286,14 @@ def prepare(args, suite=None):
         raise ValueError('This test requires the approximately 30 Hz outer scheduled profile')
     names = json.loads(args.native_sources.read_text()) if args.native_sources else [*CORE, *NATIVE_EXTRA]
     native_sources = [source / name for name in names]
+    brake = source / 'physics_brake_fast.s'
+    if brake in native_sources and 'GENERATED BRAKE PAGES' in brake.read_text():
+        # The synthetic levels occupy fewer banks. Bank 93 is wholly
+        # available for the same page-aligned brake reader used in the game.
+        if packer.first <= 93 <= packer.bank:
+            raise ValueError('Fixture terrain overlaps the bank 93 brake tables')
+        native_sources[native_sources.index(brake)] = brake_dispatch.generate(
+            args.gen, brake, out / 'brake-fixture.s')
     generated = [gen / 'physics_level_data.c', *sorted(gen.glob('physics_bank_*.c'))]
     for pattern in TABLES:
         generated.extend(sorted(gen.glob(pattern)))
@@ -301,7 +313,12 @@ def prepare(args, suite=None):
             run([*flags, '-c', '-o', obj, path], log)
             objects.append(obj)
         run([*flags, '-o', rom, *objects], log)
+    warnings = (out / 'compile.log').read_text()
+    if any(s in warnings for s in ('spans into the next', 'Multiple write', 'Possible overflow')):
+        raise ValueError(f'Fixture has an overlapping ROM bank; see {out / "compile.log"}')
     inputs = set(sources + list(source.glob('*.h')) + list(gen.glob('*.h')))
+    if brake in [source / name for name in names]:
+        inputs.add(brake)
     inputs.update(host_source / name for name in CORE)
     inputs.update(host_source.glob('*.h'))
     inputs.update(shared_snapshot.glob('*.inc'))

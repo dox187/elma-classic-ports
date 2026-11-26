@@ -11,76 +11,68 @@ _riding_recip_index::
  ld a,(hl+)
  ld b,(hl)
  ld c,a
+; For signed 12-bit arms the middle two nibbles are the signed byte
+; floor(arm/16). Beyond that range one square already saturates the sum.
+; Each low page byte is (square mod 32)*8 so the addition's carry is
+; exactly the rounding bit for the sum of the two square quotients.
+.macro recip_offset high,low
+ ld a,high
+ xor low
+ and #15
+ xor low
+ swap a
+ ld low,a
+ ld high,#0
+.endm
 _riding_recip_index_regs::
- call recip_square
- push hl
- ld d,b
- ld e,c
- call recip_square
- pop de
- add hl,de
- ld a,h
- cp #32
- jr nc,recip_max
- ld a,l
- rlca
- rlca
- rlca
- and #7
- ld e,a
- ld a,h
- add a,a
- add a,a
- add a,a
- or e
- ld e,a
- ret
-recip_max:
- ld e,#255
- ret
-recip_square:
- ; If DE >> 4 cannot fit a signed byte, its square alone saturates
- ; the index. Otherwise the middle two nibbles are its exact low byte.
  ld a,d
  add a,#8
  cp #16
- jr nc,recip_limit
- ld a,d
- xor e
- and #15
- xor e
- swap a
- bit 7,a
- jr z,recip_magnitude
- cpl
- inc a
-recip_magnitude:
- ; 90^2 >> 5 = 253, while 91^2 >> 5 already exceeds 255.
- cp #91
- jr nc,recip_limit
- ld e,a
- ld d,#0
- sla e
- rl d
- ld hl,#recip_squares
+ jr nc,recip_max
+ ld a,b
+ add a,#8
+ cp #16
+ jr nc,recip_max
+ recip_offset d,e
+ recip_offset b,c
+ ld hl,#recip_rows
  add hl,de
- ld a,(hl+)
- ld h,(hl)
- ld l,a
+ ld d,h
+ ld e,l
+ ld hl,#recip_rows
+ add hl,bc
+ ld a,(de)
+ add (hl)
+ inc d
+ inc h
+ ld a,(de)
+ adc (hl)
+ ld e,a
+ ret nc
+recip_max:
+ ld e,#255
  ret
-recip_limit:
- ld hl,#8192
- ret
-recip_squares:
- .dw 0,1,4,9,16,25,36,49
- .dw 64,81,100,121,144,169,196,225
- .dw 256,289,324,361,400,441,484,529
- .dw 576,625,676,729,784,841,900,961
- .dw 1024,1089,1156,1225,1296,1369,1444,1521
- .dw 1600,1681,1764,1849,1936,2025,2116,2209
- .dw 2304,2401,2500,2601,2704,2809,2916,3025
- .dw 3136,3249,3364,3481,3600,3721,3844,3969
- .dw 4096,4225,4356,4489,4624,4761,4900,5041
- .dw 5184,5329,5476,5625,5776,5929,6084,6241
- .dw 6400,6561,6724,6889,7056,7225,7396,7569
- .dw 7744,7921,8100
+
+recip_rows:
+
+digit = 0
+ .rept 256
+ .db ((digit*digit)&31)*8
+ digit = digit+1
+ .ifeq digit-128
+ digit = -128
+ .endif
+ .endm
+recip_whole:
+digit = 0
+ .rept 256
+ .ifgt (digit*digit)-8191
+ .db 255
+ .else
+ .db (digit*digit)/32
+ .endif
+ digit = digit+1
+ .ifeq digit-128
+ digit = -128
+ .endif
+ .endm

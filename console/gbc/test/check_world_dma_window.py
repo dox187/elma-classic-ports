@@ -166,17 +166,17 @@ def run(source, out, bounded):
     start = symbols['_world_upload_tile']
     end = min(address for address in symbols.values() if start < address < 0x4000)
     code = rom[start:end]
-    epilogue = bytes.fromhex('e8 05 e1 f1 e9')
+    epilogue = bytes.fromhex('e1 f1 e9')
     code = code[:code.index(epilogue)+len(epilogue)]
-    # Verify the linked instructions behind the timing proof, not only C text.
-    low_mask = 3 if bounded else 2
-    # Branch displacements may vary with compiler labels, but both loops and
-    # their direct XOR/LDH launch sequence must remain exactly these opcodes.
-    low = bytes((0xf0, 0x41, 0xe6, low_mask, 0x28, 0xfa, 0xaf, 0xe0, 0x55))
+    # A successful STAT read in mode 0/1 is followed by a complete mode 2.
+    # Even if the sample was its last dot, the poll through the DMA stall
+    # needs only 108 T. The older helper instead waited for a transition.
     high = bytes.fromhex('f0 41 e6 02 20 fa af e0 55')
-    assert low in code and high in code, 'linked poll/launch loop changed; rederive timing bound'
+    assert high in code, 'rederive STAT timing bound'
+    if bounded:
+        assert b'\xf3'+high+b'\xfb' in code, 'active DMA must stay inside DI/EI'
     dma_sites = [start+i for i in range(len(code)-1) if code[i:i+2] == b'\xe0\x55']
-    assert len(dma_sites) == 3, dma_sites
+    assert len(dma_sites) == (2 if bounded else 3), dma_sites
     p = PyBoy(str(out/'check.gbc'), window='null', sound_emulated=False, cgb=True)
     p.set_emulation_speed(0)
     calls, errors, returns = [], [], set()
@@ -299,8 +299,8 @@ def run(source, out, bounded):
                   'emulator_gdma_stall_observed': any(t > 12 for t in durations),
                   'emulator_ly153_early_zero_observed': (0, 1) in phases,
                   'entry_line_modes': sorted(phases),
-                  'timing_bound_tcycles': {'poll_period': 32, 'poll_and_launch': 76,
-                                          'dma': 64, 'total': 140, 'minimum_mode2': 160}}
+                  'timing_bound_tcycles': {'poll_period': 32, 'poll_and_launch': 44 if bounded else 76,
+                                          'dma': 64, 'total': 108 if bounded else 140, 'minimum_mode2': 160}}
         (out/'report.json').write_text(json.dumps(report, indent=2)+'\n')
         (out/'calls.json').write_text(json.dumps(calls, indent=2)+'\n')
         assert report['done'] and report['completed'] == 6*PHASES+8, report
@@ -320,7 +320,7 @@ def run(source, out, bounded):
         if bounded:
             assert max(c['cycles'] for c in calls) < 4000, report
             assert report['maximum_poll_cycles'] < 800, report
-            assert 32+44+64 == report['timing_bound_tcycles']['total'] < 160
+            assert 44+64 == report['timing_bound_tcycles']['total'] < 160
         assert source.read_bytes() == (out/'world_dma.c').read_bytes(), 'source changed during test'
         return report
     finally:
@@ -337,13 +337,9 @@ def main():
     report = {'candidate': run(args.source.resolve(), args.out.resolve()/'candidate', True)}
     if args.baseline:
         report['baseline'] = run(args.baseline.resolve(), args.out.resolve()/'baseline', False)
-        old = bytes.fromhex(report['baseline']['upload_code_hex'])
-        new = bytes.fromhex(report['candidate']['upload_code_hex'])
-        assert len(old) == len(new)
-        assert [(a, b) for a, b in zip(old, new) if a != b] == [(2, 3)], 'change exceeds the polling mask'
-        before = report['baseline']['maximum_poll_cycles']
-        after = report['candidate']['maximum_poll_cycles']
-        assert before > 9000 and after < 800, (before, after)
+        before = report['baseline']['cycles']
+        after = report['candidate']['cycles']
+        assert all(after[group]['mean'] < before[group]['mean'] for group in before)
     (args.out/'report.json').write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps(report, indent=2))
 

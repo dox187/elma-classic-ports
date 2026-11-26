@@ -2937,3 +2937,52 @@ Image SHA-256 `263c7893b4fddcee6764e918b9876d213cdc36aa546c0ba41224c9643f3ee3fc`
 Fixed ROM has 13 bytes free and banks 508–511 are erased. Rebuild with
 `tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test27-8m.gbc`.
 Reports are in `build/v096-test27/`. Physical cartridge timing is pending.
+
+### 0.96 test28 — combined cartridge
+
+| Whole-game measurements in PyBoy | test27 | test28 |
+| --- | ---: | ---: |
+| Updates/s, 216 standard routes on 54 courses | 27.824 | 28.041 |
+| Updates/s, 24 extended routes | 26.112 | 26.746 |
+| Updates/s, complete Freefall | 28.875 | 29.035 |
+| Mean standard active update, T-cycles | 258,311 | 255,452 |
+| Longest standard active update, T-cycles | 468,784 | 511,924 |
+| Longest extended active update, T-cycles | 555,172 | 554,368 |
+| Standard updates over 280,896 T-cycles | 2,901 | 2,579 |
+| Standard misses including GDMA | 2,906 | 2,584 |
+| Extended misses including GDMA | 1,272 | 1,166 |
+| Standard routes within the deadline throughout | 49 | 51 |
+| Freefall updates over budget / 439 | 30 | 25 |
+
+The projection reader verifies the complete signed coefficient using a
+fixed-ROM displacement table and a high-byte tag. The 189 magnitudes include
+all slope pairs used by the fast rolling solver. Narrow raw products handle
+an extra magnitude bit with a shifted coefficient. Damping uses a bounded
+four-term determinant and a banked full-width fallback. Brake damping handles
+signed-byte velocities directly. Dense wheel queries reuse an ordered
+candidate span with exact bounds. The renderer retains prepared rows and
+column fragments during camera motion. The main loop shares bank 5 with
+its presentation and preparation routines.
+
+The heaviest standard update occurred on Shelf Life with throttle, and
+the heaviest extended update occurred on the same course under braking.
+Its three physical substeps alone took 427,388 T-cycles, against the
+280,896-cycle budget for a complete update. Active update times also include
+guarded preparation for the next frame.
+
+All 75,252 recorded substeps and 25,112 published updates in the standard
+and extended runs matched test27. All 439 full Freefall updates matched.
+The PC comparison passed 45 landing and braking cases. The 20 extreme-spin
+cases retained the previous scores, including the 15.75° peak error.
+The projection oracle checked all 65,536 possible keys, 30,520 native
+products and 192 VBlank interruptions. The native terrain oracle matched
+7,160 contact queries. The native fixture uses the production brake reader
+and rejects overlapping ROM banks. It matched all 9,210 regular and 3,170
+speed-limit states against the retained host physics. PyBoy matched 1,216 presentations and 61,845 visible
+background cells. SameBoy CGB-E matched 878 presentations on four routes,
+including scrolling, terrain attributes, tile pixels, HUD and sprites.
+Player and save checks passed. The idle clock test recorded four misses.
+
+Image SHA-256 `3004bdc8f8b78b7e93cc50cb9ccaac16b51f06f360fd42b32ffc14f0e0d91436`.
+Fixed ROM has 277 bytes free and banks 508–511 are erased. Reports are in
+`build/v096-test28/`. Physical cartridge timing remains unverified.

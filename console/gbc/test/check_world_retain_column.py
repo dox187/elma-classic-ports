@@ -1,6 +1,7 @@
-"""Extend the public native cache fixture with exact READY-X to XY cases.
+"""Extend the public native cache fixture with completed horizontal/vertical strips becoming diagonal targets.
 Run once per frozen reference/candidate source; compare commit-checkpoints.json.
-Only the fixture drives native public APIs; instrumentation reads state.
+The fixture covers each legal partial-prefix length and forced allocator positions.
+Emulator instrumentation reads the resulting state.
 """
 from pathlib import Path
 B=Path(__file__).resolve().parents[1]
@@ -16,6 +17,10 @@ static void retain_reject(uint16_t ox,uint16_t oy,uint16_t x,uint16_t y,uint16_t
  ++retain_guard_checks;
 }
 #endif
+static void retain_clear_patterns(void) {
+ VBK_REG=0;memset((void *)0x8000,0,0x1800);
+ VBK_REG=1;memset((void *)0x8000,0,0x1800);VBK_REG=0;
+}
 void fixture_retain_cases(void) BANKED {
  uint16_t x,y,ox,oy,px,py,i,next,start;int8_t dx,dy;uint8_t stage;
  retain_extra_views=inspected_views;
@@ -25,7 +30,7 @@ void fixture_retain_cases(void) BANKED {
   dx=retain_direction&1?8:-8;dy=retain_direction&2?8:-8;
   x=dx>0?255:256;y=dy>0?127:128;
   px=x+dx;ox=x^3;oy=y^5;py=oy+dy;
-  DISPLAY_OFF;world_select(retain_level);world_begin(x,y);DISPLAY_ON;
+  DISPLAY_OFF;retain_clear_patterns();world_select(retain_level);world_begin(x,y);DISPLAY_ON;
   fixture_verify(retain_level,x,y);
   fixture_prepare(x,y,px,y,1);fixture_verify(retain_level,x,y);
   if(prepare_stage!=PREP_READY || prepare_added_count!=19)++retain_failures;
@@ -73,13 +78,46 @@ void fixture_retain_cases(void) BANKED {
   if(prepare_stage || prepare_added_count || retired_count)++retain_failures;
   fixture_retain_checkpoint();++retain_cases;
  }
+ /* A prepared row is reused only if its twenty retained slots cannot
+  * affect any new allocation. Exercise ordinary, blocked and wrapped
+  * round-robin positions against the original cancel/reacquire path. */
+ for(retain_level=0;retain_level<3;++retain_level)
+ for(retain_direction=0;retain_direction<4;++retain_direction)
+ for(retain_mode=3;retain_mode<6;++retain_mode) {
+  dx=retain_direction&1?8:-8;dy=retain_direction&2?8:-8;
+  x=dx>0?255:256;y=dy>0?127:128;
+  DISPLAY_OFF;retain_clear_patterns();world_select(retain_level);world_begin(x,y);DISPLAY_ON;
+  fixture_prepare(x,y,x,y+dy,1);fixture_verify(retain_level,x,y);
+  if(prepare_stage!=PREP_READY || prepare_added_count!=21)++retain_failures;
+  if(retain_mode==4)next_slot=prepare_added[10];
+  if(retain_mode==5)next_slot=440;
+  world_scroll(x,y,x+dx,y+dy);fixture_verify(retain_level,x+dx,y+dy);
+  fixture_retain_checkpoint();++retain_cases;
+ }
+ for(retain_level=0;retain_level<3;++retain_level)
+ for(retain_direction=0;retain_direction<4;++retain_direction)
+ for(retain_mode=6;retain_mode<=24;++retain_mode) {
+  dx=retain_direction&1?8:-8;dy=retain_direction&2?8:-8;
+  x=dx>0?255:256;y=dy>0?127:128;
+  DISPLAY_OFF;retain_clear_patterns();world_select(retain_level);world_begin(x,y);
+  prepare_begin(x,y,x+dx,y);
+  prepare_strip_x=dx>0?prepare_left+20:prepare_left;
+  prepare_strip_y=prepare_top;prepare_count=19;
+  fetch_strip(prepare_strip_x,prepare_strip_y,1,19,0,0);
+  prepare_stage=PREP_COL_ACQUIRE;
+  prepare_count=retain_mode-6;
+  while(prepare_index<prepare_count)prepare_acquire();
+  prepare_count=19;
+  DISPLAY_ON;world_scroll(x,y,x+dx,y+dy);fixture_verify(retain_level,x+dx,y+dy);
+  fixture_retain_checkpoint();++retain_cases;
+ }
  retain_extra_views=inspected_views-retain_extra_views;
 }
 '''
 source=source.replace("    (OUT/'check.c').write_text(","    with (OUT/'inspect.c').open('a') as stream:\n        stream.write(('#define RETAIN_TEST_HAS_REBASE 1\\n' if b'prepare_rebase_column'in sources['world.c'] else '')+"+repr(extra)+")\n    (OUT/'check.c').write_text(",1)
 source=source.replace("    flags=[str(BASE", "    check=(OUT/'check.c').read_text().replace('cache_done=1;', 'fixture_retain_cases();cache_done=1;')\n    (OUT/'check.c').write_text('#include <gb/gb.h>\\nvoid fixture_retain_cases(void) BANKED;\\nvoid fixture_retain_checkpoint(void) NONBANKED {}\\n'+check)\n    flags=[str(BASE",1)
 source=source.replace("        if fine_phased:expected_views+=89","        expected_views+=word('retain_extra_views')\n        if fine_phased:expected_views+=89",1)
-source=source.replace("        assert p.memory[symbols['_cache_done']]", "        report['retain']={name:word('retain_'+name) for name in ['cases','guard_checks','failures','extra_views']}\n        report['retain']['helper_calls']=retain_calls\n        (OUT/'commit-checkpoints.json').write_text(json.dumps(retain_checkpoints,indent=2)+'\\n')\n        assert word('retain_cases')==36 and not word('retain_failures'),report\n        assert p.memory[symbols['_cache_done']]",1)
+source=source.replace("        assert p.memory[symbols['_cache_done']]", "        report['retain']={name:word('retain_'+name) for name in ['cases','guard_checks','failures','extra_views']}\n        report['retain']['helper_calls']=retain_calls\n        (OUT/'commit-checkpoints.json').write_text(json.dumps(retain_checkpoints,indent=2)+'\\n')\n        assert word('retain_cases')==300 and not word('retain_failures'),report\n        assert p.memory[symbols['_cache_done']]",1)
 hooks=r'''
     retain_checkpoints=[];retain_calls=[];retain_stack=[];retain_returns=set()
     local={n:int(a,16)for a,n in re.findall(r'^\s+([0-9A-Fa-f]{8})\s+\d+\s+(_\w+)::?$',(OUT/'inspect.lst').read_text(),re.M)}
@@ -92,8 +130,10 @@ hooks=r'''
                 'bank':p.memory[symbols['__current_bank']]}
     def retain_checkpoint(_):
         fields={name:bytes(p.memory[symbols['_world_cache_'+name]:symbols['_world_cache_'+name]+size]).hex()for name,size in [('ids',888),('references',888),('free_bits',56),('next',2)]}
-        # Hidden stale map cells are permitted. Compare every visible cell, all
-        # patterns, all lookup SRAM and every cache allocator byte instead.
+        # fixture_verify checks the visible source pixels. Also compare the
+        # complete ring mirror, both pattern banks and all allocator state.
+        fields['mirror']=hashlib.sha256(bytes(p.memory[0,0xb000:0xb800])).hexdigest()
+        fields['uploads']=word('world_uploads')
         fields['patterns']=hashlib.sha256(b''.join(bytes(p.memory[b,0x8000:0x9800])for b in range(2))).hexdigest()
         fields['lookup']=hashlib.sha256(bytes(p.memory[0,0xa000:0xb000])+b''.join((bytes(p.memory[b,0xa000:0xbfff])+bytes([p.memory[b,0xbfff]]))for b in range(1,4))).hexdigest()
         fields['case']=[p.memory[symbols['_retain_'+n]]for n in ['level','direction','mode']]
@@ -106,8 +146,13 @@ hooks=r'''
             before=retain_stack.pop();result=p.register_file.A
             if not result:assert before['state']==retain_snapshot(),'rejected rebase mutated world/cache/banks'
             else:
-                assert p.memory[symbols['_prepare_stage']]==4
-                assert p.memory[symbols['_prepare_added_count']]==18
+                stage=p.memory[symbols['_prepare_stage']]
+                count=p.memory[symbols['_prepare_added_count']]
+                if before['stage']==7:
+                    assert stage==4 and count==18
+                else:
+                    assert before['stage']==2 and count<=18
+                    assert stage==(3 if count==18 else 2)
                 assert p.memory[symbols['_retired_count']]==39
             retain_calls.append({'cycles':p._cycles()-before['cycles'],'retained':bool(result)})
         def retain_enter(_):
@@ -117,7 +162,7 @@ hooks=r'''
             off=bank*16384+(ret&16383)if bank else ret
             assert rom[off]!=0xfb,'unsafe EI hook'
             if key not in retain_returns:p.hook_register(*key,observe(retain_return),key);retain_returns.add(key)
-            retain_stack.append({'sp':sp,'cycles':p._cycles(),'state':retain_snapshot()})
+            retain_stack.append({'sp':sp,'cycles':p._cycles(),'stage':p.memory[symbols['_prepare_stage']],'state':retain_snapshot()})
         p.hook_register(6,address&65535,observe(retain_enter),None)
 '''
 source=source.replace("    try:\n        for _ in range(2500",hooks+"\n    try:\n        for _ in range(2500",1)

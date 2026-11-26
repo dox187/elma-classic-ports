@@ -51,6 +51,14 @@ class Iterator:
         self.p.memory[0xc400:0xc400+len(records)*18] = b''.join(
             struct.pack('<6hH4B', *r) for r in records)
 
+    def leaf_entry(self, x, y, start, count):
+        key = struct.pack('<BBH', (x//64+128)&255, (y//64+128)&255, 0xc400+18*start)
+        base, memory = self.symbols['_riding_leaf_regions'], self.p.memory
+        entries = [slot for slot in range(base,base+128,32)
+                   if memory[slot+4] and memory[slot+13] == count and bytes(memory[slot:slot+4]) == key]
+        assert len(entries) == 1, (x,y,start,count,entries)
+        return entries[0]
+
     def query(self, x, y, start, count, seed):
         s, memory = self.symbols, self.p.memory
         cursor, left, ct = s['_Seg_cur'], s['_Seg_left'], s['_Ct']
@@ -100,6 +108,33 @@ def check_invalidation(current, old, levels):
     assert agree() == before
 
 
+
+def check_ambiguous_windows(current, old):
+    # Box-rejected guards before and after contributors exercise both cursor
+    # outcomes. Distinct initial Ct bytes expose any enlarged copy on a hit.
+    empty = (0,0,1024,0,16384,0,1024,0,0,0,0)
+    def plane(py):
+        return (0,py,1024,0,16384,0,1024,128,145,128,145)
+    def cross(px):
+        return (px,0,0,1024,0,16384,1024,128,145,128,145)
+    rng = random.Random(0x9628)
+    checks = 0
+    for geometries in ((plane(500),plane(500)), (plane(960),plane(500)), (plane(128),plane(640)),
+                       (plane(128),cross(640)), (plane(960),cross(960))):
+        records = [empty, *geometries, empty, empty, empty]
+        for machine in (current,old):
+            machine.install(records)
+        for start,count in ((0,6),(0,5),(1,4),(0,6)):
+            for x,y in ((480,480),(480,480),(480,480),(480,480),(481,481),
+                        (481,481),(496,494),(496,494),(480,480),(480,480)):
+                seed = rng.randbytes(20)
+                actual = current.query(x,y,start,count,seed)
+                assert actual == old.query(x,y,start,count,seed), (geometries,x,y,start,count,actual)
+                checks += 1
+            slot = current.leaf_entry(x,y,start,count)
+            assert current.p.memory[slot+16] == 2, (geometries,start,count)
+    return checks
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rom', type=Path, required=True)
@@ -112,6 +147,7 @@ def main():
     counts, kinds = Counter(), Counter()
     try:
         check_invalidation(current, old, levels)
+        ambiguous_checks = check_ambiguous_windows(current, old)
         for level in levels:
             w, h = level['grid']
             selected = 0
@@ -142,7 +178,7 @@ def main():
                             actual = current.query(x,y,start,count,seed)
                             assert actual == expected, (level['name'], x,y, start,count, actual,expected)
                             counts[actual[0]] += 1
-                            entry = current.symbols['_riding_leaf_regions'] + 32*((bx^by)&3)
+                            entry = current.leaf_entry(x,y,start,count)
                             kinds[current.p.memory[entry+4]] += 1
                 selected += 1
                 if selected == 18: break
@@ -150,7 +186,7 @@ def main():
         current.p.stop(save=False)
         old.p.stop(save=False)
     assert all(counts[n] for n in (0, 1, 2)) and all(kinds[n] for n in (1, 2, 3, 5, 12))
-    print(f'{sum(counts.values())} linked queries, counts {dict(counts)}, cache kinds {dict(kinds)}')
+    print(f'{ambiguous_checks} ambiguous queries, {sum(counts.values())} catalog queries, counts {dict(counts)}, cache kinds {dict(kinds)}')
 
 
 if __name__ == '__main__':

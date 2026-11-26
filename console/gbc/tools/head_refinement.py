@@ -7,8 +7,8 @@ from head_clearance import packed_inputs, touches_tile, write_if_changed
 
 # Independent tails. The linker places these objects after their owning data,
 # and its per-bank size checks reject any overlap with another bank window.
-ROOM = {501:8192, **dict.fromkeys((*range(477,481), *range(502,506)), 1024),
-        13:7400, 5:7500, 14:5600, 3:4450, 1:5100, 2:4400, 15:3200, 7:2300, 6:2100, 507:2700}
+ROOM = {501:8192, **dict.fromkeys((*range(21,28), *range(477,481), *range(502,506)), 1024),
+        13:7400, 5:1100, 14:5600, 3:4450, 1:5100, 2:4400, 15:3400, 7:2300, 6:2100, 507:2700}
 
 
 def group_masks(level, banks):

@@ -57,8 +57,8 @@ def validate_linked_layout(symbol_path,rom_mib):
             fixed_end=max(fixed_end,start+size)
         elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
             raise ValueError(f'ROM bank {bank} exceeds its linked address window')
-    if '_riding_scale_directory' in symbols and symbols['_riding_scale_directory'] != 0x200:
-        raise ValueError('Scale directory must occupy the first fixed ROM page after the header')
+    if '_riding_scale_directory' in symbols and (symbols.get('_riding_projection_hash'), symbols['_riding_scale_directory']) != (0x200, 0x600):
+        raise ValueError('Projection hash and scale directory must start on fixed ROM pages 2 and 6')
     if '_riding_sqrt_large' in symbols:
         for name, bank in (('_riding_sqrt_large', 15), ('_riding_sqrt_upper', 15),
                            ('_riding_sqrt_small', 35), ('_riding_sqrt_byte', 35)):
@@ -76,8 +76,10 @@ def validate_linked_layout(symbol_path,rom_mib):
     if 'brake_angle_rows' in symbols:
         if symbols.get('_physics_bank_93') != 0x5d4000:
             raise ValueError('Brake lookup relocated packed terrain in bank 93')
-        if any(symbols.get(name, 0) >> 16 != 93 for name in ('brake_angle_rows','brake_damp_low','brake_damp_high')):
-            raise ValueError('Brake lookup is outside its selected ROM bank')
+        for name in ('brake_angle_rows','brake_damp_byte','brake_damp_low','brake_damp_high'):
+            address = symbols.get(name, 0)
+            if address >> 16 != 93 or address & 255:
+                raise ValueError(f'{name} requires a page boundary in bank 93')
     if '_riding_head_cell_mask' in symbols:
         for bank in (506,507):
             if symbols.get(f'_physics_head_bank_{bank}') != (bank << 16) + 0x4000:
@@ -345,6 +347,7 @@ def main():
         sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name not in ('physics_mul16.s','physics_mul_scheduled.s','physics_div20_scheduled.s','physics_leaf_region.s','physics_rider_rotation.s','physics_roll_shallow.s','physics_sqrt_scheduled.s') and not x.name.startswith('physics_q24'))
     if scheduled:
         sources.insert(0, mul_table.scheduled_squares(a.gen))
+        sources.insert(0, projection_tables.hash_source(a.gen))
     else:
         sources += sorted(a.gen.glob('physics_quarter_*.c'))
     for pattern in ('physics_scale_*.c','physics_sine_*.c',

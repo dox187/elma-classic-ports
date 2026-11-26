@@ -5,28 +5,28 @@ from tempfile import NamedTemporaryFile
 DIRECTORY_BANK = 20
 BANKS = (*range(21, 28), 477, 478, 479, 480, 502, 503, 504, 505, DIRECTORY_BANK)
 ROWS_PER_BANK = 12
-# Frozen from all 216 test23 controller routes. Store the more frequent sign
+# The 216 standard and 24 extended test27 routes select the more frequent sign
 # for each magnitude. The opposite sign uses the same five product planes.
 COEFFICIENTS = (
-    -16384, -16383, -16379, -16382, -104, -86, -108, -16368, 8, -16362,
+    10973, -16383, -16379, -16382, -12167, 1097, 12417, -16368, -10689, -16362,
     134, -725, 3152, -16078, -15279, 5914, -4523, 402, -16378, -677,
-    -16370, -15, -246, 856, -16381, -3066, -412, -27, -240, -256,
-    -169, -301, -59, -33, 457, -32, -5069, -16095, -396, 50,
-    -170, -15747, -15580, -2927, -8449, -18, -78, -163, -16120, -5,
-    -12484, -14037, -10611, -15702, 9809, -13123, -9638, -9, 4677, 13249,
-    -14955, -6692, 61, -8277, 10, -14140, -16356, -15821, 4256, -3788,
-    -15940, -5967, -15788, 4377, -15504, -15259, 5297, 408, -5937, 394,
-    -9636, 13251, -6840, -15270, -3013, 14888, 407, 16105, 409, 16207,
-    -8275, -14141, -2401, -957, -91, -2942, 16118, -15589, -15843, 5042,
-    -536, 737, -538, -535, 16376, -15758, -13874, -8715, 406, 4174,
-    16351, 16367, -3643, -15974, 4487, -11764, -11404, -534, -533, -56,
-    -539, 16377, 13941, -15559, -5132, -819, -4419, 405, -537, 1046,
-    -497, -16364, 614, 8607, -75, -14282, 432, 8029, 404, 956,
-    9789, 9606, -13138, 615, -540, -532, 16277, 1868, -11292, -15586,
-    617, 5052, 13284, 613, -11872, -13546, 15777, -13549, 1613, -541,
-    616, -512, 9212, -7931, -9217, -14337, -15455, 5440, 9590, -13007,
-    -26, -11181, 9963, -9687, 13214, 618, -531, 11975, -475, -14454,
-    -530, -15965, 3680, -544, -124, -16371, 7715, -16015, -529,
+    -16370, 1208, -246, 856, -16381, -3066, -412, -27, -240, -256,
+    -169, -301, 1004, 1125, 457, 1116, -5069, -16095, -396, 6358,
+    -170, -15747, -15580, -2927, -8449, -806, -15654, -163, -16120, -15100,
+    -12484, -14037, -10611, -15702, 9809, -13123, -9638, 12195, 4677, 13249,
+    -14955, -6692, -61, -8277, -10948, -14140, -16356, -15821, 4256, -3788,
+    -15940, -5967, -15788, 4377, -15504, -15259, 5297, 4835, -5937, 394,
+    -9636, 13251, -6840, -15270, -3013, 14888, -24, 16105, -807, 16207,
+    -8275, -14141, -2401, -15854, 30, 1028, 7970, -15589, -15843, 5042,
+    -536, 737, -538, -535, 16376, -15758, -101, -14315, 12416, 4174,
+    -16351, 16367, -10682, 7872, 4487, -11764, 7856, 6893, -533, 3455,
+    -539, 16377, -542, 1088, -16366, -819, -4419, -14863, -537, 1670,
+    -497, -16364, 13593, 1155, 12397, -14282, 432, 8029, 404, 956,
+    -9147, 1186, 1608, -10706, 410, -532, 1036, -805, -11292, -15586,
+    1145, 5052, 13284, 12198, -11872, -13546, 15777, -13549, -159, -541,
+    -10914, -512, 9212, -7931, -9217, -14337, -15455, 5440, -4135, -13007,
+    -543, -11181, 9963, 920, 1344, 1020, 12236, 11975, -475, -14454,
+    7840, -15965, 3680, -544, 1304, -16371, 7715, -16015, 960,
 )
 MIRRORED = tuple(-y for y in COEFFICIENTS)
 
@@ -175,33 +175,39 @@ def row_page(index):
     return 0x40 + 5 * (index % ROWS_PER_BANK)
 
 
-def directory():
-    # Each high-byte group uses three pages addressed directly by the low
-    # byte. Two high bytes can share a group if their occupied lows differ.
-    # The high tag and nonzero bank must still match on every lookup.
-    lows = {}
-    for y in (*COEFFICIENTS, *MIRRORED):
-        lows.setdefault(y >> 8 & 255, set()).add(y & 255)
-    occupied, groups = [], []
-    table_page = row_page(len(COEFFICIENTS) - 1) + 5
-    routing = bytearray([table_page + 1] * 256)
-    for high in sorted(lows, key=lambda h: -len(lows[h])):
-        group = next((i for i, used in enumerate(occupied) if used.isdisjoint(lows[high])), len(groups))
-        if group == len(groups):
-            occupied.append(set())
-            groups.append([bytearray(256) for _ in range(3)])
-        routing[high] = table_page + 1 + 3*group
-        occupied[group].update(lows[high])
-    if table_page + 1 + 3*len(groups) > 0x80:
-        raise ValueError('Projection directory exceeds bank 20')
-    for index, stored in enumerate(COEFFICIENTS):
-        for y in (stored, -stored):
-            high, low = (y >> 8) & 255, y & 255
-            tags, banks, pages = groups[(routing[high] - table_page - 1)//3]
-            tags[low] = high
-            banks[low] = BANKS[index // ROWS_PER_BANK] & 255
-            pages[low] = row_page(index) | (128 if y != stored else 0)
-    return [routing, *(page for group in groups for page in group)]
+def fixed_hash():
+    # For a given high byte, XOR with a displacement permutes all 256
+    # low bytes. Matching the stored high byte therefore proves the whole key.
+    groups = {}
+    for index, coefficient in enumerate(COEFFICIENTS):
+        value = abs(coefficient)
+        groups.setdefault(value >> 8, []).append((value & 255, index, coefficient))
+    displacements = bytearray(256)
+    tags = bytearray([255]) * 256
+    banks, pages = bytearray(256), bytearray(256)
+    for high, rows in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0])):
+        for delta in range(256):
+            if all(tags[low ^ delta] == 255 for low, _, _ in rows):
+                break
+        else:
+            raise ValueError(f'Cannot place projection magnitudes with high byte {high}')
+        displacements[high] = delta
+        for low, index, coefficient in rows:
+            slot = low ^ delta
+            tags[slot] = high
+            banks[slot] = BANKS[index // ROWS_PER_BANK] & 255
+            pages[slot] = row_page(index) | (128 if coefficient < 0 else 0)
+    return displacements, tags, banks, pages
+
+
+def hash_source(gen):
+    from head_clearance import write_if_changed
+    lines = ['.module projection_hash', '.area _CODE', '_riding_projection_hash::']
+    for page in fixed_hash():
+        lines.extend(byte_lines(page))
+    path = gen/'physics_projection_hash.s'
+    write_if_changed(path, '\n'.join(lines)+'\n')
+    return path
 
 
 def planes(y):
@@ -244,9 +250,6 @@ def generate(source, destination):
         for y in COEFFICIENTS[group * ROWS_PER_BANK:(group + 1) * ROWS_PER_BANK]:
             for page in planes(y):
                 output.extend(byte_lines(page))
-    output.append('_riding_projection_directory::')
-    for page in directory():
-        output.extend(byte_lines(page))
     result = '\n'.join(output) + '\n'
     if not destination.is_file() or destination.read_text() != result:
         temporary = NamedTemporaryFile(mode='w', dir=destination.parent, delete=False)
@@ -266,10 +269,6 @@ def validate_layout(symbols):
         start = (bank << 16) | 0x4000
         count = len(COEFFICIENTS[index*ROWS_PER_BANK:(index+1)*ROWS_PER_BANK])
         expected_size = count * 1280
-        if bank == DIRECTORY_BANK:
-            if symbols['_riding_projection_directory'] != start + expected_size:
-                raise ValueError('Projection directory must follow the last numeric row in bank 20')
-            expected_size += len(directory()) * 256
         end = start + symbols.get(f'l__CODE_{bank}',0)
         tail = symbols.get(f'_head_quarter_tail_{bank}',end)
         if (symbols.get(f'_riding_projection_bank_{bank}') != start or

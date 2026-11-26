@@ -29,6 +29,8 @@ def terrain_object(gen, size):
     payload = bytes(map(int, values.split('}', 1)[0].strip().split(',')))
     if len(payload) != 16384 or any(b != 255 for b in payload[size:]):
         raise ValueError('Unexpected data beyond the final terrain directory')
+    # The following assembly begins with 256-byte coefficient pages.
+    size = (size + 255) & ~255
     rows = [','.join(map(str, payload[k:min(size, k+32)])) for k in range(0, size, 32)]
     dest = gen / 'brake_terrain.c'
     write_if_changed(dest, header.replace('[16384]', f'[{size}]') + '={\n' + ',\n'.join(rows) + '\n};\n')
@@ -55,6 +57,12 @@ def generate(gen, assembly, destination=None):
         # The angle product is signed16 and its low-byte quotient is unsigned8.
         tables = [('brake_angle_rows', [pages[i] for i in (0, 1, 3, 4, 5)])]
         m = scales['W'][0]
+        # A signed-byte damping result fits signed16 for the admitted scales.
+        signed_bytes = list(range(128)) + list(range(-128, 0))
+        rows8 = [[(v * m >> shift) & 255 for v in signed_bytes] for shift in (0, 8, 16)]
+        rows8.extend([[(v * m + (1 << 23)) >> shift & 255 for v in signed_bytes]
+                      for shift in (24, 32)])
+        tables.append(('brake_damp_byte', rows8))
         for name, inputs, bias in [('brake_damp_low', range(256), 1 << 23),
                                    ('brake_damp_high', [((v + 128) % 256) - 128 for v in range(256)], 0)]:
             tables.append((name, [[((v*m+bias) >> shift) & 255 for v in inputs]
@@ -64,5 +72,6 @@ def generate(gen, assembly, destination=None):
             for page in table:
                 rows.extend(' .db ' + ','.join(map(str, page[i:i+32])) + '\n' for i in range(0, 256, 32))
     output = destination or gen / 'physics_brake_game.s'
-    write_if_changed(output, ''.join(definitions) + assembly.read_text() + ''.join(rows))
+    source = assembly.read_text().replace('; GENERATED BRAKE PAGES', ''.join(rows))
+    write_if_changed(output, ''.join(definitions) + source)
     return output

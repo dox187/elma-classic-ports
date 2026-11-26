@@ -128,6 +128,40 @@ def vectors():
             yield [1, 0, 1 << 18, 0, result, 0, -delta, 0]
 
 
+def scheduled_vectors():
+    # The pose anchor equals arm + displacement. Keep it within its Q18
+    # axis bound while exercising both high-word limits and a merged speed.
+    speeds = (-131073, -131072, -131071, -65537, -65536, -65535, -1, 0, 1,
+              65535, 65536, 65537, 131070, 131071, 131072)
+    for first in speeds:
+        for second in speeds:
+            for arm in (-500000, -1, 0, 1, 500000):
+                for other in (arm, -arm):
+                    arms = [arm, -arm, arm, other]
+                    displacements = [max(-131072, min(131071, -a)) for a in arms]
+                    yield [first, second, second, first] + arms, displacements
+    # A long spring lane in either wheel must survive the second force batch.
+    for position in range(8):
+        for value in (-2**31, -131073, -131072, 131071, 131072, 2**31 - 1):
+            inputs = [-511, 257, 65536, -65536]
+            displacement = [91, -42, -65536, 65536]
+            if position < 4:
+                inputs[position] = value
+            else:
+                displacement[position - 4] = value
+            arms = [((anchor - delta + 2**31) % 2**32) - 2**31
+                    for anchor, delta in zip((-222822, 222822, -157286, -157286),
+                                             displacement)]
+            yield inputs + arms, displacement
+    rng = random.Random(0x9628)
+    for i in range(4096):
+        inputs = [rng.randrange(-131072, 131072) for _ in range(4)]
+        arms = [rng.randrange(-500000, 500001) for _ in range(4)]
+        if i % 2:
+            arms[3] = arms[2]
+        yield inputs + arms, [max(-131072, min(131071, -a)) for a in arms]
+
+
 def expected(values):
     rx0, rx1, ry0, ry1, ax0, ax1, ay0, ay1 = values
     total = ry0 * ax0 - rx0 * ay0 + ry1 * ax1 - rx1 * ay1
@@ -145,8 +179,8 @@ def fixture_rom(native, out):
     driver.write_text('''#include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stdint.h>
-volatile int32_t fixture_inputs[8], fixture_answer;
-volatile uint8_t fixture_marker;
+volatile int32_t fixture_inputs[8], fixture_displacements[4], fixture_answer;
+volatile uint8_t fixture_marker, fixture_scheduled, fixture_wide;
 int32_t fixture_moment(void) __sdcccall(0);
 void fixture_before(void) {}
 void fixture_after(void) {}
@@ -170,7 +204,27 @@ _fixture_moment::
  inc de
  dec b
  jr nz,001$
+ ld a,(#_fixture_scheduled)
+ or a
+ jr z,002$
+ xor a
+ ld (#ss_paired),a
+ ld (#ss_damp_long),a
+ ld hl,#_fixture_displacements
+ ld de,#ss_force_products
+ ld a,(#_q24_index_C_SPRING_FW)
+ call ss_force_four
+ ld hl,#ss_damping
+ ld de,#ss_force_products+28
+ ld a,(#_q24_index_C_FRIC_W)
+ call ss_force_four
+ ld a,(#ss_damp_long)
+ ld (#_fixture_wide),a
+ call ss_damping_scheduled
+ jr 003$
+002$:
  call ss_damping_torque18
+003$:
  ld a,(#fixture_bank_marker)
  ld (#_fixture_marker),a
  ret
@@ -198,7 +252,9 @@ def main():
     rom = fixture_rom(args.native.resolve(), out)
     symbols = {key: int(value, 16) for key, value in re.findall(
         r'DEF (_\w+) 0x([\da-fA-F]+)', rom.with_suffix('.noi').read_text())}
-    work = list(vectors())
+    work = [(values, None) for values in vectors()]
+    scheduled = list(scheduled_vectors())
+    work.extend(scheduled)
     index = 0
     errors = []
     emu = PyBoy(str(rom), window='null', sound_emulated=False, cgb=True)
@@ -207,7 +263,12 @@ def main():
     def before(_):
         if index < len(work) and not errors:
             addr = symbols['_fixture_inputs']
-            emu.memory[addr:addr + 32] = struct.pack('<8i', *work[index])
+            values, displacement = work[index]
+            emu.memory[addr:addr + 32] = struct.pack('<8i', *values)
+            emu.memory[symbols['_fixture_scheduled']] = int(displacement is not None)
+            if displacement is not None:
+                addr = symbols['_fixture_displacements']
+                emu.memory[addr:addr + 16] = struct.pack('<4i', *displacement)
 
     def after(_):
         nonlocal index
@@ -215,10 +276,16 @@ def main():
             return
         addr = symbols['_fixture_answer']
         actual, = struct.unpack('<i', bytes(emu.memory[addr:addr + 4]))
-        wanted = expected(work[index])
+        values, displacement = work[index]
+        wanted = expected(values)
         bank_marker = emu.memory[symbols['_fixture_marker']]
-        if actual != wanted or bank_marker != 0xa5:
-            errors.append(dict(index=index, inputs=work[index], actual=actual,
+        actual_wide = emu.memory[symbols['_fixture_wide']]
+        expected_wide = (any(x < -131072 or x >= 131072 for x in values[:4] + displacement)
+                         if displacement is not None else None)
+        if (actual != wanted or bank_marker != 0xa5 or
+                (expected_wide is not None and bool(actual_wide) != expected_wide)):
+            errors.append(dict(index=index, inputs=values, displacements=displacement,
+                               expected_wide=expected_wide, actual_wide=actual_wide, actual=actual,
                                expected=wanted, bank_marker=bank_marker))
         index += 1
 
@@ -231,7 +298,7 @@ def main():
                 break
     finally:
         emu.stop(save=False)
-    report = dict(cases=index, requested=len(work), errors=errors,
+    report = dict(cases=index, requested=len(work), scheduled_cases=len(scheduled), errors=errors,
                   passed=index == len(work) and not errors)
     (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))

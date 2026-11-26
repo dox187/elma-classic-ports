@@ -211,7 +211,7 @@ static void check_objects_near(const uint16_t *bounds) {
     }
 }
 
-static void check_objects(void) BANKED {
+static void check_objects(void) {
     uint8_t i,hit,use_bounds;
     uint16_t bounds[4];
     const game_object_t *object;
@@ -267,7 +267,7 @@ objects_checked:
 
 uint8_t gbc_bike_bounded(void) __sdcccall(0);
 
-static void clock_tick(void) BANKED {
+static void clock_tick(void) {
     /* Advance by the same display-time units per completed physics step.
      * The whole centiseconds are constant, with at most one fractional carry. */
     uint8_t increment=(10000U*(60/PH_HZ))/5973U;
@@ -391,7 +391,7 @@ static void video_init(void) {
     bike_render_init();SPRITES_8x16;SHOW_BKG;SHOW_WIN;SHOW_SPRITES;
 }
 
-static void restore_game(void) BANKED {
+static void restore_game(void) {
     game_ready=0;DISPLAY_OFF;
     camera_prepared=0;objects_valid=0;objects_used=40;
     video_init();world_begin(game_camera_x,game_camera_y);
@@ -400,7 +400,7 @@ static void restore_game(void) BANKED {
     DISPLAY_ON;game_ready=1;
 }
 
-static void start_game(void) BANKED {
+static void start_game(void) {
     uint8_t i;
     audio_init();
     game_ready=0;DISPLAY_OFF;
@@ -417,7 +417,7 @@ static void start_game(void) BANKED {
     position_camera(1);restore_game();
 }
 
-void game_present(void) BANKED {
+void game_present(void) {
     uint16_t old_x=game_camera_x,old_y=game_camera_y;
     if(game_state==FINISHED && last_hud_state==FINISHED)return;
     bike_render_prepare(&gbc_bike);
@@ -440,7 +440,7 @@ void game_present(void) BANKED {
 /* The next presentation uses the state just computed by physics. Prepare only
  * its offscreen map cells during otherwise idle time; camera publication keeps
  * the existing presentation/input schedule. */
-static void prepare_next_view(uint16_t start) BANKED {
+static void prepare_next_view(uint16_t start) {
     int16_t x,y;
     uint8_t ahead_x,ahead_y,dx,dy,tx,ty;
     /* Physics finished this pose. The next presentation uses these same
@@ -484,6 +484,8 @@ static void prepare_next_view(uint16_t start) BANKED {
 #endif
 }
 
+static void game_loop(void) BANKED;
+
 void game_wait_first_frame(uint16_t start) NONBANKED {
     uint16_t now;
     do {
@@ -501,6 +503,10 @@ void game_wait_first_frame(uint16_t start) NONBANKED {
 }
 
 void main(void) NONBANKED {
+    game_loop();
+}
+
+static void game_loop(void) BANKED {
     uint8_t keys,pressed,input,substep,action,line;
     uint16_t start,now;
     int32_t wheel_speed;

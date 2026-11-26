@@ -266,6 +266,7 @@ exact_product_nonzero:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+exact_product_digits:
  add a,a
  sbc a,a
  cp a,h
@@ -323,6 +324,16 @@ exact_product_double_high:
  push hl
  jr exact_product_low_row
 exact_product_high_table:
+ .ifdef RIDING_PROJECTION_TABLES
+ ; A magnitude below 131072 consists of two arbitrary bytes and a
+ ; possible unit at bit 16. Only the two arbitrary digits need ROM rows.
+ inc b
+ dec b
+ jp z,product_low_word
+ dec b
+ jp z,product_extra_word
+ inc b
+ .endif
  ; For other coefficients compute the entire upper row, then use the
  ; saved arm and low coefficient to look up the lower row.
  push bc
@@ -481,6 +492,75 @@ exact_product_done:
  pop bc
  add sp,#6
  ret
+ .ifdef RIDING_PROJECTION_TABLES
+product_extra_word:
+ ld h,a
+ ld l,c                         ; add the whole coefficient at bit 16
+ jr product_word_rows
+product_low_word:
+ ld hl,#0
+product_word_rows:
+ push hl
+ ld b,a
+ push bc                        ; original low coefficient for the second row
+ .macro product_word_row digit
+ ld l,digit
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ ld a,digit
+ and #31
+ add a
+ or #0x40
+ ld h,a
+ .endm
+ product_word_row b
+ ld l,e
+ ld c,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ ld b,(hl)
+ dec h
+ add (hl)
+ ld h,a
+ ld l,c
+ ld a,b
+ adc #0
+ ld b,a                         ; upper row is B:HL, input still in DE
+ push hl
+ ldhl sp,#2
+ ld c,(hl)
+ product_word_row c
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ ld c,(hl)
+ dec h
+ add (hl)
+ ld d,a
+ ld a,c
+ adc #0
+ ld c,a
+ pop hl
+ ld a,d
+ add l
+ ld d,a
+ ld a,c
+ adc h
+ ld l,a
+ ld a,b
+ adc #0
+ ld h,a                         ; unsigned16 times unsigned16 fits in HL:DE
+ pop bc
+ pop bc
+ add hl,bc                      ; possible bit-16 contribution
+ ld bc,#0
+ rl c
+ jp exact_product_byte_sign
+ .endif
 exact_add:
  push hl
  ldhl sp,#4
@@ -1203,31 +1283,60 @@ math32_unit_shift:
  ld c,a
  jp math32_projection_restore
 math32_projection_lookup:
- push af
- ld a,#20
- ld (#0x2000),a
 _riding_projection_read_directory::
- ld h,#>_riding_projection_directory
- ld l,b
- ld h,(hl)
- ld l,c
- ld a,(hl)
- cp b
+ push af                        ; width flag
+ call _riding_map_projection_row
  jr nz,math32_lookup_miss
- inc h
- ld a,(hl)
- or a
- jr z,math32_lookup_miss
- inc h
- ld h,(hl)
- ld (#0x2000),a
- bit 7,a
- jr z,math32_projection_lookup_mapped
- ld a,#1
- ld (#0x3000),a
-math32_projection_lookup_mapped:
  pop af
  jp _riding_projection_fetch
+
+; BC is the signed coefficient, DE is preserved. Z returns the encoded
+; row page in H with its bank mapped. A miss leaves BC and the mapping intact.
+_riding_map_projection_row::
+ bit 7,b
+ jr nz,math32_lookup_negative
+ call math32_lookup_magnitude
+ ret nz
+ ld b,#0
+ jr math32_lookup_map
+math32_lookup_negative:
+ push bc
+ xor a
+ sub c
+ ld c,a
+ sbc a,a
+ sub b
+ ld b,a
+ call math32_lookup_magnitude
+ pop bc                         ; a miss still needs the signed coefficient
+ ret nz
+ ld b,#128
+math32_lookup_map:
+ ld a,(hl)
+ ld (#0x2000),a
+ bit 7,a
+ jr z,math32_lookup_page
+ ld a,#1
+ ld (#0x3000),a
+math32_lookup_page:
+ inc h
+ ld a,(hl)
+ xor b
+ ld h,a
+ xor a
+ ret
+
+math32_lookup_magnitude:
+ ld h,#>_riding_projection_hash
+ ld l,b
+ ld a,(hl)
+ xor c
+ ld l,a
+ inc h
+ ld a,(hl)
+ inc h                          ; point at the bank page before comparing the tag
+ cp b
+ ret
 math32_lookup_miss:
  pop af
  jp c,math32_projection_full_fallback
@@ -1353,14 +1462,17 @@ math32_wide_lookup:
  scf
  jp math32_projection_lookup
 math32_projection_full_fallback:
- ; The full multiplier may return a zero product without selecting a bank.
- ld a,(#__current_bank)
- ld (#0x2000),a
+ ; A fixed-ROM hash miss leaves the caller bank mapped.
  pop hl
- .endif
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ jp exact_product_digits
+ .else
  dec hl
  dec hl
  jp exact_product_nonzero
+ .endif
 
 ; A signed x in [-255,-1] needs one unsigned byte multiply. Negate
 ; the coefficient first. Its original sign also handles -(-32768).

@@ -17,6 +17,7 @@ ss_coarse: .ds 4
 ss_tr: .ds 4
 ss_reaction_high: .ds 1
 ss_paired: .ds 1
+ss_damp_long: .ds 1                 ; any force input outside signed18
 _riding_spring_scratch_end::
 
 ss_wheel_dvx = 10
@@ -826,6 +827,7 @@ ss_first_moment:
 ss_try_mirrored:
  xor a
  ld (#ss_paired),a
+ ld (#ss_damp_long),a
  ldh (ss_force_wide_used),a
  ld hl,#ss_force_products+28
  ld a,(hl+)
@@ -1075,7 +1077,7 @@ ss_spring_rounded:
  ld (de),a
  inc de
  .endm
- call ss_damping_torque18
+ call ss_damping_scheduled
  ld b,h
  ld c,l
  ss_q24_phase _q24_index_C_FRIC_T,ss_c_fric_t_index
@@ -2071,6 +2073,7 @@ label:
 006$:
 .endm
 
+.area _CODE_15
 ; The first product seeds all seven accumulator bytes, including its sign.
 ss_mt_first_zero:
  xor a
@@ -2078,7 +2081,7 @@ ss_mt_first_zero:
  .rept 7
  ld (hl+),a
  .endm
- jp ss_mt_y0
+ jp ss_mt_mid_y0
 ss_mt_seed_positive:
  push hl
  ld hl,#ss_moment
@@ -2122,6 +2125,223 @@ ss_mt_seed_negative:
  ld (hl+),a
  sbc a,a
  ld (hl),a
+ ret
+
+.area _CODE_8
+.macro ss_damp_fold low,high,first,minus
+ .if first
+ .if minus
+ ld h,a
+ ss_negate
+ ld a,#0
+ sbc a,h
+ .endif
+ ld (#ss_moment+4),a
+ ss_store ss_moment
+ .else
+ ld h,a
+ push hl
+ ld hl,#ss_moment
+ ld a,(hl)
+ low a,e
+ ld (hl+),a
+ ld a,(hl)
+ high a,d
+ ld (hl+),a
+ ld a,(hl)
+ high a,c
+ ld (hl+),a
+ ld a,(hl)
+ high a,b
+ ld (hl+),a
+ pop de
+ ld a,(hl)
+ high a,d
+ ld (hl),a
+ .endif
+.endm
+
+ss_damping_scheduled:
+ ld a,(#ss_damp_long)
+ or a
+ jp nz,ss_damping_torque18
+ss_damp_cert_entry:
+ ; Each axis of a rotated pose anchor has magnitude at most
+ ; 222822 + 157286 + 2. Adding the certified spring displacement
+ ; (magnitude <= 2^17) leaves a signed20 wheel arm. Each individual
+ ; product has magnitude below 2^36. The exact four-term sum fits
+ ; signed40 even when the two horizontal speeds are merged.
+ ld hl,#ss_damping+28
+ .irp j,0,1,2,3
+ ld a,(#ss_damping+24+j)
+ cp a,(hl)
+ jr nz,ss_cert_normal
+ .if j-3
+ inc hl
+ .endif
+ .endm
+ ld hl,#ss_damping
+ .irp j,0,1,2,3
+ ld a,(#ss_damping+4+j)
+ .ifeq j
+ add a,(hl)
+ .else
+ adc a,(hl)
+ .endif
+ ld (hl+),a
+ .endm
+ xor a
+ .rept 4
+ ld (hl+),a
+ .endm
+ss_cert_normal:
+.macro ss_damp_term label,speed,arm,minus,first,next,word,?ready,?two,?tables,?fold,?reverse,?zero,?large
+label:
+ ld hl,#ss_damping+speed+2
+ ld a,(hl-)
+ inc a
+ cp #2
+ jp nc,large
+ dec a
+ ld a,(hl-)
+ ld c,(hl)
+ jr z,ready
+ ld d,a
+ xor a
+ sub a,c
+ ld c,a
+ ld a,#0
+ sbc a,d
+ jp nc,large
+ready:
+ ld l,a
+ or c
+ .if first
+ jp z,zero
+ .else
+ jp z,next
+ .endif
+ ld a,(#ss_damping+arm)
+ ld e,a
+ ld a,(#ss_damping+arm+1)
+ ld d,a
+ ld a,(#ss_damping+arm+2)
+ ld b,a
+ ld a,l
+ or a
+ jr nz,two
+ call ss_byte_product
+ ld a,b
+ add a,a
+ sbc a,a
+ jr fold
+two:
+ dec a
+ jr nz,tables
+ call ss_short_word
+ jr fold
+tables:
+ call word
+fold:
+ ld hl,#ss_damping+speed+2
+ bit 7,(hl)
+ .if minus
+ jr z,reverse
+ .else
+ jr nz,reverse
+ .endif
+ ss_damp_fold add,adc,first,0
+ jp next
+reverse:
+ ss_damp_fold sub,sbc,first,1
+ jp next
+ .if first
+zero:
+ xor a
+ ld hl,#ss_moment
+ .rept 5
+ ld (hl+),a
+ .endm
+ jr next
+ .endif
+large:
+ ; A third magnitude digit contributes at byte two of the product.
+ ld hl,#ss_damping+speed
+ ld de,#ss_damping+arm
+ call ss_damp_three_digit
+ jr fold
+.endm
+ ss_damp_term ss_damp_x0,8,16,0,1,ss_damp_y0,ss_damp_word0
+ ss_damp_term ss_damp_y0,0,24,1,0,ss_damp_x1,ss_damp_word1
+ ss_damp_term ss_damp_x1,12,20,0,0,ss_damp_y1,ss_damp_word2
+ ss_damp_term ss_damp_y1,4,28,1,0,ss_damp_terms_done,ss_damp_word3
+ss_damp_terms_done:
+ jp ss_short_finish
+; The speed magnitude in H:L:C and the arm magnitude in B:DE share the
+; unsigned 24-bit product. Restore the arm sign for the caller's fold.
+ss_damp_three_digit:
+ push de
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld b,(hl)
+ bit 7,b
+ jr z,ss_damp_speed_magnitude
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ss_damp_speed_magnitude:
+ push bc
+ push de
+ ldhl sp,#4
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld b,a
+ bit 7,b
+ jr z,ss_damp_arm_magnitude
+ xor a
+ sub a,e
+ ld e,a
+ ld a,#0
+ sbc a,d
+ ld d,a
+ ld a,#0
+ sbc a,b
+ ld b,a
+ss_damp_arm_magnitude:
+ pop hl
+ ld c,l
+ ld l,h
+ pop af
+ ld h,a
+ call ss_mt_product
+ ; Product in BC:HL:DE. The arm sign remains in memory.
+ ld a,c
+ ld b,h
+ ld c,l
+ pop hl
+ inc hl
+ inc hl
+ bit 7,(hl)
+ jr z,ss_damp_product_ready
+ ld h,a
+ ss_negate
+ ld a,#0
+ sbc a,h
+ss_damp_product_ready:
  ret
 
 ; Return clamp32(sum(arm_x * rely - arm_y * relx) >> 18) in HLDE.
@@ -2473,13 +2693,22 @@ ss_byte_two:
  ld b,a
  ret
 
- ; Four signed24 products of magnitude at most 2^46 fit a signed56
- ; accumulator, and their Q18 result fits signed32 without saturation.
- ss_moment_term ss_mt_x0,8,16,0,0,ss_moment_wide
- ss_moment_term ss_mt_y0,0,24,1,1,ss_mt_wide_term1
- ss_moment_term ss_mt_x1,12,20,0,1,ss_mt_wide_term2
- ss_moment_term ss_mt_y1,4,28,1,1,ss_mt_wide_term3
-ss_moment_shift:
+; A width miss transfers the remaining terms together. Both the signed56
+; and signed72 paths leave a sign-extended result in the same accumulator.
+ss_mt_x0:
+ ld hl,#ss_mt_mid_x0
+ jr ss_damp_remaining
+ss_mt_y0:
+ ld hl,#ss_mt_mid_y0
+ jr ss_damp_remaining
+ss_mt_x1:
+ ld hl,#ss_mt_mid_x1
+ jr ss_damp_remaining
+ss_mt_y1:
+ ld hl,#ss_mt_mid_y1
+ss_damp_remaining:
+ ld e,#15
+ call ___sdcc_bcall_ehl
  ld hl,#ss_moment+2
  ld e,(hl)
  inc hl
@@ -2490,7 +2719,26 @@ ss_moment_shift:
  ld l,a
  ld h,b
  ld a,(#ss_moment+6)
- jp ss_shift18
+ ld c,a
+ ld a,(#ss_moment+7)
+ ld b,a
+ ld a,(#ss_moment+8)
+ jp ss_reduce18
+
+.area _CODE_15
+ ; Four signed24 products of magnitude at most 2^46 fit a signed56
+ ; accumulator, and their Q18 result fits signed32 without saturation.
+ ss_moment_term ss_mt_mid_x0,8,16,0,0,ss_moment_wide
+ ss_moment_term ss_mt_mid_y0,0,24,1,1,ss_mt_wide_term1
+ ss_moment_term ss_mt_mid_x1,12,20,0,1,ss_mt_wide_term2
+ ss_moment_term ss_mt_mid_y1,4,28,1,1,ss_mt_wide_term3
+ ld hl,#ss_moment+6
+ ld a,(hl+)
+ add a,a
+ sbc a,a
+ ld (hl+),a
+ ld (hl),a
+ ret
 
 ; A wide operand still uses at most four byte-table rows. Fold each exact
 ; magnitude into the signed nine-byte sum before moving to the next term.
@@ -2515,20 +2763,9 @@ label:
  ss_mt_wide ss_mt_wide_term1,0,24,1
  ss_mt_wide ss_mt_wide_term2,12,20,0
  ss_mt_wide ss_mt_wide_term3,4,28,1
- ld hl,#ss_moment+2
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld a,(hl+)
- ld b,(hl)
- ld l,a
- ld h,b
- ld a,(#ss_moment+6)
- ld c,a
- ld a,(#ss_moment+7)
- ld b,a
- ld a,(#ss_moment+8)
+ ret
+
+.area _CODE_8
 ss_reduce18:
  ; A:BC is the signed upper portion above the four result bytes (HLDE).
  ; Two final right shifts fit signed32 exactly when A:BC is -2..1.
@@ -2620,6 +2857,7 @@ ss_max32:
  ld (hl+),a
 .endm
 
+.area _CODE_15
 ; Source pointers are consumed while copying their unsigned magnitudes.
 ; Zero and INT32_MIN both fit this representation.
 ss_mt_abs_copy:
@@ -2726,6 +2964,7 @@ ss_magnitude_sub:
  dec (hl)
  ret
 
+.area _CODE_8
 ; A is an unsigned omega digit, DE points to four signed32 row results.
 ss_spin_rows:
  or a
@@ -2804,12 +3043,53 @@ ss_spin_rows_mapped:
 ; The low speed digit seeds the accumulator in BC:DE. Add the upper
 ; digit's three 16-bit products directly at offsets 1, 2 and 3. The
 ; accumulator stays in registers throughout both table reads.
+.macro ss_damp_map_digit digit
+ .ifdef RIDING_GAS_REACTION
+ ld l,digit
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ ld a,l
+ .else
+ ld a,digit
+ rlca
+ rlca
+ rlca
+ and a,#7
+ add a,#36
+ ld (#0x2000),a
+ ld a,digit
+ .endif
+ and a,#31
+ add a,a
+ or a,#>_physics_scale_planes_36
+ ld h,a
+.endm
+
 .macro ss_damp_word label,arm,?unsigned
 label:
  ld h,l
  ld l,c
  push hl
- call _riding_product24x8_row
+ ss_damp_map_digit c
+ ld l,e
+ ld e,(hl)
+ inc h
+ ld a,(hl)
+ ld l,d
+ ld c,(hl)
+ dec h
+ add a,(hl)
+ ld d,a
+ ld l,b
+ ld a,c
+ adc a,(hl)
+ ld c,a
+ inc h
+ ld a,(hl)
+ adc a,#0
+ ld b,a
+
  pop hl                         ; H:L = speed magnitude
  ld a,(#ss_damping+arm+3)
  or a
@@ -2823,7 +3103,7 @@ label:
 unsigned:
  push de                        ; retain final byte zero
  ld e,a                         ; signed adjustment to byte four
- call ss_damp_map
+ ss_damp_map_digit h
  ld a,(#ss_damping+arm)
  ld l,a
  ld a,(hl)
@@ -2858,18 +3138,7 @@ unsigned:
  ss_damp_word ss_damp_word3,28
 
 ss_damp_map:
- ld a,h
- rlca
- rlca
- rlca
- and a,#7
- add a,#36
- ld (#0x2000),a
- ld a,h
- and a,#31
- add a,a
- or a,#>_physics_scale_planes_36
- ld h,a
+ ss_damp_map_digit h
  ret
 ss_damp_finish:
  inc h
@@ -2887,9 +3156,6 @@ ss_damp_finish:
 ; A unit high byte contributes the arm directly at byte offset one.
 ; All larger magnitudes use the existing unsigned two-row table kernel.
 ss_spring_rows:
- ld a,l
- dec a
- jp nz,ss_mt_product_low
  push bc
  push de
  call _riding_product24x8_row
@@ -2913,114 +3179,6 @@ ss_spring_rows:
  ld (#0x2000),a
  ret
 
-; Multiply B:DE (arm magnitude) by H:L:C (speed magnitude). Combine the
-; complete byte-table rows before returning the unsigned product in BC:HL:DE.
-; The spin rows are free by the time the spring and damping products run.
-.macro ss_mt_two_rows
- ; A is the middle speed digit. Save its row while looking up the low digit.
- push bc
- push de
- ld c,a
- call ss_mt_row
- push bc
- push de
- ldhl sp,#4
- ld e,(hl)
- inc hl
- ld d,(hl)
- inc hl
- ld c,(hl)
- inc hl
- ld b,(hl)
- call _riding_product24x8_row
- ldhl sp,#0
- ld a,(hl+)
- add a,d
- ld d,a
- ld a,(hl+)
- adc a,c
- ld c,a
- ld a,(hl+)
- adc a,b
- ld b,a
- ld a,(hl)
- adc a,#0
- ld h,b
- ld l,c
- ld c,a
- ld b,#0
- add sp,#8
-.endm
-ss_magnitude_product:
- ld a,h
- or a
- jr nz,ss_mt_three
- ld a,l
- or a
- jr nz,ss_mt_two
- call _riding_product24x8_row
- ld h,b
- ld l,c
- ld bc,#0
- jr ss_mt_done
-ss_mt_three:
- push hl
- push bc
- push de
- ld c,a
- call ss_mt_row
- ; Store top partial at byte offset 2, then compute the two lower rows.
- ld hl,#ss_spin_mid
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
- ld (hl),c
- inc hl
- ld (hl),b
- pop de
- pop bc
- pop hl
- ld a,l
- ss_mt_two_rows
- ld a,(#ss_spin_mid+0)
- add a,l
- ld l,a
- ld a,(#ss_spin_mid+1)
- adc a,h
- ld h,a
- ld a,(#ss_spin_mid+2)
- adc a,c
- ld c,a
- ld a,(#ss_spin_mid+3)
- adc a,b
- ld b,a
- jr ss_mt_done
-ss_mt_two:
- ss_mt_two_rows
-ss_mt_done:
- ld a,(#__current_bank)
- ld (#0x2000),a
- ret
-ss_mt_row:
- ld a,c
- dec a
- jr z,ss_mt_row_one
- dec a
- jp nz,_riding_product24x8_row
- sla e
- rl d
- ld a,b
- rla
- ld c,a
- ld b,#0
- rl b
- ret
-ss_mt_row_one:
- ld c,b
- ld b,#0
- ret
-
 ; B:DE is signed24, C is an unsigned speed digit. The unsigned table
 ; product for a negative arm includes 2^24 * C. Correct its fourth byte
 ; and return signed32 in BC:DE with the calling bank mapped.
@@ -3039,21 +3197,51 @@ ss_byte_positive:
 ss_byte_mapped_done:
  jp ss_mt_product_done
 
-; B:DE and H:L:C are unsigned 24-bit magnitudes. Preserve the three
-; arm digits across the upper row, so the low row uses the same registers.
+
+; The two lower speed digits always use the same pair of rows. A third
+; digit contributes four bytes at offset two. The first and second
+; multiples are obtained without accessing a multiplication table.
 ss_mt_product:
  ld a,h
  or a
- jr z,ss_mt_product_low
+ jp z,ss_mt_product_low
  dec a
- jr nz,ss_mt_product_upper
- ; A top digit of one contributes the unchanged arm at byte offset two.
+ jr nz,ss_mt_high_multiple
  ld a,e
  ld (#ss_spin_mid),a
  ld a,d
  ld (#ss_spin_mid+1),a
  ld a,b
  ld (#ss_spin_mid+2),a
+ xor a
+ ld (#ss_spin_mid+3),a
+ jr ss_mt_merge_high
+ss_mt_high_multiple:
+ dec a
+ jr nz,ss_mt_table_high
+ ld a,e
+ add a,e
+ ld (#ss_spin_mid),a
+ ld a,d
+ adc a,d
+ ld (#ss_spin_mid+1),a
+ ld a,b
+ adc a,b
+ ld (#ss_spin_mid+2),a
+ ld a,#0
+ rla
+ ld (#ss_spin_mid+3),a
+ jr ss_mt_merge_high
+ss_mt_table_high:
+ push hl
+ push bc
+ push de
+ ld c,h
+ call ss_mt_save_high
+ pop de
+ pop bc
+ pop hl
+ss_mt_merge_high:
  call ss_mt_product_low
  ld a,(#ss_spin_mid)
  add a,l
@@ -3064,11 +3252,15 @@ ss_mt_product:
  ld a,(#ss_spin_mid+2)
  adc a,c
  ld c,a
- ret nc
- inc b
+ ld a,(#ss_spin_mid+3)
+ adc a,b
+ ld b,a
  ret
-ss_mt_product_upper:
- jp ss_magnitude_product
+.area _CODE
+ss_mt_save_high:
+ call _riding_product24x8_row
+ ss_store ss_spin_mid
+ jp ss_mt_product_done
 ss_mt_product_low:
  ld a,l
  or a
@@ -3488,9 +3680,17 @@ ss_force_width24:
  ldh (ss_force_byte3),a
  xor a,b
  and a,#0xe0
+ jr nz,ss_force_mark_wide
+ ldh a,(ss_force_byte3)
+ xor a,b
+ and a,#0xfe                     ; high word is -2, -1, 0 or 1
  jr z,ss_force_wide
+ jr ss_force_long
 ss_force_mark_wide:
  ldh (ss_force_wide_used),a
+ss_force_long:
+ ld a,#1
+ ld (#ss_damp_long),a
 ss_force_wide:
  ld l,d
  ldh a,(#ss_force_page)
@@ -3567,6 +3767,7 @@ ss_force_lane_done:
 .area _CODE_8
 ss_force_generic:
  ld a,#1
+ ld (#ss_damp_long),a
  ldh (ss_force_wide_used),a
  call ss_force_generic_lane
  call ss_force_generic_lane

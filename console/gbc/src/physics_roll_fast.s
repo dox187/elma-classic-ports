@@ -418,7 +418,7 @@ ground_generic_pair:
 roll_project_directory:
  ldhl sp,#8
  call roll_project_component
- ; The second component begins by reading the directory in bank 20.
+ ; Start the next row lookup with the ninth MBC5 bank bit clear.
  xor a
  ld (#0x3000),a
  pop hl
@@ -532,27 +532,10 @@ roll_project_component:
  cp #64
  jr z,roll_component_unit
 roll_project_lookup:
- ld a,#20
- ld (#0x2000),a
- ld h,#>_riding_projection_directory
- ld l,b
- ld h,(hl)
- ld l,c
- ld a,(hl)
- cp b
+ push bc                        ; mirrored -32768 needs its original coefficient
+ call _riding_map_projection_row
+ pop bc
  jr nz,roll_component_miss
- inc h
- ld a,(hl)
- or a
- jr z,roll_component_miss
- inc h
- ld h,(hl)
- ld (#0x2000),a
- bit 7,a
- jr z,roll_project_lookup_mapped
- ld a,#1
- ld (#0x3000),a
-roll_project_lookup_mapped:
  bit 7,h
  jr z,roll_project_rows
  res 7,h

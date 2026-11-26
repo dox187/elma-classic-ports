@@ -369,24 +369,54 @@ prepare_shift_added_loop:
 static uint8_t prepare_rebase_column(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y,
                                      uint16_t start,uint8_t budgeted) {
     uint16_t top;
-    if(prepare_stage!=PREP_READY || !prepare_horizontal || prepare_vertical
-       || prepare_added_count!=19 || retired_count!=19
+#ifndef WORLD_GRAPHICS_ZX0
+    /* A partially acquired column has no published map cells. Its retained
+     * prefix would be reacquired, in exactly this order, before any misses. */
+    uint8_t partial=prepare_stage==PREP_COL_ACQUIRE && !budgeted
+                 && prepare_index==prepare_added_count && prepare_index<19;
+#else
+    const uint8_t partial=0;
+#endif
+    if((!partial && (prepare_stage!=PREP_READY || prepare_added_count!=19))
+       || !prepare_horizontal || prepare_vertical || retired_count!=19
        || ((prepare_old_x^old_x)|(prepare_old_y^old_y)|(prepare_x^x))>=8U)return 0;
     top=y>>3;
     if((uint16_t)(prepare_left-prepare_old_left+1)>2 || prepare_left==prepare_old_left
        || (top!=prepare_old_top+1 && (uint16_t)(top+1)!=prepare_old_top))return 0;
-    /* Match the setup reservation before retiring, moving or reading refs. */
     if(budgeted && !prepare_budget(start,21))return 0;
     if(top>prepare_old_top) {
-        world_refs_retire_fixed(prepare_added,1);
-        prepare_shift_added();
-    } else world_refs_retire_fixed(prepare_added+18,1);
-    prepare_added_count=18;
+        if(prepare_added_count) {
+            world_refs_retire_fixed(prepare_added,1);
+            prepare_shift_added();
+            --prepare_added_count;
+        }
+#ifndef WORLD_GRAPHICS_ZX0
+        if(partial) {
+            uint8_t i;
+            /* The old first cell is above the new top. Keep fetched IDs,
+             * attributes (including assigned VBK), and completed tile IDs
+             * at their matching index before resuming the acquisition. */
+            for(i=0;i<18;++i) {
+                strip_low[i]=strip_low[i+1];strip_high[i]=strip_high[i+1];
+                strip_attrs[i]=strip_attrs[i+1];output_tiles[i]=output_tiles[i+1];
+            }
+            ++prepare_strip_y;
+        }
+#endif
+    } else if(!partial) {
+        world_refs_retire_fixed(prepare_added+18,1);
+        --prepare_added_count;
+    }
     release_strip(prepare_left>prepare_old_left?prepare_left:prepare_old_left,
                   top>prepare_old_top?prepare_old_top:prepare_old_top+18,0,20);
     prepare_old_x=old_x;prepare_old_y=old_y;prepare_x=x;prepare_y=y;
-    prepare_top=top;prepare_vertical=1;prepare_index=0;
-    prepare_stage=PREP_ROW_FETCH;
+    prepare_top=top;prepare_vertical=1;
+    if(partial) {
+        prepare_index=prepare_added_count;prepare_count=18;
+        prepare_stage=prepare_index==18?PREP_COL_PUBLISH:PREP_COL_ACQUIRE;
+    } else {
+        prepare_index=0;prepare_stage=PREP_ROW_FETCH;
+    }
     return 1;
 }
 
@@ -976,6 +1006,53 @@ void world_prepare(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y,uint16_t 
     prepare_run(start,1);
 }
 
+#ifndef WORLD_GRAPHICS_ZX0
+/* Finish a vertical run directly into the hidden column. The twenty cells
+ * retained from the prepared row are already in VRAM and its SRAM mirror. */
+static void finish_column(uint16_t x,uint16_t y,uint8_t count) {
+    prepare_strip_x=x;prepare_strip_y=y;prepare_count=count;
+    prepare_index=0;prepare_added_count=0;
+    fetch_strip(x,y,1,count,0,0);
+    do {prepare_acquire();} while(prepare_index<count);
+    prepare_publish(1);
+}
+
+static uint8_t finish_prepared_row(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) {
+    uint16_t left,slot,column;
+    uint8_t i,right,down;
+    if(prepare_horizontal || !prepare_vertical || prepare_added_count!=21 || retired_count!=21
+       || ((prepare_old_x^old_x)|(prepare_old_y^old_y)|(prepare_y^y))>=8U)return 0;
+    left=x>>3;
+    if(left==prepare_old_left || (uint16_t)(left-prepare_old_left+1)>2)return 0;
+    /* The original cancel-and-reacquire sequence can consume at most 19
+     * free slots (18 column cells and one corner). If all next 19 slots
+     * are free now, its circular allocator cannot select any of the 21
+     * pinned row slots, even if a column hit revives another cached slot.
+     * Both paths then choose identical slots, evictions and DMA uploads. */
+    slot=next_slot;
+    for(i=0;i<19;++i) {
+        if(references[slot])return 0;
+        if(++slot==CACHE_COUNT)slot=0;
+    }
+    right=left>prepare_old_left;
+    down=prepare_top>prepare_old_top;
+    world_refs_retire_fixed(prepare_added+(right?0:20),1);
+    /* The prepared outgoing row already contains the corner belonging to
+     * the outgoing column. Retire its other eighteen cells at commit. */
+    release_strip(right?prepare_old_left:prepare_old_left+20,
+                  down?prepare_old_top+1:prepare_old_top,1,18);
+    column=right?left+20:left;
+    if(down)finish_column(column,prepare_top,19);
+    else {
+        /* Keep original allocation order: non-corner cells then corner. */
+        finish_column(column,prepare_top+1,18);
+        finish_column(column,prepare_top,1);
+    }
+    prepare_stage=PREP_READY;
+    return 1;
+}
+#endif
+
 void world_scroll(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) BANKED {
     if(((old_x^x)|(old_y^y))<8U) {
         /* A lookahead target stays hidden while this tile remains current.
@@ -985,7 +1062,15 @@ void world_scroll(uint16_t old_x,uint16_t old_y,uint16_t x,uint16_t y) BANKED {
         move_bkg((uint8_t)x,(uint8_t)y);return;
     }
     if(!prepare_matches(old_x,old_y,x,y)
-       && (prepare_stage!=PREP_READY || !prepare_rebase_column(old_x,old_y,x,y,0,0))) {
+       && ((prepare_stage!=PREP_READY
+#ifndef WORLD_GRAPHICS_ZX0
+            && prepare_stage!=PREP_COL_ACQUIRE
+#endif
+           ) || (!prepare_rebase_column(old_x,old_y,x,y,0,0)
+#ifndef WORLD_GRAPHICS_ZX0
+               && !(prepare_stage==PREP_READY && finish_prepared_row(old_x,old_y,x,y))
+#endif
+           ))) {
         if(prepare_stage)prepare_cancel();
         prepare_begin(old_x,old_y,x,y);
     }

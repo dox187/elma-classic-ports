@@ -11,20 +11,20 @@ from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE / 'tools'))
-from projection_tables import BANKS, COEFFICIENTS, DIRECTORY_BANK, MIRRORED, ROWS_PER_BANK, row_page, validate_layout
+from projection_tables import BANKS, COEFFICIENTS, MIRRORED, ROWS_PER_BANK, row_page, validate_layout
 
 
 def verify_table_bytes(image, symbols):
-    base = DIRECTORY_BANK * 16384
-    table = base + (symbols['_riding_projection_directory'] & 16383)
+    table = symbols['_riding_projection_hash']
+    assert table == 0x200
     accepted = {}
     for y in range(-32768, 32768):
-        high, low = (y >> 8) & 255, y & 255
-        tag_page = image[table + high]
-        address = base + (tag_page - 0x40) * 256 + low
-        bank = image[address + 256]
-        if bank and image[address] == high:
-            accepted[y] = (bank + (256 if bank & 128 else 0), image[address + 512])
+        high, low = divmod(abs(y), 256)
+        slot = low ^ image[table + high]
+        if image[table + 256 + slot] == high:
+            bank = image[table + 512 + slot]
+            page = image[table + 768 + slot] ^ (128 if y < 0 else 0)
+            accepted[y] = (bank + (256 if bank & 128 else 0), page)
     expected = {y: (BANKS[i // ROWS_PER_BANK], row_page(i)) for i, y in enumerate(COEFFICIENTS)}
     for y in MIRRORED:
         bank, page = expected[-y]
@@ -149,6 +149,11 @@ def vectors():
             y = (((high * 256 + slot) ^ 32768) - 32768)
             yield -32768, y
             yield 0x456789ab, y
+    for boundary in (32768, 65536, 131072):
+        for delta in (-2, -1, 0, 1, 2):
+            for sign in (-1, 1):
+                for y in (-32768, -24585, -4098, -773, 773, 4098, 24585, 32767):
+                    yield sign*(boundary+delta), y
     for _ in range(4096):
         yield rng.choice(endpoints) if rng.randrange(2) else rng.randint(-(1 << 31), (1 << 31)-1), rng.randint(-32768, 32767)
 

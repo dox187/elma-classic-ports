@@ -325,7 +325,7 @@ def main():
     src = args.play.read_text()
     start = src.index('static void objects_near_add(')
     candidate = src[start:src.index('\nuint8_t gbc_bike_bounded', start)]
-    candidate = candidate.replace('static void check_objects(void)', 'void fast_check(void)', 1)
+    candidate = candidate.replace('static void check_objects(void)', 'void fast_check(void) BANKED', 1)
     declarations = []
     for pattern in (r'static uint8_t objects_empty_valid,objects_empty_apples;',
                     r'uint16_t gbc_objects_empty_bounds\[4\];',

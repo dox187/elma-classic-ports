@@ -430,6 +430,9 @@ contact_loop_accept:
  ld (hl),#>(_Ct+10)
  jp contact_loop_next
 contact_loop_merge:
+ .ifdef RIDING_LEAF_REGION
+ ld (#_riding_dense_merged),a   ; nonzero first-contact flag
+ .endif
  call _riding_contact_merge
  or a,a
  jp z,contact_loop_next

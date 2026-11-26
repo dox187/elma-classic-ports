@@ -3,13 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test27 — 8 MiB](build/elma-gbc-v0.96-test27-8m.gbc)**.
-Across 216 controller routes on all 54 courses it averages **27.82 physics
-updates per emulated second**, up from **27.29** in test26. The 24 longer
-routes average **26.11**, and the full Freefall descent averages **28.87**.
-The target is **29.86**. Forty-nine standard routes kept the two-display-frame
+**[0.96 test28 — 8 MiB](build/elma-gbc-v0.96-test28-8m.gbc)**.
+Across 216 controller routes on all 54 courses it averages **28.04 physics
+updates per emulated second**, up from **27.82** in test27. The 24 longer
+routes average **26.75**, and the full Freefall descent averages **29.04**.
+The target is **29.86**. Fifty-one standard routes kept the two-display-frame
 deadline throughout. All 75,252 recorded physics substeps and all 25,112
-published updates in the standard and extended replays matched test26.
+published updates in the standard and extended replays matched test27.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -59,6 +59,15 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test28 — damping, terrain contacts and scrolling
+
+The four-term damping moment and suspension braking use exact integer
+shortcuts. Dense terrain queries reuse ordered candidate spans. Scrolling
+can retain both completed rows and partially filled columns. Standard
+deadline misses including DMA fell from 2,906 to 2,584. The slowest standard
+update increased from 468,784 to 511,924 cycles.
+[Timings and fidelity checks](PERFORMANCE.md#096-test28--combined-cartridge)
 
 ## 0.96 test27 — wheel projections, spring torque and rider limits
 
