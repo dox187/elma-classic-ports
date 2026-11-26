@@ -84,6 +84,7 @@ check-scheduled: $(GAME_ROM)
 	$(PYTHON) test/check_wide_brake.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-brake
 	$(PYTHON) test/check_wide_wheels.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/wide-wheels
 	$(PYTHON) test/check_close_reaction.py --out $(SCHEDULE_CHECK_DIR)/close-reaction
+	$(PYTHON) test/check_partial_motion.py --gen $(GEN) --out $(SCHEDULE_CHECK_DIR)/partial-motion
 	$(PYTHON) test/check_physics_move.py --out $(SCHEDULE_CHECK_DIR)/move
 	$(PYTHON) test/check_force_accumulator.py --out $(SCHEDULE_CHECK_DIR)/force
 	$(PYTHON) test/check_force_registers.py --out $(SCHEDULE_CHECK_DIR)/force-registers

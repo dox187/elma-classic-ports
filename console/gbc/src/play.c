@@ -79,7 +79,7 @@ static uint8_t camera_prepared;
 #define body_world_x body_world[0]
 #define body_world_y body_world[1]
 static uint16_t clock_fraction;
-static uint8_t clock_digits[6];
+static uint8_t clock_minutes,clock_seconds_tens,clock_seconds_ones,clock_centiseconds;
 static const uint16_t hud_palette[] = {RGB_BLACK, RGB_BLACK, RGB_WHITE, RGB_WHITE};
 #include "ui_font.h"
 #include "clock_font.h"
@@ -266,15 +266,22 @@ objects_checked:
 uint8_t gbc_bike_bounded(void) __sdcccall(0);
 
 static void clock_tick(void) BANKED {
-    uint8_t i;
-    clock_fraction+=10000;
-    while(clock_fraction>=5973) {
-        clock_fraction-=5973;
-        for(i=6;i;--i) {
-            if(++clock_digits[i-1] < (i==3?6:10))break;
-            clock_digits[i-1]=0;
-        }
+    /* Advance by the same display-time units per completed physics step.
+     * The whole centiseconds are constant, with at most one fractional carry. */
+    uint8_t increment=(10000U*(60/PH_HZ))/5973U;
+    clock_fraction+=(10000U*(60/PH_HZ))%5973U;
+    if(clock_fraction>=5973U) {
+        clock_fraction-=5973U;
+        ++increment;
     }
+    clock_centiseconds+=increment;
+    if(clock_centiseconds<100)return;
+    clock_centiseconds-=100;
+    if(++clock_seconds_ones<10)return;
+    clock_seconds_ones=0;
+    if(++clock_seconds_tens<6)return;
+    clock_seconds_tens=0;
+    if(++clock_minutes==100)clock_minutes=0;
 }
 
 static void hud_text(const char *text,uint8_t first,uint8_t width) {
@@ -308,13 +315,13 @@ static void draw_hud(void) {
     /* Use prebuilt native glyph pairs: no string formatting or font raster
      * work on the per-frame path. Usually only the hundredths tile changes. */
     VBK_REG=1;
-    value=clock_digits[4]*10+clock_digits[5];
+    value=clock_centiseconds;
     if(value!=hud_centiseconds){hud_centiseconds=value;set_bkg_data(239,1,hud_digit_pairs[value]);}
-    value=clock_digits[3];
+    value=clock_seconds_ones;
     if(value!=hud_seconds_ones_digit){hud_seconds_ones_digit=value;set_bkg_data(238,1,hud_seconds_ones[value]);}
-    value=clock_digits[2];
+    value=clock_seconds_tens;
     if(value!=hud_seconds_tens_digit){hud_seconds_tens_digit=value;set_bkg_data(237,1,hud_seconds_tens[value]);}
-    value=clock_digits[0]*10+clock_digits[1];
+    value=clock_minutes;
     if(value!=hud_minutes){hud_minutes=value;set_bkg_data(236,1,hud_digit_pairs[value]);}
     VBK_REG=0;
 }
@@ -354,7 +361,7 @@ static void start_game(void) BANKED {
     game_state=RIDING;game_apples_left=0;game_time_frames=0;clock_fraction=0;volt_wait=0;
     game_player_index=save_player;game_new_record=0;game_previous_best=0;
     last_hud_state=255;object_phase=0;result_details=0;
-    for(i=0;i<6;++i)clock_digits[i]=0;
+    clock_minutes=clock_seconds_tens=clock_seconds_ones=clock_centiseconds=0;
     for(i=0;i<OBJECT_COUNT;++i) {
         game_object_active[i]=1;
         if(level_objects[i].kind==2)++game_apples_left;
@@ -446,7 +453,7 @@ void game_wait_first_frame(uint16_t start) NONBANKED {
 }
 
 void main(void) NONBANKED {
-    uint8_t keys,pressed,input,substep,tick,action,line;
+    uint8_t keys,pressed,input,substep,action,line;
     uint16_t start,now;
     int32_t wheel_speed;
     DISPLAY_OFF;cpu_fast();game_state=MENU;game_level_index=0;
@@ -511,7 +518,7 @@ void main(void) NONBANKED {
                     if(input&(GBC_ROTATE_LEFT|GBC_ROTATE_RIGHT))volt_wait=GAME_VOLT_WAIT_STEPS;
                 }
                 physics_step(input);++game_steps;game_time_frames+=60/PH_HZ;
-                for(tick=0;tick<60/PH_HZ;++tick)clock_tick();
+                clock_tick();
                 if(!gbc_bike.alive || !gbc_bike_bounded()){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
                 else check_objects();
                 input&=GBC_GAS|GBC_BRAKE;

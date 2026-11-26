@@ -2442,3 +2442,31 @@ Banks 508–511 remain erased. Copy the test15 generated profile to
 `build/gen-v096-test16-8m`, then run `tools/build.py --gen
 build/gen-v096-test16-8m --rom-mib 8 --out build/elma-gbc-v0.96-test16-8m.gbc`
 using the project Python. Reports are in `build/v096-test16/`.
+
+### 0.96 test17 — combined cartridge
+
+| Full-game PyBoy workload | Test16 | Test17 |
+| --- | ---: | ---: |
+| Average updates/s across 216 routes | 22.533 | 22.748 |
+| Freefall updates/s, full descent | 22.786 | 23.174 |
+| Longest update, SM83 T-cycles | 557,824 | 556,912 |
+| Updates over 280,896 cycles / 19,885 | 12,514 | 12,056 |
+| Routes within budget throughout / 216 | 13 | 18 |
+
+Partial-step motion uses the existing coefficient table. Its exact
+product and residual determine displacement with a single carry. The HUD
+updates hundredths directly from completed simulation steps. All 19,885
+controller updates matched test16 at both boundaries. All 12,380 native
+states matched test5. All 45 PC landing and braking checks passed. The
+20 seeded spin comparisons reproduced test16. The motion oracle passed
+42,080 axis updates, including extreme velocities, Q24 fractions,
+mapper restoration and position wraparound. The clock matched integer
+division in 7,191,492 cases each at 30 and 60 Hz, including minute wrap.
+The display comparison matched shadow sprites and tile patterns on 1,216
+synchronized updates. Menu, audio, HUD, player and save checks passed.
+
+The ROM SHA-256 is `7722d13795839ecb9aa0f479713f33b15ea3ea9c3c2d11463097f6b744ae4230`.
+Banks 508–511 are erased. Rebuild from a copy of the test16 generated
+profile using `tools/build.py --gen build/gen-v096-test17-8m --rom-mib 8
+--out build/elma-gbc-v0.96-test17-8m.gbc`. Reports are in
+`build/v096-test17/`. Physical cartridge timing is pending.
