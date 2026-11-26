@@ -172,12 +172,17 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
     return close_segment(ex-x,ey-y,dx,dy,d2,radius,r2,ca-cd);
 }
 
-/* Cached wheel-expanded boxes conservatively contain the smaller head
- * capsule. Reject distant records before constructing the exact predicate. */
+/* The cached box spans [edge_min-R_WHEEL, edge_max+R_WHEEL] on each
+ * axis. An integer point strictly inside the head radius can extend at
+ * most radius-1 units past the edge. Shift each query extreme by the
+ * unused expansion before applying the same monotone saturated encoding.
+ * A strict comparison of the encoded values therefore proves separation,
+ * even when a long piece or a stored edge clips the encoding range. */
 static uint8_t scan(int16_t px,int16_t py,int16_t qx,int16_t qy,uint16_t radius){
     if(!Seg_left)return 0;
-    uint8_t x0=seg_box1(minimum(px,qx)),x1=seg_box1(maximum(px,qx));
-    uint8_t y0=seg_box1(minimum(py,qy)),y1=seg_box1(maximum(py,qy));
+    int16_t margin=R_WHEEL-(int16_t)radius+1;
+    uint8_t x0=seg_box1(minimum(px,qx)+margin),x1=seg_box1(maximum(px,qx)-margin);
+    uint8_t y0=seg_box1(minimum(py,qy)+margin),y1=seg_box1(maximum(py,qy)-margin);
     const seg_t *s;
     while((s=seg_next())){
         if(x1<s->x0||x0>s->x1||y1<s->y0||y0>s->y1)continue;
@@ -427,21 +432,53 @@ uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED
         ld e,a
         ld d,(hl)
         ldhl sp,#7
-        call head_axis_clear
+        ld a,(hl+)
+        and c
+        cp e
+        jr nz,head_uncached
+        ld a,(hl+)
+        cp d
+        jr nz,head_uncached
+        ld a,(hl)
+        or a
         jr nz,head_uncached
         ldhl sp,#15
-        call head_axis_clear
+        ld a,(hl+)
+        and c
+        cp e
+        jr nz,head_uncached
+        ld a,(hl+)
+        cp d
+        jr nz,head_uncached
+        ld a,(hl)
+        or a
         jr nz,head_uncached
         ld hl,#_clear_y
         ld a,(hl+)
         ld e,a
         ld d,(hl)
         ldhl sp,#11
-        call head_axis_clear
+        ld a,(hl+)
+        and c
+        cp e
+        jr nz,head_uncached
+        ld a,(hl+)
+        cp d
+        jr nz,head_uncached
+        ld a,(hl)
+        or a
         jr nz,head_uncached
         ldhl sp,#19
-        call head_axis_clear
-        ret z  ; On a match A is zero (no collision).
+        ld a,(hl+)
+        and c
+        cp e
+        jr nz,head_uncached
+        ld a,(hl+)
+        cp d
+        jr nz,head_uncached
+        ld a,(hl)
+        or a
+        ret z   ; A is zero on a complete certificate match.
 head_uncached:
 #ifdef RIDING_HEAD_TERRAIN
         ; Native banked stack still contains both Q10 endpoints. Extract the
@@ -509,17 +546,6 @@ head_map_clear:
 head_original:
 #endif
         jp _riding_swept_head_uncached
-head_axis_clear:
-        ld a,(hl+)
-        and a,c
-        cp a,e
-        ret nz
-        ld a,(hl+)
-        cp a,d
-        ret nz
-        ld a,(hl)
-        or a,a
-        ret
     __endasm;
 }
 #define HEAD_QUERY riding_swept_head_uncached
@@ -577,6 +603,15 @@ uint8_t riding_capsule_test(int16_t px,int16_t py,int16_t qx,int16_t qy,
     seg_t s;
     s.px=ax;s.py=ay;s.dx=ex;s.dy=ey;
     s.len=(int16_t)isqrt32((uint32_t)(mul16(ex,ex)+mul16(ey,ey)));
-    return capsule(px,py,qx,qy,&s,radius);
+    uint8_t narrow=capsule(px,py,qx,qy,&s,radius);
+    /* Build the same saturated wheel bounds as the geometry exporter and
+     * check the broad phase independently of the direct capsule result. */
+    s.x0=seg_box1(minimum(ax,ax+ex)-R_WHEEL);
+    s.x1=seg_box1(maximum(ax,ax+ex)+R_WHEEL);
+    s.y0=seg_box1(minimum(ay,ay+ey)-R_WHEEL);
+    s.y1=seg_box1(maximum(ay,ay+ey)+R_WHEEL);
+    Seg_cur=&s;Seg_left=1;
+    if(scan(px,py,qx,qy,radius)!=narrow)return 2;
+    return narrow;
 }
 #endif

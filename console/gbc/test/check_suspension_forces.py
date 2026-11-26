@@ -47,6 +47,10 @@ _fixture_forces::
  ld (#_fixture_bank),a
  ret
 ff_bank: .db 0xa5
+_fixture_mirror::
+ call ss_spring_total
+ ss_read ss_ts
+ ret
 """
 
 
@@ -122,6 +126,47 @@ def fixture(native, source, out, lcc):
     return rom
 
 
+def mirrored_cases():
+    for a in range(13):
+        for b in range(13):
+            for sign in (-1, 1):
+                arm = sign * ((1 << a) + 8192)
+                delta = sign * ((1 << b) + 12288)
+                yield arm, -arm, 0, 0, delta, delta
+    for bit in range(32):
+        mask = 1 << bit
+        def flip(x):
+            return ((x ^ mask) + 2**31) % 2**32 - 2**31
+        yield -101, flip(101), 0, 0, 77, 77
+        yield -101, 101, flip(0), 0, 77, 77
+        yield -101, 101, 0, flip(0), 77, 77
+        yield -101, 101, 0, 0, 77, flip(77)
+    yield -2**31, -2**31, 0, 0, 1, 1
+
+
+def check_mirrored(emulator, symbols):
+    # Invoke the same bank-8 helper used during both idle and active work.
+    mem, reg = emulator.memory, emulator.register_file
+    code, stack = 0xc900, 0xcff0
+    entry = symbols['_fixture_mirror']
+    mem[0x3000] = 0
+    mem[0x2000] = mem[symbols['__current_bank']] = entry >> 16
+    mem[code:code+5] = [0xcd, entry & 255, (entry >> 8) & 255, 0x18, 0xfe]
+    anchor = symbols['_riding_pose_anchor']
+    displacement = symbols['_riding_spring_product_rows'] + 28
+    count = 0
+    for left, right, dx0, dx1, dy0, dy1 in mirrored_cases():
+        mem[anchor:anchor+16] = struct.pack('<4i', left, right, 537, -129)
+        mem[displacement:displacement+16] = struct.pack('<4i', dx0, dx1, dy0, dy1)
+        reg.SP, reg.PC = stack, code
+        emulator.tick(1, False)
+        assert (reg.PC, reg.SP) == (code+3, stack), (count, hex(reg.PC), hex(reg.SP))
+        expected = ((left*dy0 - 537*dx0) // 4096 + (right*dy1 + 129*dx1) // 4096) & 0xffffffff
+        assert (reg.B << 24 | reg.C << 16 | reg.D << 8 | reg.E) == expected
+        count += 1
+    return count
+
+
 def main():
     base = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
@@ -178,9 +223,10 @@ def main():
             emulator.tick(10, False)
             if index == len(work) or failures:
                 break
+        mirrored = check_mirrored(emulator, symbols)
     finally:
         emulator.stop(save=False)
-    report = dict(vectors=index, expected=len(work), errors=failures, passed=index == len(work) and not failures)
+    report = dict(mirrored_cases=mirrored, vectors=index, expected=len(work), errors=failures, passed=index == len(work) and not failures)
     (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))
     return 0 if report['passed'] else 1

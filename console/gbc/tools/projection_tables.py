@@ -153,6 +153,17 @@ def planes(y):
             for row in (unsigned, signed) for shift in (0, 8, 16)]
 
 
+def shallow_rows(magnitude):
+    """For y = high * 256 + low, increasing low can cross one Q14 boundary."""
+    quotient, threshold = bytearray(), bytearray()
+    for digit in range(256):
+        high = (digit ^ 128) - 128
+        whole, remainder = divmod(8192 - high * 256 * magnitude, 16384)
+        quotient.append(whole & 255)
+        threshold.append(min(255, remainder // magnitude))
+    return quotient, threshold
+
+
 def byte_lines(data):
     return [' .db ' + ','.join(map(str, data[i:i + 32])) for i in range(0, len(data), 32)]
 
@@ -164,6 +175,11 @@ def generate(source, destination):
     for page in directory():
         output.extend(byte_lines(page))
     output.append(READER)
+    output.append('.area _CODE_4')
+    for magnitude in (61, 9):
+        output.append(f'_riding_shallow_dot_{magnitude}::')
+        for row in shallow_rows(magnitude):
+            output.extend(byte_lines(row))
     for group, bank in enumerate(BANKS):
         output.extend((f'.area _CODE_{bank}', f'_riding_projection_bank_{bank}::'))
         for y in COEFFICIENTS[group * 10:(group + 1) * 10]:

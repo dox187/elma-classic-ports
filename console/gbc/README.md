@@ -3,11 +3,12 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test19 — 8 MiB](build/elma-gbc-v0.96-test19-8m.gbc)**.
-Across 216 controller routes on all 54 courses this ROM averages **23.02
-physics updates per emulated second**, up from **22.83** in test18. The
-full Freefall descent averages **23.36**. The target is **29.86**.
-All 19,885 compared gameplay updates reproduce test18.
+**[0.96 test20 — 8 MiB](build/elma-gbc-v0.96-test20-8m.gbc)**.
+Across 216 controller routes on all 54 courses this ROM averages **23.04
+physics updates per emulated second**, up from **23.02** in test19. The
+full Freefall descent averages **23.40**. The target is **29.86**.
+All 19,885 compared gameplay updates reproduce test19. Twenty routes
+met the two-display-frame deadline throughout.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -57,6 +58,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test20 — spring symmetry and terrain contacts
+
+When the left and right springs exert opposite moments, the solver computes
+their exact combined rounding remainder. The contact solver has a shorter
+projection for two frequent terrain directions. The head collision check
+uses its own radius to reject distant edges. The live HUD timer passed its
+90-updates-in-180-display-frames check. Whole-game timing still misses
+the two-frame budget on 11,440 of the 19,885 measured updates.
+[Full timings and validation](PERFORMANCE.md#096-test20--combined-cartridge)
 
 ## 0.96 test19 — geometry, wheel rotation and torque
 

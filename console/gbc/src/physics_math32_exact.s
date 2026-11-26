@@ -851,6 +851,24 @@ math32_dot14_first:
  ld l,e
  jp _riding_mulq14_regs
 math32_dot14_pair:
+ .ifdef RIDING_PROJECTION_TABLES
+ ; (-1, k/16384) projects to round(y*k/16384) - x exactly.
+ ld a,b
+ cp #0xc0
+ jr nz,math32_dot14_general
+ ld a,c
+ or a
+ jr nz,math32_dot14_general
+ ld a,h
+ inc a
+ jr nz,math32_dot14_general
+ ld a,l
+ cp #195
+ jp z,math32_dot_shallow
+ cp #247
+ jp z,math32_dot_shallow
+math32_dot14_general:
+ .endif
  push hl
  ld hl,#4
  add hl,de
@@ -909,6 +927,82 @@ math32_dot14_pair:
  ld hl,#0x7fff
  ld de,#0xffff
  ret
+
+ .ifdef RIDING_PROJECTION_TABLES
+math32_dot_shallow:
+ ld c,l                      ; low byte of -61 or -9
+ push de                     ; first vector component
+ ld hl,#4
+ add hl,de
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ add a,a
+ sbc a,a
+ cp (hl)
+ jr nz,math32_dot_shallow_wide
+ inc hl
+ cp (hl)
+ jr nz,math32_dot_shallow_wide
+ ld hl,#_riding_shallow_dot_61
+ ld a,c
+ cp #195
+ jr z,math32_dot_shallow_row
+ ld hl,#_riding_shallow_dot_9
+math32_dot_shallow_row:
+ ld c,d
+ ld b,#0
+ add hl,bc
+ ld a,#4
+ ld (#0x2000),a
+ ld d,(hl)
+ inc h                       ; low-byte threshold is 256 bytes after quotient
+ ld a,(hl)
+ cp e
+ ld a,d
+ sbc a,#0
+ ld e,a
+ add a,a
+ sbc a,a
+ ld b,a                      ; sign of the rounded, signed-byte product
+ ld a,(#__current_bank)
+ ld (#0x2000),a
+ pop hl
+ ld a,e
+ sub (hl)
+ ld e,a
+ inc hl
+ ld a,b
+ sbc (hl)
+ ld d,a
+ inc hl
+ ld a,b
+ sbc (hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc (hl)
+ ld h,(hl)                   ; sign of x
+ ld l,a
+ xor b
+ bit 7,a
+ jr z,math32_dot_shallow_done
+ ld a,h
+ xor b                       ; only opposite operand signs can overflow
+ bit 7,a
+ jp nz,exact_reduce_saturate
+math32_dot_shallow_done:
+ ld h,l
+ ld l,c
+ ret
+math32_dot_shallow_wide:
+ pop de
+ ld l,c
+ ld h,#255
+ ld bc,#0xc000
+ jp math32_dot14_general
+ .endif
 
 ; Signed16 components need at most two 16-by-8 table rows. Keep the
 ; full signed48 product contract for mixed-width vectors and cancellation.

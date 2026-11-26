@@ -375,19 +375,23 @@ done:
 .endm
 ; The four spring displacements occupy the future damper-product rows.
 ; The spring batch consumes all four before the damper batch fills its rows.
-.macro ss_wheel_inputs wheel,offset
+.macro ss_wheel_displacement offset
  ss_read _riding_pose_anchor+offset
  ss_sub ss_damping+16+offset
  ss_write ss_force_products+28+offset
  ss_read _riding_pose_anchor+8+offset
  ss_sub ss_damping+24+offset
  ss_write ss_force_products+36+offset
+.endm
+.macro ss_wheel_spring offset
  ss_spring_pair _riding_pose_anchor+offset,_riding_pose_anchor+8+offset,ss_force_products+28+offset,ss_force_products+36+offset
  .if offset
  ss_accumulate ss_ts
  .else
  ss_write ss_ts
  .endif
+.endm
+.macro ss_wheel_relative_velocity wheel,offset
  ss_read ss_damping+offset
  ss_add _Bike+wheel+8
  ss_reverse_sub _Bike+8
@@ -567,9 +571,104 @@ _riding_spring_geometry::
  jp ss_spin_narrow
 
 _riding_spring_inputs::
- ss_wheel_inputs 24,0
- ss_wheel_inputs 48,4
+ ss_wheel_displacement 0
+ ss_wheel_displacement 4
+ call ss_spring_total
+ ss_wheel_relative_velocity 24,0
+ ss_wheel_relative_velocity 48,4
  ret
+
+; At a level pose both wheel springs often have identical vertical
+; displacement and opposite horizontal anchors. With no horizontal
+; displacement their unshifted moments are P and -P. The sum of the
+; two floors is zero when P is divisible by 4096, and -1 otherwise.
+ss_spring_total:
+ ld hl,#ss_force_products+28
+ ld a,(hl+)
+ or a,(hl)
+ jr nz,ss_spring_general
+ .rept 6
+ inc hl
+ or a,(hl)
+ .endm
+ jr nz,ss_spring_general
+ ld hl,#ss_force_products+40
+ .irp offset,0,1,2,3
+ ld a,(#ss_force_products+36+offset)
+ cp a,(hl)
+ jr nz,ss_spring_general
+ inc hl
+ .endm
+ ; Compare the sum in all four bytes. Constrain one top byte to 00/ff
+ ; to exclude the wrapped equality INT32_MIN + INT32_MIN = 0.
+ ld a,(#_riding_pose_anchor+3)
+ inc a
+ and a,#0xfe
+ jr nz,ss_spring_general
+ ld hl,#_riding_pose_anchor+4
+ ld a,(#_riding_pose_anchor)
+ add a,(hl)
+ jr nz,ss_spring_general
+ .irp offset,1,2,3
+ inc hl
+ ld a,(#_riding_pose_anchor+offset)
+ adc a,(hl)
+ jr nz,ss_spring_general
+ .endm
+ ; A shared set bit among bits 0..5 puts both trailing-zero counts
+ ; below six. Otherwise count the factors of two in the low 12 bits.
+ ld hl,#ss_force_products+36
+ ld a,(#_riding_pose_anchor)
+ and a,(hl)
+ and a,#63
+ jr nz,ss_spring_mirror_fraction
+ call ss_spring_twos
+ ld b,a
+ ld hl,#_riding_pose_anchor
+ call ss_spring_twos
+ add a,b
+ cp a,#12
+ sbc a,a
+ jr ss_spring_mirror_write
+ss_spring_mirror_fraction:
+ ld a,#0xff
+ss_spring_mirror_write:
+ ld hl,#ss_ts
+ .rept 4
+ ld (hl+),a
+ .endm
+ ret
+
+ss_spring_general:
+ ss_wheel_spring 0
+ ss_wheel_spring 4
+ ret
+
+; Count trailing zeros up to twelve using the first nonzero nibble.
+ss_spring_twos:
+ ld a,(hl+)
+ ld e,a
+ and a,#15
+ ld c,#0
+ jr nz,ss_spring_nibble
+ ld a,e
+ swap a
+ and a,#15
+ ld c,#4
+ jr nz,ss_spring_nibble
+ ld a,(hl)
+ and a,#15
+ ld c,#8
+ss_spring_nibble:
+ ld e,a
+ ld d,#0
+ ld hl,#ss_spring_nibble_twos
+ add hl,de
+ ld a,(hl)
+ add a,c
+ ret
+ss_spring_nibble_twos:
+ .db 4,0,1,0,2,0,1,0,3,0,1,0,2,0,1,0
 
 ; Preparation is always for the first subphase of the next riding update.
 ; Its predecessor can leave riding_subphase set to the fractional interval.

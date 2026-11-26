@@ -69,6 +69,18 @@ def main():
                         qx,qy=vx+sx*(147+4*last+offset),vy+sy*(196-3*last)
                         rows.append((px,py,qx,qy,vx,vy,ex,ey,245))
                         rows.append((px,py,qx,qy,vx+ex,vy+ey,-ex,-ey,245))
+    # Encoded wheel bounds clip below -8192 and above 8191. Vary both
+    # endpoints around a strict head tangency at those limits and at each
+    # kind of 64-unit boundary, for both sweep radii and directions.
+    for radius in (244,246):
+        for corner in (-8193,-8192,-8191,-65,-64,-63,63,64,65,8190,8191,8192):
+            for side in (-1,1):
+                edge=corner+410*side
+                for offset in (-1,0,1):
+                    pos=edge-side*(radius+offset)
+                    for first,last in ((pos,pos),(pos,pos-side*64),(pos-side*64,pos)):
+                        rows.append((first,32,last,48,edge,0,0,64,radius))
+                        rows.append((32,first,48,last,0,edge,64,0,radius))
     rng=random.Random(0xCCD244)
     assert len(rows)<=args.vectors<=65535
     while len(rows)<args.vectors:

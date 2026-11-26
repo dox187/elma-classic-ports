@@ -43,6 +43,53 @@ def verify_table_bytes(image, symbols):
     return 65536 * len(accepted)
 
 
+def check_shallow_tables(image, symbols):
+    checked = 0
+    for magnitude in (9, 61):
+        symbol = symbols[f'_riding_shallow_dot_{magnitude}']
+        assert symbol >> 16 == 4
+        base = 4 * 16384 + (symbol & 16383)
+        for y in range(-32768, 32768):
+            addr = base + ((y >> 8) & 255)
+            q = (image[addr] ^ 128) - 128
+            q -= (y & 255) > image[addr + 256]
+            assert q == (8192 - y * magnitude) // 16384
+            checked += 1
+    return checked
+
+
+def check_shallow_native(p, symbols, code, stack, source, current_bank, bank_windows):
+    entry = symbols['_riding_dotq14_regs']
+    p.memory[code:code+6] = [0xf3,0xcd,entry & 255,entry >> 8,0x18,0xfe]
+    limit = 1 << 31
+    rng = random.Random(0xD0720)
+    xs = (-limit, -limit + 1, -limit + 121, -1, 0, 1, limit - 121, limit - 2, limit - 1)
+    ys = (-limit, -65537, -32769, -32768, -32767, -8192, -1, 0,
+          1, 8192, 32766, 32767, 32768, 65536, limit - 1)
+    checked = 0
+    for weight in (-62, -61, -60, -10, -9, -8):
+        for i in range(512):
+            x, y = (xs[i % len(xs)], ys[i // len(xs)]) if i < len(xs)*len(ys) else (
+                rng.choice(xs), rng.randint(-32768, 32767))
+            raw = b''.join(n.to_bytes(width, 'little', signed=True)
+                           for n, width in ((x,4), (y,4), (-16384,2), (weight,2)))
+            p.memory[source:source+12] = raw
+            reg = p.register_file
+            reg.SP, reg.PC, reg.HL = stack, code, source + 8
+            reg.D, reg.E = source >> 8, source & 255
+            bank = (5,9,14)[i % 3]
+            p.memory[0x2000] = p.memory[current_bank] = bank
+            p.tick(1, False)
+            expected = max(-limit, min(limit-1, (8192 + y*weight) // 16384 - x))
+            assert (reg.HL << 16 | reg.D << 8 | reg.E) == (expected & 0xffffffff), (x, y, weight)
+            assert (reg.PC, reg.SP) == (code+4, stack)
+            assert bytes(p.memory[source:source+12]) == raw
+            assert p.memory[current_bank] == bank
+            assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank]
+            checked += 1
+    return checked
+
+
 def vectors():
     endpoints = (-(1 << 31), -(1 << 31) + 1, -8388609, -8388608, -65537,
                  -65536, -32769, -32768, -257, -256, -255, -1, 0, 1, 127,
@@ -140,9 +187,10 @@ def check_native(image, symbols):
             assert bytes(p.memory[stack+4:stack+6]) == guards
             assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank]
             dots += 1
+        shallow = check_shallow_native(p, symbols, code, stack, source, current_bank, bank_windows)
     finally:
         p.stop(save=False)
-    return {'native_products': started, 'table_path_vectors': hits, 'fallback_vectors': started - hits, 'native_geometry_dots': dots}
+    return {'native_products': started, 'table_path_vectors': hits, 'fallback_vectors': started - hits, 'native_geometry_dots': dots, 'native_shallow_dots': shallow}
 
 
 def check_interrupts(image, symbols):
@@ -226,6 +274,8 @@ def main():
     validate_layout(symbols)
     image = args.rom.read_bytes()
     checks = {'exact_narrow_table_products': verify_table_bytes(image, symbols), 'checked_directory_inputs': 65536}
+    if '_riding_shallow_dot_61' in symbols or '_riding_shallow_dot_9' in symbols:
+        checks['shallow_table_inputs'] = check_shallow_tables(image, symbols)
     checks.update(check_native(image, symbols))
     checks['VBlank_interrupts_in_reader'] = check_interrupts(image, symbols)
     print(json.dumps(checks))

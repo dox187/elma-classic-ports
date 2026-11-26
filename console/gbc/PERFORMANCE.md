@@ -2549,3 +2549,53 @@ Fixed ROM has 901 bytes free. Banks 508–511 are erased. Rebuild using
 --out build/elma-gbc-v0.96-test19-8m.gbc` with a copy of the test18
 generated profile and the project Python. Reports are under `build/v096-test19/`.
 Physical cartridge timing is pending.
+
+### 0.96 test20 — combined cartridge
+
+| Full-game PyBoy workload | Test19 | Test20 |
+| --- | ---: | ---: |
+| Average updates/s across 216 routes | 23.017 | 23.036 |
+| Freefall updates/s, full descent | 23.362 | 23.405 |
+| Mean active update, SM83 T-cycles | 309,712 | 309,063 |
+| Longest active update, SM83 T-cycles | 555,976 | 553,956 |
+| Updates over 280,896 cycles / 19,885 | 11,461 | 11,440 |
+| Routes within budget throughout / 216 | 18 | 20 |
+
+For mirrored spring loads the two wheel moments reduce to 0 or −1 after
+each wheel's floor operation. The low 12 product bits determine the exact
+sum. The regular path still handles asymmetric loads. In the saved spring
+sample 506/1,299 substeps met the mirror conditions. For the contact
+directions (−16384, −61) and (−16384, −9), the solver can look up the
+rounded smaller term and subtract the other component before saturation.
+The head sweep uses the difference between head and wheel radii to tighten
+the conservative bounds on candidate edges. On 14 controller routes the
+tighter bounds eliminated 74/172 exact capsule tests.
+
+All 19,885 gameplay updates matched test19 at both observation points.
+All 12,380 native states matched the frozen physics reference. The 45 PC
+landing and braking gates passed and the 20 extreme-spin comparisons
+retained test19's deviations. The spring fixture checked 4,912 angular
+results. The scheduled force check passed 467 mirror and near-mirror inputs
+and 7,676 force vectors. The guarded wheel-input stage has a 34,576 T
+worst-case bound and passed all 19,712 scheduling cases. The linked dot
+tables matched all 131,072 signed16 inputs and 3,072 native dot results,
+including wide fallbacks and signed saturation. The sweep fixture passed
+12,460 cases and 17 leaf checks. OAM and the patterns of sprites with
+nonzero X and Y matched on 1,216 updates, with 61,845 visible scenery tile
+checks. Menu, audio, profile, finish and save checks passed. The live HUD
+recorded 90 physics publications and 90 LCD changes in 180 display frames.
+Twelve active idle-ride updates still exceeded the CPU deadline.
+
+Two alternative VBlank waits were tested on 12 controller routes. The
+narrower change saved six display frames over 1,138 input intervals but
+delayed 14 input samples within the scanline. The wider change saved ten
+frames and moved two inputs to the following scanline. Both were rejected.
+Evidence is in `build/v096-schedule20/`.
+
+The 8 MiB ROM SHA-256 is
+`326e6c0132b19caff60d32ba20772ffb7c9d61630a990087dd3e81524492cfca`.
+Fixed ROM has 779 bytes free. Banks 508–511 are erased. Rebuild using
+`tools/build.py --gen build/gen-v096-test20-8m --rom-mib 8
+--out build/elma-gbc-v0.96-test20-8m.gbc` with a copy of the test19
+generated profile and the project Python. Reports are in `build/v096-test20/`.
+Physical cartridge timing is pending.
