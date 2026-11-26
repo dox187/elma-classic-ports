@@ -2839,3 +2839,53 @@ Image SHA-256 `22a9de8b41f96f92ce46d19e19e9824cf7a87be28812e6cfeea2b9df37f5c806`
 Fixed ROM has 139 bytes free and banks 508–511 are erased. Rebuild with
 `tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test25-8m.gbc`.
 Reports are under `build/v096-test25/`.
+
+
+### 0.96 test26 — combined cartridge
+
+| Whole-game measurements in PyBoy | test25 | test26 |
+| --- | ---: | ---: |
+| Updates/s, standard 216 routes | 26.760 | 27.287 |
+| Updates/s, extended 24 routes | 24.458 | 25.267 |
+| Updates/s, complete Freefall | 27.166 | 28.251 |
+| Mean standard active update, T-cycles | 269,779 | 264,561 |
+| Longest standard active update, T-cycles | 531,188 | 527,404 |
+| Longest extended active update, T-cycles | 556,908 | 554,044 |
+| Standard updates over 280,896 T-cycles | 4,563 | 3,728 |
+| Standard misses including the GDMA allowance | 4,569 | 3,733 |
+| Standard routes passing cadence and deadline throughout | 42 | 42 |
+| Freefall updates over budget / 439 | 87 | 50 |
+
+The general terrain query caches a proof over a 64-unit square, keyed by
+its ordered set of segments. Replacing a collision-reader slot invalidates
+the entries that depend on it. The radial atlas now also identifies
+endpoints beyond its outer boundary. Other endpoints share one bank switch
+for both squared coordinates. The square table shares the lowest byte across
+all rows. A second circle table implements the strict contact-merge radius.
+
+The rider's two local projections reuse the displacement's multiplication
+row for sine and cosine. Suspension handles narrow spring and damping
+products together, falling back for wider operands and residuals. The wide
+integer solver extracts 6- and 10-bit unrounded results from the full
+product and seeds other shifts directly from its signed 48-bit value.
+
+All 75,252 recorded substeps, 25,112 published updates and the complete
+439-update Freefall descent matched test25. Frozen native fixtures matched
+12,380 host states. All 45 PC landing and braking cases passed and the 20
+extreme-spin comparisons reproduced the previous results. The spring guard
+passed 29,568 boundary cases. The native force oracle covered 23,377 input
+vectors and 467 mirrored cases. The linked game passed 6,960 terrain
+queries, including iterator state and both full contact records, 6,119
+paired rider rotations, 2,320 endpoint boundary flags, 2,470 squared
+distance and merge checks, and 5,949 signed-product scaling cases.
+PyBoy matched 1,216 sprite presentations and 61,845 scenery cells.
+SameBoy CGB-E matched 578 sprite snapshots across three routes. Player,
+save and frontend functional checks passed. The idle timer missed seven
+deadlines. Physical console timing is pending.
+
+Image SHA-256 `bf9b095962b2fcb9a7e3c6131bfce0287393fa5566a338904d0c65cf0f17e7c3`.
+Fixed ROM has 249 bytes free. Banks 508–511 are erased. Build using
+`tools/build.py --gen build/gen-v096-test21-8m --rom-mib 8 --out build/elma-gbc-v0.96-test26-8m.gbc`.
+Reports are under `build/v096-test26/`, with the host checks in
+`native-frozen/` and `speed-frozen/`. Independent force tests are under
+`build/v096-force26/exact/`.

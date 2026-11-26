@@ -172,65 +172,92 @@ selected:
 ; The native table products are (raw + 2^23) = integer*2^24 + biased.
 ; The wheel uses only the integer. The body gets both pieces, and four
 ; such biased fractions per axis account for exactly two whole units.
-.macro ss_sub_fraction product
- ld hl,#(ss_force_products+product)
- ld a,e
- sub a,(hl)
+; Add the unsigned fractions before subtracting them from the residual.
+; HRAM loads leave both the register sum and its carry live across digits.
+.macro ss_add_fraction product
+ ldh a,(ss_force_products+product)
+ add a,e
  ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
+ ldh a,(ss_force_products+product+1)
+ adc a,d
  ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
+ ldh a,(ss_force_products+product+2)
+ adc a,c
  ld c,a
  ld a,b
- sbc a,#0
+ adc a,#0
  ld b,a
+.endm
+
+.macro ss_force_fraction pair,axis
+ ld hl,#(ss_force_products+pair)
+ ldh a,(ss_force_products+pair+7)
+ add a,(hl)
+ ld e,a
+ inc l
+ ldh a,(ss_force_products+pair+8)
+ adc a,(hl)
+ ld d,a
+ inc l
+ ldh a,(ss_force_products+pair+9)
+ adc a,(hl)
+ ld c,a
+ ld a,#0
+ rla
+ ld b,a
+ ss_add_fraction pair+28
+ ss_add_fraction pair+35
+ ld hl,#(_force_residual+axis*8)
+ ld a,(hl+)
+ sub a,e
+ ld e,a
+ ld a,(hl+)
+ sbc a,d
+ ld d,a
+ ld a,(hl)
+ sbc a,c
+ ld c,a
+ ld a,#2
+ sbc a,b
+ ld b,a
+ ss_store _riding_force_sums+axis*9
 .endm
 
 ; Return a full signed33 spring+damper in A:BCDE and publish its wrapped
 ; low 32 bits for the wheel. Carry out of bit 31 and both operand signs
 ; determine byte 4, including for oppositely signed products.
-.macro ss_force_pair product,destination,positive
+.macro ss_force_pair product,destination,positive,?spring_positive
  ld hl,#(ss_force_products+product+3)
- ld a,(hl+)
+ ldh a,(ss_force_products+product+28+3)
+ add a,(hl)
  ld e,a
- ld a,(hl+)
+ inc l
+ ldh a,(ss_force_products+product+28+4)
+ adc a,(hl)
  ld d,a
- ld a,(hl+)
+ inc l
+ ldh a,(ss_force_products+product+28+5)
+ adc a,(hl)
  ld c,a
- ld b,(hl)
- ld a,b
- add a,a
- sbc a,a
- push af
- ss_add ss_force_products+28+product+3
+ inc l
+ ldh a,(ss_force_products+product+28+6)
+ adc a,(hl)
+ ld b,a
+ ld a,#0
+ rla
  bit 7,(hl)
- pop hl
- ld a,h
+ jr z,spring_positive
+ dec a
+spring_positive:
+ ld l,#<(ss_force_products+product+28+6)
+ bit 7,(hl)
  jr z,positive
  dec a
 positive:
- adc a,#0
  ss_write _riding_suspension_state+destination
 .endm
 
-.macro ss_force_axis pair,axis,first_pos,second_pos
- ld hl,#(_force_residual+axis*8)
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld c,(hl)
- ld b,#2
- ss_sub_fraction pair
- ss_sub_fraction pair+7
- ss_sub_fraction pair+28
- ss_sub_fraction pair+35
- ss_write _riding_force_sums+axis*9
-
+.macro ss_force_wide_axis pair,axis,first_pos,second_pos
  ss_force_pair pair,ss_wheel_dvx+axis*4,first_pos
  ld h,a
  ld a,(#_force_residual+axis*8+7)
@@ -270,6 +297,108 @@ positive:
  ss_write _riding_force_sums+axis*9+4
  add sp,#6
 .endm
+; All fast inputs lie in [-2^21,2^21) with coefficients in [0,1].
+; Three sum bytes cover both rounded wheel terms, including carries across
+; bit 15. The fourth wheel byte is the sign extension of their true sum.
+.macro ss_narrow_force_pair product,destination
+ ld hl,#(ss_force_products+product+3)
+ ldh a,(ss_force_products+product+28+3)
+ add a,(hl)
+ ld e,a
+ inc l
+ ldh a,(ss_force_products+product+28+4)
+ adc a,(hl)
+ ld d,a
+ inc l
+ ldh a,(ss_force_products+product+28+5)
+ adc a,(hl)
+ ld c,a
+ add a,a
+ sbc a,a
+ ld b,a
+ ss_store _riding_suspension_state+destination
+.endm
+
+.macro ss_narrow_force_axis pair,axis
+ ss_narrow_force_pair pair,ss_wheel_dvx+axis*4
+ push de
+ push bc
+ ss_narrow_force_pair pair+7,ss_wheel_dvx+axis*4+ss_wheel_stride
+ pop hl
+ ld a,l
+ pop hl
+ add hl,de
+ adc a,c
+ ld c,a
+ add a,a
+ sbc a,a
+ ld b,a
+ ; HL and C hold the summed signed24 wheel impulse. The saved B sign
+ ; extends through both remaining digits of the original signed40 residue.
+ ld d,h
+ ld e,l
+ ld hl,#(_force_residual+axis*8+3)
+ ld a,(hl+)
+ sub a,e
+ ld e,a
+ ld a,(hl+)
+ sbc a,d
+ ld d,a
+ ld a,(hl+)
+ sbc a,c
+ ld c,a
+ ld a,(hl+)
+ sbc a,b
+ ld h,(hl)
+ ld l,a
+ ld a,h
+ sbc a,b
+ ld (#_riding_force_sums+axis*9+8),a
+ ld b,l
+ ss_store _riding_force_sums+axis*9+4
+.endm
+
+; Commit both halves of each Q24 residual at their fixed destinations. The
+; register divider supplies a Euclidean remainder and a wrapped HL:DE quotient.
+.macro ss_finish_force axis
+ ld hl,#(_riding_force_sums+axis*9)
+ ld de,#(_force_residual+axis*8)
+ .rept 3
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ .endm
+ ld a,(hl+)
+ add a,#10
+ add a,(hl)
+ ld e,a
+ inc hl
+ ld a,(hl+)
+ adc a,#0
+ ld d,a
+ ld a,(hl+)
+ adc a,#0
+ ld c,a
+ ld a,(hl+)
+ adc a,#0
+ ld b,a
+ ld a,(hl)
+ adc a,#0
+ call _riding_force_divmod20
+ ld b,h
+ ld c,l
+ sub a,#10
+ ld hl,#(_force_residual+axis*8+3)
+ ld (hl+),a
+ add a,a
+ sbc a,a
+ .rept 3
+ ld (hl+),a
+ .endm
+ ld (hl),a
+ ss_store _riding_suspension_state+36+axis*4
+.endm
+
 .macro ss_reaction_product arm
  ld hl,#(ss_coarse+arm)
  ld a,(hl+)
@@ -615,6 +744,7 @@ ss_first_moment:
 ss_try_mirrored:
  xor a
  ld (#ss_paired),a
+ ldh (ss_force_wide_used),a
  ld hl,#ss_force_products+28
  ld a,(hl+)
  or a,(hl)
@@ -803,23 +933,14 @@ ss_have_products:
  call ___sdcc_bcall_ehl
  jp ss_reactions
 ss_general_forces:
- ss_force_axis 0,0,ss_x0_pos,ss_x1_pos
- ss_force_axis 14,1,ss_y0_pos,ss_y1_pos
+ call ss_general_force_sums
 ss_reactions:
  ss_wheel_reaction 0,0,ss_wheel1,ss_reaction0_index,ss_ordinary0,ss_reaction_ready0
 ss_wheel1:
  ss_wheel_reaction 4,ss_wheel_stride,ss_wheels_done,ss_reaction1_index,ss_ordinary1,ss_reaction_ready1
 ss_wheels_done:
- xor a
- call _riding_force_finish_axis
- ld b,h
- ld c,l
- ss_write _riding_suspension_state+36
- ld a,#1
- call _riding_force_finish_axis
- ld b,h
- ld c,l
- ss_write _riding_suspension_state+40
+ ss_finish_force 0
+ ss_finish_force 1
  ld a,(#ss_paired)
  or a
  jr z,ss_angular_forces
@@ -2974,6 +3095,27 @@ ss_mt_row_done:
  inc de
  ret
 
+.area _CODE_15
+ss_wide_force_sums:
+ ss_force_wide_axis 0,0,ss_x0_pos,ss_x1_pos
+ ss_force_wide_axis 14,1,ss_y0_pos,ss_y1_pos
+ ret
+
+.area _CODE_8
+ss_general_force_sums:
+ ss_force_fraction 0,0
+ ss_force_fraction 14,1
+ ldh a,(ss_force_wide_used)
+ or a
+ jp nz,ss_need_wide_sums
+ ss_narrow_force_axis 0,0
+ ss_narrow_force_axis 14,1
+ ret
+ss_need_wide_sums:
+ ld e,#15
+ ld hl,#ss_wide_force_sums
+ jp ___sdcc_bcall_ehl
+
 ; Both X forces vanish, and wheel one's Y spring and damping match wheel
 ; zero's. Form their signed33 sum once. Doubling it retains both high sign
 ; bits for the body, including the carry out of the wheel's wrapped word.
@@ -3007,28 +3149,24 @@ ss_paired_forces:
  ; The four biased fractions are two copies of each vertical product.
  ; Sum each pair and subtract it twice from (residual_low + 2*2^24).
  ld hl,#(ss_force_products+14)
- ld a,(hl+)
+ ldh a,(ss_force_products+42)
+ add a,(hl)
  ld e,a
- ld a,(hl+)
+ inc l
+ ldh a,(ss_force_products+43)
+ adc a,(hl)
  ld d,a
- ld c,(hl)
- ld hl,#(ss_force_products+42)
- ld a,(hl+)
- add a,e
- ld e,a
- ld a,(hl+)
- adc a,d
- ld d,a
- ld a,(hl)
- adc a,c
+ inc l
+ ldh a,(ss_force_products+44)
+ adc a,(hl)
  ld c,a
  ld a,#0
  rla
- ld b,a
  sla e
  rl d
  rl c
- rl b
+ rla
+ ld b,a
  ld hl,#(_force_residual+8)
  ld a,(hl+)
  sub a,e
@@ -3073,12 +3211,13 @@ ss_paired_forces:
 ; independently of the table pointers DE/HL and the third input digit in B.
 _riding_spring_product_rows::
 ss_force_products: .ds 56
+ss_force_wide_used: .ds 1
 ss_force_page: .ds 1
 ss_force_byte2: .ds 1
 ss_force_byte3: .ds 1
 ss_force_index: .ds 1
 
-.area _CODE
+.area _CODE_8
 ss_force_four:
  call ss_force_try
  ret nc
@@ -3086,6 +3225,7 @@ ss_force_four:
 
 ; A private batch can use the table path without touching q24_fraction or
 ; q24_saturated. Unsupported scale metadata returns carry before lane zero.
+.area _CODE
 ss_force_try:
  push hl
  ld b,d
@@ -3184,9 +3324,6 @@ ss_force_lane:
  ld a,b
  inc a
  jr nz,ss_force_negative24
- ld a,d
- inc a
- jr z,ss_force_negative8
  ld l,d
  ldh a,(#ss_force_page)
  ld d,a
@@ -3196,9 +3333,6 @@ ss_force_positive:
  ld a,b
  or a
  jr nz,ss_force_positive24
- ld a,d
- or a
- jr z,ss_force_positive8
  ld l,d
  ldh a,(#ss_force_page)
  ld d,a
@@ -3215,39 +3349,23 @@ ss_force_narrow16:
  inc c
  pop hl
  ret
-ss_force_negative8:
- ldh a,(#ss_force_page)
- add a,#27
- jr ss_force_narrow8
-ss_force_positive8:
- ldh a,(#ss_force_page)
-ss_force_narrow8:
- ld h,a
- ld l,e
- .rept 4
- ld a,(hl)
- ldh (c),a
- inc c
- inc h
- .endm
- ld a,(hl)
- .rept 3
- ldh (c),a
- inc c
- .endm
- pop hl
- ret
-
 ss_force_wide_dec:
  dec a
- jr ss_force_wide
+ ldh (ss_force_byte3),a
+ jr ss_force_mark_wide
 ss_force_negative24:
  ld a,#255
- jr ss_force_wide
+ jr ss_force_width24
 ss_force_positive24:
  xor a
+ss_force_width24:
+ ldh (ss_force_byte3),a
+ xor a,b
+ and a,#0xe0
+ jr z,ss_force_wide
+ss_force_mark_wide:
+ ldh (ss_force_wide_used),a
 ss_force_wide:
- ldh (#ss_force_byte3),a
  ld l,d
  ldh a,(#ss_force_page)
  ld d,a
@@ -3320,7 +3438,10 @@ ss_force_lane_done:
  ret
 
 ; Unsupported generated scales use the scalar saturation and fractional rules.
+.area _CODE_8
 ss_force_generic:
+ ld a,#1
+ ldh (ss_force_wide_used),a
  call ss_force_generic_lane
  call ss_force_generic_lane
  call ss_force_generic_lane

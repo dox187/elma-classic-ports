@@ -3,13 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test25 — 8 MiB](build/elma-gbc-v0.96-test25-8m.gbc)**.
-Across 216 controller routes on all 54 courses it averages **26.76 physics
-updates per emulated second**, up from **25.40** in test24. The full Freefall
-descent averages **27.17**. The target is **29.86**. Forty-two routes met
-the two-display-frame deadline throughout. Every one of the 59,599 native
-physics substeps and 19,885 published updates matched test24. A separate
-24-route replay averaged **24.46** with another 15,653 matching substeps.
+**[0.96 test26 — 8 MiB](build/elma-gbc-v0.96-test26-8m.gbc)**.
+Across 216 controller routes on all 54 courses it averages **27.29 physics
+updates per emulated second**, up from **26.76** in test25. The full Freefall
+descent averages **28.25**. The target is **29.86**. Forty-two routes met
+the two-display-frame deadline throughout. All 59,599 native physics
+substeps and 19,885 published updates matched test25. The separate 24-route
+replay averaged **25.27** with another 15,653 matching substeps.
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -59,6 +59,16 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test26 — wheel terrain, rider rotation and suspension forces
+
+The renderer and physics kept the same recorded outputs on every tested
+course. The wheel solver skips terrain segments proven irrelevant throughout
+a 64-unit square and rejects exterior endpoints from a precomputed circle
+boundary. The rider's forward and inverse rotations share multiplication
+rows. Spring forces keep their exact wide fallback and body residuals.
+The standard routes recorded 3,733 misses including sprite DMA, down from
+4,569. [Full timings and validation](PERFORMANCE.md#096-test26--combined-cartridge)
 
 ## 0.96 test25 — suspension, terrain and movement
 

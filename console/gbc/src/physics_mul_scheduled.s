@@ -49,15 +49,15 @@ _riding_mul16_regs::
 mul_square_index:
  ld a,#28
  ld (#0x2000),a
- ld h,d
+ ld h,#>_riding_small_squares
  ld l,e
- add hl,hl
- add hl,hl
- set 6,h
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
+ ld e,(hl)
+ ld a,d
+ add a
+ add #>_riding_square_rows
+ ld h,a
+ ld d,(hl)
+ inc h
  ld l,(hl)
  ld h,#0
  ld a,(#__current_bank)
@@ -77,3 +77,93 @@ mul_product:
  ld d,h
  ld e,l
  jp _riding_projection_signed16
+
+; The wheel endpoint caller in bank 9 has already bounded both coordinates
+; to [-409,409]. Read both squares with one bank change.
+_riding_endpoint_squared::
+ ld a,#28
+ ld (#0x2000),a
+ call endpoint_squared
+ ld a,#9
+ ld (#0x2000),a
+ ret
+
+.area _CODE_28
+endpoint_squared:
+ call endpoint_square
+ push de
+ push af
+ ld d,b
+ ld e,c
+ call endpoint_square
+ ld h,a
+ pop bc
+ ld l,b
+ pop bc
+ ld a,c
+ add e
+ ld c,a
+ ld a,b
+ adc d
+ ld b,a
+ ld a,l
+ adc h
+ ld e,a
+ ld d,#0
+ ret
+endpoint_square:
+ ld h,#>_riding_small_squares
+ ld l,e
+ ld e,(hl)
+ ld a,d
+ add #2
+ and #3
+ add a
+ add #>_riding_endpoint_square_rows
+ ld h,a
+ ld d,(hl)
+ inc h
+ ld a,(hl)
+ ret
+
+.area _CODE
+; Signed X in DE and Y in BC. The table contains the largest absolute Y
+; strictly inside the original merge circle for each absolute X.
+_riding_merge_close::
+ ld a,d
+ or a
+ ld a,e
+ jr z,merge_abs_x
+ inc d
+ jr nz,merge_far
+ cpl
+ inc a
+ jr z,merge_far                ; -256 must not wrap to zero
+merge_abs_x:
+ ld l,a
+ cp #102
+ jr nc,merge_far
+ ld a,b
+ or a
+ ld a,c
+ jr z,merge_abs_y
+ inc b
+ jr nz,merge_far
+ cpl
+ inc a
+ jr z,merge_far                ; -256
+merge_abs_y:
+ ld c,a
+ ld h,#>_riding_merge_limit
+ ld a,#28
+ ld (#0x2000),a
+ ld a,(hl)
+ cp c
+ ld a,#9
+ ld (#0x2000),a
+ sbc a,a
+ inc a
+ ret
+merge_far:
+ xor a
+ ret

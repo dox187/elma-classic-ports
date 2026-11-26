@@ -36,6 +36,7 @@ normal_cache_copy:
  .endm
  .ifdef RIDING_NORMAL_ATLAS
  ld a,#1
+ or a                        ; a cached hit is inside the wheel radius
  .endif
  ret
 normal_cache_miss:

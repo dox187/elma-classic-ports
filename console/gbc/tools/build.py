@@ -67,8 +67,11 @@ def validate_linked_layout(symbol_path,rom_mib):
                 raise ValueError(f'Unaligned or misplaced square-root lookup page {name}')
     if '_riding_div20_rows' in symbols and symbols['_riding_div20_rows'] != 0x234000:
         raise ValueError('Force division rows must be page-aligned at bank 35 address 0x4000')
-    if '_riding_small_squares' in symbols and symbols['_riding_small_squares'] != 0x1c4000:
-        raise ValueError('Squared wheel distances must start at bank 28 address 0x4000')
+    if '_riding_small_squares' in symbols:
+        for label, address in (('_riding_small_squares', 0x4000), ('_riding_endpoint_square_rows', 0x4100),
+                               ('_riding_square_rows', 0x4500), ('_riding_merge_limit', 0x6500)):
+            if symbols.get(label) != 28 * 65536 + address:
+                raise ValueError(f'{label} must be at bank 28 address {address:#06x}')
     if 'brake_angle_rows' in symbols:
         if symbols.get('_physics_bank_93') != 0x5d4000:
             raise ValueError('Brake lookup relocated packed terrain in bank 93')
@@ -319,10 +322,17 @@ def main():
             source = BASE/'src'/(name+'.s')
             game_source = a.gen/(name+'_game.s')
             text = 'RIDING_NORMAL_ATLAS = 1\n'+source.read_text()
+            if name == 'physics_contact_loop':
+                text = 'RIDING_LEAF_REGION = 1\n' + text
             if name == 'physics_normal_fast':
                 text += '\n'+(BASE/'src/physics_normal_atlas.s').read_text()
             head_clearance.write_if_changed(game_source,text)
             sources[sources.index(source)] = game_source
+        rider_source = BASE/'src/physics_rider_response.s'
+        rider_game = a.gen/'physics_rider_response_game.s'
+        head_clearance.write_if_changed(rider_game, 'RIDING_PAIRED_ROTATION = 1\n'+rider_source.read_text()+
+                                        '\n'+(BASE/'src/physics_rider_rotation.s').read_text())
+        sources[sources.index(rider_source)] = rider_game
         geometry_math = BASE/'src/physics_math.s'
         geometry_game = a.gen/'physics_math_game.s'
         head_clearance.write_if_changed(geometry_game, 'RIDING_GEOMETRY_PRODUCTS = 1\n'+geometry_math.read_text())
@@ -331,9 +341,9 @@ def main():
         sources[sources.index(math_source)] = projection_tables.generate(math_source, a.gen/'physics_projection_game.s')
     else:
         sources.extend((BASE/'src/physics_math.c', BASE/'src/physics_math32.c'))
-        sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name not in ('physics_mul16.s','physics_mul_scheduled.s','physics_div20_scheduled.s','physics_roll_shallow.s','physics_sqrt_scheduled.s') and not x.name.startswith('physics_q24'))
+        sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name not in ('physics_mul16.s','physics_mul_scheduled.s','physics_div20_scheduled.s','physics_leaf_region.s','physics_rider_rotation.s','physics_roll_shallow.s','physics_sqrt_scheduled.s') and not x.name.startswith('physics_q24'))
     if scheduled:
-        sources.append(mul_table.scheduled_squares(a.gen))
+        sources.insert(0, mul_table.scheduled_squares(a.gen))
     else:
         sources += sorted(a.gen.glob('physics_quarter_*.c'))
     for pattern in ('physics_scale_*.c','physics_sine_*.c',
@@ -347,7 +357,8 @@ def main():
         # Native graphics pointers require their original bank base. Place
         # each linked terrain row after the graphics payload in its bank.
         wheel_rows = wheel_terrain.generate(a.gen)
-        sources += [BASE/'src/wheel_terrain.s', wheel_rows, head_refinement.generate(a.gen),
+        sources += [BASE/'src/physics_leaf_region.c', BASE/'src/wheel_terrain.s',
+                    BASE/'src/physics_leaf_region.s', wheel_rows, head_refinement.generate(a.gen),
                     normal_atlas.generate(a.gen, BASE.parent/'nes/src/rsqrt.inc', wheel_rows)]
         sources.append(brake_game)
     profile_sources = list(sources)
@@ -368,7 +379,8 @@ def main():
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
     def source_flags(path):
-        if seat_lookup and path == BASE/'src/physics_core.c': return ['-DRIDING_SEAT_LOOKUP']
+        if scheduled and path == BASE/'src/physics_core.c':
+            return ['-DRIDING_PAIRED_ROTATION'] + (['-DRIDING_SEAT_LOOKUP'] if seat_lookup else [])
         if scheduled and path in (BASE/'src/bike_render16.c', BASE/'src/bike_render16_init.c'):
             return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']

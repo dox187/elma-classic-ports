@@ -1,5 +1,6 @@
 """Compare each linked radial atlas entry with the original cartridge integer kernel."""
 import argparse
+import math
 from collections import Counter
 from io import BytesIO
 from pathlib import Path
@@ -138,6 +139,18 @@ def check(rom, reference):
                 _,want,_=old.call('_riding_normal_fast',x,y,contacts[1],physical)
                 assert hit and got==want,(x,y,d2,got,want)
                 totals['public and physical transitions'] += 1
+        # Carry lets the endpoint caller reject a proven exterior immediately.
+        # At each edge check the neighbor on both sides for both axis orders.
+        for small in range(290):
+            radius = (410**2 - 1 - small**2)
+            big = math.isqrt(radius)
+            for large in (big-1, big, big+1, big+2):
+                for x, y in ((small, large), (-large, small)):
+                    hit, _, _ = target.call('_riding_normal_ring', x, y, contacts[0])
+                    outside = bool(target.reg.F & 0x10)
+                    assert outside == (x*x+y*y >= 410**2), (x, y, hit, outside)
+                    assert not (hit and outside)
+                    totals['endpoint boundary flags'] += 1
         for x,y in ((0,0),(127,1),(0,395),(0,410),(280,277),(290,290),
                     (511,128),(512,0),(-32768,0),(32767,32767),(-32768,-32768)):
             hit,got,pattern=target.call('_riding_normal_ring',x,y,contacts[0])

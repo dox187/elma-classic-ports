@@ -6,9 +6,14 @@ import random
 import re
 import struct
 import subprocess
+import sys
+from io import BytesIO
 from pathlib import Path
 
 from pyboy import PyBoy
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+from math_q24_coefficients import table
 
 Q = 1 << 24
 EDGES = (-2**31, -2**31+1, -2**24-1, -2**24, -2**24+1, -2**23-1, -2**23,
@@ -52,9 +57,10 @@ _fixture_forces::
  call ___sdcc_bcall_ehl
  jp ff_done
 ff_general:
- ss_force_axis 0,0,ff_x0_pos,ff_x1_pos
- ss_force_axis 14,1,ff_y0_pos,ff_y1_pos
+ call ss_general_force_sums
 ff_done:
+ ss_finish_force 0
+ ss_finish_force 1
  ld a,(#ff_bank)
  ld (#_fixture_bank),a
  ret
@@ -80,6 +86,14 @@ def coefficients(gen):
 
 def vectors(phases, scales, rng):
     for indices in phases:
+        # Four same-sign terms straddle the signed24 accumulation limit.
+        for limit in (65536, 1 << 21):
+            for edge in (-limit - 1, -limit, -limit + 1, limit - 1, limit, limit + 1):
+                yield indices, [edge] * 8
+                for lane in range(8):
+                    values = [11] * 8
+                    values[lane] = edge
+                    yield indices, values
         for v in EDGES:
             for w in EDGES:
                 yield indices, [v, w, ~v, ~w, w, v, ~w, ~v]
@@ -138,7 +152,15 @@ def expected(indices, inputs, residual, scales):
         sums.extend(struct.pack('<i', fraction))
         sums.extend((integer & ((1 << 40) - 1)).to_bytes(5, 'little'))
     wheels = struct.pack('<4I', *[(units[i] + units[i + 4]) & 0xffffffff for i in range(4)])
-    return bytes(sums), wheels
+    body, residuals = [], []
+    for offset in (0, 9):
+        fraction, = struct.unpack_from('<i', sums, offset)
+        integer = int.from_bytes(sums[offset+4:offset+9], 'little', signed=True)
+        numerator = ((integer + (fraction >> 24) + 10 + (1 << 39)) % (1 << 40)) - (1 << 39)
+        quotient, remainder = divmod(numerator, 20)
+        body.append(quotient & 0xffffffff)
+        residuals.append((remainder - 10) * Q + (fraction & (Q - 1)))
+    return bytes(sums), wheels, struct.pack('<2I', *body), struct.pack('<2q', *residuals)
 
 
 def fixture(native, source, out, lcc):
@@ -217,6 +239,17 @@ def main():
     symbols = {k: int(v, 16) for k, v in re.findall(r'DEF (_\w+) 0x([\dA-Fa-f]+)',
                                                       rom.with_suffix('.noi').read_text())}
     phases, scales = coefficients(args.native / 'gen')
+    # The generic Q24 format also permits zero, a single fractional bit,
+    # and unity. Append these exact endpoint scales to unused fixture banks.
+    image = bytearray(rom.read_bytes())
+    first = 256 + image[symbols['_q24_first_bank_low']]
+    extra = max(scales) + 1
+    for index, scale in enumerate((0, 1, Q), extra):
+        offset = first * 16384 + index * 8192
+        assert offset + 8192 <= len(image)
+        image[offset:offset+8192] = table(scale)
+        scales[index] = scale
+    phases = (*phases, (extra, extra+2), (extra+1, extra+2))
     rng = random.Random(0x242833)
     work = list(vectors(phases, scales, rng))
     general_count = len(work)
@@ -224,7 +257,7 @@ def main():
     for case in paired_vectors(phases, scales, rng):
         work.append(case)
         residuals.append((rng.randrange(-2**63, 2**63), rng.randrange(-2**63, 2**63)))
-    emulator = PyBoy(str(rom), window='null', sound_emulated=False, cgb=True)
+    emulator = PyBoy(BytesIO(image), window='null', sound_emulated=False, cgb=True)
     emulator.set_emulation_speed(0)
     index, failures = 0, []
 
@@ -249,20 +282,26 @@ def main():
         if index >= len(work) or failures:
             return
         indices, inputs = work[index]
-        sums, wheels = expected(indices, inputs, residuals[index], scales)
+        sums, wheels, body, residual = expected(indices, inputs, residuals[index], scales)
         addr = symbols['_riding_force_sums']
         actual_sums = bytes(emulator.memory[addr:addr + 18])
         addr = symbols['_riding_suspension_state']
         # The oracle uses axis order. Each native record holds k*, X, Y, torque.
         actual_wheels = b''.join(bytes(emulator.memory[addr+i:addr+i+4])
                                  for i in (10, 24, 14, 28))
+        actual_body = bytes(emulator.memory[addr+36:addr+44])
+        addr = symbols['_force_residual']
+        actual_residual = bytes(emulator.memory[addr:addr+16])
         bank = emulator.memory[symbols['_fixture_bank']]
         paired = emulator.memory[symbols['_fixture_paired']]
         expected_paired = (inputs[0] == inputs[1] == inputs[4] == inputs[5] == 0 and
                            inputs[2] == inputs[3] and inputs[6] == inputs[7])
-        if (actual_sums, actual_wheels, bank, paired) != (sums, wheels, 0xa5, expected_paired):
+        if ((actual_sums, actual_wheels, actual_body, actual_residual, bank, paired) !=
+                (sums, wheels, body, residual, 0xa5, expected_paired)):
             failures.append(dict(index=index, indices=indices, inputs=inputs, residual=residuals[index],
                                  expected_sums=sums.hex(), actual_sums=actual_sums.hex(),
+                                 expected_body=body.hex(), actual_body=actual_body.hex(),
+                                 expected_residual=residual.hex(), actual_residual=actual_residual.hex(),
                                  paired=paired, expected_paired=expected_paired,
                                  expected_wheels=wheels.hex(), actual_wheels=actual_wheels.hex(), bank=bank))
         index += 1

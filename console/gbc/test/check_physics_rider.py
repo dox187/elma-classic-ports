@@ -146,6 +146,33 @@ def check_scheduled_rom(rom):
             actual = s32((regs.HL << 16) | (regs.D << 8) | regs.E)
             want = max(-2**31, min(2**31-1, (omega*tangent+8192) >> 14))
             assert actual == want, ('spin', omega, tangent, actual, want)
+        if '_riding_restore_small' in symbols:
+            edges = (-32768, -513, -512, -511, -257, -256, -255, -1, 0, 1,
+                     255, 256, 257, 511, 512, 513, 32767)
+            trig = ((16384, 0), (0, -16384), (-16384, 0), (-8192, 8192),
+                    (8191, -8193), (11585, 11585), (-11585, -11585))
+            rotations = [(x, y, c, s) for x in edges for y in edges for c, s in trig]
+            rotations.extend((rng.randint(-511, 511), rng.randint(-511, 511),
+                              rng.randint(-16384, 16384), rng.randint(-16384, 16384))
+                             for _ in range(4096))
+            for x, y, cs, sn in rotations:
+                before = bytearray(rng.randbytes(119))
+                bx, by = struct.unpack_from('<ii', before)
+                mem[bike:bike+119] = before
+                pair = symbols['_riding_pose_trig']
+                mem[pair:pair+4] = struct.pack('<hh', cs, sn)
+                regs.D, regs.E = (x >> 8) & 255, x & 255
+                regs.B, regs.C = (y >> 8) & 255, y & 255
+                invoke('_riding_restore_small', b'\xa5')
+                inside = -511 <= x <= 511 and -511 <= y <= 511
+                assert regs.A == inside, (x, y, cs, sn, regs.A)
+                if inside:
+                    dx = (x*cs - y*sn + 8192) >> 14
+                    dy = (y*cs + x*sn + 8192) >> 14
+                    struct.pack_into('<ii', before, 72, s32(bx + 256*dx), s32(by + 256*dy))
+                assert bytes(mem[bike:bike+119]) == before, (x, y, cs, sn)
+                assert bytes(mem[pair:pair+4]) == struct.pack('<hh', cs, sn)
+            print(f'{len(rotations)} paired rider rotation and fallback cases passed')
         for i, row in enumerate(cases):
             bx, by, x, y, vx, vy, ax, ay, rx, ry = row
             mem[bike:bike+8] = struct.pack('<ii', bx, by)

@@ -266,6 +266,9 @@ def validate_layout(symbols):
             or symbols.get('_riding_wheel_cached_window', 0) >> 16 != 9
             or symbols.get('_riding_wheel_read_map', 65535) >= 0x4000):
         raise ValueError('Wheel terrain requires its caller in bank 9 and a fixed-ROM reader')
+    if '_riding_leaf_dispatch' in symbols and (symbols['_riding_leaf_dispatch'] >= 0x4000 or
+            symbols['_riding_leaf_classify'] >> 16 != 31 or symbols['_riding_leaf_general'] >> 16 != 9):
+        raise ValueError('Wheel neighborhood queries require a fixed reader and classifiers in banks 31 and 9')
     start = symbols['_wheel_quarter_patterns']
     end = symbols['_wheel_quarter_patterns_end']
     if (start >> 16 != 5 or not 0 <= end-start <= 2048 or end > 0x58000

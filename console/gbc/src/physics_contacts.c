@@ -107,6 +107,9 @@ uint8_t riding_contacts_loop(int16_t,int16_t);
 typedef char equal_contact_merge_radius[MERGE>0?1:-1];
 #ifdef RIDING_NORMAL_ATLAS
 uint8_t riding_normal_merge_ring(int16_t x,int16_t y);
+#if MERGE == 102
+uint8_t riding_merge_close(int16_t x,int16_t y);
+#endif
 #endif
 uint8_t riding_contact_merge(void) {
  int16_t qx=riding_contact_qx,qy=riding_contact_qy;
@@ -124,8 +127,12 @@ uint8_t riding_contact_merge(void) {
  }
 	contact_point( &Ct[1], qx, qy );
 	int16_t dx = Ct[1].tx-Ct[0].tx, dy = Ct[1].ty-Ct[0].ty;
+#if defined(RIDING_NORMAL_ATLAS) && MERGE == 102
+    if (riding_merge_close(dx,dy)) {
+#else
 	if( dx < MERGE && dx > -MERGE && dy < MERGE && dy > -MERGE &&
 		mul16( dx, dx )+mul16( dy, dy ) < (int32_t)MERGE*MERGE ) {
+#endif
 		// Merged into their average:
 		int16_t ax = qx-Ct[0].tx-(dx >> 1);
 		int16_t ay = qy-Ct[0].ty-(dy >> 1);

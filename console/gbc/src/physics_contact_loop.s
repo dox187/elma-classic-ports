@@ -2,6 +2,7 @@
 ; Retains ordered box iterator and existing exact projection/normal/merge math.
 .module physics_contact_loop
 .area _DATA
+_riding_leaf_box::
 contact_loop_box: .ds 2
 contact_loop_found: .ds 1
 contact_loop_seg: .ds 2
@@ -15,6 +16,7 @@ CONTACT_REGION_DELTA = 90
 contact_region_slot: .ds 2
 ; Sixteen direct-mapped entries. A zero kind invalidates its entire entry.
 ; Each key contains the record pointer and both within-cell box coordinates.
+_riding_contact_regions::
 contact_regions: .ds 128
  .endif
 .area _CODE_9
@@ -53,6 +55,10 @@ _riding_contacts_loop::
  or c
  add #128
  ld (#contact_loop_box+1),a
+ .ifdef RIDING_LEAF_REGION
+ jp _riding_leaf_dispatch
+_riding_leaf_general::
+ .endif
  xor a,a
  ld (#contact_loop_found),a
  ld hl,#contact_loop_k
@@ -353,10 +359,12 @@ contact_loop_endpoint_ready:
  ld h,(hl)
  ld l,a
  call _riding_normal_ring
+ jp c,contact_loop_next
  or a
  jr nz,contact_loop_accept
- call contact_loop_xy
- .endif
+ push hl                      ; a miss restores the contact pointer and both coordinates
+ call _riding_endpoint_squared
+ .else
  ; Existing exact multiply kernel, with its register entry avoiding ABI spills.
  ld hl,#contact_loop_k
  ld a,(hl+)
@@ -389,6 +397,7 @@ contact_loop_endpoint_ready:
  ld a,h
  adc a,d
  ld d,a
+ .endif
  ; d2 is nonnegative after the strict coordinate guards above.
  ld a,c
  sub a,#0xa4

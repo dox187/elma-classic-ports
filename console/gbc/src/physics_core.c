@@ -174,6 +174,9 @@ uint8_t riding_rider_phase_local(int16_t *xy);
 #ifdef RIDING_SEAT_LOOKUP
 uint8_t riding_seat_lookup(int16_t *xy) __banked;
 #endif
+#ifdef RIDING_PAIRED_ROTATION
+uint8_t riding_restore_small(int16_t x, int16_t y);
+#endif
 #endif
 static void rider_limit( void ) {
 #if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
@@ -236,6 +239,9 @@ restore_world:
 #endif
 	if( Bike.turned )
 		x = -x;
+#ifdef RIDING_PAIRED_ROTATION
+    if (riding_restore_small(x, y)) return;
+#endif
 	Bike.rider_x = Bike.body.rx + ((int32_t)dotq14( x, y, Cs, -Sn ) << 8);
 	Bike.rider_y = Bike.body.ry + ((int32_t)dotq14( x, y, Sn, Cs ) << 8);
 }

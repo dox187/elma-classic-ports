@@ -1,5 +1,6 @@
 """Check both signed16 multiply entry points in the linked scheduled game ROM."""
 import argparse
+from math import isqrt
 from io import BytesIO
 from pathlib import Path
 import random
@@ -18,8 +19,13 @@ def main():
     squares = symbols['_riding_small_squares']
     assert squares == 0x1c4000
     offset = (squares >> 16) * 16384
-    for x in range(4096):
-        assert int.from_bytes(image[offset+4*x:offset+4*x+4], 'little') == x*x
+    assert symbols['_riding_endpoint_square_rows'] == squares + 256
+    assert symbols['_riding_square_rows'] == squares + 1280
+    for x in range(-512, 4096):
+        digit = x & 255
+        row = offset + 256 + 512 * ((x + 512) // 256)
+        value = image[offset+digit] | image[row+digit] << 8 | image[row+256+digit] << 16
+        assert value == x*x
 
     image[0x100:0x102] = bytes((0x18, 0xfe))
     p = PyBoy(BytesIO(image), window='null', sound_emulated=False, cgb=True)
@@ -31,6 +37,7 @@ def main():
     rng = random.Random(0x9624)
     cases.extend((rng.randint(-32768, 32767), rng.randint(-32768, 32767)) for _ in range(4096))
     code, stack = 0xc900, 0xcff0
+    geometry_cases = 0
     try:
         p.tick(240, False)
         r = p.register_file
@@ -51,9 +58,36 @@ def main():
             assert bytes(p.memory[stack:stack+len(args)]) == args
             assert p.memory[symbols['__current_bank']] == bank
             assert bytes(p.memory[0x4000:0x4020]) == image[bank*16384:bank*16384+32]
+        coords = (-32768, -4097, -512, -410, -409, -256, -128, -103, -102,
+                  -101, -1, 0, 1, 101, 102, 103, 127, 255, 256, 409, 410, 32767)
+        for name in ('_riding_merge_close', '_riding_endpoint_squared'):
+            addr = symbols[name]
+            p.memory[code:code+6] = (0xf3, 0xcd, addr & 255, addr >> 8, 0x18, 0xfe)
+            pairs = [(x, y) for x in coords for y in coords]
+            if name == '_riding_endpoint_squared':
+                pairs = [(x, y) for x, y in pairs if abs(x) < 410 and abs(y) < 410]
+                pairs.extend((rng.randint(-409, 409), rng.randint(-409, 409)) for _ in range(512))
+            else:
+                for x in range(-101, 102):
+                    limit = isqrt(102**2 - 1 - x*x)
+                    pairs.extend((x, sign*(limit+d)) for sign in (-1, 1) for d in (-1, 0, 1))
+            for x, y in pairs:
+                p.memory[symbols['__current_bank']] = p.memory[0x2000] = 9
+                r.SP, r.PC = stack, code
+                r.D, r.E, r.B, r.C = x >> 8 & 255, x & 255, y >> 8 & 255, y & 255
+                p.tick(1, False)
+                d2 = x*x + y*y
+                if name == '_riding_merge_close':
+                    assert r.A == int(d2 < 102**2), (x, y, r.A)
+                else:
+                    assert (r.D << 24 | r.E << 16 | r.B << 8 | r.C) == d2, (x, y, d2)
+                assert (r.SP, r.PC) == (stack, code+4)
+                assert p.memory[symbols['__current_bank']] == 9
+                assert bytes(p.memory[0x4000:0x4020]) == image[9*16384:9*16384+32]
+                geometry_cases += 1
     finally:
         p.stop(save=False)
-    print(f'{len(cases)} signed16 products and 4096 table records passed')
+    print(f'{len(cases)} signed16 products and 4608 table records passed; {geometry_cases} wheel geometry checks passed')
 
 
 if __name__ == '__main__':

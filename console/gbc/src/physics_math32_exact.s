@@ -5,56 +5,83 @@
 .module riding_math32_exact
 .area _CODE
 exact_mulq_general:
- add sp,#-7
- ldhl sp,#0
- xor a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl),a
- ldhl sp,#13
- ld c,(hl)
- inc hl
- ld b,(hl)
- ldhl sp,#9
- call exact_product
- call exact_add
- ldhl sp,#15
- ld b,(hl)
- ld c,#1
- call exact_finish
- add sp,#7
- ret
+ ld a,#1
+ jr exact_single_shift
 _riding_mulshift32::
  ldhl sp,#8
  ld a,(hl)
- cp a,#8
+ cp #8
  jp z,math32_mulshift8
- add sp,#-7
- ldhl sp,#0
+ cp #6
+ jr z,exact_single_six
+ cp #10
+ jr z,exact_single_ten
  xor a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl),a
- ldhl sp,#13
+exact_single_shift:
+ ; Seed the signed56 accumulator directly from the signed48 product.
+ ; The shift and rounding flag stay on the stack across multiplication.
+ push af
+ ldhl sp,#8
  ld c,(hl)
  inc hl
  ld b,(hl)
- ldhl sp,#9
+ ldhl sp,#4
  call exact_product
- call exact_add
- ldhl sp,#15
+ ld a,b
+ add a,a
+ sbc a,a
+ push af
+ inc sp
+ push bc
+ push hl
+ push de
+ ldhl sp,#8
+ ld c,(hl)
+ ldhl sp,#17
  ld b,(hl)
- ld c,#0
  call exact_finish
- add sp,#7
+ add sp,#9
+ ret
+exact_single_ten:
+ ldhl sp,#6
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#2
+ call exact_product
+ ld a,#10
+ jp exact_reduce48
+exact_single_six:
+ ldhl sp,#6
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ldhl sp,#2
+ call exact_product
+ ; A signed32 result requires bits 47..37 to extend bit 37.
+ ; CPI of the biased word also handles both inclusive boundaries.
+ ld a,c
+ add #32
+ ld a,b
+ adc #0
+ jp nz,exact_reduce_saturate
+ ld a,c
+ add #32
+ cp #64
+ jp nc,exact_reduce_saturate
+ ; Product bits 6..37 become bits 0..31. Bits 0..5 drop out.
+ ld a,e
+ .rept 2
+ add a,a
+ rl d
+ rl l
+ rl h
+ rl c
+ .endm
+ ld e,d
+ ld d,l
+ ld l,h
+ ld h,c
  ret
 exact_dot_general:
 ; Seed the signed56 accumulator from the first full signed48 product.
@@ -485,6 +512,7 @@ exact_add_sign:
  adc a,b
  ld (hl),a
  ret
+ .ifndef RIDING_PROJECTION_TABLES
 exact_sub:
  push hl
  ldhl sp,#4
@@ -516,8 +544,18 @@ exact_sub_sign:
  sbc a,b
  ld (hl),a
  ret
+ .endif
 ; B shift 0..16, C rounded boolean. Accumulator at caller SP0.
 exact_finish:
+ .ifdef RIDING_PROJECTION_TABLES
+ ; The general shift operates entirely on stack values and this bank's
+ ; rounding constants. Keep fixed ROM for the inner projection kernels.
+ ld a,#28
+ ld (#0x2000),a
+ jp exact_finish_banked
+.area _CODE_28
+exact_finish_banked:
+ .endif
  push bc
  ld a,c
  or a
@@ -618,8 +656,7 @@ exact_finish_check_loop:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- add sp,#2
- ret
+ jr exact_finish_return
 exact_finish_saturate:
  ldhl sp,#10
  bit 7,(hl)
@@ -630,7 +667,11 @@ exact_finish_saturate:
  ld de,#0
 exact_finish_return:
  add sp,#2
+ .ifdef RIDING_PROJECTION_TABLES
+ jp math32_projection_restore
+ .else
  ret
+ .endif
  ; Q10/Q14: validate the seventh accumulator byte before register reduction.
 exact_finish_physical:
  ldhl sp,#9
@@ -658,7 +699,13 @@ exact_finish_physical:
  pop hl
  pop af
  add sp,#2
+ .ifdef RIDING_PROJECTION_TABLES
+ call exact_reduce48
+ jp math32_projection_restore
+.area _CODE
+ .else
  jp exact_reduce48
+ .endif
 ; A=10/14, BC:HL:DE signed48. Discarded product bits never affect rounding.
 exact_reduce48:
  cp a,#14
@@ -725,8 +772,12 @@ math32_round_product14:
  inc bc
  jr exact_reduce14
 
+ .ifdef RIDING_PROJECTION_TABLES
+.area _CODE_28
+ .endif
 exact_halves:
  .dw 1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768
+.area _CODE
 
 
 ; Physical Q14 entries take pointers into caller-owned RAM. The same

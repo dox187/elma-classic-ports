@@ -88,7 +88,7 @@ ring_sorted:
  ld d,a                     ; 4 * (smaller component & 1)
  ld a,e
  cp #145
- jr nc,ring_miss
+ jr nc,ring_outside
  ld l,e
  ld h,#0
  add hl,hl
@@ -115,6 +115,7 @@ ring_descriptor:
  ld e,c                     ; larger component minus 256
  ld c,d
  call _riding_normal_ring_read
+ jr c,ring_outside
  or a
  jr nz,ring_install
 ring_miss:
@@ -122,6 +123,15 @@ ring_miss:
  pop de
  pop hl
  xor a
+ ret
+
+; Outside the strict 410-unit circle. The merge caller still sees a miss.
+ring_outside:
+ pop bc
+ pop de
+ pop hl
+ xor a
+ scf
  ret
 
 ring_install:
@@ -232,9 +242,10 @@ _riding_normal_ring_mapped::
  add hl,bc
  ld a,e
  sub (hl)
+ jr c,ring_unmapped
  inc hl
  cp (hl)
- jr nc,ring_unmapped
+ jr nc,ring_above
  inc hl
  ld e,(hl)
  inc hl
@@ -253,6 +264,9 @@ _riding_normal_ring_mapped::
  .endm
  ld c,#1
  jr ring_restore
+ring_above:
+ ld c,#2
+ jr ring_restore
 ring_unmapped:
  ld c,#0
 ring_restore:
@@ -261,4 +275,6 @@ ring_restore:
  ld a,#9
  ld (#0x2000),a
  ld a,c
+ cp #2
+ ccf
  ret

@@ -7,6 +7,7 @@ No input game data is embedded in these mathematical tables.
 import argparse
 import hashlib
 import json
+from math import isqrt
 from pathlib import Path
 
 
@@ -30,13 +31,23 @@ def generate(out):
 
 
 def scheduled_squares(gen):
-    """Store each unsigned24 square in a directly addressed four-byte slot."""
+    """Square low bytes repeat every 256 inputs; share that page across rows."""
     from head_clearance import write_if_changed
     path = gen / 'physics_small_squares.s'
     rows = ['.module physics_small_squares', '.area _CODE_28', '_riding_small_squares::']
-    for first in range(0, 4096, 8):
-        row = b''.join((v*v).to_bytes(4, 'little') for v in range(first, first+8))
-        rows.append(' .db '+','.join(map(str, row)))
+    def page(first, shift):
+        values = [(v*v >> shift) & 255 for v in range(first, first + 256)]
+        rows.extend(' .db ' + ','.join(map(str, values[i:i+32])) for i in range(0, 256, 32))
+    page(0, 0)
+    rows.append('_riding_endpoint_square_rows::')
+    for first in range(-512, 4096, 256):
+        if first == 0:
+            rows.append('_riding_square_rows::')
+        page(first, 8)
+        page(first, 16)
+    rows.append('_riding_merge_limit::')
+    limits = [isqrt(102**2 - 1 - x*x) for x in range(102)]
+    rows.extend(' .db '+','.join(map(str, limits[i:i+24])) for i in range(0, 102, 24))
     write_if_changed(path, '\n'.join(rows) + '\n')
     return path
 

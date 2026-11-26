@@ -153,6 +153,40 @@ def vectors():
         yield rng.choice(endpoints) if rng.randrange(2) else rng.randint(-(1 << 31), (1 << 31)-1), rng.randint(-32768, 32767)
 
 
+def check_single_shifts(p, symbols, code, stack, current_bank, bank_windows):
+    """Probe both saturation boundaries, half ties and every supported shift."""
+    rng = random.Random(0x260628)
+    checks = 0
+    for rounded, name in ((False, '_riding_mulshift32'), (True, '_riding_mulq32')):
+        addr = symbols[name]
+        p.memory[code:code+6] = (0xf3, 0xcd, addr & 255, addr >> 8, 0x18, 0xfe)
+        for shift in range(int(rounded), 17):
+            bias = 1 << (shift-1) if rounded else 0
+            for coef in (-32768, -16384, -410, -257, -1, 0, 1, 255, 409, 16384, 32767):
+                xs = {-2**31, 2**31-1, -65537, 32768, 0, rng.randrange(-2**31, 2**31)}
+                if coef:
+                    for output in (-2**31-1, -2**31, -1, 0, 1, 2**31-1, 2**31):
+                        center = ((output << shift) - bias) // coef
+                        xs.update(x for x in range(center-1, center+3) if -2**31 <= x < 2**31)
+                for x in sorted(xs):
+                    args = x.to_bytes(4, 'little', signed=True) + coef.to_bytes(2, 'little', signed=True) + bytes((shift, 0x71, 0xda))
+                    p.memory[stack:stack+len(args)] = args
+                    bank = (5, 9, 14)[checks % 3]
+                    p.memory[current_bank] = p.memory[0x2000] = bank
+                    reg = p.register_file
+                    reg.SP, reg.PC = stack, code
+                    p.tick(1, False)
+                    got = reg.HL << 16 | reg.D << 8 | reg.E
+                    expected = max(-2**31, min(2**31-1, (x*coef+bias) >> shift))
+                    assert got == (expected & 0xffffffff), (name, shift, x, coef, got, expected)
+                    assert (reg.SP, reg.PC) == (stack, code+4)
+                    assert bytes(p.memory[stack:stack+len(args)]) == args
+                    assert p.memory[current_bank] == bank
+                    assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank]
+                    checks += 1
+    return checks
+
+
 def check_native(image, symbols):
     # The test driver runs below the normal WRAM stack without changing the
     # linked product or table bytes. Mask interrupts for deterministic vectors.
@@ -223,11 +257,12 @@ def check_native(image, symbols):
             assert bytes(p.memory[stack+4:stack+6]) == guards
             assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank]
             dots += 1
+        shifted = check_single_shifts(p, symbols, code, stack, current_bank, bank_windows)
         rolling = check_rolling_projections(p, symbols, code, stack, source, current_bank, bank_windows)
         shallow = check_shallow_native(p, symbols, code, stack, source, current_bank, bank_windows)
     finally:
         p.stop(save=False)
-    return {'native_products': started, 'table_path_vectors': hits, 'fallback_vectors': started - hits, 'native_geometry_dots': dots, 'native_shallow_dots': shallow, 'native_rolling_pairs': rolling}
+    return {'native_products': started, 'native_shifts': shifted, 'table_path_vectors': hits, 'fallback_vectors': started - hits, 'native_geometry_dots': dots, 'native_shallow_dots': shallow, 'native_rolling_pairs': rolling}
 
 
 def check_interrupts(image, symbols):

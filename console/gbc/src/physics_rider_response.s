@@ -531,6 +531,28 @@ rider_project_flip_y:
  ret
 
 rider_project_dots:
+ .ifdef RIDING_PAIRED_ROTATION
+ ; The original dy,dx and destination pointer are consecutive on the stack.
+ ldhl sp,#0
+ .rept 2
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ add #2
+ cp #4
+ jr nc,rider_project_wide
+ or c
+ jr z,rider_project_wide           ; -512 * -16384 exceeds signed 24 bits
+ .endm
+ ldhl sp,#0
+ ld d,h
+ ld e,l
+ call rider_rotate_bank
+ add sp,#6
+ xor a
+ ret
+rider_project_wide:
+ .endif
  ld hl,#_riding_pose_trig+2
  ld a,(hl+)
  ld h,(hl)
