@@ -413,6 +413,7 @@ geometry_dot_both:
  jr nz,geometry_dot_return
  inc bc
  jr geometry_dot_return
+_riding_terrain_products::
 geometry_dot_products:
  .endif
  push bc

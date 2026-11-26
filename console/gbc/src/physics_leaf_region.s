@@ -388,10 +388,15 @@ dense_leaf_build:
  ld (hl),#255               ; no spatial program yet in this slot
  ld hl,#27
  add hl,de
- ld (hl),#0                 ; this leaf has no cached plane numerator
- ld hl,#5
+ xor a
+ ld (hl+),a                  ; invalidate the plane numerator
+ inc a
+ .rept 4
+ ld (hl+),a                  ; a box-rejected position starts as a skip
+ .endm
+ ld hl,#7
  add hl,de
- push hl                     ; destination for narrowed pointer and count
+ ld (hl),#0                  ; empty until the first box match
  ld a,(#_Seg_left)
  ld d,a                      ; remaining records
  ld a,(#_riding_leaf_box)
@@ -422,43 +427,52 @@ dense_leaf_record:
  ld a,(hl+)
  cp c
  jr c,dense_leaf_next
+ push hl
+ push bc
+ ld b,h
+ ld c,l                      ; first byte after this record
+ call dense_leaf_address
+ ld a,#5
+ add l
+ ld l,a
+ jr nc,dense_leaf_first
+ inc h
+dense_leaf_first:
  ld a,e
  or a
- jr nz,dense_leaf_last
- ; Install the first accepted pointer while keeping the scan cursor in HL.
- ld e,d
- push hl
- call dense_leaf_address
- inc hl
- inc hl
- inc hl
- inc hl
- inc hl
- pop bc
+ jr nz,dense_leaf_later
+ ld e,d                      ; remaining at the first box match
  ld a,c
  sub #18
  ld (hl+),a
  ld a,b
  sbc #0
- ld (hl),a
- ld h,b
- ld l,c
- ld a,(#_riding_leaf_box)
+ ld (hl+),a
+ jr dense_leaf_span
+dense_leaf_later:
+ inc hl
+ inc hl
+dense_leaf_span:
+ ld a,e
+ sub d                       ; source-order index within the narrowed span
  ld b,a
- ld a,(#_riding_leaf_box+1)
- ld c,a
-dense_leaf_last:
- push hl
- call dense_leaf_address
- ld a,#8
- add l
- ld l,a
- jr nc,dense_leaf_store_suffix
- inc h
-dense_leaf_store_suffix:
+ inc a
+ ld (hl+),a
  ld a,d
  dec a
- ld (hl),a
+ ld (hl),a                   ; unread suffix after this match
+ ld a,b
+ cp #4
+ jr nc,dense_leaf_matched
+ add #20                     ; slot+8 to the template at slot+28
+ add l
+ ld l,a
+ jr nc,dense_leaf_template
+ inc h
+dense_leaf_template:
+ ld (hl),#0                  ; geometry must solve this accepted box
+dense_leaf_matched:
+ pop bc
  pop hl
  jr dense_leaf_next
 dense_leaf_skip3:
@@ -471,26 +485,15 @@ dense_leaf_next:
  dec d
  jr nz,dense_leaf_record
  ld b,h
- ld c,l                      ; original end
- pop hl                      ; narrowed pointer
- push hl
- inc hl
- inc hl
- inc hl                      ; suffix
- ld a,e
- or a
- jr nz,dense_leaf_count
- ld (hl),a
-dense_leaf_count:
- sub (hl)
- dec hl
- ld (hl+),a                  ; narrowed count
- ld de,#6
- add hl,de                   ; original window end at offset 14
+ ld c,l
+ call dense_leaf_address
+ ld de,#14
+ add hl,de
  ld (hl),c
  inc hl
- ld (hl),b
- pop hl
+ ld (hl),b                   ; original window end
+ ld de,#-10
+ add hl,de
 
 dense_leaf_solve:
  ld a,(hl+)
@@ -526,16 +529,22 @@ dense_leaf_solve:
  ld b,#2                    ; replay
  cp (hl)
  jr z,dense_program_ready
- ld (hl+),a
- xor a
- ld (hl+),a
- ld (hl+),a
- ld (hl+),a
- ld (hl-),a
- dec hl
- dec hl
- dec hl
- dec b                      ; learn
+ ld (hl),a
+ push hl
+ ld de,#6
+ add hl,de                   ; immutable box operations for this 64u entry
+ pop de
+ inc de
+ ld b,#4
+dense_program_reset:
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ dec b
+ jr nz,dense_program_reset
+ ld hl,#-5
+ add hl,de
+ inc b                       ; learn
 dense_program_ready:
  inc hl
  ld a,l

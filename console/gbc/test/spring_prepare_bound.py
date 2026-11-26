@@ -55,6 +55,13 @@ def bounds(rom, symbols, starts, stops=()):
         0xea,0,0x20,0xe7,0xe1,0x6f,0x7c,0xe0,bankhr,0xea,0,0x20,0x7d])
     assert rom[bankcall+19]==0xc9 and rom[0x20]==0xe9
     trampoline=4*sum([3,4,1,3,4,4,1,3,1,1,3,4,1,4])
+    image = symbols.get('ss_force_image')
+    if image is not None:
+        run_start = symbols['ss_wram_code']
+        run_end = run_start + symbols['ss_force_image_end'] - image
+        assert 0xc000 <= run_start < run_end <= 0xe000
+        assert image >> 16 == (symbols['ss_force_image_end'] - 1) >> 16
+        load_offset = (image >> 16) * 0x4000 + (image & 0x3fff)
     seen=set()
     @cache
     def cost(bank,pc):
@@ -63,8 +70,13 @@ def bounds(rom, symbols, starts, stops=()):
         if (bank,pc) in seen:
             raise ValueError(f'Cycle at {bank}:{pc:04x}')
         seen.add((bank,pc))
-        index=(bank*0x4000+(pc&0x3fff)) if pc>=0x4000 else pc
-        assert 0 <= pc < 0x8000
+        if image is not None and run_start <= pc < run_end:
+            # Follow absolute branches at their execution addresses. Read the
+            # instructions from the banked image that the CRT copies to WRAM.
+            index = load_offset + pc - run_start
+        else:
+            assert 0 <= pc < 0x8000
+            index=(bank*0x4000+(pc&0x3fff)) if pc>=0x4000 else pc
         op=rom[index]
         if op in (0xf3, 0xfb):
             raise ValueError(f'Changed interrupt enable in optional work at {bank}:{pc:04x}')

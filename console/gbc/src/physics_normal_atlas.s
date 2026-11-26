@@ -208,8 +208,7 @@ ring_length_selected:
  pop de
 ring_axes:
  pop hl
- jp ring_write_contact
-.area _CODE
+ ; The atlas reader restored bank 9 before returning its four digits.
 ring_write_contact:
  .macro ring_write_digit digit,offset
  ld a,digit

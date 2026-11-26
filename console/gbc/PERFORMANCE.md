@@ -3538,3 +3538,40 @@ Fixed ROM has 6 bytes free. Build with
 `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test42-8m.gbc`.
 Reports are in `build/v096-test42/all-{catalog,extended,fullfall}/`.
 All timing figures are from emulation.
+
+## 0.96 test43 — work RAM force products and terrain queries
+
+The game copies the four-lane spring and damper routine into CGB work RAM
+during startup, validates the coefficient pages and reuses the mapped table
+across lanes. The image takes 1,615 bytes and the page selections take four.
+Both the ordinary and fallback preparation paths fit the existing 3,648 T
+allowance. Wider angular velocities use an exact whole-speed contribution
+alongside the signed18 damping product.
+
+The terrain iterator reuses known box decisions for up to four records.
+A cell near a segment endpoint can use its two extreme corners to classify
+the signed tangent over all 256 integer positions. A tangent equal to an
+artificial segment end still takes the original boundary path. Non-axis
+terrain projections enter the two-product reducer directly when the
+coefficient proves that an axis shortcut cannot apply.
+
+| Controller replay | Updates | Updates/s | Mean active T | Max active T | Misses including GDMA | Routes within deadline |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| All 54 courses, four inputs each | 19,885 | 29.614 | 217,304 | 416,616 | 333 | 151/216 |
+| Eight courses, three longer inputs each | 5,227 | 29.287 | 229,700 | 415,636 | 206 | 8/24 |
+| Full Freefall neutral descent | 439 | 29.864 | 225,170 | 276,820 | 0 | 1/1 |
+
+All 75,252 captured substeps, 25,112 published states and the separate
+439-update neutral descent matched test42. The public ROM passed 32,768
+direct cell classifications. Each of the two startup and mapper tests
+checked 12,064 force groups and 48,256 lane slots, including a warm reset
+and alternate coefficient pages. The native physics and speed suites,
+45 PC landing/braking and 20 extreme-spin comparisons passed. PyBoy
+matched 1,216 presentations and 61,845 visible cells. The 54 course-entry
+screens, frontend and player save checks passed. The separate course-entry
+sweep recorded two display overruns.
+
+SHA-256 `0b2920b969bfc343fcbea84fe31a7a2c4bfa9bc8082811baaa9c5c64507f9814`.
+Fixed ROM has 228 bytes free. Build with
+`tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test43-8m.gbc`.
+Timing is from emulation.

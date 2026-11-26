@@ -9,7 +9,7 @@ _riding_record_program:: .ds 2
 _riding_program_mode:: .ds 1
  .endif
 contact_loop_found: .ds 1
-contact_loop_seg: .ds 2
+contact_loop_seg:: .ds 2
 contact_loop_k: .ds 2
 contact_loop_x: .ds 2
 contact_loop_y: .ds 2
@@ -64,14 +64,17 @@ _riding_contacts_loop::
 _riding_leaf_general::
  xor a
  ld (#_riding_program_mode),a
-_riding_leaf_program::
  .endif
+ call contact_loop_init
+ jr contact_loop_next
+contact_loop_init:
  xor a,a
  ld (#contact_loop_found),a
  ld hl,#contact_loop_k
  ld (hl),#<_Ct
  inc hl
  ld (hl),#>_Ct
+ ret
 contact_loop_next:
  ld a,(#_Seg_left)
  or a
@@ -81,17 +84,13 @@ contact_loop_next:
  inc hl
  ld c,(hl)
  call _riding_segment_box_regs
- jr c,contact_loop_record
+ jr nc,contact_loop_done
+ call corner_general_record
+ jr contact_loop_next
 contact_loop_done:
  ld a,(#contact_loop_found)
  ret
-contact_loop_record:
- .ifdef RIDING_LEAF_REGION
- ld a,(#_riding_program_mode)
- or a
- jp nz,corner_record
 corner_general_record:
- .endif
  ld hl,#contact_loop_seg
  ld a,e
  ld (hl+),a
@@ -162,13 +161,13 @@ contact_loop_axis_ready:
  push de
  call contact_loop_in_radius
  pop bc
- jp nc,contact_loop_next
+ ret nc
  jr contact_loop_position
 contact_loop_general:
  .ifdef RIDING_NORMAL_ATLAS
  call contact_region_dispatch
  or a
- jp z,contact_loop_next
+ ret z
  dec a
  .ifdef RIDING_LEAF_REGION
  jr nz,corner_not_known_plane
@@ -202,7 +201,7 @@ corner_not_known_plane:
  call contact_loop_xy
  call _dotq14
  call contact_loop_in_radius
- jp nc,contact_loop_next
+ ret nc
  ld hl,#contact_loop_seg
  ld a,(hl+)
  ld h,(hl)
@@ -254,7 +253,7 @@ contact_loop_position:
  cp a,b
  jr nz,contact_loop_interior
  bit 7,(hl)
- jp nz,contact_loop_next
+ ret nz
 contact_loop_interior:
  ; Write nx,ny,l directly into the selected ten-byte Ct record.
  ld hl,#contact_loop_seg
@@ -328,11 +327,11 @@ contact_loop_endpoint:
  bit 7,b
  jr z,contact_loop_check_end
  bit 6,(hl)
- jp nz,contact_loop_next
+ ret nz
  jr contact_loop_original_endpoint
 contact_loop_check_end:
  bit 7,(hl)
- jp nz,contact_loop_next
+ ret nz
 contact_loop_original_endpoint:
  bit 7,b
  jr nz,contact_loop_endpoint_ready
@@ -385,7 +384,7 @@ contact_loop_radial:
  ld h,(hl)
  ld l,a
  call _riding_normal_ring
- jp c,contact_loop_next
+ ret c
  or a
  jr nz,contact_loop_accept_radial
  .endif
@@ -399,7 +398,7 @@ contact_loop_radial:
  sub a,#0x33
  ld a,h
  sbc a,#3
- jp nc,contact_loop_next
+ ret nc
  ld a,c
  add a,#0x99
  ld l,a
@@ -410,7 +409,7 @@ contact_loop_radial:
  sub a,#0x33
  ld a,h
  sbc a,#3
- jp nc,contact_loop_next
+ ret nc
  .ifdef RIDING_NORMAL_ATLAS
  ld hl,#contact_loop_k
  ld a,(hl+)
@@ -471,7 +470,7 @@ contact_loop_radial:
  sbc a,#0
  jr c,contact_loop_normalize
  pop hl
- jp contact_loop_next
+ ret
 contact_loop_normalize:
  push de
  push bc
@@ -500,7 +499,7 @@ contact_loop_accept_kind:
  ld (hl),#<(_Ct+10)
  inc hl
  ld (hl),#>(_Ct+10)
- jp contact_loop_next
+ ret
 contact_loop_merge:
  .ifdef RIDING_LEAF_REGION
  ld (#_riding_dense_merged),a   ; nonzero first-contact flag
@@ -511,7 +510,8 @@ contact_loop_merge:
  call _riding_contact_merge
  .endif
  or a,a
- jp z,contact_loop_next
+ ret z
+ pop hl                      ; leave the enclosing iterator on an early pair
  ret
 contact_loop_xy:
  ld hl,#contact_loop_x
@@ -878,7 +878,8 @@ _riding_terrain_dotq14::
  ldhl sp,#4
  ld a,(hl+)
  or a
- jp nz,_dotq14
+ ; A nonzero second low byte rules out both unit-axis shortcuts.
+ jp nz,_riding_terrain_products
  ld a,(hl)
  and #127
  cp #64
@@ -1377,6 +1378,26 @@ plane_shallow_remainder:
 .area _CODE_9
 ; DE names an accepted box, irrespective of the two radius and tangent
 ; decisions which follow it. Advance in exactly the native record order.
+_riding_leaf_program::
+ call contact_loop_init
+corner_program_next:
+ ld hl,#_Seg_left
+ dec (hl)
+ ld hl,#_Seg_cur
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ add #18
+ dec hl
+ ld (hl+),a
+ jr nc,corner_program_record
+ inc (hl)
+corner_program_record:
+ call corner_record
+ ld a,(#_Seg_left)
+ or a
+ jr nz,corner_program_next
+ jp contact_loop_done
 corner_record:
  ld hl,#_riding_record_program
  ld a,(hl+)
@@ -1394,7 +1415,7 @@ corner_record:
  cp #4
  jp z,corner_plane_dispatch
  dec a
- jp z,contact_loop_next
+ ret z
  ld b,a
  jp corner_cap_dispatch
 
@@ -1479,7 +1500,7 @@ corner_plane_dispatch:
  ld hl,#corner_plane_query
  call ___sdcc_bcall_ehl
  call contact_loop_in_radius
- jp nc,contact_loop_next
+ ret nc
  jp contact_loop_interior
 
 .area _CODE_2
@@ -1494,7 +1515,7 @@ corner_position_inner:
  jr nz,corner_start
  ld a,c
  cp #<(-22)
- ret nc
+ jr nc,corner_tight_try
 corner_start:
  ld a,#2
  jp corner_guard
@@ -1521,23 +1542,32 @@ corner_after_end:
  jr nz,corner_interior_start
  ld a,e
  cp #<(-22)
- ret nc
+ jr nc,corner_tight_try
 corner_interior_start:
  ld a,b
  or a
  jp nz,corner_store_plane
  ld a,c
  cp #22
- ret c
+ jr c,corner_tight_try
  jp corner_store_plane
 corner_beyond:
  or a
  jr nz,corner_beyond_sure
  ld a,e
  cp #23
- ret c
+ jr c,corner_tight_try
 corner_beyond_sure:
  ld a,#3
+ jr corner_guard
+corner_tight_try:
+ ld e,#1
+ ld hl,#corner_tight
+ call ___sdcc_bcall_ehl
+ or a
+ ret z
+ cp #4
+ jp z,corner_store_plane
 corner_guard:
  push af
  ld hl,#contact_loop_d
@@ -1888,3 +1918,128 @@ corner_plane_delta:
  pop hl
  ret
  .endif
+
+.ifdef RIDING_LEAF_REGION
+.area _CODE_1
+; BC is the sampled tangent. For a given sign pair, the nearest and
+; farthest tile corners use complementary X/Y extents. Cauchy bounds
+; the change of a rounded projection by ceil(norm(delta)*16385/16384).
+corner_tight::
+ push bc
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#9
+ add hl,de
+ ld a,(hl+)                     ; tangent X sign
+ add a
+ sbc a
+ ld e,a
+ ld a,(#_riding_contact_qx)
+ xor e
+ and #15
+ swap a
+ ld e,a
+ inc hl
+ ld a,(hl+)                     ; tangent Y sign
+ add a
+ sbc a
+ ld d,a
+ ld a,(#_riding_contact_qy)
+ xor d
+ and #15
+ or e
+ push hl                        ; length field
+ ld l,a
+ ld h,#0
+ ld de,#corner_max_projection
+ add hl,de
+ ld a,(hl)
+ ld d,a                         ; maximum decrease
+ ; The opposite corner has index 255-index. The table may be unaligned.
+ ld a,l
+ sub #<corner_max_projection
+ cpl
+ add #<corner_max_projection
+ ld l,a
+ ld a,#>corner_max_projection
+ adc #0
+ ld h,a
+ ld a,(hl)
+ ld e,a                         ; maximum increase
+ pop hl
+ bit 7,b
+ jr z,corner_tight_after
+ ; All sampled negative tangents here are close to zero. Even at the
+ ; positive corner a strictly negative tangent must choose the start.
+ ld a,c
+ add e
+ ld a,b
+ adc #0
+ bit 7,a
+ jr z,corner_tight_unknown
+ ld a,#2
+ jr corner_tight_done
+corner_tight_after:
+ ld a,(hl+)
+ ld l,(hl)
+ res 7,l
+ res 6,l
+ ld h,l
+ ld l,a                         ; original 14-bit segment length
+ ld a,c
+ sub d
+ ld d,a
+ ld a,b
+ sbc #0
+ jr c,corner_tight_unknown
+ cp h
+ jr c,corner_tight_max
+ jr nz,corner_tight_end
+ ld a,d
+ cp l
+ jr z,corner_tight_max
+ jr nc,corner_tight_end
+corner_tight_max:
+ ld a,c
+ add e
+ ld e,a
+ ld a,b
+ adc #0
+ cp h
+ jr c,corner_tight_interior
+ jr nz,corner_tight_unknown
+ ld a,e
+ cp l
+ jr nc,corner_tight_unknown     ; an artificial end rejects exact equality
+corner_tight_interior:
+ ld a,#4
+ jr corner_tight_done
+corner_tight_end:
+ ld a,#3
+ jr corner_tight_done
+corner_tight_unknown:
+ xor a
+corner_tight_done:
+ pop bc
+ ret
+; Each entry is ceil(sqrt(x*x+y*y)*16385/16384), indexed by 16*x+y.
+corner_max_projection::
+ .db 0,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
+ .db 2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
+ .db 3,3,3,4,5,6,7,8,9,10,11,12,13,14,15,16
+ .db 4,4,4,5,6,6,7,8,9,10,11,12,13,14,15,16
+ .db 5,5,5,6,6,7,8,9,9,10,11,12,13,14,15,16
+ .db 6,6,6,6,7,8,8,9,10,11,12,13,14,14,15,16
+ .db 7,7,7,7,8,8,9,10,11,11,12,13,14,15,16,17
+ .db 8,8,8,8,9,9,10,10,11,12,13,14,14,15,16,17
+ .db 9,9,9,9,9,10,11,11,12,13,13,14,15,16,17,18
+ .db 10,10,10,10,10,11,11,12,13,13,14,15,16,16,17,18
+ .db 11,11,11,11,11,12,12,13,13,14,15,15,16,17,18,19
+ .db 12,12,12,12,12,13,13,14,14,15,15,16,17,18,18,19
+ .db 13,13,13,13,13,14,14,14,15,16,16,17,17,18,19,20
+ .db 14,14,14,14,14,14,15,15,16,16,17,18,18,19,20,20
+ .db 15,15,15,15,15,15,16,16,17,17,18,18,19,20,20,21
+ .db 16,16,16,16,16,16,17,17,18,18,19,19,20,20,21,22
+.endif

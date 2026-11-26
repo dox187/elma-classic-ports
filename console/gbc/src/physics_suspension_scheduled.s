@@ -8,7 +8,7 @@
 ; 4 first moment, 5 both moments, 6 spring products, 7 damper products,
 ; 8 certified angular damping moment, 9 base wheel and body forces.
 _riding_spring_ready:: .ds 1
-ss_damping: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
+ss_damping:: .ds 32                 ; relx[2], rely[2], arm_x[2], arm_y[2]
 ss_spin_mid: .ds 16
 ss_spin_top: .ds 16
 ss_product_upper: .ds 2
@@ -17,8 +17,8 @@ ss_ts: .ds 5                       ; low 36 bits of (floored spring sum << 4)
 ss_coarse:: .ds 4
 ss_tr:: .ds 4
 ss_reaction_high: .ds 1
-ss_paired: .ds 1
-ss_damp_long: .ds 1                 ; bit 0 wide, bit 2 wider spring, 2 prepared
+ss_paired:: .ds 1
+ss_damp_long: .ds 1                 ; bit 0 general, 2 prepared, bit 2 wider spring, bit 3 wider speed
 ss_prepared_damping: .ds 4
 ; The 18-byte split body sums and four wheel impulses are input-independent.
 ; Only the consumer publishes them after the next control sample.
@@ -945,8 +945,8 @@ ss_prepared_moments:
  or a
  ret nz
  ld a,(#ss_damp_long)
- rra                            ; bit zero requests the general determinant
- ret c
+ and a,#9                       ; general or whole-speed correction
+ ret nz
  ld a,#7                        ; 4,428 T plus two reserved LCD lines
  call _riding_spring_budget
  ret nc
@@ -1185,11 +1185,21 @@ ss_spring_nibble_twos:
 ; Preparation is always for the first subphase of the next riding update.
 ; Its predecessor can leave riding_subphase set to the fractional interval.
 _riding_prepare_spring_products::
+ .ifdef RIDING_TORQUE_WORDS
+ ld a,(#ss_wram_banks+0)
+ or a
+ jp nz,ss_ram_spring
+ .endif
  ld a,(#_q24_index_C_SPRING_FW)
  ld hl,#ss_force_products+28
  ld de,#ss_force_products
  jp ss_force_try
 _riding_prepare_damper_products::
+ .ifdef RIDING_TORQUE_WORDS
+ ld a,(#ss_wram_banks+2)
+ or a
+ jp nz,ss_ram_damper
+ .endif
  ld a,(#_q24_index_C_FRIC_W)
  ld hl,#ss_damping
  ld de,#ss_force_products+28
@@ -1236,6 +1246,9 @@ ss_need_wide:
 ss_need_inputs:
  call _riding_spring_inputs
 ss_have_inputs:
+ .ifdef RIDING_TORQUE_WORDS
+ call ss_apply_spring
+ .else
  ld hl,#_q24_index_C_SPRING_FW
  ld a,(#_riding_subphase)
  or a
@@ -1246,7 +1259,11 @@ ss_spring_selected:
  ld hl,#ss_force_products+28
  ld de,#ss_force_products
  call ss_force_four
+ .endif
 ss_have_spring_products:
+ .ifdef RIDING_TORQUE_WORDS
+ call ss_apply_damper
+ .else
  ld hl,#_q24_index_C_FRIC_W
  ld a,(#_riding_subphase)
  or a
@@ -1257,6 +1274,7 @@ ss_damper_selected:
  ld hl,#ss_damping
  ld de,#ss_force_products+28
  call ss_force_four
+ .endif
 ss_have_products:
  ld a,(#ss_paired)
  or a
@@ -2716,12 +2734,106 @@ ss_damping_scheduled:
  jr z,ss_damp_cert_entry
  rra
  jp c,ss_damping_torque18
+ bit 2,a
+ jr nz,ss_damp_corrected
  dec a
  jp nz,ss_damp_cert_entry
  ss_read ss_prepared_damping
  ld h,b
  ld l,c
  ret
+ss_damp_corrected:
+ ; Both wheel forces have consumed the original relative speeds.
+ ld e,#1
+ ld hl,#ss_damp_integer_parts
+ call ___sdcc_bcall_ehl
+ call ss_damp_cert_entry
+ ld b,h
+ ld c,l
+ ss_add ss_prepared_damping
+ ld h,b
+ ld l,c
+ ret
+
+.area _CODE_1
+; If v = 2^18*k + r, floor(sum(v*arm)/2^18) equals
+; sum(k*arm) + floor(sum(r*arm)/2^18), also for negative cross terms.
+; The force batches certify signed22 velocities and signed20 displacements.
+; Each arm has magnitude below 2^20 and each whole count is at most
+; eight in magnitude. The integer correction fits signed32 and the
+; residual determinant fits the existing signed40 accumulator.
+ss_damp_integer_parts:
+ ld bc,#0
+ ld de,#0
+.macro ss_damp_reduce_speed speed,arm,minus,?done
+ ; Center the remainder in [-131072,131071]. Byte two alone determines
+ ; k = floor((velocity + 131072) / 262144).
+ ld a,(#ss_damping+speed+2)
+ add a,#2
+ cp #4
+ jr c,done
+ sra a
+ sra a
+ .if minus
+ cpl
+ inc a
+ .endif
+ push af
+ ld hl,#ss_damping+speed+2
+ ld a,(hl)
+ and a,#3
+ xor a,#2
+ sub a,#2
+ ld (hl+),a
+ add a,a
+ sbc a,a
+ ld (hl),a
+ pop af
+ ld hl,#ss_damping+arm
+ call ss_damp_correct_arm
+done:
+.endm
+ ss_damp_reduce_speed 8,16,0
+ ss_damp_reduce_speed 0,24,1
+ ss_damp_reduce_speed 12,20,0
+ ss_damp_reduce_speed 4,28,1
+ ss_store ss_prepared_damping
+ ret
+
+; BC:DE holds the exact integer correction across the four signed lanes.
+ss_damp_correct_arm:
+ bit 7,a
+ jr z,ss_damp_positive_arm
+ cpl
+ inc a
+.macro ss_damp_correct label,lo,hi
+label:
+ push af
+ push hl
+ ld a,e
+ lo a,(hl)
+ inc hl
+ ld e,a
+ ld a,d
+ hi a,(hl)
+ inc hl
+ ld d,a
+ ld a,c
+ hi a,(hl)
+ inc hl
+ ld c,a
+ ld a,b
+ hi a,(hl)
+ ld b,a
+ pop hl
+ pop af
+ dec a
+ jr nz,label
+ ret
+.endm
+ ss_damp_correct ss_damp_negative_arm,sub,sbc
+ ss_damp_correct ss_damp_positive_arm,add,adc
+.area _CODE_8
 ; Add one signed arm at bit 16. Bytes above bit 39 are outside the
 ; signed40 accumulator, including when adding a negative arm.
 .macro ss_damp_add_high_unit arm
@@ -2887,17 +2999,23 @@ ss_mt_zero:
  ld hl,#0
  ld de,#0
  ret
+ss_damp_equal_words:
+ ld b,#4
+ss_damp_compare_byte:
+ ld a,(de)
+ cp a,(hl)
+ ret nz
+ inc de
+ inc hl
+ dec b
+ jr nz,ss_damp_compare_byte
+ ret
 ss_mt_vertical:
  ; Compare both full-width vertical speeds.
  ld hl,#ss_damping+8
  ld de,#ss_damping+12
- .rept 4
- ld a,(de)
- inc de
- cp a,(hl)
+ call ss_damp_equal_words
  jr nz,ss_mt_general
- inc hl
- .endm
  ; Opposite signs exclude the same-sign pair INT_MIN, INT_MIN.
  ld hl,#ss_damping+19
  ld a,(#ss_damping+23)
@@ -2925,14 +3043,9 @@ ss_mt_general:
  ; The top-byte bound keeps the signed sum within int32. These velocities
  ; are private scratch and their last consumer is this damping moment.
  ld hl,#ss_damping+28
- .irp i,0,1,2,3
- ld a,(#ss_damping+24+i)
- cp a,(hl)
+ ld de,#ss_damping+24
+ call ss_damp_equal_words
  jr nz,ss_mt_unmerged
- .if i-3
- inc hl
- .endif
- .endm
  ld a,(#ss_damping+3)
  inc a
  cp a,#2
@@ -4130,6 +4243,48 @@ ss_force_byte3: .ds 1
 ss_force_index: .ds 1
 
 .area _CODE_8
+ .ifdef RIDING_TORQUE_WORDS
+ss_apply_spring::
+ ld a,(#_riding_subphase)
+ or a
+ ld a,(#ss_wram_banks+0)
+ jr z,ss_spring_bank
+ ld a,(#ss_wram_banks+1)
+ss_spring_bank:
+ or a
+ jp nz,ss_ram_spring
+ ld hl,#_q24_index_C_SPRING_FW
+ ld a,(#_riding_subphase)
+ or a
+ jr z,ss_spring_fallback_selected
+ inc hl
+ss_spring_fallback_selected:
+ ld a,(hl)
+ ld hl,#ss_force_products+28
+ ld de,#ss_force_products
+ jp ss_force_four
+ .endif
+ .ifdef RIDING_TORQUE_WORDS
+ss_apply_damper::
+ ld a,(#_riding_subphase)
+ or a
+ ld a,(#ss_wram_banks+2)
+ jr z,ss_damper_bank
+ ld a,(#ss_wram_banks+3)
+ss_damper_bank:
+ or a
+ jp nz,ss_ram_damper
+ ld hl,#_q24_index_C_FRIC_W
+ ld a,(#_riding_subphase)
+ or a
+ jr z,ss_damper_fallback_selected
+ inc hl
+ss_damper_fallback_selected:
+ ld a,(hl)
+ ld hl,#ss_damping
+ ld de,#ss_force_products+28
+ jp ss_force_four
+ .endif
 ss_force_four:
  call ss_force_try
  ret nc
@@ -4253,11 +4408,17 @@ ss_force_page_set:
  ld c,a
  jp ss_force_last_lane
 ss_force_all_lanes:
+ .ifdef RIDING_TORQUE_WORDS
+ jp ss_wram_code+(ss_image_generic-ss_force_image)
+ss_force_last_lane:
+ jp ss_wram_code+(ss_image_generic_last-ss_force_image)
+ .else
  ss_force_lane
  ss_force_lane
  ss_force_lane
 ss_force_last_lane:
  ss_force_lane
+ .endif
 ss_force_restore:
  xor a
  ld (#0x3000),a
@@ -4370,16 +4531,22 @@ ss_force_width24:
  jr nc,ss_force_mark_wide
  cp a,#2                        ; signed18 velocity or displacement
  jr c,ss_force_wide
- cp a,#8
- jr nc,ss_force_long
+ ld l,a
  ld a,c
  cp a,#<(ss_force_products+28)
+ jr nc,ss_force_long_speed
+ ld a,l
+ cp a,#8
  jr nc,ss_force_long
  ; A signed20 displacement plus the rotated pose fits a signed21 arm.
  ; Accept the wider spring while preserving any earlier wide lane.
  ld a,#4
  jr ss_force_set_width
+ss_force_long_speed:
+ ld a,#8
+ jr ss_force_set_width
 ss_force_mark_wide:
+ and a,#0xe0
  ldh (ss_force_wide_used),a
 ss_force_long:
  ld a,#1
@@ -4571,4 +4738,208 @@ ss_finish_mapped:
  ss_finish_force 0,1
  ss_finish_force 1,1
  ret
+.endif
+
+
+.ifdef RIDING_TORQUE_WORDS
+; The runtime clears WRAM before _GSINIT and enables interrupts afterwards.
+; The two coefficient families have distinct page-aligned halves of the
+; ROM window. Validate both subphases once and keep the generic fallback for
+; different coefficient sets. The low bank byte zero also selects fallback.
+.area _GSINIT
+ ld a,#6
+ ld (#0x2000),a
+ ld hl,#ss_force_image
+ ld de,#ss_wram_code
+ ld bc,#(ss_force_image_end-ss_force_image)
+ss_force_copy:
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ dec bc
+ ld a,b
+ or c
+ jr nz,ss_force_copy
+ ld de,#ss_wram_banks
+ ld hl,#_q24_index_C_SPRING_FW
+ ld b,#1
+ call ss_force_read_pair
+ ld hl,#_q24_index_C_FRIC_W
+ ld b,#0
+ call ss_force_read_pair
+ xor a
+ ld (#0x3000),a
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
+
+.area _CODE
+ss_force_read_pair:
+ call ss_force_read_bank
+ss_force_read_bank:
+ ld a,(hl+)
+ push hl
+ ld c,a
+ and #1
+ xor b
+ jr nz,ss_force_no_bank
+ ld a,c
+ srl a
+ ld h,a
+ ld a,(#_q24_first_bank_low)
+ add h
+ ld c,a
+ ld (#0x2000),a
+ ld a,#1
+ ld (#0x3000),a
+ ld h,#0x5a
+ ld a,b
+ or a
+ jr z,ss_force_meta
+ ld h,#0x7a
+ss_force_meta:
+ ld l,#14
+ ld a,(hl)
+ ld l,#23
+ or (hl)
+ jr nz,ss_force_no_bank
+ ld a,c
+ jr ss_force_save_bank
+ss_force_no_bank:
+ xor a
+ss_force_save_bank:
+ ld (de),a
+ inc de
+ pop hl
+ ret
+
+.area _DATA
+ss_wram_banks:: .ds 4
+ss_wram_code:: .ds ss_force_image_end-ss_force_image
+ss_ram_spring = ss_wram_code + (ss_image_spring-ss_force_image)
+ss_ram_damper = ss_wram_code + (ss_image_damper-ss_force_image)
+
+; All hot lanes have a fixed input, destination and pair of coefficient
+; pages. Only the coefficient bank varies with subphase. Byte inputs need
+; a single row, including the signed high quotient byte for -256..-1.
+.area _CODE_6
+ss_force_image::
+.macro ss_ram_lane src,dst,page,?positive,?negword,?posword,?word,?byte,?wide,?done
+ ld hl,#(src+2)
+ ld a,(hl+)
+ ld b,a
+ or (hl)
+ jr z,positive
+ ld a,b
+ and (hl)
+ inc a
+ jr nz,wide
+ ld hl,#src
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl)
+ inc a
+ jr nz,negword
+ ld h,#(page+27)
+ jr byte
+negword:
+ dec a
+ ld l,a
+ ld h,#(page+11)
+ jr word
+positive:
+ ld hl,#src
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl)
+ or a
+ jr nz,posword
+ ld h,#page
+byte:
+ ld l,e
+ .irp n,0,1,2,3
+ ld a,(hl)
+ ldh (#(dst+n)),a
+ inc h
+ .endm
+ ld a,(hl)
+ ldh (#(dst+4)),a
+ ; With a positive non-saturating scale the byte quotient is in [-256,255].
+ ldh (#(dst+5)),a
+ ldh (#(dst+6)),a
+ jr done
+wide:
+ ld hl,#src
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ ; The original wide lane reads byte 3 via --HL.
+ ld hl,#(src+4)
+ ld c,#<dst
+ call ss_force_wider_lane
+ jr done
+posword:
+ ld l,a
+ ld h,#(page+5)
+word:
+ ld d,#page
+ ld a,(de)
+ ldh (#dst),a
+ inc d
+ ld a,(de)
+ add (hl)
+ ldh (#(dst+1)),a
+ inc d
+ inc h
+ .irp n,2,3
+ ld a,(de)
+ adc (hl)
+ ldh (#(dst+n)),a
+ inc d
+ inc h
+ .endm
+ ld a,(hl)
+ adc #0
+ ldh (#(dst+4)),a
+ inc h
+ ld a,(hl)
+ adc #0
+ ldh (#(dst+5)),a
+ ldh (#(dst+6)),a
+done:
+.endm
+
+.macro ss_ram_batch src,dst,page,target,?full
+ ld (#0x2000),a
+ ld a,#1
+ ld (#0x3000),a
+ ld a,#page
+ ldh (#ss_force_page),a
+ ld a,(#ss_paired)
+ or a
+ jr z,full
+ jp ss_wram_code+(target-ss_force_image)
+full:
+ ss_ram_lane src,dst,page
+ ss_ram_lane (src+4),(dst+7),page
+ ss_ram_lane (src+8),(dst+14),page
+ ss_ram_lane (src+12),(dst+21),page
+ jp ss_force_restore
+target:
+ ss_ram_lane (src+8),(dst+14),page
+ jp ss_force_restore
+.endm
+ss_image_spring:
+ ss_ram_batch (ss_force_products+28),ss_force_products,0x60,ss_image_spring_y
+ss_image_damper:
+ ss_ram_batch ss_damping,(ss_force_products+28),0x40,ss_image_damper_y
+; Preserve the original worst-case cycles for unsupported page layouts.
+; Each lane can call the fixed wide helper while the coefficient is mapped.
+ss_image_generic:
+ ss_force_lane
+ ss_force_lane
+ ss_force_lane
+ss_image_generic_last:
+ ss_force_lane
+ jp ss_force_restore
+ss_force_image_end::
 .endif
