@@ -75,6 +75,32 @@ class Cartridge:
                 for key, size in FIELDS.items()}
 
 
+def check_first_push(reference, target):
+    # The first contact moves the wheel. Compare the second contact at the
+    # original acceptance boundary and again after that movement.
+    cases = 0
+    for slot in (0, 1):
+        for length in (-32768, -1, 0, 255, 256, 404, 405, 406, 409, 410):
+            for nx, ny in ((32767, 32767), (-32768, -32768), (32767, -32768),
+                           (0, 16384), (-16384, 0)):
+                for fx, fy in ((0, 0), (0, 255), (255, 0), (255, 255)):
+                    center = struct.pack('<II', 0x12340000 + fx, 0xfedc0000 + fy)
+                    contacts = struct.pack('<10h', 16384, 0, 400, 80, 90,
+                                           nx, ny, length, -100, 130)
+                    observed = []
+                    for cart in (reference, target):
+                        wheel = cart.symbols['_Bike'] + 24 * (1 + slot)
+                        ct = cart.symbols['_Ct']
+                        cart.mem[wheel:wheel+8] = center
+                        cart.mem[ct:ct+20] = contacts
+                        count = cart.call('_riding_prepare_contacts', wheel, 2)
+                        observed.append((count, bytes(cart.mem[wheel:wheel+8]),
+                                         bytes(cart.mem[ct:ct+20])))
+                    assert observed[0] == observed[1], (slot, length, nx, ny, fx, fy)
+                    cases += 1
+    return cases
+
+
 def check_moving_pivots(reference, target, rng):
     # The first and second pivots face opposite separation signs. Positive
     # normal impulse and velocity can leave the wheel airborne, including
@@ -246,6 +272,7 @@ def main():
                 assert value == actual[key], (i, cached, phase, slot, key, value.hex(), actual[key].hex())
             results[(cached, actual['_riding_landing_contact'][slot],
                      actual['_riding_audio_impact'][slot])] += 1
+        print(f'{check_first_push(reference, target)} two-contact push boundaries matched.')
         moving = check_moving_pivots(reference, target, rng)
         if '_riding_pair_speed_class' in target.symbols:
             print(f'{check_speed_class(target)} velocity boundaries passed.')

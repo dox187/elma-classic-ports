@@ -682,6 +682,23 @@ prepare_pair:
     call _riding_contact_push
     push de
     push bc
+    cp #2
+    jr nz,prepare_filter_second
+    ; The first push will invalidate the second projection. At lengths
+    ; <=405 even two maximal positive signed normals add at most
+    ; 1020 fine units, so the original second contact must be accepted.
+    ld hl,#(_Ct+15)
+    ld a,(hl-)
+    xor #128
+    cp #129
+    jr c,prepare_first_push
+    jr nz,prepare_restore_first
+    ld a,(hl)
+    cp #150
+    jr c,prepare_first_push
+prepare_restore_first:
+    ld a,#2
+prepare_filter_second:
     push af
     ldhl sp,#6
     ld a,(hl+)
@@ -915,17 +932,61 @@ typedef struct {
 surface_cache_t wheel_surface_cache[2];
 /* The square key contains the upper half of each position. Keep the lower
  * halves and both complete records before the motion resolver can edit Ct. */
-static void remember_prepared_pair(circle_t *k) {
-    surface_cache_t *w=&wheel_surface_cache[k==&Bike.wheel[1]];
+static void remember_prepared_pair(circle_t *k) __naked {
+    k;
+    __asm
+    ld bc,#(_wheel_surface_cache+4)
 #ifdef NATIVE_ORDERED_PAIR
-    uint8_t *signs=pair_separation[k==&Bike.wheel[1]];
-    signs[0]=signs[1]=0;
+    ld hl,#_pair_separation
 #endif
-    w->kind=9;
-    w->pair.low_x=(uint16_t)k->rx;
-    w->pair.low_y=(uint16_t)k->ry;
-    w->pair.contacts[0]=Ct[0];
-    w->pair.contacts[1]=Ct[1];
+    ld a,e
+    cp #<(_Bike+48)
+    jr nz,remember_slot
+    ld a,d
+    cp #>(_Bike+48)
+    jr nz,remember_slot
+    ld bc,#(_wheel_surface_cache+33)
+#ifdef NATIVE_ORDERED_PAIR
+    inc hl
+    inc hl
+#endif
+remember_slot:
+#ifdef NATIVE_ORDERED_PAIR
+    xor a
+    ld (hl+),a
+    ld (hl),a
+#endif
+    ld h,b
+    ld l,c
+    ld (hl),#9
+    inc hl
+    ld a,(de)
+    ld (hl+),a
+    inc de
+    ld a,(de)
+    ld (hl+),a
+    inc de
+    inc de
+    inc de
+    ld a,(de)
+    ld (hl+),a
+    inc de
+    ld a,(de)
+    ld (hl+),a
+    ld d,h
+    ld e,l
+    ld hl,#_Ct
+    ld b,#5
+remember_copy:
+    .rept 4
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    .endm
+    dec b
+    jr nz,remember_copy
+    ret
+    __endasm;
 }
 void riding_surface_reset(void) __nonbanked {
 #ifdef RIDING_CORNER_CELLS
