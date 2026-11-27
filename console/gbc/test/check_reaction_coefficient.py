@@ -46,13 +46,16 @@ def check(rom, gen):
     constants = (gen / 'riding_constants.h').read_text()
     scales = re.search(r'q24_C_REACT\[2\]=\{(-?\d+),(-?\d+)\}', constants)
     image = bytearray(rom.read_bytes())
-    image[0x100:0x102] = bytes((0x18, 0xfe))
+    # Complete CRT initialization, including the executable WRAM image.
+    main = symbols['_main']
+    image[main:main+2] = bytes((0x18, 0xfe))
     emu = PyBoy(BytesIO(image), window='null', cgb=True, sound_emulated=False)
     emu.set_emulation_speed(0)
     emu.tick(190, False)
     mem, regs = emu.memory, emu.register_file
+    assert regs.PC == main
     mem[0xffff] = mem[0xff0f] = 0
-    code, out, stack = 0xd900, 0xd000, 0xdfb0
+    code, out, stack = 0xde00, 0xd000, 0xdfb0
     entry = symbols['_riding_reaction_coefficient']
     call = [0xcd, entry & 255, entry >> 8]
     mem[0x3000] = 0
@@ -111,7 +114,8 @@ def check(rom, gen):
             torques = {h*65536 + low for h in range(-4, 5)
                        for low in (-32768, -32767, -8192, -1, 0, 1, 8192, 32767)}
             torques.update((-2**31, 2**31-1))
-            for arm in (-32768, -2049, -2048, -2047, -1, 0, 1, 2047, 2048, 32767):
+            arms = (-32768, -2049, -2048, -2047, -1025, -1024, -1023, -1, 0, 1, 1023, 1024, 2047, 2048, 32767)
+            for arm in arms:
                 body = [0xcd, prepare & 255, prepare >> 8, 0x01, arm & 255, (arm >> 8) & 255,
                         0xcd, project & 255, project >> 8]
                 end = code + len(body)
@@ -125,7 +129,7 @@ def check(rom, gen):
                     got = (regs.HL << 16) | (regs.D << 8) | regs.E
                     expected = max(-2**31, min(2**31-1, (torque*arm + 8192) >> 14))
                     assert got == expected & 0xffffffff, (torque, arm, got, expected)
-            print(f'{len(torques)*10} signed reaction-arm projections matched')
+            print(f'{len(torques)*len(arms)} signed reaction-arm projections matched')
 
         if 'ss_wheel_reaction_value' in symbols:
             entry = symbols['ss_wheel_reaction_value'] & 65535

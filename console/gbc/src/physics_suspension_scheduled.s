@@ -1424,6 +1424,85 @@ ss_wide_torque:
 
 ss_near_area
 ss_prepare_reaction::
+ .ifdef RIDING_TORQUE_WORDS
+ ss_store ss_tr
+ ; Classify the signed high-word correction once for both arms. Values
+ ; outside [-4,4] select the full signed48 product.
+ ld a,d
+ add a
+ ld a,c
+ adc #4
+ ld c,a
+ ld a,b
+ adc #0
+ ld a,#9
+ jr nz,ss_dispatch_index
+ ld a,c
+ cp #9
+ jr c,ss_dispatch_index
+ ld a,#9
+ss_dispatch_index:
+ ld e,a
+ ld d,#0
+ ld hl,#ss_dispatch_offsets
+ add hl,de
+ ld a,(hl)
+ ld (#(ss_wram_code+(ss_image_reaction-ss_force_image)+1)),a
+ ret
+ss_project_four:
+ ld h,b
+ ld l,c
+ add hl,hl
+ add hl,hl
+ss_project_signed11:
+ ld a,b
+ add #4
+ cp #8
+ jr ss_project_bound
+ss_project_three:
+ ld h,b
+ ld l,c
+ add hl,hl
+ add hl,bc
+ jr ss_project_signed12
+ss_project_two:
+ ld h,b
+ ld l,c
+ add hl,hl
+ jr ss_project_signed12
+ss_project_one:
+ ld h,b
+ ld l,c
+ss_project_signed12:
+ ld a,b
+ add #8
+ cp #16
+ss_project_bound:
+ jr nc,ss_reaction_q14_wide
+ add hl,hl
+ add hl,hl
+ push hl
+ call ss_reaction_q14_word
+ pop hl
+ add hl,de
+ ld d,h
+ ld e,l
+ ld a,h
+ add a
+ sbc a
+ ld h,a
+ ld l,a
+ ret
+ss_dispatch_offsets:
+ .db ss_image_minus4-ss_image_reaction-2,ss_image_minus3-ss_image_reaction-2
+ .db ss_image_minus2-ss_image_reaction-2,ss_image_minus1-ss_image_reaction-2
+ .db ss_image_zero-ss_image_reaction-2
+ .db ss_image_plus1-ss_image_reaction-2,ss_image_plus2-ss_image_reaction-2
+ .db ss_image_plus3-ss_image_reaction-2,ss_image_plus4-ss_image_reaction-2
+ .db ss_image_wide-ss_image_reaction-2
+ .globl ss_reaction_q14
+ss_reaction_q14 = ss_wram_code+(ss_image_reaction-ss_force_image)
+ .else
  ss_write ss_tr
  ; tr = (int16_t)tr + H*65536. Cache H once for both axes.
  ld a,d
@@ -1500,6 +1579,7 @@ ss_reaction_q14_scale:
  ld h,a
  ld l,a
  ret
+ .endif
 ss_reaction_q14_word:
  ld hl,#ss_tr
  ld a,(hl+)
@@ -5139,5 +5219,58 @@ ss_image_generic:
 ss_image_generic_last:
  ss_force_lane
  jp ss_force_restore
+
+; The two projections consume the same torque. Preparation patches the
+; relative jump in the WRAM copy. Main-thread physics owns this workspace.
+ss_image_reaction:
+ jr ss_image_wide
+ss_image_zero:
+ jp ss_reaction_q14_word
+ss_image_wide:
+ jp ss_reaction_q14_wide
+ss_image_minus4:
+ ld h,b
+ ld l,c
+ add hl,hl
+ add hl,hl
+ jr ss_image_negative_four
+ss_image_minus3:
+ ld h,b
+ ld l,c
+ add hl,hl
+ add hl,bc
+ jr ss_image_negative
+ss_image_minus2:
+ ld h,b
+ ld l,c
+ add hl,hl
+ jr ss_image_negative
+ss_image_minus1:
+ ld h,b
+ ld l,c
+ss_image_negative:
+ xor a
+ sub l
+ ld l,a
+ sbc a
+ sub h
+ ld h,a
+ jp ss_project_signed12
+ss_image_negative_four:
+ xor a
+ sub l
+ ld l,a
+ sbc a
+ sub h
+ ld h,a
+ jp ss_project_signed11
+ss_image_plus1:
+ jp ss_project_one
+ss_image_plus2:
+ jp ss_project_two
+ss_image_plus3:
+ jp ss_project_three
+ss_image_plus4:
+ jp ss_project_four
 ss_force_image_end::
 .endif
