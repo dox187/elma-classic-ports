@@ -3971,3 +3971,66 @@ All 54 courses passed the functional checks. The strict entry sweep still
 recorded one late update, as on test50. Timing is from the emulator.
 
 SHA-256 `abaa071d3527c80b532d1ee6a31f6877a7c929d31731967479a9e5af5ef813d9`.
+
+## 0.96 test52 — Rolling projections and ordered wheel contacts
+
+PyBoy ran the same controller inputs on both 8 MiB cartridges. The average
+uses total updates divided by total emulated time. The two-refresh target
+is 29.864 updates/s and gives the game 33.49 ms per update.
+
+| Identical inputs or physics placements | test51 | test52 |
+| --- | ---: | ---: |
+| Weighted updates/s across 25,310 controller intervals | 29.689 | 29.695 |
+| Intervals requiring three display refreshes | 298 | 288 |
+| 216 short replays / 24 longer replays / complete Freefall, three-refresh intervals | 234 / 64 / 0 | 224 / 64 / 0 |
+| Independent seed 905202, three-refresh intervals out of 5,302 | 72 | 67 |
+| Double Trouble brake, 99 intervals, updates/s | 25.71 | 25.71 |
+| Framework brake, late intervals / longest consecutive run | 19 / 6 | 18 / 6 |
+| Hang Tight brake, late intervals / longest consecutive run | 16 / 11 | 16 / 10 |
+| Steep Corner throttle, original position (23,448, 38,696) | 62.95 ms | 58.23 ms |
+| Steep Corner brake, original position (27,480, 39,592) | 62.59 ms | 57.61 ms |
+| Downhill throttle, wheel 2 at (73,944, 3,816) | 74.03 ms | 69.17 ms |
+| Worst of 315 historical corner starts, physics only | 62.95 ms | 59.85 ms |
+| Worst of 642 starts with both wheel placements, physics only | 76.89 ms | 75.56 ms |
+| Over-budget physics updates on those 642 starts, out of 2,432 | 352 | 345 |
+
+The rolling solver shares partial products for the wheel velocity and
+impulse over a wider signed range. Each projection keeps its own Q14
+rounding. Rolling alone reduced the three-refresh count to 288, but the
+old Steep Corner throttle peak still took 528,196 T. The first ordered-pair
+table combined with rolling produced 289 long intervals. Checking a warm
+pair earlier during every general lookup raised that to 295. The retained
+reader checks the warm pair only after finding a table entry. Adding blocks
+at the opposite wheel during braking and on Downhill, then inlining the
+20-byte template copy, brought the combined count back to 288. An alternate
+rolling instruction order gave 290 with the Steep Corner brake block, and
+regressed the independent seed from 67 to 72. A per-course dispatch table
+overflowed bank 32 during linking and was discarded.
+
+All 39 four-by-four pair blocks are generated from the packed course edges.
+The table stores the original two ordered contacts, including both terrain
+points. The existing solver handles uncovered positions and applies the
+fractional tests and wheel response. The geometry check covered all 26,880
+integer centers per wheel in 105 tiles. It verified 1,060 ordered-pair hits,
+3,424 in-tile pair fallbacks, and the full square keys of cached pairs.
+
+The 315 historical starts use the test51 placement manifest. Adding a tile
+can change the wheel selected by the alternating-placement test. Run
+`test/check_corner_results.py --both-wheels` with the current ROM, reference
+and manifest to repeat all 321 positions on both wheels. The highest cost
+is on Steep Corner at (25,224, 39,416), input 9, wheel 1. Of 633,860 T,
+the two wheels used 459,036 T, suspension used 100,664 T, head checks
+used 20,500 T and the rest used 53,660 T. On the slow Downhill throttle
+update, wheels used 283,584 T and head checks used 204,164 T. These are
+physics-only timings from forced placements.
+
+All 76,568 controller replay substeps, 16,015 substeps on the independent
+54-course seed, and 7,199 substeps in the two-wheel placement sweep matched
+test51 byte for byte. The independent seed uses `--levels all --steps 240
+--scenario seeded --seed 905202 --substep-states`. Another 1,728 native
+rolling cases covered signed bounds and rounding ties. Seven visual replays
+matched on 1,216 presentations and 61,845 background cells. The speed-limit
+suite matched 3,170 native states. All 54 courses started, with one display
+deadline miss on the entry sweep. Original cartridge timing remains unverified.
+
+SHA-256 `67839a7b5826196f6630595b02f8f88b88cc07afd3a48a2a575cd0ac620d72f1`.

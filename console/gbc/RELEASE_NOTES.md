@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test52 — Rolling projections and ordered wheel contacts
+
+The wheel solver shares multiplications across two rolling projections.
+At selected corners it reads both terrain contacts from ROM in the original
+order, including the normals, lengths and contact points. This shortened
+the Steep Corner throttle and brake updates and one of the worst Downhill
+updates. The longest run of slow updates during Hang Tight braking fell
+from eleven to ten. Double Trouble braking still averages 25.71 updates/s.
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test52-8m.gbc) · [Measurements and remaining slowdowns](PERFORMANCE.md#096-test52--rolling-projections-and-ordered-wheel-contacts)
+
 ## 0.96 test51 — Rolling contacts and suspension
 
 The wheels reuse verified endpoint normals and keep rolling products in
