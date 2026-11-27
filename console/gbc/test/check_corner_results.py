@@ -176,11 +176,11 @@ def check_dispatch(target, cells):
     # Traverse a new quarter-square through the real wheel cache. Test both
     # call operands independently even when a controller replay never visits
     # the selected tile on this course.
-    by_course = {}
-    for level, x, y in sorted(cells):
-        by_course.setdefault(level, (x, y))
-    assert set(by_course) == set(range(54))
-    for level, (x, y) in by_course.items():
+    assert {level for level, _, _ in cells} == set(range(54))
+    # The two dense banks share one course-wide reader. Each sparse tile
+    # has its own strip, including a course's secondary geometry address.
+    sparse = [row for row in sorted(cells) if row[0] != 10]
+    for level, x, y in [next(row for row in cells if row[0] == 10), *sparse]:
         assert target.invoke('_physics_collision_select', a=level) == 1
         thunk = target.sym['step_solve_wheels']
         def readers():
@@ -190,12 +190,41 @@ def check_dispatch(target, cells):
             continue
         plain = target.sym['_riding_wheel_inputs'] & 65535
         fast = target.sym['_riding_sparse_wheel_inputs'] & 65535
-        assert readers() == [plain, plain]
-        for wheel, xpos, expected in ((0, x, [fast, plain]), (1, x, [fast, fast]),
+        initial = fast if '_riding_corner_pair_map' in target.sym else plain
+        assert readers() == [initial, initial]
+        for wheel, xpos, expected in ((0, x-256, [plain, initial]), (1, x+256, [plain, plain]),
+                                      (0, x, [fast, plain]), (1, x, [fast, fast]),
                                       (0, x+256, [plain, fast]), (1, x-256, [plain, plain])):
             addr = target.prepare(wheel, struct.pack('<ii', xpos*256, y*256), bytes(20))
             target.invoke('_riding_cert_hit', addr)
             assert readers() == expected, (level, wheel, readers(), expected)
+
+
+def check_pair_certificate(cart, slot, wheel, position, pair):
+    # A live native pair may also retain filtered lengths and support signs.
+    # The table must defer to an exact-center hit, and an alias one quarter
+    # away with the same two low words must never restore the saved pair.
+    cache = cart.sym['_wheel_surface_cache'] + 29*slot
+    saved = bytes(cart.m[cache:cache+29])
+    upper = position[2:4] + position[6:8]
+    lower = position[:2] + position[4:6]
+    ct = cart.sym['_Ct']
+    poison = bytes(a ^ 255 for a in pair)
+    try:
+        for alias in (0, 1):
+            cart.m[cache:cache+29] = bytes([upper[0] ^ alias]) + upper[1:] + bytes([9]) + lower + pair
+            cart.m[ct:ct+20] = poison
+            before = cart.fallback_state()
+            assert cart.invoke('_riding_corner_lookup', wheel) == 255
+            assert cart.fallback_state() == before and cart.read('_Ct', 20) == poison
+            result = cart.invoke('_riding_cert_hit', wheel)
+            if alias:
+                assert result != 254
+            else:
+                assert result == 254 and cart.read('_Ct', 20) == pair
+    finally:
+        cart.m[cache:cache+29] = saved
+        cart.m[ct:ct+20] = pair
 
 
 def query_points(cells):
@@ -248,7 +277,7 @@ def unlisted_corners(gen, cells):
     return points
 
 
-def exercise_corners(target, oracle, points, profile=None):
+def exercise_corners(target, oracle, points, profile=None, both_wheels=False):
     # Relocate a freshly initialized bike as a unit. Run the regular three-
     # substep scheduler with contact, motion, rider, head and audio enabled.
     fields = (('_Bike', 119), ('_gbc_bike', 51), ('_angular_residual', 4),
@@ -264,8 +293,11 @@ def exercise_corners(target, oracle, points, profile=None):
     for cart in (target, oracle):
         cart.time_scheduled_frames()
         cart.observe_substeps(fields + (('_riding_subphase', 1),), profile is not None)
-    for i, (level, x, y) in enumerate(sorted(points)):
-        wheel = 24 if i % 2 == 0 else 48
+    if both_wheels:
+        starts = [(point, wheel) for point in sorted(points) for wheel in (24, 48)]
+    else:
+        starts = [(point, (24, 48)[i % 2]) for i, point in enumerate(sorted(points))]
+    for (level, x, y), wheel in starts:
         for cart in (target, oracle):
             cart.invoke('_physics_collision_select', a=level)
             cart.invoke('_physics_reset_current')
@@ -290,7 +322,7 @@ def exercise_corners(target, oracle, points, profile=None):
                     print(f'{("ROM", "reference")[j]} profile: {parts}, other {rest} T.')
                 course_time[j][level+1] += cart.solver_cycles
                 assert cart.solver_cycles > 0
-                peak[j] = max(peak[j], (cart.solver_cycles, level+1, x, y, buttons))
+                peak[j] = max(peak[j], (cart.solver_cycles, level+1, x, y, buttons, wheel // 24))
                 if cart.solver_cycles > 280896:
                     late[j][level+1] += 1
             assert target.substeps and target.substeps == oracle.substeps, (
@@ -303,7 +335,7 @@ def exercise_corners(target, oracle, points, profile=None):
             updates += 1
             if not target.read('_gbc_bike', 51)[50]:
                 break
-    print(f'{updates} updates and {substeps} substeps matched from {len(points)} corner placements.')
+    print(f'{updates} updates and {substeps} substeps matched from {len(starts)} corner placements.')
     old, new, course, x, y, control = max(measurements)
     if profile:
         assert any(row[2:] == profile for row in measurements), ('unvisited placement', profile)
@@ -317,15 +349,16 @@ def exercise_corners(target, oracle, points, profile=None):
     for name, courses, worst in zip(('ROM', 'reference'), late, peak):
         print(f'{name} physics alone exceeded 280896 T on {sum(courses.values())} updates '
               f'across {len(courses)} courses, worst {worst[0]} T on course {worst[1]} '
-              f'from ({worst[2]}, {worst[3]}) with input {worst[4]}.')
+              f'from ({worst[2]}, {worst[3]}) with input {worst[4]}, wheel {worst[5]}.')
 
 
-def check(rom, reference, cells, holdout, profile=None, placements=None):
+def check(rom, reference, cells, holdout, profile=None, placements=None, pair_blocks=(), both_wheels=False):
     assert cells and all(x % 16 == y % 16 == 0 for _, x, y in cells), cells
     target, oracle = WheelQueries(rom), WheelQueries(reference)
     stats = Counter()
     rng = random.Random(0xC047)
     last_level = None
+    checked_certificates = set()
     try:
         if 'terrain_record_dot' in target.sym:
             check_terrain_dots(target)
@@ -349,7 +382,8 @@ def check(rom, reference, cells, holdout, profile=None, placements=None):
                 state = target.fallback_state()
                 count = target.invoke('_riding_corner_lookup', wheel)
                 where = level, x, y, slot
-                should_hit = cell in cells and expected[0] < 2
+                block = (*cell, x & 12, y & 12)
+                should_hit = cell in cells and (expected[0] < 2 or block in pair_blocks)
                 assert (count != 255) == should_hit, (where, count, expected)
                 if count == 255:
                     assert (target.reg.D << 8 | target.reg.E) == wheel, ('miss lost wheel pointer', where)
@@ -361,26 +395,35 @@ def check(rom, reference, cells, holdout, profile=None, placements=None):
                     stats['pair fallback' if cell in cells else 'outside fallback'] += 1
                 else:
                     assert target.read('_Bike', 119) == state[0], ('lookup changed wheel', where)
+                    if count == 2:
+                        offset = target.sym['_wheel_surface_cache'] + 29*slot
+                        assert bytes(target.m[offset:offset+4]) == position[2:4]+position[6:8], where
                     stats['corner', count] += 1
                 actual = target.result(count)
                 assert actual == expected, (where, actual, expected)
+                if count == 2 and should_hit and (level, slot) not in checked_certificates:
+                    check_pair_certificate(target, slot, wheel, position, actual[1])
+                    checked_certificates.add((level, slot))
                 if (level, x, y) in holdout:
                     stats['unlisted', expected[0]] += 1
                 if cell in cells:
                     stats['selected positions', slot] += 1
         assert all(stats['selected positions', slot] == len(cells)*256 for slot in range(2))
         assert stats['outside fallback'] and stats['corner', 1], stats
+        if pair_blocks:
+            assert stats['corner', 2] > 0 and stats['corner', 2] % 2 == 0, stats
+            assert checked_certificates == {(level, slot) for level, *_ in pair_blocks for slot in (0, 1)}
         # The sorted placement number selects the wheel. Adding a tile can
         # change subsequent starts, so use the same manifest for timing history.
         if placements is None:
             placements = holdout | {(level, x+8, y+8) for level, x, y in cells}
-        exercise_corners(target, oracle, placements, profile)
+        exercise_corners(target, oracle, placements, profile, both_wheels)
         print(f'{len(holdout)} unlisted two-edge points on 54 courses, both wheels: '
               f"{stats['unlisted', 1]} merged and {stats['unlisted', 2]} distinct pairs.")
         assert sum(stats['unlisted', i] for i in (1, 2)) == len(holdout)*2
         print(f'{len(cells)} cells, {len(cells)*256} centers per wheel. '
               f"{stats['corner', 0]} empty and {stats['corner', 1]} single-contact hits, "
-              f"{stats['pair fallback']} in-cell pair fallbacks and "
+              f"{stats['corner', 2]} ordered-pair hits, {stats['pair fallback']} in-cell pair fallbacks and "
               f"{stats['outside fallback']} boundary, level or coordinate fallbacks.")
     finally:
         target.p.stop(save=False)
@@ -394,6 +437,8 @@ if __name__ == '__main__':
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--placement-manifest', type=Path,
                         help='use the corner cells from an earlier build for identical physics starts')
+    parser.add_argument('--both-wheels', action='store_true',
+                        help='repeat each scheduled start on each wheel, independent of tile ordering')
     parser.add_argument('--profile', type=int, nargs=4, metavar=('COURSE', 'X', 'Y', 'BUTTONS'),
                         help='break down one scheduled update in both cartridges')
     args = parser.parse_args()
@@ -406,4 +451,4 @@ if __name__ == '__main__':
         placements = unlisted_corners(args.manifest.parent, placed) | {(l, x+8, y+8) for l,x,y in placed}
     holdout = unlisted_corners(args.manifest.parent, cells)
     check(args.rom, args.reference, cells, holdout, tuple(args.profile) if args.profile else None,
-          placements)
+          placements, {tuple(row) for row in data.get('pair_blocks', [])}, args.both_wheels)

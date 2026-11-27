@@ -95,7 +95,8 @@ def validate_linked_layout(symbol_path,rom_mib):
                 size = symbols[f'_riding_corner_end_{bank}'] - start
                 if bank in corner_cells.REGIONS and size != symbols[f'corner_size_{bank}']:
                     raise ValueError(f'Incorrect size for the dense corner data in bank {bank}')
-                corner_bank.validate_layout(symbols, bank, size, with_code=bank in corner_cells.REGIONS)
+                has_reader = bank in corner_cells.REGIONS or bank == corner_cells.corner_pairs.PAIR_BANK
+                corner_bank.validate_layout(symbols, bank, size, with_code=has_reader)
     if '_world_scenery_pins' in symbols:
         scenery_pins.validate_layout(symbols)
     if 'pose_bank_18' in symbols:

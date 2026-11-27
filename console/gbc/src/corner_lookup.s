@@ -60,16 +60,50 @@ _riding_corner_select::
  ld a,(#corner_key+1)
  ld (#corner_ram+1),a
  ld (#corner_quarter_old),a
- ld hl,#_riding_wheel_inputs
  ld a,(#_physics_level_index)
+ ld hl,#corner_secondary_keys
+ ld c,a
+ ld de,#11
+corner_next_secondary:
+ ld a,(hl+)
+ cp #255
+ ld a,c
+ jr z,corner_level_ready
+ dec hl
+ cp (hl)
+ inc hl
+ jr z,corner_has_secondary
+ add hl,de
+ jr corner_next_secondary
+corner_has_secondary:
+ push af
+ ld de,#corner_second
+ ld bc,#11
+ call corner_copy
+ ld a,#0x18              ; JR to the two-strip binder on this course
+ ld (#corner_ram),a
+ ld a,#(corner_dual_bind-corner_bind_src-2)
+ ld (#corner_ram+1),a
+ ld a,#(corner_dual_check-corner_sparse_branch-2)
+ ld (#corner_ram+(corner_sparse_branch-corner_template)+1),a
+ pop af
+corner_level_ready:
  cp #10
- jr nz,corner_set_target
+ jr z,corner_dense_target
+ ; Check the first position after a course reset. Seeding the invalid
+ ; cache X ensures the first later certificate rebinds either wheel.
+ ld a,(#corner_key+1)
+ ld (#_wheel_surface_cache),a
+ ld (#(_wheel_surface_cache+29)),a
+ ld hl,#_riding_sparse_wheel_inputs
+ jr corner_set_target
+corner_dense_target:
  ld hl,#_riding_corner_wheel_inputs
  jr corner_disable_bind
 corner_no_level:
  ld hl,#_riding_wheel_inputs
 corner_disable_bind:
- ld a,#0xc9              ; no sparse patch on this course
+ ld a,#0xc9
  ld (#corner_ram),a
 corner_set_target:
  ld a,l
@@ -139,12 +173,63 @@ corner_bind_first:
  pop af
  ret
 
+corner_dual_bind:
+ ; Ignore a quarter change that neither enters nor leaves the two X strips.
+ ld c,a
+ ld a,(#corner_key+1)
+ cp c
+ jr z,corner_dual_change
+ cp (hl)
+ jr z,corner_dual_change
+ ld a,(#corner_second+1)
+ cp c
+ jr z,corner_dual_change
+ cp (hl)
+ ld a,c
+ ret nz
+corner_dual_change:
+ ld a,c
+ push af
+ push hl
+ push de
+ ld b,l
+ ld hl,#_riding_wheel_inputs
+ ld a,(#corner_key+1)
+ cp c
+ ld a,(#corner_key+4)
+ jr z,corner_dual_y
+ ld a,(#corner_second+1)
+ cp c
+ jr nz,corner_bind_write
+ ld a,(#corner_second+4)
+corner_dual_y:
+ ld c,a
+ inc de
+ inc de
+ inc de
+ inc de
+ ld a,(de)
+ cp c
+ jr nz,corner_bind_write
+ ld hl,#_riding_sparse_wheel_inputs
+ jr corner_bind_write
+
 corner_lookup_src:
  push de
  ld h,d
  ld l,e
  inc hl
  ld de,#corner_key
+corner_sparse_branch:
+ jr corner_sparse_check
+corner_dual_check:
+ inc hl
+ ld a,(hl-)
+ ld b,a
+ ld a,(#corner_second+1)
+ cp b
+ jr nz,corner_sparse_check
+ ld de,#corner_second
  jr corner_sparse_check
 corner_sparse_miss:
  ld a,#255
@@ -186,7 +271,9 @@ corner_sparse_check:
  ld a,(de)
  cp (hl)
  jr nz,corner_sparse_miss
- ld hl,#corner_key+6
+ ld h,d
+ ld l,e
+ inc hl
  ld a,(hl+)
  or a
  jr z,corner_sparse_miss
@@ -194,7 +281,10 @@ corner_sparse_check:
  ld a,#1
  ld (#0x3000),a
  ld a,(hl+)
- ld h,(hl)
+ ld d,(hl)
+ inc hl
+ push hl                 ; pointer to this tile's dictionary address
+ ld h,d
  ld l,a
  ld e,b
  ld d,#0
@@ -208,29 +298,44 @@ corner_sparse_check:
  add hl,bc
  add hl,de
  ld a,(hl)
+ pop de
  or a
  jr z,corner_sparse_restore
- cp #255
- jr z,corner_sparse_restore
- dec a
+ ld c,a
+ ld a,(de)
  ld l,a
- ld h,#0
- add hl,hl
- ld e,l
- ld d,h
- add hl,hl
- add hl,de               ; six bytes per solved single contact
- ld a,(#corner_key+9)
- ld e,a
- ld a,(#corner_key+10)
- ld d,a
- add hl,de
- ld de,#_Ct
- .rept 6
- ld a,(hl+)
- ld (de),a
  inc de
+ ld a,(de)
+ ld h,a                   ; dictionary, with pair directory at entry zero
+ ld a,c
+ cp #255
+ jr z,corner_sparse_pair
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ dec hl
+ ld b,#0
+ .rept 4
+ add hl,bc
  .endm
+ ld a,(hl+)
+ ld (#_Ct),a
+ ld a,(hl+)
+ ld (#_Ct+2),a
+ ld a,(hl+)
+ ld (#_Ct+4),a
+ ld c,(hl)
+ ld h,d
+ ld l,e
+ .rept 3
+ add hl,bc
+ .endm
+ ld a,(hl+)
+ ld (#_Ct+1),a
+ ld a,(hl+)
+ ld (#_Ct+3),a
+ ld a,(hl)
+ ld (#_Ct+5),a
  ld a,#1
 corner_sparse_restore:
  ld b,a
@@ -241,14 +346,45 @@ corner_sparse_restore:
  ld a,b
  pop de
  ret
+corner_sparse_pair:
+ inc hl
+ inc hl
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ pop de
+ push de
+ call _riding_corner_pair_map
+ jr corner_sparse_restore
+corner_pair_map:
+ ld a,b
+ or a
+ ld a,#255
+ ret z
+ ; The exact-position certificate also retains the two fractional filters
+ ; and cached support signs. Let it answer first while that entry is live.
+ ld a,e
+ cp #<(_Bike+48)
+ ld a,(#(_wheel_surface_cache+4))
+ jr nz,corner_pair_kind
+ ld a,(#(_wheel_surface_cache+29+4))
+corner_pair_kind:
+ cp #9
+ ld a,#255
+ ret z
+ ld a,#<472
+ ld (#0x2000),a
+ jp _riding_corner_code_472
 corner_template_end:
 
 .area _DATA
+corner_second: .ds 11
 corner_key: .ds 11
 corner_ram: .ds corner_template_end-corner_template
 _riding_sparse_bind = corner_ram + (corner_bind_src-corner_template)
 _riding_sparse_lookup = corner_ram + (corner_lookup_src-corner_template)
 corner_quarter_old = corner_ram+(corner_old_compare-corner_template)+1
-.globl _riding_sparse_bind, _riding_sparse_lookup
+_riding_corner_pair_map = corner_ram+(corner_pair_map-corner_template)
+.globl _riding_sparse_bind, _riding_sparse_lookup, _riding_corner_pair_map
 
 .area _CODE_32

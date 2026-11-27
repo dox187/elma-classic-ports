@@ -3,6 +3,7 @@ import json
 import struct
 
 import corner_bank
+import corner_pairs
 from corner_coverage import has_merge, ranked_tiles
 from corner_samples import cell_samples
 from head_clearance import packed_inputs, write_if_changed
@@ -43,9 +44,10 @@ def shared_rows(indices):
 def pack_cell(samples, upper_bytes, address):
     indices = bytearray()
     dictionary = {}
+    pair_header = any(len(hit) == 2 for hit in samples)
     for contacts in samples:
         if len(contacts) == 1:
-            index = dictionary.setdefault(contacts[0], len(dictionary) + 1)
+            index = dictionary.setdefault(contacts[0], len(dictionary) + 1 + pair_header)
             if index >= 255:
                 return None
         else:
@@ -54,6 +56,8 @@ def pack_cell(samples, upper_bytes, address):
     # Three low bytes and an index reconstruct the six original bytes.
     # Neighbouring positions share the upper bytes of their normals and distance.
     palette = dict(upper_bytes)
+    if pair_header:
+        indices.extend(bytes(4))  # First dictionary record points to the ordered-pair directory.
     for contact in dictionary:
         high = tuple((v >> 8) & 255 for v in contact)
         key = palette.setdefault(high, len(palette))
@@ -76,7 +80,6 @@ COURSE_BYTE_TARGET = 392
 
 
 def sparse_payload(samples):
-    # Identical rows share their 16 indices. 0 and 255 mean empty and defer.
     colors, indices = {}, bytearray()
     for hit in samples:
         index = 255 if hit else 0
@@ -86,10 +89,24 @@ def sparse_payload(samples):
                 return None
         indices.append(index)
     indices = shared_rows(indices)
-    return indices + b''.join(struct.pack('<hhh', *c) for c in colors), len(indices)
+    # Preserve the geometry tile selection metric used before high-byte packing.
+    selection_size = len(indices) + 6*len(colors)
+    palette, records = {}, bytearray()
+    for contact in colors:
+        upper = bytes((v >> 8) & 255 for v in contact)
+        records.extend((*(v & 255 for v in contact), palette.setdefault(upper, len(palette))))
+    # The linker places this tile before its final address is known. The first
+    # word of the dictionary is a relative palette pointer until allocation.
+    data = indices + struct.pack('<HH', 4 + len(records), 0) + records + b''.join(palette)
+    return data, len(indices), selection_size
 
 
-def pack_courses(levels, banks, gen):
+def sparse_start(bank):
+    start = corner_bank.RANGES[bank][0]
+    return start + (corner_bank.CODE_BYTES if bank == corner_pairs.PAIR_BANK else 0)
+
+
+def pack_courses(levels, banks):
     choices, counts = [], []
     for course, level in enumerate(levels):
         ranked = ranked_tiles(level, banks)
@@ -103,39 +120,57 @@ def pack_courses(levels, banks, gen):
             payload = sparse_payload(cell_samples(level, banks, x*16, y*16))
             if payload is None:
                 continue
-            item = (len(payload[0]), course, x*16, y*16, *payload)
-            if smallest is None or item[0] < smallest[0]:
+            data, index_size, selection_size = payload
+            item = (selection_size, course, x*16, y*16, data, index_size)
+            if smallest is None or selection_size < smallest[0]:
                 smallest = item
-            if item[0] <= COURSE_BYTE_TARGET:
+            if selection_size <= COURSE_BYTE_TARGET:
                 break
         if smallest is None:
             raise ValueError(f'No encodable multi-edge tile on course {course+1}')
-        choices.append(smallest)
+        choices.append(smallest[1:])
+    # The two-strip reader selects the second tile by the middle X byte.
+    primary_strip = {course: (x >> 8) & 255 for course, x, _, _, _ in choices}
+    for course, x, y in corner_pairs.EXTRA_TILES:
+        first = primary_strip.pop(course, None)
+        if first is None or first == (x >> 8) & 255:
+            raise ValueError(f'Course {course+1} needs two distinct X strips for a second corner tile')
+        data, index_size, _ = sparse_payload(cell_samples(levels[course], banks, x, y))
+        choices.append((course, x, y, data, index_size))
     storage = {bank: bytearray() for bank in SPARSE_BANKS}
-    desc = [bytes(11)] * len(levels)
-    cells = []
-    for size, course, x, y, data, index_size in sorted(choices, reverse=True):
+    desc, secondary = [bytes(11)] * len(levels), []
+    cells, pair_slots = [], {}
+    for course, x, y, data, index_size in sorted(choices, key=lambda item: len(item[3]), reverse=True):
         def room(bank):
-            start, end = corner_bank.RANGES[bank]
-            return end - start - len(storage[bank])
-        available = [bank for bank in storage if size <= room(bank)]
+            return corner_bank.RANGES[bank][1] - sparse_start(bank) - len(storage[bank])
+        available = [bank for bank in storage if len(data) <= room(bank)]
         if not available:
-            raise ValueError(f'Cannot place {size} bytes for course {course+1}')
+            raise ValueError(f'Cannot place {len(data)} bytes for course {course+1}')
         bank = min(available, key=room)
-        address = 0x4000 + corner_bank.RANGES[bank][0] + len(storage[bank])
+        address = 0x4000 + sparse_start(bank) + len(storage[bank])
+        dictionary = address + index_size
+        palette, = struct.unpack_from('<H', data, index_size)
+        struct.pack_into('<H', data, index_size, dictionary + palette)
+        pair_slots[course, x, y] = (bank, len(storage[bank]) + index_size + 2)
         storage[bank].extend(data)
-        desc[course] = (x.to_bytes(3,'little') + y.to_bytes(3,'little') +
-                        struct.pack('<BHH', bank-256, address, address+index_size))
+        descriptor = (x.to_bytes(3,'little') + y.to_bytes(3,'little') +
+                      struct.pack('<BHH', bank-256, address, dictionary))
+        if (course, x, y) in corner_pairs.EXTRA_TILES:
+            secondary.append(bytes([course]) + descriptor)
+        else:
+            desc[course] = descriptor
         cells.append([course, x, y])
-    directory = '_riding_sparse_courses::\n' + ''.join(
-        ' .db ' + ','.join(map(str, row)) + '\n' for row in desc)
-    sources = {bank: corner_bank.generate(gen, bank, data) for bank, data in storage.items() if data}
-    return sources, cells, directory, counts
+    def records(rows):
+        return ''.join(' .db ' + ','.join(map(str, row)) + '\n' for row in rows)
+    directory = '_riding_sparse_courses::\n' + records(desc)
+    directory += 'corner_secondary_keys::\n' + records(secondary) + ' .db 255\n'
+    return storage, pair_slots, cells, directory, counts
 
 
 def generate(gen, template):
     levels, banks, _ = packed_inputs(gen)
-    sources, cells, directory, counts = pack_courses(levels, banks, gen)
+    storage, pair_slots, cells, directory, counts = pack_courses(levels, banks)
+    prefixes = {}
     for bank, (origin, priority) in REGIONS.items():
         # $4100: tile directory. $4500: 128 little-endian tile pointers.
         data = bytearray(1024 + 256 + 3*256)
@@ -155,6 +190,8 @@ def generate(gen, template):
                 raise ValueError('Corner tile pointer directory is full')
             data[row*32 + col] = count | (0x80 if shared else 0)
             struct.pack_into('<H', data, 1024 + 2*count, address)
+            dictionary = (int.from_bytes(tile[:2], 'little') - address) if shared else 256
+            pair_slots[COURSE, x*16, y*16] = (bank, len(data) + dictionary)
             data.extend(tile)
             cells.append([COURSE, x*16, y*16])
         for high, index in upper_bytes.items():
@@ -163,6 +200,24 @@ def generate(gen, template):
         prefix = (f'CORNER_X_BLOCK = {origin // 16}\nCORNER_X_INSET = {origin % 16}\n'
                   f'CORNER_Y_BLOCK = {Y_ORIGIN // 16}\n'
                   f'corner_size_{bank} == {len(data)}\n')
-        sources[bank] = corner_bank.generate(gen, bank, data, prefix_asm=prefix + template.read_text())
-    write_if_changed(gen/'corner_cells.json', json.dumps({'cells': cells, 'candidate_counts': counts}) + '\n')
+        storage[bank] = data
+        prefixes[bank] = prefix + template.read_text()
+    pair_tiles = {}
+    for key in pair_slots:
+        course, x, y = key
+        samples = cell_samples(levels[course], banks, x, y)
+        if any(len(hit) == 2 for hit in samples):
+            pair_tiles[key] = samples
+    bank = corner_pairs.PAIR_BANK
+    start, end = corner_bank.RANGES[bank]
+    address = 0x4000 + start + corner_bank.CODE_BYTES + len(storage[bank])
+    prefixes[bank] = template.with_name('corner_pair_reader.inc').read_text()
+    data, pointers, blocks = corner_pairs.pack_tiles(pair_tiles, end + 0x4000 - address, address)
+    for key, pointer in pointers.items():
+        tile_bank, offset = pair_slots[key]
+        struct.pack_into('<H', storage[tile_bank], offset, pointer)
+    storage[bank].extend(data)
+    sources = {bank: corner_bank.generate(gen, bank, data, prefix_asm=prefixes.get(bank))
+               for bank, data in storage.items() if data}
+    write_if_changed(gen/'corner_cells.json', json.dumps({'cells': cells, 'candidate_counts': counts, 'pair_blocks': blocks}) + '\n')
     return sources, directory

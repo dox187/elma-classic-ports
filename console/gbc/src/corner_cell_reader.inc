@@ -76,7 +76,7 @@ corner_index:
  or a
  ret z                    ; empty
  cp #255
- ret z                    ; two supports: use the ordered pair solver
+ jr z,corner_ordered_pair
  dec a
  ld e,a
  .rept 4
@@ -133,3 +133,13 @@ corner_rows:
  ld a,(hl)
  pop hl
  jr corner_index
+
+corner_ordered_pair:
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ ldhl sp,#2              ; caller saved the wheel before calling this bank
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ jp _riding_corner_pair_map

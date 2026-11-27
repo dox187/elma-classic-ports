@@ -44,7 +44,9 @@ def after_numeric_prefix(table, earlier, bank, end_label):
     amount = sum(len(line[5:].split(',')) for line in prefix.splitlines() if line.startswith(' .db '))
     if amount != RANGES[bank][0] or any(line and not line.startswith(' .db ') for line in tail.splitlines()):
         raise ValueError(f'Numeric prefix in bank {bank} no longer abuts corner data')
-    label = f'_riding_corner_data_{bank}::\n'
+    label = f'_riding_corner_code_{bank}::\n'
+    if label not in table.read_text():
+        label = f'_riding_corner_data_{bank}::\n'
     write_if_changed(table, prefix + end_label + '::\n' + label + table.read_text().split(label)[1])
 
 
