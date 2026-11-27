@@ -961,7 +961,7 @@ ss_prepared_wide:
 
 ; CGB runs 912 CPU T-cycles per LCD line. A visible LY below the cutoff
 ; leaves the complete lines through 143. LY=144..153 leaves a full visible
-; frame. Refuse pending VBlank or a changing LY during the epoch snapshot.
+; frame. A single visible-line advance keeps the same VBlank epoch.
 ; check_spring_prepare.py walks every reachable SM83 branch of each block.
 ; The budgets reserve two full lines for guard, bank return, frame counter
 ; and entry to the normal wait. Only VBlank interrupts run during gameplay.
@@ -980,7 +980,8 @@ _riding_spring_budget::
  jr c,ss_prepare_late
  ldh a,(#0x44)
  cp a,c
- jr nz,ss_prepare_late
+ jr nz,ss_prepare_changed
+ss_prepare_epoch:
  ld a,h
  or a
  ret nz
@@ -1002,6 +1003,15 @@ ss_prepare_ok:
 ss_prepare_late:
  or a
  ret
+ss_prepare_changed::
+ ; Use the later line for the remaining budget. Crossing into VBlank or
+ ; wrapping to a new visible frame still requires a fresh epoch snapshot.
+ cp #144
+ jr nc,ss_prepare_late
+ inc c
+ cp c
+ jr z,ss_prepare_epoch
+ jr ss_prepare_late
 
 _riding_spring_geometry::
  ld e,#b_body_oms

@@ -252,7 +252,7 @@ def guard_matrix(rom,sy,limits):
         regs=emu.register_file
         regs.PC,regs.SP=code,0xdf80
         states=[(line,(line+change)%154,interrupt,epoch,age,lines)
-                for line in range(154) for change in (0,1) for interrupt in (0,1)
+                for line in range(154) for change in (-1,0,1,2) for interrupt in (0,1)
                 for epoch in (0,0xffff) for age in (0,1,2,0xffff) for lines in thresholds]
         pos=0
         failures=[]
@@ -266,13 +266,14 @@ def guard_matrix(rom,sy,limits):
             nonlocal pos
             if pos==len(states):return
             ly,after,irq,_,age,lines=states[pos]
-            expected=(not irq and ly==after and
-                      (age==0 or age==1 and (ly>=144 or 143-ly>=lines)))
+            same_epoch = ly == after or ('ss_prepare_changed' in sy and ly+1 == after < 144)
+            expected=(not irq and same_epoch and
+                      (age==0 or age==1 and (after>=144 or 143-after>=lines)))
             if bool(regs.F&16)!=expected:failures.append(states[pos])
             pos+=1
         emu.hook_register(bank,code,load,None)
         emu.hook_register(bank,code+3,check,None)
-        for _ in range(200):
+        for _ in range(400):
             emu.tick(1,False)
             if pos==len(states):break
         assert pos==len(states) and not failures,(pos,failures[:1])
