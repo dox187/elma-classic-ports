@@ -78,27 +78,35 @@ class Cartridge:
 def check_first_push(reference, target):
     # The first contact moves the wheel. Compare the second contact at the
     # original acceptance boundary and again after that movement.
-    cases = 0
+    normals = ((32767, 32767), (-32768, -32768), (32767, -32768),
+               (0, 16384), (-16384, 0))
+    # Include the largest signed-word pushes and adjacent full-width ones.
+    # With l=341 and a +X normal, fx=123 gives a push of exactly 63*256.
+    cases = [(16384, 0, 400, nx, ny, length, fx, fy)
+             for length in (-32768, -1, 0, 255, 256, 404, 405, 406, 409, 410)
+             for nx, ny in normals
+             for fx, fy in ((0, 0), (0, 255), (255, 0), (255, 255))]
+    cases.extend((ax, ay, distance, nx, ny, 400, fx, 255-fx)
+                 for ax, ay in (*normals, (16384, 0), (11385, -11385))
+                 for distance in (340, 341, 342, 403)
+                 for nx, ny in normals
+                 for fx in (0, 122, 123, 124, 255))
     for slot in (0, 1):
-        for length in (-32768, -1, 0, 255, 256, 404, 405, 406, 409, 410):
-            for nx, ny in ((32767, 32767), (-32768, -32768), (32767, -32768),
-                           (0, 16384), (-16384, 0)):
-                for fx, fy in ((0, 0), (0, 255), (255, 0), (255, 255)):
-                    center = struct.pack('<II', 0x12340000 + fx, 0xfedc0000 + fy)
-                    contacts = struct.pack('<10h', 16384, 0, 400, 80, 90,
-                                           nx, ny, length, -100, 130)
-                    observed = []
-                    for cart in (reference, target):
-                        wheel = cart.symbols['_Bike'] + 24 * (1 + slot)
-                        ct = cart.symbols['_Ct']
-                        cart.mem[wheel:wheel+8] = center
-                        cart.mem[ct:ct+20] = contacts
-                        count = cart.call('_riding_prepare_contacts', wheel, 2)
-                        observed.append((count, bytes(cart.mem[wheel:wheel+8]),
-                                         bytes(cart.mem[ct:ct+20])))
-                    assert observed[0] == observed[1], (slot, length, nx, ny, fx, fy)
-                    cases += 1
-    return cases
+        for ax, ay, distance, nx, ny, length, fx, fy in cases:
+            center = struct.pack('<II', 0x12340000 + fx, 0xfedc0000 + fy)
+            contacts = struct.pack('<10h', ax, ay, distance, 80, 90,
+                                   nx, ny, length, -100, 130)
+            observed = []
+            for cart in (reference, target):
+                wheel = cart.symbols['_Bike'] + 24 * (1 + slot)
+                ct = cart.symbols['_Ct']
+                cart.mem[wheel:wheel+8] = center
+                cart.mem[ct:ct+20] = contacts
+                count = cart.call('_riding_prepare_contacts', wheel, 2)
+                observed.append((count, bytes(cart.mem[wheel:wheel+8]),
+                                 bytes(cart.mem[ct:ct+20])))
+            assert observed[0] == observed[1], (slot, ax, ay, distance, nx, ny, length, fx, fy)
+    return 2 * len(cases)
 
 
 def check_moving_pivots(reference, target, rng):

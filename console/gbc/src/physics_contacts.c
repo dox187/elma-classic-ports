@@ -584,11 +584,82 @@ wide_have_axes:
     or h
     jr z,wide_push_done
     push hl
+    ; A push below 63*256 gives signed-word axes even for -32768
+    ; normals. Both products plus the two rounding biases fit signed32.
+    ldhl sp,#21
+    ld a,(hl-)
+    or (hl)
+    jr nz,wide_project_other
+    dec hl
+    ld a,(hl)
+    cp #63
+    jr nc,wide_project_other
+    pop hl
+    push hl
+    ld a,(hl+)
+    ld b,(hl)
+    ld c,a
+    ldhl sp,#2
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    call _riding_projection_signed16
+    push hl
+    push de
+    ldhl sp,#4
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    inc hl
+    inc hl
+    ld a,(hl+)
+    ld b,(hl)
+    ld c,a
+    ldhl sp,#10
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    call _riding_projection_signed16
+    ld b,h
+    ld c,l
+    pop hl
+    add hl,de
+    ld d,h
+    pop hl
+    ld a,l
+    adc c
+    ld l,a
+    ld a,h
+    adc b
+    ld h,a
+    ; ((P+8192)>>14)+128, then >>8, equals (P+0x202000)>>22.
+    ld a,d
+    add #32
+    ld a,l
+    adc #32
+    ld l,a
+    ld a,h
+    adc #0
+    ld h,a
+    add a
+    sbc a
+    ld b,a
+    add hl,hl
+    rl b
+    add hl,hl
+    rl b
+    ld c,h
+    or a
+    jr wide_add_other
+wide_project_other:
+    pop hl
+    push hl
     call _riding_dotq14_regs
     ld b,l
     ld c,d
     ld a,e
     add a
+wide_add_other:
     pop hl
     call wide_push_length
 wide_push_done:
