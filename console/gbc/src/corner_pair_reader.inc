@@ -68,13 +68,12 @@ pair_have_pixel:
  ld e,a
  add hl,de                ; template after sixteen packed pixel records
  ld de,#_Ct
- ld b,#20
-pair_template_copy:
+ ; The reader page has room to copy the fixed-size contact pair inline.
+ .rept 20
  ld a,(hl+)
  ld (de),a
  inc de
- dec b
- jr nz,pair_template_copy
+ .endm
  pop de
  ld a,c
  or a
