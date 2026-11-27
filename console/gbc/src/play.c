@@ -520,9 +520,9 @@ static uint8_t prediction_rank(uint16_t from,uint16_t to,uint16_t limit) {
 
 /* Prepare hidden cells while keeping the published camera at the current
  * frame. A partial-tile move predicts the same first crossing as the rider. */
-static void prepare_scenery_view(uint16_t start) {
+static void prepare_scenery_view(uint16_t start,uint8_t same_tile) {
     uint16_t x=next_camera_x,y=next_camera_y;
-    if(((x^game_camera_x)|(y^game_camera_y))<8U) {
+    if(same_tile) {
         uint8_t tx=prediction_rank(game_camera_x,x,WORLD_WIDTH-160);
         uint8_t ty=prediction_rank(game_camera_y,y,WORLD_HEIGHT-144);
         if(tx==255 && ty==255)return;
@@ -533,21 +533,25 @@ static void prepare_scenery_view(uint16_t start) {
 }
 
 static void prepare_next_view(uint16_t start,uint8_t late) {
+    uint16_t changed;
+    uint8_t same_tile;
     project_camera(0);camera_prepared=1;
+    changed=(next_camera_x^game_camera_x)|(next_camera_y^game_camera_y);
+    same_tile=changed<8U;
 #if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
     /* When recovering from a long update, no scenery is due while the
      * camera stays in this tile. Prepare next-step forces before lookahead. */
-    if(late && ((next_camera_x^game_camera_x)|(next_camera_y^game_camera_y))<8U) {
+    if(late && same_tile && changed) {
         uint8_t line;
         physics_prepare_spring(start);
         line=LY_REG;
-        if(line<108 || line>=144)prepare_scenery_view(start);
+        if(line<108 || line>=144)prepare_scenery_view(start,1);
         return;
     }
 #else
     (void)late;
 #endif
-    prepare_scenery_view(start);
+    if(changed)prepare_scenery_view(start,same_tile);
 #if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
     /* On time, or at a tile crossing, scenery has first claim. Its 3K caller margin
      * covers a declined spring guard. Accepted blocks reserve their own
