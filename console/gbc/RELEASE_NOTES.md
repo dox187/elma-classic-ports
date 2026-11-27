@@ -50,6 +50,15 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test54 — Curvaceous contacts and Gravity Ride braking
+
+The two Gravity Ride replays sustained one game update every two display
+refreshes throughout braking. Each run still had one longer interval during
+the approach. At the Curvaceous pinch the previously slowest physics update
+fell from 67.98 to 49.90 ms. Across both wheels and four inputs at the same
+start, the longest update now takes 56.08 ms. Steep Corner still exceeds
+the 33.49 ms budget. [Playable 8 MiB ROM](build/elma-gbc-v0.96-test54-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test54--curvaceous-contacts-and-gravity-ride-braking)
+
 ## 0.96 test53 — Wheel contacts and head clearance
 
 Double Trouble braking now takes an extra display refresh on 8 of 99 updates,

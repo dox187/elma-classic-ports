@@ -4087,3 +4087,67 @@ speed-limit fixture matched all 3,170 native states across 122 cases. All
 measured in the emulator.
 
 SHA-256 `f3e4baeba2e498311c55ed390ac1ec882aca21a664a426aab8387fa52c6acbcf`.
+
+## 0.96 test54 — Curvaceous contacts and Gravity Ride braking
+
+At (65,288, 19,432) on Curvaceous, with wheel 2 placed at the corner, gas
+and a counterclockwise rotation produced the slowest physics update on test53.
+Each of its three substeps searched terrain edges for both wheels and resolved
+two contacts at each wheel. The profile below uses the same placement and
+input sequence on both ROMs. Time is emulated CGB double-speed CPU time.
+
+| Physics work in that update | test53 | test54 |
+| --- | ---: | ---: |
+| Both wheels | 408,052 T (48.64 ms) | 256,436 T (30.57 ms) |
+| Suspension | 100,316 T (11.96 ms) | 100,316 T (11.96 ms) |
+| Head checks | 8,836 T (1.05 ms) | 8,836 T (1.05 ms) |
+| Remaining physics | 53,016 T (6.32 ms) | 53,016 T (6.32 ms) |
+| Complete physics update | 570,220 T (67.98 ms) | 418,604 T (49.90 ms) |
+
+Seventeen four-by-four blocks store both ordered contact records at every
+integer wheel center. A matching prepared-pair cache retains its priority.
+The normal solver applies the fractional-position tests, pushes and impulses.
+The moving-pivot solver bounds the possible moment change from both velocity
+components. It also skips a squared-speed calculation where the speed class
+is already certain. The exact comparison handles points on the 1 m/s circle,
+including the original difference between equality on and off an axis.
+
+On the short Gravity Ride replay the wheel repeatedly merged the same two
+terrain edges as braking moved it across the slope. Update 49 alone took
+356,944 T on test53 and 271,984 T on test54, including presentation.
+The builder computes 4,008 wheel-center results from the ordered edges.
+The ROM looks up empty and single-contact positions and runs the regular
+solver for uncovered positions or two distinct contacts. Keeping the existing
+corner lookup first helped the longer approach. Sharing identical column
+indices and separating contact dictionaries by X page in bank 59 made room
+for the last missed braking positions.
+
+| Controller or placement test | test53 | test54 |
+| --- | ---: | ---: |
+| Gravity Ride, short replay, late intervals while holding B | 15 / 66 | 0 / 66 |
+| Gravity Ride, long replay, late intervals while holding B | 12 / 589 | 0 / 589 |
+| Gravity Ride, short / long late intervals including the throttle approach | 18 / 99 and 17 / 649 | 1 / 99 and 1 / 649 |
+| Weighted updates/s across 25,310 controller intervals | 29.712 | 29.740 |
+| Three-refresh intervals, short suite / long suite / complete Freefall | 198 / 60 / 0 | 173 / 38 / 0 |
+| Independent 54-course seed 905202, late intervals out of 5,302 | 68 | 66 |
+| Worst physics time across eight inputs and wheel placements at the Curvaceous start | 67.98 ms | 56.08 ms |
+| Worst physics time across all 642 corner placements | 67.98 ms | 63.25 ms |
+
+The two-refresh target is 29.864 updates/s and allows 33.49 ms for the
+whole game update. The peak across the 642 placements moved to Steep Corner
+at (25,224, 39,416), input 4, wheel 2 (530,540 T). Physics alone exceeded
+the budget on 347 of the 2,432 forced updates, up from 345. The four regular
+Curvaceous replays had three long intervals in each build. The slowest
+regular replay averages 27.50 updates/s on both Bowling and Framework braking.
+
+The 76,568 primary controller substeps, 16,015 independent-seed substeps
+and 7,199 forced-placement substeps matched test53 byte for byte. The linked
+ROM passed 16,700 direct Gravity Ride lookups, all 272 Curvaceous pair centers,
+1,254 boundary and alias probes and 2,720 prepared-cache checks. Native wheel
+tests covered 720 velocity boundaries, 5,600 ordered pairs, 2,368 moving
+pivots and 432 tangent/length combinations. The speed-limit fixture matched all
+3,170 native states across 122 cases. Seven visual routes matched on 1,216
+presentations and 61,845 background cells. All 54 courses started, with one
+late update in the entry sweep. Timing was measured in PyBoy.
+
+SHA-256 `9cce919d947410ba8d95a84a4c7875ce6cd1ee7a1dbab481fc91f4377c1fd33f`.
