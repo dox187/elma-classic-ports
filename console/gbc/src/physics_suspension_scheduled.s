@@ -4871,19 +4871,20 @@ ss_ram_damper = ss_wram_code + (ss_image_damper-ss_force_image)
 .area _CODE_6
 ss_force_image::
 .macro ss_ram_lane src,dst,page,?positive,?negword,?posword,?word,?byte,?wide,?done
- ld hl,#(src+2)
- ld a,(hl+)
+ ; Read the sign extension first and leave HL at the high byte of the low word.
+ ld hl,#(src+3)
+ ld a,(hl-)
+ ld c,a
+ ld a,(hl-)
  ld b,a
- or (hl)
+ or c
  jr z,positive
  ld a,b
- and (hl)
+ and c
  inc a
  jr nz,wide
- ld hl,#src
- ld a,(hl+)
- ld e,a
- ld a,(hl)
+ ld a,(hl-)
+ ld e,(hl)
  inc a
  jr nz,negword
  ld h,#(page+27)
@@ -4894,10 +4895,8 @@ negword:
  ld h,#(page+11)
  jr word
 positive:
- ld hl,#src
- ld a,(hl+)
- ld e,a
- ld a,(hl)
+ ld a,(hl-)
+ ld e,(hl)
  or a
  jr nz,posword
  ld h,#page
@@ -4915,10 +4914,9 @@ byte:
  ldh (#(dst+6)),a
  jr done
 wide:
- ld hl,#src
- ld a,(hl+)
- ld e,a
- ld d,(hl)
+ ld a,(hl-)
+ ld d,a
+ ld e,(hl)
  ; The original wide lane reads byte 3 via --HL.
  ld hl,#(src+4)
  ld c,#<dst
