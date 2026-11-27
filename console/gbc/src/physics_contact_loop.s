@@ -633,12 +633,24 @@ contact_region_dispatch:
  ld (#0x2000),a
  ldh (#__current_bank),a
  call contact_region_query
+contact_bank_return:
  ld h,a
  ld a,#9
  ld (#0x2000),a
  ldh (#__current_bank),a
  ld a,h
  ret
+ .ifdef RIDING_LEAF_REGION
+; The candidate selector returns A and the two plane readers return BC.
+; Banked products restore this tracked bank before returning to the reader.
+_riding_contact_bank_query::
+ ld (#0x2000),a
+ ldh (#__current_bank),a
+ call contact_query_hl
+ jr contact_bank_return
+contact_query_hl:
+ jp (hl)
+ .endif
 
  .endif
 
@@ -1176,12 +1188,12 @@ corner_record:
  ld h,(hl)
  ld l,a
  ld a,(hl+)
- push af
+ ld c,a
  ld a,l
  ld (#_riding_record_program),a
  ld a,h
  ld (#_riding_record_program+1),a
- pop af
+ ld a,c
  or a
  jp z,corner_general_record
  cp #4
@@ -1189,14 +1201,13 @@ corner_record:
  dec a
  ret z
  ld b,a
- jp corner_cap_dispatch
 
-.area _CODE_2
 corner_cap_query:
- ; Start/end cap: derive the exact center-relative vector. The program
- ; proves tangent and normal guards. The regular strict disk test follows.
  ld h,d
  ld l,e
+; B selects a shared vertex (0), start (1) or end (2). Form the signed
+; center-minus-start once. Only an end subtracts the record's delta words.
+corner_vertex_offset:
  ld a,(#_riding_contact_qx)
  sub (hl)
  inc hl
@@ -1213,8 +1224,10 @@ corner_cap_query:
  sbc (hl)
  inc hl
  dec b
+ jr z,corner_cap_start
+ dec b
  ld b,a
- jr z,corner_cap_vector
+ jp nz,corner_shared_radial
  ld a,e
  sub (hl)
  inc hl
@@ -1230,16 +1243,9 @@ corner_cap_query:
  ld a,b
  sbc (hl)
  ld b,a
-corner_cap_vector:
- ret
-
-.area _CODE
-corner_cap_dispatch:
- ld a,#2
- ld (#0x2000),a
- call corner_cap_query
- ld a,#9
- ld (#0x2000),a
+ jp contact_loop_radial
+corner_cap_start:
+ ld b,a
  jp contact_loop_radial
 
 .area _CODE_9
@@ -1270,15 +1276,15 @@ corner_candidate_plane:
  ld (hl),e
  inc hl
  ld (hl),d
- ld e,#2
- ld hl,#corner_plane_query
- or a
- jr z,corner_plane_project
  ld c,a
- ld e,#93
+ or a
+ ld a,#2
+ ld hl,#corner_plane_query
+ jr z,corner_plane_project
+ ld a,#93
  ld hl,#candidate_static_distance
 corner_plane_project:
- call ___sdcc_bcall_ehl
+ call _riding_contact_bank_query
  call contact_loop_in_radius
  ret nc
  jp contact_loop_interior

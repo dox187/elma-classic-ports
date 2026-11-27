@@ -19,15 +19,9 @@ _riding_candidate_solve::
  bit 7,b
  jr z,candidate_next
  res 7,b
- ld de,#_riding_dense_vertex
- .rept 4
- ld a,(hl+)
- ld (de),a
- inc de
- .endm
- push hl
+ push hl                     ; program continues after the signed X/Y vertex
  push bc
- call _riding_shared_cap
+ call corner_shared_vertex
  ld hl,#contact_loop_found
  ld (hl+),a
  ld (hl),#0
@@ -40,11 +34,14 @@ _riding_candidate_solve::
 candidate_shared_ready:
  pop bc
  pop hl
+ .rept 4
+ inc hl
+ .endm
 candidate_next:
  ld a,b
  or a
  jr z,candidate_exhausted
- dec b
+candidate_record:
  ld a,(hl+)
  ld c,a                      ; zero-based ordinal in the full leaf
  ld a,(hl+)
@@ -52,16 +49,21 @@ candidate_next:
  push bc
  ld b,a                      ; contact opcode
  call candidate_pointer
- call candidate_single
+ push de                     ; the next source record follows this one by 18 bytes
+ call candidate_try
+ ; A distinct pair unwinds the contact call and resumes here.
+ pop de
  pop bc
  pop hl
- cp #2
- jr nz,candidate_next
  inc c                       ; first unread record after the early pair
  ld a,(#_Seg_left)
  sub c
  ld (#_Seg_left),a
- call candidate_publish
+ ld hl,#18
+ add hl,de
+ ld d,h
+ ld e,l
+ call candidate_store
  ld a,#2
  ret
 candidate_exhausted:
@@ -69,11 +71,11 @@ candidate_exhausted:
  ld c,a
  xor a
  ld (#_Seg_left),a
- call candidate_publish
+ call candidate_pointer
+ call candidate_store
  jp contact_loop_done
 
-candidate_publish:
- call candidate_pointer
+candidate_store:
  ld hl,#_Seg_cur
  ld (hl),e
  inc hl
@@ -91,22 +93,25 @@ candidate_pointer:
  add hl,de
  add hl,hl
  ld a,(#_Seg_cur)
+ add l
  ld e,a
  ld a,(#_Seg_cur+1)
+ adc h
  ld d,a
- add hl,de
- ld d,h
- ld e,l
  ret
-candidate_single:
- ; A second distinct contact discards this frame and returns A=2.
+candidate_try:
  call candidate_contact
- xor a
- ret
+ pop hl                      ; discard the early-pair return address
+ pop de
+ pop bc
+ pop hl
+ dec b
+ jr nz,candidate_record
+ jr candidate_exhausted
 candidate_contact:
  ld a,b
  or a
  jp z,corner_general_record
  cp #3
  jp nc,corner_candidate_plane
- jp corner_cap_dispatch
+ jp corner_cap_query

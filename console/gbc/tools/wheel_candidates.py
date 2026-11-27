@@ -150,7 +150,7 @@ def tables(levels, banks, output_dir):
         for course in courses[:-1]:
             lines += [f' cp #{course}', ' jr z,candidate_probe']
         lines += [f' cp #{courses[-1]}', ' jp nz,_riding_leaf_dispatch', 'candidate_probe:',
-                  ' ld e,#80', ' ld hl,#_riding_candidate_select', ' call ___sdcc_bcall_ehl',
+                  ' ld a,#80', ' ld hl,#_riding_candidate_select', ' call _riding_contact_bank_query',
                   ' or a', ' jp nz,_riding_candidate_solve']
     lines += [' jp _riding_leaf_dispatch', '.area _CODE_80', '_riding_candidate_leaves::']
     for index,(key, regions) in enumerate(leaves.items()):

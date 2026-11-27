@@ -4,21 +4,10 @@
 .area _CODE_9
 _riding_shared_cap::
  ld hl,#_riding_dense_vertex
- ld a,(#_riding_contact_qx)
- sub (hl)
- inc hl
- ld e,a
- ld a,(#_riding_contact_qx+1)
- sbc (hl)
- inc hl
- ld d,a
- ld a,(#_riding_contact_qy)
- sub (hl)
- inc hl
- ld c,a
- ld a,(#_riding_contact_qy+1)
- sbc (hl)
- ld b,a
+corner_shared_vertex:
+ ld b,#0
+ jp corner_vertex_offset
+corner_shared_radial:
  call _riding_normal_merge_ring
  jr c,corner_pair_empty
  or a
