@@ -21,6 +21,13 @@ def level_objects(cart):
         yield bytes(cart.image[start:start+count*14])
     # Include an empty course between two selections to catch stale membership.
     yield b''
+    # Positive and negative signed coordinates, inclusive threshold edges,
+    # and stripe reuse when a ninth object joins the course.
+    yield b''.join(struct.pack('<HHBiiB', 0, 0, 2, x, y, 0)
+                   for x, y in zip((13106, 13107, 13108, 52428, 52429, 52430, -13107,
+                                     -52429, -2147483648, 2147483647),
+                                    (52430, 52429, 52428, 13108, 13107, 13106, -52429,
+                                     -13107, 2147483647, -2147483648)))
     yield b''.join(struct.pack('<HHBiiB', 0, 0, 2, x*65536, y*65536, 0)
                    for x, y in ((32767, -32768), (-32768, 32767), (63, 64)))
 
@@ -60,14 +67,17 @@ def check(rom):
             invoke(cart, '_gbc_build_object_regions')
             assert (cart.m[0xa5ff], cart.m[0xa800]) == (0x5a, 0xa5)
             xs, ys = [0]*256, [0]*256
-            objects = [(x>>16, y>>16) for _, _, _, x, y, _ in struct.iter_unpack('<HHBiiB', data)]
+            objects = [(x, y) for _, _, _, x, y, _ in struct.iter_unpack('<HHBiiB', data)]
             for index, (x, y) in enumerate(objects):
-                for delta in (-1, 0, 1):
-                    xs[(x+delta)&255] |= 1 << (index%8)
-                    ys[(y+delta)&255] |= 1 << (index%8)
+                lane = 1 << (((x >> 16) if count > 8 else index) & 7)
+                for coordinate, table in ((x, xs), (y, ys)):
+                    for cell in range((coordinate-52429) >> 16, ((coordinate+52429) >> 16)+1):
+                        table[cell & 255] |= lane
+            assert bytes(cart.m[0xa600:0xa700]) == bytes(xs)
+            assert bytes(cart.m[0xa700:0xa800]) == bytes(ys)
             points = [((rng.randrange(65536), rng.randrange(65536)), i%3)
                       for i in range(256)]
-            points.extend((((x+dx)&65535, (y+dy)&65535), slot) for x, y in objects
+            points.extend(((((x>>16)+dx)&65535, ((y>>16)+dy)&65535), slot) for x, y in objects
                           for slot in range(3) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
             for (x, y), slot in points:
                 parts = [(rng.randrange(65536), rng.randrange(65536)) for _ in range(3)]

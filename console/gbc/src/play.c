@@ -100,13 +100,18 @@ void gbc_build_object_regions(void) {
     memset(visibility_regions,0,sizeof(visibility_regions));
     for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
 #ifdef WORLD_SIGNED_BG
-        /* A touch requires both integer positions to differ by at most one,
-         * including across the signed seam. Each object uses one common bit. */
-        uint8_t x=(uint8_t)(object->world_x>>16),y=(uint8_t)(object->world_y>>16),k;
-        for(k=0;k<3;++k) {
-            xs[(uint8_t)(x+k-1)]|=lane;
-            ys[(uint8_t)(y+k-1)]|=lane;
-        }
+        /* On sparse courses each object has a distinct bit. Beyond eight,
+         * reuse bits by X stripe so nearby X queries mostly consider local Y
+         * values. The exact contact first bounds each Q16 delta to 52429. */
+        uint8_t x=(uint8_t)(object->world_x>>16),y=(uint8_t)(object->world_y>>16);
+        uint16_t xf=(uint16_t)object->world_x,yf=(uint16_t)object->world_y;
+        static const uint8_t stripe_bits[]={1,2,4,8,16,32,64,128};
+        uint8_t bit=OBJECT_COUNT>8?stripe_bits[x&7]:lane;
+        xs[x]|=bit;ys[y]|=bit;
+        if(xf<52429U)xs[(uint8_t)(x-1)]|=bit;
+        if(xf>=65536UL-52429U)xs[(uint8_t)(x+1)]|=bit;
+        if(yf<52429U)ys[(uint8_t)(y-1)]|=bit;
+        if(yf>=65536UL-52429U)ys[(uint8_t)(y+1)]|=bit;
         lane=lane==128?1:lane<<1;
 #endif
         visibility_regions[(uint8_t)(object->x-167)]|=1;
