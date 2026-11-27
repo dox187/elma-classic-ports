@@ -1,7 +1,5 @@
 # Game Boy Color release notes
 
-For 0.96 test30 through test49, see the individual build reports in the [performance log](PERFORMANCE.md#096-test30--dense-terrain-rolling-projections-and-sprite-placement).
-
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -51,6 +49,175 @@ the GBC two-display-frame target of **29.86**: approximately **0.09%** aggregate
 slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
+
+## 0.96 test49 — Wheel contacts, suspension and camera
+
+The wheel solver reuses exact endpoint projections, and suspension reads each
+body coordinate once for both wheels. The camera uses a 64-byte table to
+choose the next tile. Braking on Steep Corner took 63.84 ms at the worst
+tested placement, down from 67.07 ms and still above the 33.49 ms budget. All
+76,568 controller replay substeps and 3,512 corner substeps matched test48.
+[Timing and validation](PERFORMANCE.md#096-test49--wheel-contacts-suspension-and-camera)
+
+## 0.96 test48 — Steep Corner and general terrain contacts
+
+Deep wheel contacts use exact integer division for their normals. Wide pushes
+pass their results to the next contact, and the head can reuse a square
+already checked for clearance. The Steep Corner throttle placement fell from
+75.32 to 63.87 ms. Across 313 corner placements, physics exceeded the budget
+on 190 updates, down from 210.
+[Timing and validation](PERFORMANCE.md#096-test48--steep-corner-and-general-terrain-contacts)
+
+## 0.96 test47 — multi-edge wheel contacts
+
+Two terrain edges that meet at the same vertex can share one wheel contact
+calculation. The ROM also stores exact results for 24,832 wheel positions
+across 97 corner tiles. On the 650-update Gravity Ride braking replay, late
+updates fell from 129 to 31. Bumpy Journey braking recorded one additional
+late update.
+[Timing and validation](PERFORMANCE.md#096-test47--multi-edge-wheel-contacts)
+
+## 0.96 test46 — wheel terrain lookup and background preparation
+
+Wheel collision checks pass the coarse terrain coordinates into the finer
+lookup. Scrolling computes the limits of each background strip once, even
+when it takes several updates to fill. Late updates across the standard
+routes fell from 306 to 295. All 76,568 physics substeps matched test45.
+[Timing and validation](PERFORMANCE.md#096-test46--wheel-terrain-lookup-and-background-preparation)
+
+## 0.96 test45 — wheel reaction coefficient
+
+Both physics phases use the same 3,584-byte lookup for wheel reaction
+coefficients with signed 16-bit inputs. Larger values use the full-width
+calculation. The linked ROM matched the integer reference on 131,072 short
+products and 1,048 wide products. Standard replay deadline misses fell from
+331 to 306.
+[Timing and validation](PERFORMANCE.md#096-test45--wheel-reaction-coefficient)
+
+## 0.96 test44 — rolling on shallow and sloped ground
+
+Rolling on slopes combines both components of the tangent projection before
+rounding. On shallow ground it can skip the vertical term whenever its
+rounded contribution is exactly zero. Mean active time on the standard routes
+fell from 217,304 to 216,543 T-cycles. All 76,568 replay substeps matched
+test43.
+[Timing and validation](PERFORMANCE.md#096-test44--rolling-on-shallow-and-sloped-ground)
+
+## 0.96 test43 — work RAM force products and terrain queries
+
+The spring and damper routine runs from work RAM, so all four force
+calculations can reuse the same mapped coefficient table. Terrain queries
+also reuse bounding-box decisions for up to four segments. Standard replay
+misses fell from 383 to 333.
+[Timing and validation](PERFORMANCE.md#096-test43--work-ram-force-products-and-terrain-queries)
+
+## 0.96 test42 — level bounds, damping and head collisions
+
+Level selection prepares an interior rectangle where body and wheel bounds
+can be checked cheaply. Head collisions reject segments outside the swept
+coordinate range before calculating distance. The full neutral Freefall
+descent met every update deadline for the first time, at 29.864 updates/s.
+[Timing and validation](PERFORMANCE.md#096-test42--level-bounds-damping-and-head-collisions)
+
+## 0.96 test41 — contact forces and scenery
+
+The wheel solver skips a push when the contact geometry proves it
+unnecessary. The background renderer keeps 52 tile patterns resident and uses
+440 slots for streamed scenery. Standard replay misses fell from 484 to 415,
+with 137 of 216 routes meeting the deadline throughout.
+[Timing and validation](PERFORMANCE.md#096-test41--contact-forces-and-scenery)
+
+## 0.96 test40 — rolling and head clearance
+
+Rolling reuses exact impulse products in both physics phases. The head solver
+uses precomputed clear strips to skip segment tests where the entire movement
+is safe, checking both strips at a boundary. Standard replay cadence reached
+29.503 updates/s, with 484 late updates.
+[Timing and validation](PERFORMANCE.md#096-test40--rolling-and-head-clearance)
+
+## 0.96 test39 — body and wheel integration
+
+Body and wheel motion update positions together with their fractional
+remainders. Lookup tables handle common velocities with the original
+rounding. The cartridge matched an independent integer reference on 54,000
+position and remainder updates and 18,000 wheel angles.
+[Timing and validation](PERFORMANCE.md#096-test39--body-and-wheel-integration)
+
+## 0.96 test38 — combined angular torque and wheel contact products
+
+Suspension combines both angular moments with the carried remainder before
+rounding. Rolling shares multiplication rows between two vectors, and the
+terrain solver carries a radial lookup into the contact merge. All 14,890
+tested moment pairs matched the integer reference. Standard routes recorded
+562 late updates.
+[Timing and validation](PERFORMANCE.md#096-test38--combined-angular-torque-and-wheel-contact-products)
+
+## 0.96 test37 — wheel projection, suspension and background transfers
+
+Rolling shares slope coefficients across two projections, and suspension has
+a shorter calculation for signed 18-bit damping inputs. The renderer
+transfers whole horizontal background strips by DMA and writes five timer
+glyph rows in one LCD access window. All 1,216 PyBoy and 878 SameBoy
+presentation checks matched their references.
+[Timing and validation](PERFORMANCE.md#096-test37--wheel-projection-suspension-and-background-transfers)
+
+## 0.96 test36 — rolling tables and shared terrain vertices
+
+Packing map tile indices freed ROM space for exact rolling products for 172
+terrain directions. Adjacent edges that share a vertex can also reuse its
+radial normal. Standard replay misses fell from 770 to 682, although the
+longest update on the extended routes rose from 417,272 to 507,012 T-cycles.
+[Timing and validation](PERFORMANCE.md#096-test36--rolling-tables-and-shared-terrain-vertices)
+
+## 0.96 test35 — rolling, contact merges and suspension
+
+Rolling tables cover 19 more terrain directions. The contact solver rules out
+unnecessary diagonal pushes and keeps both contact points in registers during
+a merge. The background writer copies up to five row tiles per safe LCD
+interval. Standard replay misses fell from 917 to 770.
+[Timing and validation](PERFORMANCE.md#096-test35--rolling-contact-merges-and-suspension)
+
+## 0.96 test34 — terrain windows, camera clipping and motion
+
+Both wheels can reuse the same ordered terrain records while those records
+remain in the cache. Repeated two-edge queries update the plane distance from
+the movement since the last query. Camera clipping tracks the positions where
+object visibility can change. Standard replay cadence reached 29.186
+updates/s.
+[Timing and validation](PERFORMANCE.md#096-test34--terrain-windows-camera-clipping-and-motion)
+
+## 0.96 test33 — wheel projection and suspension moments
+
+The terrain lookup identifies 4,000 of 4,440 entries where two equal contacts
+can share the rounded projection. Rolling reuses the slope for both impulses,
+and suspension can prepare each wheel moment in a shorter idle interval.
+Standard replay misses fell from 1,222 to 1,046.
+[Timing and validation](PERFORMANCE.md#096-test33--wheel-projection-and-suspension-moments)
+
+## 0.96 test32 — rider motion and ground contact
+
+The rider spring and rotation calculations reuse the seat displacement. The
+wheel solver uses the sign of the contact force where that is sufficient, and
+five spare LCD lines can prepare base forces for the next update. Standard
+replay misses fell from 1,460 to 1,222.
+[Timing and validation](PERFORMANCE.md#096-test32--rider-motion-and-ground-contact)
+
+## 0.96 test31 — rider lookups, suspension and map reads
+
+Packing uniform map data freed 96 KiB for rider spring and damper tables.
+Suspension can prepare angular damping during idle time while preserving the
+input sampling point. All 2,279 map entries decoded to their original values.
+Standard replay misses fell from 1,682 to 1,460.
+[Timing and validation](PERFORMANCE.md#096-test31--rider-lookups-suspension-and-map-reads)
+
+## 0.96 test30 — dense terrain, rolling projections and sprite placement
+
+Terrain searches use 341 additional regions across all 54 courses to narrow
+the list of candidate segments. Rolling reuses slope corrections, and the
+renderer reuses the centered body position and a resident head frame.
+Standard replay misses fell from 2,189 to 1,682. All 75,252 standard and
+extended physics substeps matched test29.
+[Timing and validation](PERFORMANCE.md#096-test30--dense-terrain-rolling-projections-and-sprite-placement)
 
 ## 0.96 test29 — suspension forces, rider pose and signed projections
 
