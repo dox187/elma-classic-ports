@@ -29,19 +29,23 @@ def pair_tile(left, right, rows):
     return bytes(value for row in bits for value in (255, row))
 
 
-def write_header(out, rows):
-    # The riding clock changes every presentation. Store its paired glyphs
-    # directly, so updating a digit only uploads one existing 16-byte tile.
+def clock_header(rows):
+    # The HUD only writes five high-plane bytes. Keep an eight-byte stride
+    # for indexing on SM83 and leave the constant low plane in VRAM.
     clock = [('hud_digit_pairs', [f'{n:02d}' for n in range(100)]),
              ('hud_seconds_tens', [':'+str(n) for n in range(6)]),
              ('hud_seconds_ones', [str(n)+'.' for n in range(10)])]
-    (out/'clock_font.h').write_text(
+    return (
         '/* Native CG Pixel 3x5 clock tiles; generated without resampling. */\n'
         '#ifndef GBC_CLOCK_FONT_H\n#define GBC_CLOCK_FONT_H\n#include <stdint.h>\n'+
-        ''.join('static const uint8_t %s[%d][16]={\n%s\n};\n' % (
-            name, len(labels), ',\n'.join('    {'+','.join(map(str,pair_tile(*label,rows)))+'}'
+        ''.join('static const uint8_t %s[%d][8]={\n%s\n};\n' % (
+            name, len(labels), ',\n'.join('    {'+','.join(map(str,pair_tile(*label,rows)[3:12:2]))+'}'
                                         for label in labels)) for name,labels in clock)+
         '#endif\n')
+
+
+def write_header(out, rows):
+    (out/'clock_font.h').write_text(clock_header(rows))
     values = ',\n'.join('    {'+','.join(map(str, row))+'}' for row in rows)
     (out/'ui_font.h').write_text('''/* CG Pixel 3x5 Mono by vyznev, CC0; native pixels, four-pixel advance. */
 #ifndef GBC_UI_FONT_H

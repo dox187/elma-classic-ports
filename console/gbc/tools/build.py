@@ -22,6 +22,7 @@ import mul_table
 import normal_atlas
 import pair_patches
 import pose_products
+import pixel_font
 import phase_tables
 import projection_tables
 import rolling_tables
@@ -391,6 +392,7 @@ def main():
     a.gen=(a.gen or BASE/('build/gen' if a.rom_mib==4 else 'build/gen-8m')).resolve()
     scheduled=scheduled_profile(a.gen)
     if scheduled:
+        head_clearance.write_if_changed(a.gen/'clock_font.h', pixel_font.clock_header(pixel_font.font_rows()))
         head_clearance.generate(a.gen)
     rom_mib=validate_profile(a.gen,a.rom_mib)
     if not scheduled:

@@ -354,7 +354,7 @@ static void draw_clock(void) __naked {
         cp (hl)
         jr z,next
         ld (hl),a
-        ld de,#(patterns+3)
+        ld de,#patterns
         ld c,#offset
         call clock_upload_rows
 next:
@@ -374,7 +374,6 @@ clock_upload_rows:
         add hl,hl
         add hl,hl
         add hl,hl
-        add hl,hl
         add hl,de
         ; Four clock cells start at byte C0 of the selected HUD page.
         ld d,#HUD_CLOCK_PAGE
@@ -383,10 +382,8 @@ clock_upload_rows:
         ; write takes at most 148 T, inside the 160-T double-speed mode 2
         ; that follows even the last accessible dot. E stays in this tile.
         ld a,(hl+)
-        inc hl
         ld b,a
         ld a,(hl+)
-        inc hl
         ld c,a
         di
 clock_glyph_window:
@@ -403,7 +400,6 @@ clock_glyph_window:
         inc e
         .rept 2
         ld a,(hl+)
-        inc hl
         ld (de),a
         inc e
         inc e
