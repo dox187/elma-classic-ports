@@ -1818,14 +1818,7 @@ wheel_single_slot:
     jr wheel_single_impact
 wheel_single_quiet:
     xor a
-wheel_single_impact:
-    pop bc
-    ld hl,#_riding_audio_impact
-    add hl,bc
-    ld (hl),a
-    ld hl,#_riding_landing_contact
-    add hl,bc
-    ld (hl),#1
+    .macro wheel_report_normal
     sla c
     ld hl,#_riding_landing_nx
     add hl,bc
@@ -1839,6 +1832,16 @@ wheel_single_impact:
     ld (hl+),a
     ld a,(#_Ct+3)
     ld (hl),a
+    .endm
+wheel_single_impact:
+    pop bc
+    ld hl,#_riding_audio_impact
+    add hl,bc
+    ld (hl),a
+    ld hl,#_riding_landing_contact
+    add hl,bc
+    ld (hl),#1
+    wheel_report_normal
     pop hl
     ld bc,#_Ct
     jp _riding_roll_inputs
@@ -2007,7 +2010,7 @@ uint8_t riding_pair_supports(const contact_t *contact);
 uint8_t riding_stopped_pair_proof(void) __banked;
 #endif
 
-static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
+uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
     circle_t *k=input->k;
     riding_pair_velocity=&k->vx;
     riding_pair_impulse=&input->dvx;
@@ -2059,32 +2062,126 @@ static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
     return riding_pair_supports(&Ct[0]);
 }
 
-/* SDCC passes input in DE. Keep the record in place after resolving a pair,
- * including when only one or neither of its contacts supports the wheel. */
-static void wheel_free_record(const wheel_input_t *input) __naked {
-    input;
+/* Consume the prepared count in A and the original input in DE. The
+ * ordered resolver may reject either contact after updating the velocity.
+ * Reuse the single and free reporters with that updated wheel state. */
+void riding_wheel_contact(const wheel_input_t *input,uint8_t n) __naked {
+    input;n;
     __asm
+    push de
     ld h,d
     ld l,e
-    jp _riding_free_inputs
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    push de
+    or a
+    jp z,wheel_no_contact
+    cp #1
+    jp z,wheel_single
+    ; Each uncached pair owns two zero-initialized separation-sign bytes.
+    ; The cached pair instead passes its persistent signs for this wheel.
+    ld bc,#0
+    push bc
+    cp #254
+    jr z,pair_cached_signs
+    ldhl sp,#0
+    jr pair_signs_ready
+pair_cached_signs:
+    ld hl,#_pair_separation
+    ld a,e
+    cp #<(_Bike+48)
+    jr nz,pair_signs_ready
+    ld a,d
+    cp #>(_Bike+48)
+    jr nz,pair_signs_ready
+    inc hl
+    inc hl
+pair_signs_ready:
+    ld b,h
+    ld c,l
+    ldhl sp,#4
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    call _resolve_ordered_pair
+    add sp,#2
+    or a
+    jp z,wheel_no_contact
+    pop de
+    dec a
+    ld h,#2
+    jp z,wheel_single_record
+    ; When both supports hold, audio samples the remaining velocity before
+    ; the lock clears it. Contact 0 retains landing priority.
+    pop hl
+    ld bc,#0
+    ld a,e
+    cp #<(_Bike+48)
+    jr nz,pair_report_both
+    ld a,d
+    cp #>(_Bike+48)
+    jr nz,pair_report_both
+    inc c
+pair_report_both:
+    push de
+    push bc
+    ld hl,#_riding_audio_contact
+    add hl,bc
+    ld a,(hl)
+    ld (hl),#2
+    or a
+    jr nz,pair_report_quiet
+    push de
+    call wheel_normal_velocity
+    call wheel_single_impact_value
+    pop de
+    or a
+    jr nz,pair_report_impact
+    ld hl,#8
+    add hl,de
+    ld d,h
+    ld e,l
+    ld hl,#(_Ct+10)
+    call _riding_dotq14_regs
+    call wheel_single_impact_value
+    jr pair_report_impact
+pair_report_quiet:
+    xor a
+pair_report_impact:
+    pop bc
+    ld hl,#_riding_audio_impact
+    add hl,bc
+    ld (hl),a
+    ld hl,#_riding_landing_contact
+    add hl,bc
+    ld (hl),#2
+    wheel_report_normal
+    pop de
+    ld hl,#8
+    add hl,de
+    xor a
+    .rept 8
+    ld (hl+),a
+    .endm
+    inc hl
+    inc hl
+    inc hl
+    inc hl
+    .rept 4
+    ld (hl+),a
+    .endm
+    ret
     __endasm;
 }
-static void wheel_roll_record(const wheel_input_t *input) __naked {
-    input;
-    __asm
-    ld h,d
-    ld l,e
-    ld bc,#_Ct
-    jp _riding_roll_inputs
-    __endasm;
-}
-#endif
+#endif /* NATIVE_ORDERED_PAIR */
+#endif /* native wheel queries */
 
+#ifndef NATIVE_ORDERED_PAIR
+#ifdef NATIVE_FINE_CONTACTS
 void riding_wheel_contact(const wheel_input_t *input,uint8_t n) {
     circle_t *k=input->k;
-#ifndef NATIVE_ORDERED_PAIR
     int32_t dvx=input->dvx,dvy=input->dvy,tq=input->tq;
-#endif
 #else
 void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED {
     uint8_t n = contacts( riding_sra8(k->rx), riding_sra8(k->ry) );
@@ -2095,11 +2192,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
     }
     n=valid;
 #endif
-#ifdef NATIVE_ORDERED_PAIR
-    uint8_t two = n == 2 || n == 254;
-#else
     uint8_t two = n == 2;
-#endif
 	uint8_t wheel = k==&Bike.wheel[1];
 #ifndef NATIVE_FINE_CONTACTS
 	if( n > 0 )
@@ -2107,13 +2200,6 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
 	if( two )
 		pushout( k, &Ct[1], 0 );
 #endif
-#ifdef NATIVE_ORDERED_PAIR
-    if(two) {
-        uint8_t local_signs[2]={0,0};
-        n=resolve_ordered_pair(input,n==254?pair_separation[wheel]:local_signs);
-    } else if(n && !supports(k,&Ct[0],input->dvx,input->dvy,0))
-        n=0;
-#else
 	if( two ) {
 		if( faster_1ms( k ) ) {
 			if( !sure_new( &Ct[0], &Ct[1], k ) ) {
@@ -2142,7 +2228,6 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
 		else
 			n = 0;
 	}
-#endif
     /* Audio observes a new supported collision before its response changes
      * velocity. Tangential speed and suspension travel do not imply impact.
      * This event does not alter native bike state or collision decisions. */
@@ -2157,9 +2242,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
     riding_landing_nx[wheel]=n?Ct[0].nx:0;
     riding_landing_ny[wheel]=n?Ct[0].ny:0;
 	if( n == 0 ) {
-#ifdef NATIVE_ORDERED_PAIR
-        wheel_free_record(input);
-#elif defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
+#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
         riding_free32(k,dvx,dvy,tq);
 #else
 		k->omega += KMUL32(tq,C_FREE);
@@ -2174,9 +2257,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
 		k->omega = 0;
 		return;
 	}
-#ifdef NATIVE_ORDERED_PAIR
-    wheel_roll_record(input);
-#elif defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
+#if defined(__SDCC) && !defined(PHYSICS_WHEEL_C)
     riding_roll32(k,&Ct[0],dvx,dvy,tq);
 #else
 	// Rolls around the contact point:
@@ -2192,6 +2273,7 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
 	move( k );
 #endif
 }
+#endif /* !NATIVE_ORDERED_PAIR */
 
 #if defined(__SDCC) && !defined(NATIVE_FINE_CONTACTS)
 /* The reference configurations keep their C solver and its public banked ABI. */
