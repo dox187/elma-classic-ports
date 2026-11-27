@@ -261,10 +261,27 @@ roll_input_dots:
  .ifdef RIDING_GROUND_ROWS
  ld a,e
  or a
+ .ifdef ROLL_DIRECTORY_BANK
+ jr nz,roll_check_near
+ ld a,d
+ cp #0xc0
+ jp z,ground_try_dots
+ jr roll_live_slope
+roll_check_near:
+ dec a
+ cp #2
+ jr c,roll_generic_dots
+roll_live_slope:
+ ; The ordinary wheel entry still has both signed tangent coefficients.
+ ld hl,#rom_slope_find_regs
+ ld a,#ROLL_DIRECTORY_BANK
+ jp rom_slope_map
+ .else
  jr nz,roll_generic_dots
  ld a,d
  cp #0xc0
  jp z,ground_try_dots
+ .endif
 roll_generic_dots:
  jp slope_begin_dots
 roll_default_dots:

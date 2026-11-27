@@ -1095,76 +1095,67 @@ batch_ready:
  call batch_code
  push hl
  push de
- ldhl sp,#14
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld de,#12
- add hl,de
- batch_word e,d,batch_wide_y
+ ; Read impulse Y first so the multiplier leaves velocity Y live.
  ldhl sp,#12
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- ld bc,#4
+ ld de,#4
+ add hl,de
+ batch_word e,d,batch_wide_y
+ ldhl sp,#14
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld bc,#12
  add hl,bc
  batch_word c,b,batch_wide_y
  ldhl sp,#10
  add sp,#-4
  call batch_code
- push hl
- push de
- ; Stack contains impulse Y, velocity Y, impulse X and velocity X.
- ldhl sp,#4
- ld d,h
- ld e,l
- ldhl sp,#12
- call batch_sum
- ldhl sp,#12
- call slope_store
- ldhl sp,#0
- ld d,h
- ld e,l
+ ; Stack holds impulse Y, impulse X, velocity X. Sum velocity Y
+ ; directly from registers, then reuse the velocity X slot for vn.
+ ld b,h
+ ld c,l
  ldhl sp,#8
  call batch_sum
- add sp,#12
+ ldhl sp,#8
+ call slope_store
+ pop de
+ pop bc
+ ldhl sp,#0
+ call batch_sum
+ add sp,#4
  jp ground_resume_deltas
 
 batch_wide_y:
  add sp,#8
  jp slope_fallback_dots
 
-; The sum of the two signed products has 33 bits before Q14 rounding.
+; Add BC:DE to the signed product at HL and round the 33-bit sum once.
 batch_sum:
- ld a,(de)
- add (hl)
- inc de
- inc hl
- ld a,(de)
- adc (hl)
- ld c,a
- inc de
- inc hl
- ld a,(de)
- adc (hl)
- ld b,a
- inc de
- inc hl
- ld a,(de)
+ ld a,(hl+)
+ add e
+ ld a,(hl+)
+ adc d
  ld e,a
- adc (hl)
+ ld a,(hl+)
+ adc c
+ ld c,a
+ ld a,(hl)
  ld d,a
- ; XOR the two input signs and the carry above bit 31 to get bit 32.
+ adc b
+ ld h,a
+ ; The carry and both original sign bits determine bit 32.
  ld a,#0
  rra
- xor (hl)
- xor e
+ xor d
+ xor b
  add a
  sbc a
- ld h,d
- ld l,b
- ld d,c
  ld b,a
+ ld l,c
+ ld d,e
  jp slope_round
 
 batch_install:
@@ -1533,6 +1524,7 @@ batch_end:
 .globl slope_pair_miss
 .globl ground_resume_deltas
 .globl ground_return
+.globl rom_slope_find_regs
 rom_slope_begin:
  ld a,#ROLL_DIRECTORY_BANK
  ld (#0x2000),a

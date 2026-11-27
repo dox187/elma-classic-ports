@@ -11,6 +11,8 @@ rom_slope_find::
  ld a,(hl+)
  ld c,a
  ld b,(hl)
+rom_slope_find_regs::
+ ld a,c
  xor e
  ld l,a
  xor b
