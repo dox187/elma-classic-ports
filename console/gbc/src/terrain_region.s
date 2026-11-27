@@ -109,14 +109,10 @@ contact_region_query::
  jr z,contact_region_select
  xor a
  ld (#_riding_contact_regions_dirty),a
- ld hl,#contact_regions
- ld de,#8
- ld b,#16
-contact_region_clear:
- ld (hl),a
- add hl,de
- dec b
- jr nz,contact_region_clear
+ ; Only the kind byte of each eight-byte entry needs invalidation.
+ .irp offset,0,8,16,24,32,40,48,56,64,72,80,88,96,104,112,120
+ ld (#contact_regions+offset),a
+ .endm
 contact_region_select:
  ld hl,#contact_loop_seg
  ld a,(hl+)
@@ -129,10 +125,6 @@ contact_region_select:
  ld h,#0
  ld bc,#contact_regions
  add hl,bc
- ld a,l
- ld (#contact_region_slot),a
- ld a,h
- ld (#contact_region_slot+1),a
  ld a,(hl+)
  or a
  jr z,contact_region_miss
@@ -156,6 +148,8 @@ contact_region_select:
  ret z
  dec a
  jr z,contact_region_plane
+ ; The spatial program only needs the cap kind on this path.
+ ld (#contact_region_cap_kind),a
  cp #3
  jr c,contact_region_endpoint
  push af
@@ -227,11 +221,21 @@ contact_region_inside:
  jr nz,contact_region_start
  ld a,c
  cp #<(-CONTACT_REGION_DELTA)
- jr nc,contact_region_boundary
+ jp nc,contact_region_boundary
 contact_region_start:
  ; Across this square a rounded tangent changes by at most 90. Keeping
  ; at least 64 tangent units from the cap bounds its true normal below
  ; sqrt(410^2-63^2) < 406 everywhere inside the strict endpoint disk.
+ ; Everything in this region projects beyond the start. A synthetic
+ ; start cannot produce a cap contact at any center in the square.
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#13
+ add hl,de
+ bit 6,(hl)
+ jr nz,contact_region_empty_cap
  ld a,b
  inc a
  jr nz,contact_region_start_proven
@@ -241,6 +245,9 @@ contact_region_start:
 contact_region_start_proven:
  ld a,#3
  jr contact_region_install
+contact_region_empty_cap:
+ pop bc
+ jp contact_region_set_reject
 contact_region_start_guard:
  ld a,#3
  jr contact_region_cert_cap
@@ -261,6 +268,7 @@ contact_region_nonnegative:
  ; at the near end is legal. Staying strictly below len handles every flag.
  ld a,c
  sub e
+ ld e,(hl)                    ; keep endpoint flags for an exterior region
  ld l,a
  ld a,b
  sbc d
@@ -290,6 +298,8 @@ contact_region_beyond:
  cp #(CONTACT_REGION_DELTA+1)
  jr c,contact_region_boundary
 contact_region_end:
+ bit 7,e
+ jr nz,contact_region_empty_cap
  ; An 8 m segment's rounded Q14 direction changes either endpoint
  ; projection by less than one unit. Allow two extra tangent units for
  ; its rounded length and projection; the normal still rounds below 410.
@@ -331,14 +341,19 @@ contact_region_boundary:
  ret
 
 contact_region_save:
- ld hl,#contact_region_slot
- ld e,(hl)
- inc hl
- ld d,(hl)
- ld h,d
- ld l,e
- ld (hl+),a
+ ld c,a
  ld a,(#contact_loop_seg)
+ ld b,a
+ and #30
+ add a
+ add a
+ ld e,a
+ ld d,#0
+ ld hl,#contact_regions
+ add hl,de
+ ld a,c
+ ld (hl+),a
+ ld a,b
  ld (hl+),a
  ld a,(#contact_loop_seg+1)
  ld (hl+),a

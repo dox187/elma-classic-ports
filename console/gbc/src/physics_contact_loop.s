@@ -19,7 +19,7 @@ contact_loop_x:: .ds 2
 contact_loop_y: .ds 2
 contact_loop_d:: .ds 2
  .ifdef RIDING_NORMAL_ATLAS
-contact_region_slot:: .ds 2
+contact_region_cap_kind:: .ds 1
 ; Sixteen direct-mapped entries. A zero kind invalidates its entire entry.
 ; Each key contains the record pointer and both within-cell box coordinates.
 _riding_contact_regions::
@@ -1426,17 +1426,13 @@ corner_store:
 corner_cached_cap_inner:
  ; Kinds 3/4 imply the perpendicular guard over the whole 64u box.
  ; Kinds 5/6 re-evaluated distance for this center at contact_region_distance.
- ld hl,#contact_region_slot
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld a,(hl)
- cp #5
+ ld a,(#contact_region_cap_kind)   ; last matched kind minus two
+ cp #3
  jr c,corner_cached_proven
- sub #3
+ dec a
  jp corner_guard
 corner_cached_proven:
- dec a
+ inc a
  jr corner_install
 
 ; The source-order plane retains its exact unrounded signed32 numerator.
