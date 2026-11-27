@@ -1,6 +1,7 @@
 """Ordered record programs for dense collision leaves on measured routes."""
 from collections import defaultdict
 
+from head_clearance import write_if_changed
 from corner_samples import RADIUS, cell_records, q14, record_contact
 
 # Solver-unit rectangles, aligned to 16-unit tiles within a single packed leaf.
@@ -28,7 +29,13 @@ UNIFORM_REGIONS = (
 REGIONS = TILED_REGIONS + UNIFORM_REGIONS
 
 
-def tile_program(records, x, y, width=16, height=16):
+# The wheel reader has 314 bytes for its ordered programs in bank 5.
+# Bank 93 stores five bytes per affine operand beside the projection code.
+PROGRAM_BYTES = 314
+PLANE_OPERANDS = 31
+
+
+def tile_program(records, x, y, width=16, height=16, planes=None):
     candidates = []
     for i, record in enumerate(records):
         px, py, dx, dy, ex, ey, flags, bx, bx1, by, by1 = record
@@ -44,12 +51,15 @@ def tile_program(records, x, y, width=16, height=16):
         found = set()
         near = [0, 0]
         hits = 0
+        plane = planes is not None and width <= 256 and height <= 256
         for yy in range(y,y+height):
             for xx in range(x,x+width):
                 vx, vy = xx-px, yy-py
                 near[0] += vx*vx+vy*vy < RADIUS*RADIUS
                 near[1] += (vx-dx)**2+(vy-dy)**2 < RADIUS*RADIUS
                 if record_contact(record, xx, yy) is None:
+                    if plane and abs(q14(-ey*vx + ex*vy)) < RADIUS:
+                        plane = False
                     continue
                 hits += 1
                 along = q14(ex*vx+ey*vy)
@@ -61,6 +71,16 @@ def tile_program(records, x, y, width=16, height=16):
             if op and near[op-1] != hits:
                 op = 0
             vertex = ((px,py) if op == 1 else (px+dx,py+dy)) if op else None
+            if plane and found == {0}:
+                # Every accepted center is interior, and the infinite plane
+                # misses at every rejected center. Use byte coordinates from
+                # one origin across the rectangle, even at a page boundary.
+                xbase = x & ~255 if x >> 8 == (x+width-1) >> 8 else x
+                ybase = y & ~255 if y >> 8 == (y+height-1) >> 8 else y
+                raw = -ey*(xbase+255-px) + ex*(ybase-py)
+                operand = (xbase & 255, ybase & 255, raw)
+                if operand in planes or len(planes) < PLANE_OPERANDS:
+                    op = planes.setdefault(operand, 3 + len(planes))
             candidates.append((i, op, vertex))
     shared = None
     if len(candidates) >= 2 and candidates[0][2] and candidates[0][2] == candidates[1][2]:
@@ -72,10 +92,11 @@ def tile_program(records, x, y, width=16, height=16):
     return shared, tuple((i,op) for i,op,_ in candidates)
 
 
-def tables(levels, banks):
+def tables(levels, banks, output_dir):
     leaves = defaultdict(list)
     programs = {}
-    program_bytes = 0
+    planes = {}
+    payload_bytes = 0
     for region in REGIONS:
         course, x, y, width, height = region
         if course >= len(levels):
@@ -94,14 +115,18 @@ def tables(levels, banks):
         indices = []
         for yy in range(y, y+height, step_y):
             for xx in range(x, x+width, step_x):
-                program = (tile_program(records, xx & 4095, yy & 4095, step_x, step_y)
+                program = (tile_program(records, xx & 4095, yy & 4095, step_x, step_y,
+                                        planes if uniform else None)
                            if records == cell_records(levels[course], banks, xx, yy) else None)
                 if program is not None and program not in programs:
                     vertex, steps = program
-                    size = 4 + 4*bool(vertex) + 2*len(steps)  # pointer, header, vertex, records
-                    if len(programs) < (127 if uniform else 15) and program_bytes + size <= 256:
+                    size = 1 + 4*bool(vertex) + 2*len(steps)  # packed header, vertex, records
+                    new_payload_size = payload_bytes + size
+                    # Each program has a byte offset into a single 256-byte payload.
+                    if (len(programs) < (127 if uniform else 15) and new_payload_size <= 256
+                            and len(programs) + 1 + new_payload_size <= PROGRAM_BYTES):
                         programs[program] = len(programs)+1
-                        program_bytes += size
+                        payload_bytes = new_payload_size
                 indices.append(programs.get(program, 0))
         if any(indices):
             leaves[key].append((x//16 & 255, y//16 & 255, width//16, height//16, indices))
@@ -148,12 +173,18 @@ def tables(levels, banks):
                 lines += [' .db '+','.join(map(str,packed))]
     lines += ['.area _CODE_5', '_riding_candidate_programs::']
     for i in range(1,len(programs)+1):
-        lines += [f' .dw candidate_program_{i}']
+        lines += [f' .db candidate_program_{i}-_riding_candidate_payload']
+    lines += ['_riding_candidate_payload::']
     for (vertex, records),i in programs.items():
-        lines += [f'candidate_program_{i}:',f' .db {int(bool(vertex))}']
+        lines += [f'candidate_program_{i}:',f' .db {len(records) | (128 if vertex else 0)}']
         if vertex:
             lines += [f' .dw {vertex[0]},{vertex[1]}']
-        lines += [f' .db {len(records)}']
         for rank,op in records:
             lines += [f' .db {rank},{op}']
+    operands = ['.area _CODE_93', '_riding_candidate_intercepts::']
+    for xbase, ybase, raw in planes:
+        # Every region origin is a multiple of sixteen in both directions.
+        operands += [f' .db {xbase | ybase >> 4}',
+                     ' .db '+','.join(str((raw >> shift) & 255) for shift in (0,8,16,24))]
+    write_if_changed(output_dir/'wheel_candidate_planes.s', '\n'.join(operands)+'\n')
     return lines

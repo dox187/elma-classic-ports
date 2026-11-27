@@ -284,7 +284,7 @@ def generate(gen, dest=None):
     out += ['_wheel_quarter_patterns_end::']
     out += refinement_tables(levels, banks, rows, codes, patterns)
     from wheel_candidates import tables as candidate_tables
-    out += candidate_tables(levels, banks)
+    out += candidate_tables(levels, banks, dest)
     # Append the reader after the fixed-address collision data in bank 80.
     reader = Path(__file__).resolve().parents[1] / 'src/wheel_candidate_regions.inc'
     out += reader.read_text().splitlines()
@@ -303,6 +303,8 @@ def validate_layout(symbols):
             symbols['_riding_candidate_gate'] >> 16 != 9 or symbols['_riding_candidate_solve'] >> 16 != 9 or
             symbols['_riding_candidate_select'] >> 16 != 80 or symbols['_riding_candidate_leaves'] >> 16 != 80 or
             symbols['_riding_candidate_programs'] >> 16 != 5 or symbols['_riding_candidate_decode'] >> 16 != 5 or
+            symbols['candidate_static_distance'] >> 16 != 93 or
+            symbols['_riding_candidate_intercepts'] >> 16 != 93 or
             not symbols['_riding_gravity_end_80'] <= symbols['_riding_candidate_leaves'] <
             symbols['_riding_candidate_select'] or symbols['_candidate_slots'] >= 0x4000):
         raise ValueError('Invalid bank layout for ordered wheel candidate tables, reader or FIFO pointers')

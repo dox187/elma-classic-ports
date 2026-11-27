@@ -41,20 +41,23 @@ candidate_contact:
  ld a,b
  or a
  jp z,corner_general_record
+ cp #3
+ jp nc,corner_candidate_plane
  jp corner_cap_dispatch
 
 .area _CODE_5
 _riding_candidate_decode::
  ld e,c
  ld d,#0
- ld hl,#_riding_candidate_programs-2
+ ld hl,#_riding_candidate_programs-1
+ add hl,de
+ ld e,(hl)
+ ld hl,#_riding_candidate_payload
  add hl,de
  ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld a,(hl+)
+ ld b,a
+ and #128
  ld (#candidate_shared),a
- or a
  jr z,candidate_count
  ld de,#_riding_dense_vertex
  .rept 4
@@ -63,8 +66,7 @@ _riding_candidate_decode::
  inc de
  .endm
 candidate_count:
- ld a,(hl+)
- ld b,a
+ res 7,b
  ld de,#candidate_steps
 candidate_decode_record:
  ld a,b

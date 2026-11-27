@@ -638,7 +638,7 @@ def main():
 
     if scheduled:
         sources.extend((BASE/'src/normal_deep.s', BASE/'src/physics_pair_impulse.s',
-                        BASE/'src/terrain_region.s'))
+                        BASE/'src/terrain_region.s', a.gen/'wheel_candidate_planes.s'))
     if head_lanes:
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/head_near.c')
 

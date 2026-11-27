@@ -33,11 +33,13 @@ _riding_shared_cap::
 corner_pair_copy:
  ld hl,#_Ct
  ld de,#(_Ct+10)
- .rept 6
+ ld b,#6
+corner_pair_copy_next:
  ld a,(hl+)
  ld (de),a
  inc de
- .endm
+ dec b
+ jr nz,corner_pair_copy_next
  ld a,#1
  ld (#_riding_dense_merged),a
  ; Both six-byte results are identical. The ring helper checks whether its

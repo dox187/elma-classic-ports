@@ -157,7 +157,6 @@ candidate_nibble:
  and #15
  ret z
 candidate_program_id:
- add a
  ld c,a
  ld hl,#_riding_candidate_decode
  ld e,#5

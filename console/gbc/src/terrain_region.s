@@ -482,3 +482,57 @@ contact_max = (262144+contact_error)/contact_length
  .db <contact_min, (>contact_min) + 16*(contact_max-contact_min)
 contact_length = contact_length+1
  .endm
+
+.area _CODE_93
+; Each operand stores the raw distance at (xbase+255, ybase). The
+; complementary X and forward Y offsets multiply the packed ey and ex
+; directly, retaining every product bit until the single Q14 reduction.
+candidate_static_distance::
+ ld a,c
+ sub #3
+ ld l,a
+ ld h,#0
+ ld e,l
+ ld d,h
+ add hl,hl
+ add hl,hl
+ add hl,de
+ ld de,#_riding_candidate_intercepts
+ add hl,de
+ ld a,(hl+)
+ ld c,a
+ and #0xf0
+ ld b,a
+ ld a,(#_riding_contact_qx)
+ sub b
+ cpl
+ ld b,a
+ swap c
+ ld a,c
+ and #0xf0
+ ld c,a
+ ld a,(#_riding_contact_qy)
+ sub c
+ ld c,a
+ push hl
+ ld hl,#contact_loop_seg
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ call _riding_fraction_pair
+ pop hl
+ ld a,(hl+)
+ add e
+ ld a,(hl+)
+ adc d
+ ld d,a
+ ld a,(hl+)
+ adc c
+ ld c,a
+ ld a,(hl)
+ adc b
+ ld h,a
+ ld l,c
+ jp _riding_terrain_reduce_q14

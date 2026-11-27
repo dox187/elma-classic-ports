@@ -1260,12 +1260,20 @@ corner_store_plane:
 
 .area _CODE_9
 corner_plane_dispatch:
+ xor a
+corner_candidate_plane:
  ld hl,#contact_loop_seg
  ld (hl),e
  inc hl
  ld (hl),d
  ld e,#2
  ld hl,#corner_plane_query
+ or a
+ jr z,corner_plane_project
+ ld c,a
+ ld e,#93
+ ld hl,#candidate_static_distance
+corner_plane_project:
  call ___sdcc_bcall_ehl
  call contact_loop_in_radius
  ret nc
