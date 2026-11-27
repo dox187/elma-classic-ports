@@ -31,7 +31,16 @@ REGIONS = {
 }
 
 
-def pack_cell(samples, upper_bytes):
+def shared_rows(indices):
+    row_slots = {}
+    row_ids = bytearray()
+    for offset in range(0, 256, 16):
+        row = bytes(indices[offset:offset+16])
+        row_ids.append(16 * row_slots.setdefault(row, len(row_slots)))
+    return row_ids + b''.join(row_slots)
+
+
+def pack_cell(samples, upper_bytes, address):
     indices = bytearray()
     dictionary = {}
     for contacts in samples:
@@ -51,7 +60,14 @@ def pack_cell(samples, upper_bytes):
         if key >= 256:
             return None
         indices.extend((key, *(v & 255 for v in contact)))
-    return indices, palette
+    rows = shared_rows(indices[:256])
+    # The high bit of a directory entry selects shared rows. A raw tile's
+    # dictionary always starts 256 bytes after its origin.
+    index_size = 2 + len(rows)
+    shared = index_size < 256
+    if shared:
+        indices = struct.pack('<H', address+index_size) + rows + indices[256:]
+    return indices, palette, shared
 
 
 SPARSE_BANKS = (283, 447, 472, 475)
@@ -61,20 +77,15 @@ COURSE_BYTE_TARGET = 392
 
 def sparse_payload(samples):
     # Identical rows share their 16 indices. 0 and 255 mean empty and defer.
-    colors, rows = {}, {}
-    row_ids = bytearray()
-    for start in range(0, 256, 16):
-        indices = bytearray()
-        for hit in samples[start:start+16]:
-            index = 255 if hit else 0
-            if len(hit) == 1:
-                index = colors.setdefault(hit[0], len(colors) + 1)
-                if index >= 255:
-                    return None
-            indices.append(index)
-        row = bytes(indices)
-        row_ids.append(16 * rows.setdefault(row, len(rows)))
-    indices = row_ids + b''.join(rows)
+    colors, indices = {}, bytearray()
+    for hit in samples:
+        index = 255 if hit else 0
+        if len(hit) == 1:
+            index = colors.setdefault(hit[0], len(colors) + 1)
+            if index >= 255:
+                return None
+        indices.append(index)
+    indices = shared_rows(indices)
     return indices + b''.join(struct.pack('<hhh', *c) for c in colors), len(indices)
 
 
@@ -134,13 +145,16 @@ def generate(gen, template):
             col, row = x-origin, y-Y_ORIGIN
             if not (0 <= col < 32 and 0 <= row < 32):
                 raise ValueError('Corner tile outside its bank directory')
-            packed = pack_cell(cell_samples(levels[COURSE], banks, x*16, y*16), upper_bytes)
+            address = 0x4100 + len(data)
+            packed = pack_cell(cell_samples(levels[COURSE], banks, x*16, y*16), upper_bytes, address)
             if packed is None or len(data) + len(packed[0]) > 0x3b00:
                 continue
-            tile, upper_bytes = packed
+            tile, upper_bytes, shared = packed
             count += 1
-            data[row*32 + col] = count
-            struct.pack_into('<H', data, 1024 + 2*count, 0x4100 + len(data))
+            if count >= 128:
+                raise ValueError('Corner tile pointer directory is full')
+            data[row*32 + col] = count | (0x80 if shared else 0)
+            struct.pack_into('<H', data, 1024 + 2*count, address)
             data.extend(tile)
             cells.append([COURSE, x*16, y*16])
         for high, index in upper_bytes.items():

@@ -46,41 +46,39 @@
  swap a
  and #15
  or d
- ld c,a
- and #7
- rrca
- rrca
- rrca
+ swap a
+ rlca
+ ld h,a
+ and #0xe0
  or b
  ld l,a
- ld a,c
- rrca
- rrca
- rrca
+ ld a,h
  and #3
  add #0x41
  ld h,a
  ld a,(hl)
  or a
  jr z,corner_outside
- add a
+ add a                    ; carry selects a tile with shared rows
  ld l,a
  ld h,#0x45
  ld a,(hl+)
  ld h,(hl)
  ld l,a                   ; tile address
+ jr c,corner_rows
  push hl
  ld d,#0
  add hl,de
  ld a,(hl)
  pop hl
+ inc h                    ; raw tile dictionary follows the 256 indices
+corner_index:
  or a
  ret z                    ; empty
  cp #255
  ret z                    ; two supports: use the ordered pair solver
  dec a
  ld e,a
- inc h                    ; dictionary immediately after the 256 indices
  .rept 4
  add hl,de
  .endm
@@ -107,3 +105,31 @@
 corner_outside:
  ld a,#255
  ret
+
+; Compressed tiles store the dictionary address, a 16-byte row directory
+; and one copy of each distinct row. E holds the y-major pixel index.
+corner_rows:
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ push bc
+ ld a,e
+ and #15
+ ld c,a
+ xor e
+ swap a
+ ld e,a
+ ld d,#0
+ push hl
+ add hl,de
+ ld a,(hl)
+ or c
+ ld e,a
+ pop hl
+ ld bc,#16
+ add hl,bc
+ add hl,de
+ ld a,(hl)
+ pop hl
+ jr corner_index

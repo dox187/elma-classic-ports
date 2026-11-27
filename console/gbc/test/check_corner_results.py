@@ -320,7 +320,7 @@ def exercise_corners(target, oracle, points, profile=None):
               f'from ({worst[2]}, {worst[3]}) with input {worst[4]}.')
 
 
-def check(rom, reference, cells, holdout, profile=None):
+def check(rom, reference, cells, holdout, profile=None, placements=None):
     assert cells and all(x % 16 == y % 16 == 0 for _, x, y in cells), cells
     target, oracle = WheelQueries(rom), WheelQueries(reference)
     stats = Counter()
@@ -370,7 +370,11 @@ def check(rom, reference, cells, holdout, profile=None):
                     stats['selected positions', slot] += 1
         assert all(stats['selected positions', slot] == len(cells)*256 for slot in range(2))
         assert stats['outside fallback'] and stats['corner', 1], stats
-        exercise_corners(target, oracle, holdout | {(level, x+8, y+8) for level, x, y in cells}, profile)
+        # The sorted placement number selects the wheel. Adding a tile can
+        # change subsequent starts, so use the same manifest for timing history.
+        if placements is None:
+            placements = holdout | {(level, x+8, y+8) for level, x, y in cells}
+        exercise_corners(target, oracle, placements, profile)
         print(f'{len(holdout)} unlisted two-edge points on 54 courses, both wheels: '
               f"{stats['unlisted', 1]} merged and {stats['unlisted', 2]} distinct pairs.")
         assert sum(stats['unlisted', i] for i in (1, 2)) == len(holdout)*2
@@ -388,11 +392,18 @@ if __name__ == '__main__':
     parser.add_argument('--rom', type=Path, required=True)
     parser.add_argument('--reference', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, required=True)
+    parser.add_argument('--placement-manifest', type=Path,
+                        help='use the corner cells from an earlier build for identical physics starts')
     parser.add_argument('--profile', type=int, nargs=4, metavar=('COURSE', 'X', 'Y', 'BUTTONS'),
                         help='break down one scheduled update in both cartridges')
     args = parser.parse_args()
     data = json.loads(args.manifest.read_text())
     cells = {tuple(row) for row in data['cells']}
     assert len(cells) == len(data['cells']), 'duplicate manifest cells'
-    check(args.rom, args.reference, cells, unlisted_corners(args.manifest.parent, cells),
-          tuple(args.profile) if args.profile else None)
+    placements = None
+    if args.placement_manifest:
+        placed = {tuple(row) for row in json.loads(args.placement_manifest.read_text())['cells']}
+        placements = unlisted_corners(args.manifest.parent, placed) | {(l, x+8, y+8) for l,x,y in placed}
+    holdout = unlisted_corners(args.manifest.parent, cells)
+    check(args.rom, args.reference, cells, holdout, tuple(args.profile) if args.profile else None,
+          placements)
