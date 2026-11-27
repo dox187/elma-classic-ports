@@ -23,6 +23,28 @@ def projected_range(x0, x1, y0, y1, dx, dy):
             (max(a, b) + max(c, d) + 8192) >> 14)
 
 
+@lru_cache(maxsize=None)
+def interior_bounds(ex, ey, last):
+    """Integer X/Y bounds of the finite strip accepted by both rounded dots."""
+    determinant = ex*ex + ey*ey
+    if not determinant:
+        return -32768, 32767, -32768, 32767
+    # Round-to-nearest with positive ties gives these inclusive raw Q14
+    # intervals for tangent 0..last and perpendicular distance -409..409.
+    tangent = (-8192, (last+1)*16384 - 8193)
+    normal = (-409*16384 - 8192, 410*16384 - 8193)
+
+    def axis(a, b):
+        t = tangent[0]*a, tangent[1]*a
+        n = normal[0]*b, normal[1]*b
+        lower = min(t) + min(n)
+        upper = max(t) + max(n)
+        return (lower+determinant-1)//determinant, upper//determinant
+
+    # Invert the packed direction matrix, including its quantized length.
+    return axis(ex, -ey) + axis(ey, ex)
+
+
 def classify(records, x, y, size=SIZE):
     # Keep the legacy plane classification as well as every record whose
     # interior or real radial cap might contribute anywhere in this square.
@@ -57,6 +79,9 @@ def classify(records, x, y, size=SIZE):
                 return GENERAL, GENERAL
             cap = cap or near_vertex(dx, dy)
         interior = p1 >= 0 and p0 <= last
+        if interior and not cap:
+            ix0, ix1, iy0, iy1 = interior_bounds(ex, ey, last)
+            interior = x1 >= ix0 and x0 <= ix1 and y1 >= iy0 and y0 <= iy1
         if not interior and not cap:
             continue
         first = first or i

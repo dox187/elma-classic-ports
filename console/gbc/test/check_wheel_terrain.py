@@ -35,6 +35,31 @@ def leaves(image, level, cx, cy):
     return tuple(records(pointer(level['base_bank']+root[1],root[0]+4*i)) for i in range(16))
 
 
+def interior_reachable(corners, ex, ey, last):
+    # Fix one integer X and intersect the allowed Y intervals directly.
+    # This also tests cells where the individual projection ranges overlap
+    # their limits but no wheel center satisfies both limits together.
+    xmin, ymin = corners[0]
+    xmax, ymax = corners[-1]
+    for x in range(xmin, xmax + 1):
+        low, high = ymin, ymax
+        for offset, slope, first, final in ((x*ex, ey, 0, last), (-x*ey, ex, -409, 409)):
+            a = first*16384 - 8192 - offset
+            b = (final+1)*16384 - 8193 - offset
+            if slope < 0:
+                a, b, slope = -b, -a, -slope
+            if slope:
+                low = max(low, (a+slope-1)//slope)
+                high = min(high, b//slope)
+            elif a > 0 or b < 0:
+                break
+            if low > high:
+                break
+        else:
+            return True
+    return False
+
+
 def verify_square(code, records, x, y, size=512):
     """Bound each possible contributor independently using the four clipped corners."""
     if code==GENERAL:
@@ -79,7 +104,8 @@ def verify_square(code, records, x, y, size=512):
         if i==code:
             assert min(tangent)>=0 and max(tangent)<=last, (code,i,'tangent bounds')
         else:
-            assert max(tangent)<0 or min(tangent)>last, (code,i,'additional interior')
+            assert (max(tangent)<0 or min(tangent)>last
+                    or not interior_reachable(corners,ex,ey,last)), (code,i,'additional interior')
 
 
 def read_row(image,maps,level,cy):
