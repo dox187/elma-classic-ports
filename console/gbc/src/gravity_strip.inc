@@ -57,6 +57,9 @@
  ld a,(hl)
  cp #255
  ret z
+ .if GRAVITY_SPLIT
+ ld b,a
+ .endif
  ld l,a
  ld h,d
  .rept 3
@@ -77,6 +80,13 @@
  add hl,hl
  add hl,hl
  ld de,#gravity_contacts
+ .if GRAVITY_SPLIT
+ ld a,b
+ cp #GRAVITY_SECOND_ROW
+ jr c,gravity_read_contact
+ ld de,#gravity_second_contacts
+gravity_read_contact:
+ .endif
  add hl,de
  .irp offset,0,2,4
  ld a,(hl+)

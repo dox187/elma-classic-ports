@@ -17,9 +17,9 @@ STRIPS = {
         (43416, 31594, 0xfd), (43424, 31594, 0xfd), (43432, 31594, 0xff),
         (43440, 31594, 0xff), (43448, 31594, 0xff), (43456, 31589, 0xd1),
         (43464, 31589, 0xd1), (43472, 31589, 0xf9), (43480, 31588, 0xd9),
-        (43488, 31587, 0xf9), (43496, 31589, 0xf9), (43528, 31579, 0x93),
+        (43488, 31587, 0xf9), (43496, 31589, 0xf9), (43520, 31581, 0x07), (43528, 31579, 0x97),
         (43536, 31578, 0xcf), (43544, 31578, 0xf1), (43560, 31609, 0xff),
-        (43584, 31609, 0xff), (43600, 31608, 0xff), (43616, 31549, 0x83),
+        (43584, 31609, 0xff), (43600, 31608, 0xff), (43616, 31549, 0x8b),
         (43624, 31545, 0x85), (43632, 31568, 0xff), (43640, 31608, 0xff),
         (43648, 31575, 0xff), (43656, 31608, 0xff), (43664, 31581, 0xff),
         (43672, 31519, 0xe1), (43688, 31590, 0xff), (43696, 31608, 0xff),
@@ -78,21 +78,24 @@ def generate(gen, template, levels, banks):
         end = ends[bank]
         if any(value != 255 for value in banks[bank][end:]):
             raise ValueError(f'Extra data after terrain in bank {bank}')
-        source = [f'.module gravity_terrain_{bank}', f'.area _CODE_{bank}',
-                  f'_physics_bank_{bank}::', *byte_lines(banks[bank][:end]),
-                  f'_riding_gravity_strip_{bank}::', f'GRAVITY_X_PAGE = {page}',
-                  template.read_text(), 'gravity_columns:']
+        if pages not in (1, 2):
+            raise ValueError(f'The strip reader supports one or two X pages in bank {bank}')
         # A null row-directory pointer rejects every position in a missing column.
         columns = [' .dw 65535,0'] * (pages * 32)
-        indices = bytearray()
-        rows, dictionary, palette = {}, {}, {}
-        for x, y, mask in regions:
+        column_indices = {}
+        rows, palette = {}, {}
+        dictionaries = [{} for _ in range(pages)]
+        # Group rows by X page so the reader can select a local byte-sized
+        # contact index directly from the row number.
+        for x, y, mask in sorted(regions):
             index = (x - page * 256) // 8
             if x % 8 or not 0 <= index < len(columns) or columns[index] != ' .dw 65535,0':
                 raise ValueError(f'Invalid or duplicate strip at {x}, {y}')
             if not 0 < mask <= 255:
                 raise ValueError(f'Invalid strip row mask at {x}, {y}')
-            columns[index] = f' .dw {y},gravity_entries+{len(indices)}'
+            group = index // 32
+            dictionary = dictionaries[group]
+            indices = bytearray()
             for dy in range(8):
                 if not mask & (1 << dy):
                     indices.append(255)
@@ -107,18 +110,28 @@ def generate(gen, template, levels, banks):
                     else:
                         code = 255 if hit else 0
                     row.append(code)
-                indices.append(rows.setdefault(bytes(row), len(rows)))
-        if len(dictionary) >= 255 or len(rows) >= 255:
+                indices.append(rows.setdefault((group, bytes(row)), len(rows)))
+            offset = column_indices.setdefault(bytes(indices), 8 * len(column_indices))
+            columns[index] = f' .dw {y},gravity_entries+{offset}'
+        if max(map(len, dictionaries)) >= 255 or len(rows) >= 255:
             raise ValueError(f'Strip index exceeds one byte in bank {bank}')
-        values = bytearray()
-        for nx, ny, length in dictionary:
-            high = bytes((v >> 8) & 255 for v in (nx, ny, length))
-            values.extend((nx & 255, ny & 255, length & 255,
-                           palette.setdefault(high, len(palette))))
-        source.extend([*columns, 'gravity_entries:', *byte_lines(indices),
-                       'gravity_rows:', *byte_lines(b''.join(rows)),
-                       'gravity_contacts:', *byte_lines(values),
-                       'gravity_high:', *byte_lines(b''.join(palette)),
+        split = sum(group == 0 for group, _ in rows)
+        source = [f'.module gravity_terrain_{bank}', f'.area _CODE_{bank}',
+                  f'_physics_bank_{bank}::', *byte_lines(banks[bank][:end]),
+                  f'_riding_gravity_strip_{bank}::', f'GRAVITY_X_PAGE = {page}',
+                  f'GRAVITY_SPLIT = {int(pages == 2)}', f'GRAVITY_SECOND_ROW = {split}',
+                  template.read_text(), 'gravity_columns:', *columns, 'gravity_entries:',
+                  *byte_lines(b''.join(column_indices)), 'gravity_rows:',
+                  *byte_lines(b''.join(row for _, row in rows))]
+        for group, dictionary in enumerate(dictionaries):
+            values = bytearray()
+            for nx, ny, length in dictionary:
+                high = bytes((v >> 8) & 255 for v in (nx, ny, length))
+                values.extend((nx & 255, ny & 255, length & 255,
+                               palette.setdefault(high, len(palette))))
+            label = 'gravity_contacts' if group == 0 else 'gravity_second_contacts'
+            source.extend([label + ':', *byte_lines(values)])
+        source.extend(['gravity_high:', *byte_lines(b''.join(palette)),
                        f'_riding_gravity_end_{bank}::'])
         path = gen / f'gravity_terrain_{bank}.s'
         write_if_changed(path, '\n'.join(source) + '\n')
