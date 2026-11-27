@@ -817,6 +817,13 @@ upper_disp:
  ld (hl),e
  inc hl
  ld (hl),d
+ .ifdef RIDING_REACTION_WORDS
+ ; DE and BC are the rounded X and Y arms. Package an ABI frame only
+ ; for close separations or torques outside the signed-word domain.
+ pop bc
+ ld hl,#(_riding_suspension_state+ss_wheel_tq+record)
+ call ss_wheel_reaction_value
+ .else
  push de
  ss_read _riding_suspension_state+ss_wheel_tq+record
  push bc
@@ -830,15 +837,12 @@ ordinary:
  .endif
  call ss_reaction_input
  add sp,#8
- .ifdef RIDING_REACTION_WORDS
- call _riding_reaction_coefficient
- .else
  ld b,h
  ld c,l
  ss_q24_phase _q24_index_C_REACT,reaction_index
- .endif
  .ifdef RIDING_GAS_REACTION
 have_reaction:
+ .endif
  .endif
  call ss_prepare_reaction
  ss_reaction_product 2
@@ -1520,6 +1524,108 @@ ss_coarse_arm:
  ld de,#0x8000
  ret
 
+ .ifdef RIDING_REACTION_WORDS
+; HL points to the nonzero torque. DE and BC hold the coarse X/Y arms.
+; The reciprocal index is shared by the constant-throttle and signed-word paths.
+ss_wheel_reaction_value::
+ push hl
+ call _riding_recip_index_regs
+ pop hl
+ ld a,e
+ cp #16
+ jr c,ss_reaction_stack
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ add a
+ sbc a
+ cp (hl)
+ jr nz,ss_reaction_wide_low
+ inc hl
+ cp (hl)
+ jr nz,ss_reaction_wide_high
+ ; A gas torque uses the existing table for both rounded operations.
+ ld a,c
+ cp #<reaction_gas
+ jr z,ss_reaction_positive_gas
+ cp #<(-reaction_gas)
+ jr nz,ss_reaction_word
+ ld a,b
+ cp #>(-reaction_gas)
+ jr nz,ss_reaction_word
+ ld b,#3
+ jr ss_reaction_gas_phase
+ss_reaction_positive_gas:
+ ld a,b
+ cp #>reaction_gas
+ jr nz,ss_reaction_word
+ ld b,#0
+ss_reaction_gas_phase:
+ ld a,(#_riding_subphase)
+ or a
+ jr z,ss_reaction_gas_read
+ ld a,b
+ add #6
+ ld b,a
+ss_reaction_gas_read:
+ ld c,e
+ jp gas_read_fixed
+ss_reaction_word:
+ ; Multiply the signed torque by the positive reciprocal. The product
+ ; fits signed32, so dropping its low byte gives the exact floor Q8.
+ ld d,#0
+ ld hl,#_Recip_d2
+ add hl,de
+ add hl,de
+ ld d,b
+ ld e,c
+ ld a,(hl+)
+ ld b,(hl)
+ ld c,a
+ call _riding_projection_signed16
+ ld e,d
+ ld d,l
+ ld l,h
+ ld a,h
+ add a
+ sbc a
+ ld h,a
+ jp _riding_reaction_coefficient
+ss_reaction_wide_high:
+ dec hl
+ss_reaction_wide_low:
+ dec hl
+ dec hl
+ss_reaction_stack:
+ ; The public wide/close input receives torque, X and Y in stack order.
+ ld b,h
+ ld c,l
+ ld hl,#ss_coarse+3
+ ld a,(hl-)
+ ld d,a
+ ld a,(hl-)
+ ld e,a
+ push de
+ ld a,(hl-)
+ ld d,a
+ ld e,(hl)
+ push de
+ ld h,b
+ ld l,c
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ push bc
+ push de
+ call _riding_reaction_input32
+ add sp,#8
+ jp _riding_reaction_coefficient
+ .else
 ; Ordinary braking torque typically fits signed16. In this range the
 ; full product fits signed32, so Q8 is exactly its upper three bytes.
 ; The original input routine handles close separation and wide torque.
@@ -1566,6 +1672,7 @@ ss_reaction_input:
  sbc a,a
  ld h,a
  ret
+ .endif
 .area _CODE_8
 ; HL -> signed32 arm, DE -> signed32 speed. Return all 64 product bits in
 ; ss_product_upper:BC:HL:DE. Most speeds need just one signed32 x signed16
