@@ -50,6 +50,15 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test56 — Hang Tight braking and ordered wheel contacts
+
+Hang Tight braking used a third display refresh on 5 of 99 intervals, down
+from 16. Framework and Bowling each used a third refresh on 11 intervals.
+The wheel solver reuses its updated angular speed and reads certified slope
+projections in original terrain order. The camera reuses its movement check
+when preparing the next view. The slowest forced Steep Corner update fell
+from 70.86 to 68.67 ms. [Playable 8 MiB ROM](build/elma-gbc-v0.96-test56-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test56--hang-tight-braking-and-ordered-wheel-contacts)
+
 ## 0.96 test55 — Wheel contacts on Steep Corner, Framework and Bowling
 
 On the short braking replays, Bowling had 11 late intervals out of 99

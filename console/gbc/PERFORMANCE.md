@@ -4229,3 +4229,57 @@ shortened forced contacts but produced 197 primary and 70 independent
 three-refresh intervals, against 196 and 67 with the retained dispatch.
 
 SHA-256 `1672ae725b065a638e84039bf5f2fa0455a6739344df979f336e4aca35949637`.
+
+## 0.96 test56 — Hang Tight braking and ordered wheel contacts
+
+The generator compares 276,480 integer wheel centers in 48 Hang Tight columns
+against the original ordered edges. Within a certified column the reader can
+project a single slope or resolve a shared vertex directly. Other coordinates
+use the normal terrain search. A second generator identifies interior segments
+in the existing ordered candidate lists where a plane gives the exact hit or
+miss throughout the rectangle. It stores the projection intercept alongside
+the reader in bank 93. The packed program header and byte offsets keep the
+ordered lists in bank 5.
+
+Across all courses the suspension can project small negative reaction torques
+with the same signed high-word correction used for positive ones. The wheel
+keeps its angular velocity in registers through the angle update. Bank restores
+use the SM83 high-memory instructions. Camera preparation checks for movement
+once and skips scenery prediction while stationary.
+
+| PyBoy measurement | test55 | test56 |
+| --- | ---: | ---: |
+| Weighted updates/s over 25,310 controller intervals | 29.749 | 29.763 |
+| Three-refresh intervals, short / extended / complete Freefall | 158 / 38 / 0 | 135 / 37 / 0 |
+| Independent seed, three-refresh intervals out of 5,302 | 67 | 68 |
+| Mean active update across primary runs, T-cycles | 212,804 | 211,667 |
+| Slowest regular replay average, updates/s | 27.63 | 28.29 |
+| Hang Tight / Framework / Bowling braking, late intervals out of 99 each | 16 / 13 / 11 | 5 / 11 / 11 |
+| Peak over 642 historical placements, physics only | 62.61 ms | 62.41 ms |
+| Over-budget physics updates on those placements, out of 2,432 | 345 | 340 |
+| Peak over the separate 25-point Steep Corner grid, physics only | 70.86 ms | 68.67 ms |
+
+The slowest observed controller interval took three refreshes, equivalent to
+19.91 updates/s over that interval. Framework and Bowling braking tied for
+the slowest regular route average. The independent suite's mean active work
+fell from 220,207 to 218,990 T despite its extra three-refresh interval.
+The standalone rolling impulse lookup increased late intervals and was discarded.
+
+The slowest forced grid update remains at (25,176, 39,464), input 9 on the right
+wheel. Wheel work fell from 436,988 to 418,656 T across its three substeps.
+Suspension used 94,972 T, head contact 9,240 T and other physics 53,188 T.
+All 200 grid updates exceeded the 280,896 T whole-game budget. Total grid
+physics work fell from 99,711,956 to 96,953,432 T. On the historical placements
+53 of 54 courses improved in total CPU time. Hang Tight's artificial placements
+rose from 10,779,256 to 10,810,072 T while its controller replay improved.
+
+All 76,568 primary controller substeps, 16,015 independent substeps and
+7,799 forced-placement substeps matched test55. All 298,416 ordered terrain
+queries and 84 partial-leaf fallbacks matched, including the terrain cursor.
+The Hang Tight reader passed 7,232 native queries. All 740 reaction projection
+boundary cases matched the signed arithmetic oracle. The speed-limit check
+matched 3,170 states across 122 cases. Seven visual replays matched on 1,216
+presentations and 61,845 background cells. All 54 courses started, with one
+late update in the entry sweep. Timing was measured in PyBoy.
+
+SHA-256 `2e3ae5ce3510978dca935c325e83cd0e58be0cb37fe00082008131f727c4daf3`.
