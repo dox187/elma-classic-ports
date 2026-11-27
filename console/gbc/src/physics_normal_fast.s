@@ -15,6 +15,7 @@ normal_cache_value: .ds 6
 .area _CODE_9
  .ifdef RIDING_NORMAL_ATLAS
 .area _DATA
+normal_length_tag:: .ds 1   ; consumed only by the immediate endpoint caller
 normal_physical: .ds 1      ; the caller formed d2 from these exact coordinates
 .area _CODE_9
 _riding_normal_physical::
@@ -79,6 +80,7 @@ normal_table:
  ; uint16((d2-16384)>>9), including its original uint16 wrapping.
  ldhl sp,#7
  ld a,(hl+)
+ and #254
  sub #64
  ld e,a
  ld a,(hl+)
@@ -86,25 +88,20 @@ normal_table:
  ld d,a
  ld a,(hl)
  sbc a,#0
- rra
- rr d
- rr e
+ rrca                     ; bit 16 of the doubled index
+ jr c,normal_last
  ld a,d
- or a
- jr z,normal_index_ready
- cp #1
+ cp #2
+ jr c,normal_index_ready
  jr nz,normal_last
  ld a,e
- cp #41
+ cp #81
  jr c,normal_index_ready
 normal_last:
- ld de,#296
+ ld de,#592
 normal_index_ready:
- ld h,d
- ld l,e
- add hl,hl
- ld bc,#_riding_normal_rsqrt
- add hl,bc
+ ld hl,#_riding_normal_rsqrt
+ add hl,de
  ld c,(hl)
  inc hl
  ld b,(hl)
@@ -119,10 +116,7 @@ normal_index_ready:
  call _riding_mul16_regs
  call normal_scale4
  .endif
- ldhl sp,#12
- ld a,(hl+)
- ld h,(hl)
- ld l,a
+ ld hl,#normal_cache_value
  ld (hl),e
  inc hl
  ld (hl),d
@@ -140,12 +134,7 @@ normal_index_ready:
  call _riding_mul16_regs
  call normal_scale4
  .endif
- ldhl sp,#12
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- inc hl
- inc hl
+ ld hl,#(normal_cache_value+2)
  ld (hl),e
  inc hl
  ld (hl),d
@@ -159,10 +148,7 @@ normal_dot_length:
  .endif
  ; Place the small wheel offsets in the multiplier's coordinate registers.
  ; Stack coefficients are callee-cleaned. The sum is rounded once as before.
- ldhl sp,#12
- ld a,(hl+)
- ld h,(hl)
- ld l,a
+ ld hl,#normal_cache_value
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -182,19 +168,14 @@ normal_dot_length:
  ld b,(hl)
  call _dotq14
 normal_have_length:
- ldhl sp,#12
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- inc hl
- inc hl
- inc hl
- inc hl
+ ld hl,#(normal_cache_value+4)
  ld (hl),c
  inc hl
  ld (hl),b
  add sp,#2
- jp normal_cache_store_result
+ ld a,#1
+ ld (#normal_cache_valid),a
+ jp normal_cached_destination
 
  .ifdef RIDING_NORMAL_ATLAS
 ; A wheel offset in [-512,511] is its low byte plus -2,-1,0 or 1
@@ -325,13 +306,15 @@ normal_cache_store_result:
 
  .ifdef RIDING_NORMAL_ATLAS
 .area _CODE_9
-; Only true squared lengths in [65536,168447] select a slot in bank 5.
+; Physical squared lengths select a conservative slot at the matching depth.
 ; A zero return requests the full normalized-vector dot.
 normal_physical_length:
  ld a,(#normal_cache_key+7)
  or a
  ret nz
  ld a,(#normal_cache_key+6)
+ or a
+ jr z,normal_inner_range
  dec a
  jr z,normal_low_range
  dec a
@@ -345,17 +328,25 @@ normal_low_range:
  ld hl,#normal_read_lower
 normal_read:
  ld e,#5
+normal_length_lookup:
  call ___sdcc_bcall_ehl
  ld a,c
  or a
  ret z
- add #250
+ add #160
  ld c,a
  ld a,#0
  adc #0
  ld b,a
  scf
  ret
+normal_inner_range:
+ ld a,(#normal_cache_key+5)
+ cp #128
+ jr c,normal_length_miss
+ ld e,#93
+ ld hl,#normal_read_inner
+ jr normal_length_lookup
 normal_length_miss:
  or a
  ret

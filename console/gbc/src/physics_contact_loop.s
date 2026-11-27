@@ -485,6 +485,8 @@ contact_loop_normalize:
  push bc
  push de
  .ifdef RIDING_NORMAL_ATLAS
+ xor a
+ ld (#normal_length_tag),a
  call _riding_normal_physical
  .else
  call _riding_normal_fast
@@ -532,6 +534,9 @@ contact_loop_merge:
 ; Every endpoint which reaches normalize supplied its physical squared length.
 ; Tag 2 reuses the normalized vector; tag 64 also certifies both contact points.
 contact_mark_radial:
+ ld a,(#normal_length_tag)
+ or a
+ jr nz,contact_vector_tag
  ld hl,#normal_cache_key+6
  ld a,(hl-)
  or a

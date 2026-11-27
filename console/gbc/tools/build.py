@@ -642,9 +642,11 @@ def main():
             sources[sources.index(original)] = table
 
     if scheduled:
-        lengths = normal_length.generate(
+        lengths, inner_lengths = normal_length.generate(
             a.gen, BASE/'src/normal_length.inc', BASE.parent/'nes/src/rsqrt.inc')
+        # The inner radial lookup follows the page-aligned braking data in bank 93.
         sources.insert(sources.index(a.gen/'head_quarters.s'), lengths)
+        sources.append(inner_lengths)
         sources.extend((BASE/'src/normal_deep.s', BASE/'src/physics_pair_impulse.s',
                         BASE/'src/terrain_region.s', a.gen/'wheel_candidate_planes.s'))
     if head_lanes:
