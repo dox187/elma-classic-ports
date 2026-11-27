@@ -94,6 +94,8 @@ wheel_load_omega:
  inc hl
  inc hl
  call _riding_circle_load
+; DEBC holds the updated omega. The stack holds angle and circle pointers.
+_riding_wheel_angle_value::
 wheel_angle:
  ld a,d
  or a,e

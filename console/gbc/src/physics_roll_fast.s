@@ -210,14 +210,12 @@ roll_start:
  ld c,a
  ld a,(hl+)
  ld b,a
- ld a,(hl+)
- ld d,(hl)
- ld e,a
  xor a
- sub a,e
+ sub (hl)
  ld e,a
- ld a,#0
- sbc a,d
+ inc hl
+ sbc a
+ sub (hl)
  ld d,a
  ; Tangent (-ny,nx), signed16 negation including INT16_MIN.
  push bc
@@ -231,13 +229,18 @@ roll_start:
  or a
  jr nz,roll_try_vertical
  ld a,d
+ .ifdef RIDING_GROUND_ROWS
+ cp #0xc0
+ jp z,roll_map_flat
+ cp #0x40
+ jr nz,roll_input_dots
+ xor a
+ .else
  and #0x7f
  cp #0x40
  jr nz,roll_input_dots
  ld a,d
  and #0x80
- .ifdef RIDING_GROUND_ROWS
- jp nz,roll_map_flat
  .endif
  jr roll_axis_inputs
 roll_try_vertical:
@@ -245,12 +248,11 @@ roll_try_vertical:
  or a
  jr nz,roll_input_dots
  ld a,b
- and #0x7f
- cp #0x40
+ add a
+ cp #0x80
  jr nz,roll_input_dots
  ld a,b
- and #0x80
- or #4
+ xor #0x44
 roll_axis_inputs:
  .ifdef RIDING_GROUND_ROWS
  jp roll_map_axis
@@ -260,23 +262,22 @@ roll_axis_inputs:
 roll_input_dots:
  .ifdef RIDING_GROUND_ROWS
  ld a,e
- or a
  .ifdef ROLL_DIRECTORY_BANK
- jr nz,roll_check_near
- ld a,d
- cp #0xc0
- jp z,ground_try_dots
- jr roll_live_slope
-roll_check_near:
  dec a
  cp #2
  jr c,roll_generic_dots
+ inc a
+ jr nz,roll_live_slope
+ ld a,d
+ cp #0xc0
+ jp z,ground_try_dots
 roll_live_slope:
  ; The ordinary wheel entry still has both signed tangent coefficients.
  ld hl,#rom_slope_find_regs
  ld a,#ROLL_DIRECTORY_BANK
  jp rom_slope_map
  .else
+ or a
  jr nz,roll_generic_dots
  ld a,d
  cp #0xc0
@@ -404,6 +405,23 @@ roll_have_delta:
  jp roll_stationary
 roll_moving:
  .endif
+ ; Project the stacked speed before forming omega. The projection uses
+ ; integer Q14 arithmetic, leaving the observable Q24 state untouched.
+ ldhl sp,#10
+ ld a,(hl+)
+ add #8
+ ld h,(hl)
+ ld l,a
+ jr nc,roll_velocity_address
+ inc h
+roll_velocity_address:
+ .ifdef RIDING_GROUND_ROWS
+ call near_project_select
+ .else
+ call _riding_roll_project_pair
+ .endif
+ pop bc
+ pop de
  .ifdef RIDING_ROLL_OMEGA
  call roll_omega
  .else
@@ -411,14 +429,18 @@ roll_moving:
  dec sp
  call roll_coefficient
  .endif
- ldhl sp,#10
- ld a,(hl+)
- add #20
- ld h,(hl)
- ld l,a
- jr nc,roll_omega_address
- inc h
-roll_omega_address:
+ add sp,#6
+ pop hl
+ push hl
+ push de
+ ld de,#16
+ add hl,de
+ pop de
+ push hl
+ inc hl
+ inc hl
+ inc hl
+ inc hl
  ld a,c
  ld (hl+),a
  ld a,b
@@ -426,17 +448,7 @@ roll_omega_address:
  ld a,e
  ld (hl+),a
  ld (hl),d
- ; HL is at omega+3. The pair writes vx and vy directly into the wheel.
- ld de,#-15
- add hl,de
- .ifdef RIDING_GROUND_ROWS
- call near_project_select
- .else
- call _riding_roll_project_pair
- .endif
- add sp,#10
- pop hl
- jp _riding_wheel_move_hl
+ jp _riding_wheel_angle_value
 
  .ifdef RIDING_ROLL_TABLES
 .area _CODE
