@@ -232,7 +232,19 @@ def check_pair_certificate(cart, slot, wheel, position, pair):
                 assert result != 254
             else:
                 assert result == 254 and cart.read('_Ct', 20) == pair
+        # A different X fraction needs fresh filtering of the same integer
+        # pair. Returning to the original center must still restore the
+        # prepared record, even when its contents differ from the raw table.
+        prepared = upper + bytes([9]) + lower + poison
+        cart.m[cache:cache+29] = prepared
+        cart.m[wheel] = position[0] ^ 1
+        assert cart.invoke('_riding_corner_lookup', wheel) == 2
+        assert cart.read('_Ct', 20) == pair and bytes(cart.m[cache:cache+29]) == prepared
+        cart.m[wheel] = position[0]
+        assert cart.invoke('_riding_corner_lookup', wheel) == 255
+        assert cart.invoke('_riding_cert_hit', wheel) == 254 and cart.read('_Ct', 20) == poison
     finally:
+        cart.m[wheel] = position[0]
         cart.m[cache:cache+29] = saved
         cart.m[ct:ct+20] = pair
 

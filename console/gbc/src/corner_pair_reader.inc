@@ -1,5 +1,23 @@
 ; BC identifies a sixteen-entry block directory. DE points at the wheel.
 ; Called only for an already verified two-contact center with this tile key.
+ ; Fresh fractions cannot use the prepared contact cache. Read the
+ ; integer geometry here and let the caller apply both fractional filters.
+ ; A matching X fraction can still defer safely to the full certificate.
+ ld hl,#(_wheel_surface_cache+4)
+ ld a,e
+ cp #<(_Bike+48)
+ jr nz,pair_cache
+ ld hl,#(_wheel_surface_cache+29+4)
+pair_cache:
+ ld a,(hl+)
+ cp #9
+ jr nz,pair_read
+ ld a,(de)
+ cp (hl)
+ jr nz,pair_read
+ ld a,#255
+ ret
+pair_read:
  push de
  inc de
  ld a,(de)

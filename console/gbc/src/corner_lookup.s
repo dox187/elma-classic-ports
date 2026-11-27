@@ -366,17 +366,6 @@ corner_pair_map:
  or a
  ld a,#255
  ret z
- ; The exact-position certificate also retains the two fractional filters
- ; and cached support signs. Let it answer first while that entry is live.
- ld a,e
- cp #<(_Bike+48)
- ld a,(#(_wheel_surface_cache+4))
- jr nz,corner_pair_kind
- ld a,(#(_wheel_surface_cache+29+4))
-corner_pair_kind:
- cp #9
- ld a,#255
- ret z
  ld a,#<472
  ld (#0x2000),a
  jp _riding_corner_code_472
