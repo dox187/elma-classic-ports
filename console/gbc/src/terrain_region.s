@@ -229,6 +229,19 @@ contact_region_inside:
  cp #<(-CONTACT_REGION_DELTA)
  jr nc,contact_region_boundary
 contact_region_start:
+ ; Across this square a rounded tangent changes by at most 90. Keeping
+ ; at least 64 tangent units from the cap bounds its true normal below
+ ; sqrt(410^2-63^2) < 406 everywhere inside the strict endpoint disk.
+ ld a,b
+ inc a
+ jr nz,contact_region_start_proven
+ ld a,c
+ cp #<(-64-CONTACT_REGION_DELTA)
+ jr nc,contact_region_start_guard
+contact_region_start_proven:
+ ld a,#3
+ jr contact_region_install
+contact_region_start_guard:
  ld a,#3
  jr contact_region_cert_cap
 contact_region_nonnegative:
@@ -277,6 +290,19 @@ contact_region_beyond:
  cp #(CONTACT_REGION_DELTA+1)
  jr c,contact_region_boundary
 contact_region_end:
+ ; An 8 m segment's rounded Q14 direction changes either endpoint
+ ; projection by less than one unit. Allow two extra tangent units for
+ ; its rounded length and projection; the normal still rounds below 410.
+ ld a,h
+ or a
+ jr nz,contact_region_end_proven
+ ld a,l
+ cp #(67+CONTACT_REGION_DELTA)
+ jr c,contact_region_end_guard
+contact_region_end_proven:
+ ld a,#4
+ jr contact_region_install
+contact_region_end_guard:
  ld a,#4
 contact_region_cert_cap:
  ld b,a

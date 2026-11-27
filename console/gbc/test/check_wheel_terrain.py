@@ -138,6 +138,24 @@ def read_refinements(image, symbols, levels):
     return regions
 
 
+def verify_cap_distance(dx, dy, ex, ey, length):
+    # A 64-unit square spans at most 63 unit steps on each axis. Work in
+    # unrounded Q14 numerators so the test includes the half-unit rounding ties.
+    unit = 1 << 14
+    assert 63*(abs(ex) + abs(ey)) <= 90*unit
+    disk_bound = (410**2 - 1)*(ex*ex + ey*ey)
+    # The far endpoint is quantized independently of its tangent and length.
+    along_error = abs(dx*ex + dy*ey - length*unit)
+    normal_error = abs(dy*ex - dx*ey)
+    for tangent, along, normal in ((64, 0, 0), (67, along_error, normal_error)):
+        min_tangent = tangent*unit - unit//2 - along
+        max_normal = 410*unit - unit//2 - normal
+        assert min_tangent > 0 and max_normal > 0
+        # Squared tangent + squared normal = squared offset * squared direction.
+        # Every endpoint inside the strict disk must also pass the line test.
+        assert disk_bound - min_tangent**2 < max_normal**2, (dx, dy, ex, ey, length)
+
+
 def linked_rows(gen, image, symbols, baseline, previous=None):
     levels = json.loads((gen/'physics_bank_manifest.json').read_text())['levels']
     refinements = read_refinements(image,symbols,levels)
@@ -158,6 +176,7 @@ def linked_rows(gen, image, symbols, baseline, previous=None):
         prev_regions = read_refinements(prev_rom,prev_symbols,levels)
     rng = random.Random(0x73511)
     samples, totals, interrupts = [], Counter(), {}
+    directions = set()
     for level,desc in enumerate(levels):
         w,h,directory = struct.unpack_from('<BBH',image,maps+4*level)
         assert (w,h) == tuple(desc['grid'])
@@ -171,6 +190,7 @@ def linked_rows(gen, image, symbols, baseline, previous=None):
             for cx in range(w):
                 cell = leaves(image,desc,cx,cy)
                 for sub,records in enumerate(cell):
+                    directions.update((r[2], r[3], r[4], r[5], r[6] & 16383) for r in records)
                     pattern = read_pattern(image,row,cx,sub,True,True)
                     if baseline:
                         old_pattern = read_pattern(old_rom,old_row,cx,sub,False)
@@ -233,6 +253,9 @@ def linked_rows(gen, image, symbols, baseline, previous=None):
     assert sum(totals[k] for k in ('plane','window','general','empty')) == 256*sum(w*h for w,h in (l['grid'] for l in levels))
     assert totals['plane'] > 100000 and totals['empty'] > 1000000
     assert totals['window'] > 10000
+    for direction in directions:
+        verify_cap_distance(*direction)
+    totals['verified cap directions and lengths'] = len(directions)
     return samples,totals,interrupts
 
 
