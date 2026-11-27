@@ -841,6 +841,19 @@ static uint8_t sure_old(const contact_t *t1,const contact_t *t2,int32_t dvx,int3
 
 #endif
 
+#if defined(NATIVE_ORDERED_PAIR) && VEL_1MS == 23069
+/* The classifier only sends signed16 components of magnitude <= 23296 here.
+ * Equality at 1 m/s selects the fast pivot on an axis and the slow pivot
+ * elsewhere on the circle, as in the original component and radius tests. */
+static uint8_t pair_speed_near_limit(const circle_t *k) {
+    int16_t x=(int16_t)k->vx, y=(int16_t)k->vy;
+    if(!x || !y) {
+        int16_t along=x|y;
+        return along >= VEL_1MS || along <= -VEL_1MS;
+    }
+    return mul16(x,x)+mul16(y,y) > (int32_t)VEL_1MS*VEL_1MS;
+}
+#else
 static uint8_t faster_1ms( const circle_t* k ) {
 	if( k->vx >= VEL_1MS || k->vx <= -VEL_1MS || k->vy >= VEL_1MS || k->vy <= -VEL_1MS )
 		return 1;
@@ -848,6 +861,7 @@ static uint8_t faster_1ms( const circle_t* k ) {
 	 * small comparison operands is exact; stored/projected velocities stay32. */
 	return mul16((int16_t)k->vx,(int16_t)k->vx)+mul16((int16_t)k->vy,(int16_t)k->vy) > (int32_t)VEL_1MS*VEL_1MS;
 }
+#endif
 
 #if !defined(__SDCC) || defined(PHYSICS_WHEEL_C)
 static void move( circle_t* k ) {
@@ -1833,7 +1847,7 @@ static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
 #if VEL_1MS == 23069
     uint8_t speed = riding_pair_speed_class(riding_pair_velocity);
     riding_pair_stopped = speed == 0;
-    if(speed == 2 || (speed == 3 && faster_1ms(k))) {
+    if(speed == 2 || (speed == 3 && pair_speed_near_limit(k))) {
 #else
     riding_pair_stopped=!(k->vx || k->vy);
     if(!riding_pair_stopped && faster_1ms(k)) {
