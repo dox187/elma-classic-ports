@@ -87,11 +87,24 @@ static uint8_t visible_objects[LEVEL_OBJECT_MAX],visible_count;
  * most eight pixels on each axis, so a crossing cannot wrap a count. */
 static uint8_t visibility_regions[256],objects_region_x,objects_region_y;
 
-static void build_visibility_regions(void) {
+/* Project object positions onto two 64-metre periodic axes. Each object
+ * sets the same lane on X and Y. An exact touch requires both integer
+ * coordinates to differ by at most one, including across the signed seam. */
+static uint8_t object_x_lanes[64],object_y_lanes[64];
+
+void gbc_build_object_regions(void) {
     const game_object_t *object;
-    uint8_t i,x_count=0,y_count=0;
+    uint8_t i,lane=1,x_count=0,y_count=0;
+    memset(object_x_lanes,0,sizeof(object_x_lanes));
+    memset(object_y_lanes,0,sizeof(object_y_lanes));
     memset(visibility_regions,0,sizeof(visibility_regions));
     for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
+        uint8_t x=(uint8_t)(object->world_x>>16),y=(uint8_t)(object->world_y>>16),k;
+        for(k=0;k<3;++k) {
+            object_x_lanes[(x+k-1)&63]|=lane;
+            object_y_lanes[(y+k-1)&63]|=lane;
+        }
+        lane=lane==128?1:lane<<1;
         visibility_regions[(uint8_t)(object->x-167)]|=1;
         visibility_regions[(uint8_t)(object->x+8)]|=1;
         visibility_regions[(uint8_t)(object->y-143)]|=16;
@@ -212,6 +225,41 @@ static void draw_objects(void) {
 uint8_t gbc_object_touch(const gbc_pose_t *pose,const game_object_t *obj,uint8_t head) __sdcccall(0);
 void gbc_objects_bounds(uint16_t *bounds) __sdcccall(0);
 uint8_t gbc_object_near(const game_object_t *obj,const uint16_t *bounds) __sdcccall(0);
+
+/* A shared bit is only a candidate. The caller keeps the ordered scan
+ * for candidates, including apple gravity and flower eligibility. */
+uint8_t gbc_objects_maybe_reachable(void) __naked {
+    __asm
+        .macro test_circle offset,next
+        ld a,(#(_gbc_bike+offset))
+        and #63
+        ld l,a
+        ld h,#0
+        add hl,de
+        ld a,(hl)
+        or a
+        jr z,next
+        ld b,a
+        ld a,(#(_gbc_bike+offset+4))
+        and #63
+        ld l,a
+        ld h,#0
+        ld de,#_object_y_lanes
+        add hl,de
+        ld a,(hl)
+        and b
+        ret nz
+        ld de,#_object_x_lanes
+next:
+        .endm
+        ld de,#_object_x_lanes
+        test_circle 12,lanes_wheel_2
+        test_circle 22,lanes_head
+        test_circle 42,lanes_clear
+        xor a
+        ret
+    __endasm;
+}
 
 static void objects_near_add(uint8_t i) {
     if(objects_near_count<sizeof(objects_near))objects_near[objects_near_count++]=i;
@@ -464,7 +512,7 @@ static void start_game(void) {
     world_select(game_level_index);
     camera_limit_x=WORLD_WIDTH-160;camera_limit_y=WORLD_HEIGHT-144;
     physics_select_level(game_level_index);physics_reset_current();
-    build_visibility_regions();
+    gbc_build_object_regions();
     objects_empty_valid=0;
     game_state=RIDING;game_apples_left=0;game_time_frames=0;clock_fraction=0;volt_wait=0;
     game_player_index=save_player;game_new_record=0;game_previous_best=0;
@@ -659,7 +707,7 @@ static void game_loop(void) BANKED {
                 physics_step(input);++game_steps;game_time_frames+=60/PH_HZ;
                 clock_tick();
                 if(!gbc_bike.alive || !gbc_bike_bounded()){gbc_bike.alive=0;game_state=DEAD;audio_effect(FX_CRASH);}
-                else check_objects();
+                else if(gbc_objects_maybe_reachable())check_objects();
                 input&=GBC_GAS|GBC_BRAKE;
             }
         }

@@ -5,19 +5,57 @@
 .area _CODE_5
 ; The wheel and head coordinates always occupy these three pose slots.
 ; Use their link-time addresses on each axis and keep the output on stack.
-.macro gather_axis offset
+.macro gather_axis offset,ordered,check_max,ready
  ld hl,#(_gbc_bike+12+offset)
  ld a,(hl+)
  ld c,a
+ ld a,(hl)
+ xor #0x80
+ ld b,a
+ ld hl,#(_gbc_bike+22+offset)
+ ld a,(hl+)
  ld e,a
  ld a,(hl)
- xor a,#0x80
- ld b,a
+ xor #0x80
  ld d,a
- ld hl,#(_gbc_bike+22+offset)
- call bounds_consider
+ ; Sort the two wheel coordinates with one comparison, then extend the
+ ; interval only if the head lies below the minimum or above the maximum.
+ ld a,c
+ sub e
+ ld a,b
+ sbc d
+ jr c,ordered
+ ld a,e
+ ld e,c
+ ld c,a
+ ld a,d
+ ld d,b
+ ld b,a
+ordered:
  ld hl,#(_gbc_bike+42+offset)
- call bounds_consider
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,h
+ xor #0x80
+ ld h,a
+ ld a,l
+ sub c
+ ld a,h
+ sbc b
+ jr nc,check_max
+ ld b,h
+ ld c,l
+ jr ready
+check_max:
+ ld a,e
+ sub l
+ ld a,d
+ sbc h
+ jr nc,ready
+ ld d,h
+ ld e,l
+ready:
 .endm
 _gbc_objects_bounds::
  ldhl sp,#2
@@ -25,38 +63,13 @@ _gbc_objects_bounds::
  ld h,(hl)
  ld l,a
  push hl
- gather_axis 0
+ gather_axis 0,x_ordered,x_check_max,x_ready
  pop hl
  call bounds_store
  push hl
- gather_axis 4
+ gather_axis 4,y_ordered,y_check_max,y_ready
  pop hl
  jr bounds_store
-
-bounds_consider:
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld a,h
- xor a,#0x80
- ld h,a
- ld a,l
- sub a,c
- ld a,h
- sbc a,b
- jr nc,bounds_check_max
- ld b,h
- ld c,l
- ret
-bounds_check_max:
- ld a,e
- sub a,l
- ld a,d
- sbc a,h
- ret nc
- ld d,h
- ld e,l
- ret
 
 ; Expand at full precision, saturate at the two ends and write once.
 bounds_store:
