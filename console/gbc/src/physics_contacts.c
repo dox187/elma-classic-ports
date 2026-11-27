@@ -131,8 +131,8 @@ uint8_t riding_contact_merge(void) __naked {
     __asm
     ld b,#0
 _riding_contact_merge_kind::
-    ; B is one only when the iterator just copied the physical atlas
-    ; normal into Ct[1]. The six-byte equality check also proves Ct[0].
+    ; B is one when the iterator has the physical endpoint normal for
+    ; Ct[1] cached. The six-byte equality check also proves Ct[0].
     ld hl,#_Ct
     ld de,#(_Ct+10)
     .rept 6
@@ -523,6 +523,19 @@ static void apply_push(circle_t *k, contact_t *c, contact_t *other, int32_t push
     __asm
     push de
     push bc
+    ldhl sp,#9
+    bit 7,(hl)
+    jr nz,wide_general_axes
+    inc hl
+    ld a,(hl+)
+    or (hl)
+    jr nz,wide_general_axes
+    add sp,#-8
+    ld hl,#_riding_push_word_axes
+    ld a,#35
+    call rom_slope_map
+    jr wide_have_axes
+wide_general_axes:
     ; Calculate Y first. Pushing the two HL:DE results leaves X,Y
     ; consecutive on the stack, ready for the second contact projection.
     ld h,b
@@ -547,6 +560,7 @@ static void apply_push(circle_t *k, contact_t *c, contact_t *other, int32_t push
     call _riding_mulq14_regs
     push hl
     push de
+wide_have_axes:
     ; Stack: X,Y,contact,wheel,return address,other,push.
     ldhl sp,#0
     ld d,h

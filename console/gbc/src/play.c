@@ -492,45 +492,45 @@ void game_present(void) {
     if(game_state==RIDING || last_hud_state!=game_state)draw_hud();
 }
 
-/* The next presentation uses the state just computed by physics. Prepare only
- * its offscreen map cells during otherwise idle time; camera publication keeps
- * the existing presentation/input schedule. */
-static void prepare_next_view(uint16_t start) {
-    int16_t x,y;
-    uint8_t ahead_x,ahead_y,dx,dy,tx,ty;
-    /* Physics finished this pose. The next presentation uses these same
-     * pixels even if the scenery prediction looks one tile farther ahead. */
+/* Within one tile, old and new pixel phases determine the time to cross its
+ * edge. Rank the exact distance/speed fractions; equal ranks mean a diagonal.
+ * Moving right uses (8-old)/(new-old), moving left (1+old)/(old-new).
+ * Rows are the old phase, columns the new phase. 255 means no crossing. */
+static const uint8_t crossing_rank[8][8]={
+    {255,  21,  17,  14,  11,   8,   5,   1},
+    {11, 255,  20,  16,  12,  10,   6,   2},
+    {7,  15, 255,  19,  15,  11,   7,   3},
+    {5,  11,  17, 255,  18,  13,   9,   4},
+    {4,   9,  13,  18, 255,  17,  11,   5},
+    {3,   7,  11,  15,  19, 255,  15,   7},
+    {2,   6,  10,  12,  16,  20, 255,  11},
+    {1,   5,   8,  11,  14,  17,  21, 255},
+};
+
+static uint8_t prediction_rank(uint16_t from,uint16_t to,uint16_t limit) {
+    if(from==to)return 255;
+    if(to>from ? (from|7U)>=limit : from<8)return 255;
+    return crossing_rank[from&7][to&7];
+}
+
+/* Prepare hidden cells while keeping the published camera at the current
+ * frame. A partial-tile move predicts the same first crossing as the rider. */
+static void prepare_scenery_view(uint16_t start) {
+    uint16_t x,y;
     project_camera(0);camera_prepared=1;
     x=next_camera_x;y=next_camera_y;
-    if((x>>3)==(game_camera_x>>3) && (y>>3)==(game_camera_y>>3)) {
-        /* Fine scrolling leaves the same ring cells visible. Prepare the
-         * next tile in the current direction while those cells stay pinned. */
-        ahead_x=(x>(int16_t)game_camera_x && (game_camera_x&~7U)+8<=WORLD_WIDTH-160)
-            || (x<(int16_t)game_camera_x && game_camera_x>=8);
-        ahead_y=(y>(int16_t)game_camera_y && (game_camera_y&~7U)+8<=WORLD_HEIGHT-144)
-            || (y<(int16_t)game_camera_y && game_camera_y>=8);
-        if(ahead_x && ahead_y) {
-            dx=x>(int16_t)game_camera_x?x-game_camera_x:game_camera_x-x;
-            dy=y>(int16_t)game_camera_y?y-game_camera_y:game_camera_y-y;
-            tx=x>(int16_t)game_camera_x?8-(game_camera_x&7):1+(game_camera_x&7);
-            ty=y>(int16_t)game_camera_y?8-(game_camera_y&7):1+(game_camera_y&7);
-            /* Prefer the boundary reached first at the current pixel rate.
-             * A diagonal guess is useful when both boundaries coincide. */
-            tx*=dy;ty*=dx;
-            if(tx<ty)ahead_y=0;
-            else if(tx>ty)ahead_x=0;
-        }
-        if(ahead_x && x>(int16_t)game_camera_x)
-            x=(game_camera_x&~7U)+8;
-        else if(ahead_x)
-            x=(game_camera_x&~7U)-1;
-        if(ahead_y && y>(int16_t)game_camera_y)
-            y=(game_camera_y&~7U)+8;
-        else if(ahead_y)
-            y=(game_camera_y&~7U)-1;
+    if(((x^game_camera_x)|(y^game_camera_y))<8U) {
+        uint8_t tx=prediction_rank(game_camera_x,x,WORLD_WIDTH-160);
+        uint8_t ty=prediction_rank(game_camera_y,y,WORLD_HEIGHT-144);
+        if(tx==255 && ty==255)return;
+        if(tx<=ty)x=x>game_camera_x?(game_camera_x|7U)+1:(game_camera_x&~7U)-1;
+        if(ty<=tx)y=y>game_camera_y?(game_camera_y|7U)+1:(game_camera_y&~7U)-1;
     }
-    if((x>>3)!=(game_camera_x>>3) || (y>>3)!=(game_camera_y>>3))
-        world_prepare(game_camera_x,game_camera_y,(uint16_t)x,(uint16_t)y,start);
+    world_prepare(game_camera_x,game_camera_y,x,y,start);
+}
+
+static void prepare_next_view(uint16_t start) {
+    prepare_scenery_view(start);
 #if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
     /* Scenery has first claim on the existing wait. Its 3K caller margin
      * covers a declined spring guard. Accepted blocks reserve their own

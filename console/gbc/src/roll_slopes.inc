@@ -1059,18 +1059,7 @@ slope_word_inputs:
  ld a,(#batch_installed)
  or a
  jr nz,batch_ready
- ld hl,#batch_start
- ld de,#batch_code
- ld b,#(batch_end-batch_start)
-batch_copy:
- ld a,(hl+)
- ld (de),a
- inc de
- dec b
- jr nz,batch_copy
- inc b
- ld a,b
- ld (#batch_installed),a
+ call batch_install
 batch_ready:
  ; The output pair can use the arbitrary word reader independently of
  ; whether all four coordinates fit the input-dot fast path.
@@ -1177,6 +1166,53 @@ batch_sum:
  ld d,c
  ld b,a
  jp slope_round
+
+batch_install:
+ ld hl,#batch_start
+ ld de,#batch_code
+ ld b,#(batch_end-batch_start)
+batch_copy:
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ dec b
+ jr nz,batch_copy
+ inc b
+ ld a,b
+ ld (#batch_installed),a
+ ret
+
+; The contact solver has already bounded the positive push to a signed
+; word. Reuse the rolling multiplier and Q14 reduction for both normals.
+; Stack after the return address: X,Y outputs, contact, wheel, return,
+; other contact, push. batch_code leaves Y on the stack and X in HL:DE.
+_riding_push_word_axes::
+ ld a,(#batch_installed)
+ or a
+ call z,batch_install
+ ldhl sp,#10
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ ldhl sp,#18
+ add sp,#-4
+ call batch_code
+ call batch_project_round
+ ldhl sp,#6
+ call batch_project_store
+ pop de
+ pop hl
+ call batch_project_round
+ ldhl sp,#6
+ call batch_project_store
+ jp ground_return
 
 slope_word_project:
  ldhl sp,#4

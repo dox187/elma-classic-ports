@@ -71,6 +71,51 @@ class Cartridge:
         return self.reg.A, bytes(self.m[address:address+20])
 
 
+def check_endpoint_roundtrips(target, reference, totals):
+    routine = target.sym['contact_root_certificate']
+    table = reference.sym['_riding_normal_rsqrt']
+    offset = (table >> 16) * 16384 + (table & 16383)
+    reciprocals = struct.unpack_from('<297H', reference.image, offset)
+    stored_length = target.sym['normal_cache_value'] + 4
+    current_bank = target.sym['__current_bank']
+    target.m[0x2000] = target.m[current_bank] = routine >> 16
+    target.m[target.code:target.code+5] = bytes((0xcd, routine & 255, (routine >> 8) & 255, 0x18, 0xfe))
+    verdicts = {}
+    try:
+        for x in range(-409, 410):
+            last_y = math.isqrt(410**2 - 1 - x*x)
+            for y in range(-last_y, last_y+1):
+                d2 = x*x + y*y
+                if d2 < 16384:
+                    length = math.isqrt(d2)
+                    if length:
+                        nx = (abs(x) << 14) // length * (-1 if x < 0 else 1)
+                        ny = (abs(y) << 14) // length * (-1 if y < 0 else 1)
+                    else:
+                        nx, ny = 0, 16384
+                else:
+                    reciprocal = reciprocals[(d2 - 16384) >> 9]
+                    nx, ny = x*reciprocal >> 4, y*reciprocal >> 4
+                    length = (x*nx + y*ny + 8192) >> 14
+                    key = reciprocal, length
+                    if key not in verdicts:
+                        target.m[stored_length:stored_length+2] = struct.pack('<h', length)
+                        target.reg.B, target.reg.C = reciprocal >> 8, reciprocal & 255
+                        target.reg.PC, target.reg.SP = target.code, target.stack
+                        target.p.tick(1, False)
+                        assert (target.reg.PC, target.reg.SP) == (target.code+3, target.stack)
+                        assert target.reg.A in (2, 64)
+                        verdicts[key] = target.reg.A
+                    if verdicts[key] == 2:
+                        totals['arithmetic endpoint fallbacks'] += 1
+                        continue
+                assert ((length*nx + 8192) >> 14, (length*ny + 8192) >> 14) == (x, y), (x, y)
+                totals['exact endpoint roundtrips'] += 1
+        assert totals['arithmetic endpoint fallbacks'] and 64 in verdicts.values()
+    finally:
+        target.m[0x2000] = target.m[current_bank] = 9
+
+
 def check(rom, reference):
     target, old = Cartridge(rom),Cartridge(reference)
     totals = Counter()
@@ -206,6 +251,8 @@ def check(rom, reference):
                 _,got,_=target.call('_riding_normal_fast',x,y,contacts[1],d2)
                 assert want==got
                 totals['public edge cases'] += 1
+        if 'contact_root_certificate' in sym:
+            check_endpoint_roundtrips(target, old, totals)
         print(dict(totals))
     finally:
         target.p.stop(save=False)

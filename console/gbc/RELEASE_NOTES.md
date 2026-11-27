@@ -1,6 +1,6 @@
 # Game Boy Color release notes
 
-For 0.96 test30 through test48, see the individual build reports in the [performance log](PERFORMANCE.md#096-test30--dense-terrain-rolling-projections-and-sprite-placement).
+For 0.96 test30 through test49, see the individual build reports in the [performance log](PERFORMANCE.md#096-test30--dense-terrain-rolling-projections-and-sprite-placement).
 
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**

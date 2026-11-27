@@ -3801,3 +3801,55 @@ to repeat the profile and comparisons. Use `--profile 32 27480 39592 2` for
 the new maximum. Timings are from CGB emulation.
 
 SHA-256 `cf03d64322717257ea13226e5b90a6f73073bd6ce97861a91bc9858421e5d6f4`.
+
+## 0.96 test49 — Wheel contacts, suspension and camera
+
+The wheel solver reuses an endpoint's normalized vector. A 570-byte table
+identifies reciprocal and length combinations whose two rounded projections
+recover the original endpoint exactly. The solver keeps the arithmetic path
+for uncertain combinations. Within the 410-unit contact radius, the linked
+code and an independent integer projection verified 295,249 exact round trips
+and 232,760 fallbacks. Small positive contact pushes also reuse the rolling
+multiplier's coefficient rows for both axes, with the original Q14 rounding.
+Moving the row installation earlier or waiting for the rolling solver to
+install the rows gave no improvement in the isolated replay deadline counts.
+
+Suspension reads each body coordinate once for both wheels. Deep contacts
+pass their bounded squared distance directly to the integer square root.
+The bike's safety check compares fractional coordinates only at an inclusive
+distance limit. The camera uses 64 precomputed crossing ranks to select the
+next tile to prepare. Both implementations chose the same tile or skipped
+preparation in all 19,254,544 tested camera transitions.
+
+| CGB emulator measurement | test48 | test49 |
+| --- | ---: | ---: |
+| 54 courses × 4 controller replays, mean updates/s | 29.649 | 29.664 |
+| Same 19,885 updates, over budget including GDMA | 284 | 265 |
+| 24 longer controller replays, mean updates/s | 29.633 | 29.639 |
+| Same 5,227 updates, over budget including GDMA | 81 | 79 |
+| Full Freefall descent, mean updates/s (late updates) | 29.864 (0) | 29.864 (0) |
+| 1,186 corner updates, physics alone over budget | 190 | 183 |
+| Worst corner update, braking on Steep Corner | 562,620 T (67.07 ms) | 535,500 T (63.84 ms) |
+
+Corner placements took less total physics time on each of the 54 courses.
+At the worst placement (27,480, 39,592), the two wheel solves across three
+substeps took 381,548 T (45.48 ms), down from 407,724 T. Suspension took
+104,240 T (12.43 ms), head collision 8,164 T and the rest 41,548 T.
+Wheel contacts alone still exceed the entire 280,896 T update budget.
+The older 75.32 ms gas placement at (23,448, 38,696) now takes 63.50 ms.
+At the braking placement the solver visited six terrain lists, entered the
+contact merge nine times and applied nine pushes. Those nine merges had
+six distinct combinations of wheel center and first contact vector. This
+makes the first projected contact point a candidate for reuse within a
+query. Any reuse must account for changes to the wheel center or the
+normalized vector after a merge.
+
+All 25,551 replay updates, their 76,568 substeps, and the 3,512 independently
+placed corner substeps matched test48 byte for byte. Seven visual replays
+matched across 1,216 presentations and 61,845 background cells. Checks also
+covered 6,000 paired push projections, 900 scheduled wheel pairs, 8,064 moving
+contacts and 48,951 head sweeps. All 54 courses opened. The strict course-entry
+sweep still recorded one missed display deadline, as on test48. Freefall
+passed separately. Timings are from PyBoy at CGB double speed.
+
+SHA-256 `4b7fa263ee46e16a8258cae9524c43a2c679746932582aae0b54e2e332c80dab`.

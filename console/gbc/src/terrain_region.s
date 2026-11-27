@@ -379,3 +379,65 @@ contact_region_out:
 contact_region_in:
  scf
  ret
+
+.area _CODE_33
+; For n=floor(x*R/16), the error projecting L*n/16384 back to x is
+; <= (|x|*|L*R-262144|+16*L)/262144. The table keeps this below 1/2.
+; To bound |x|, recall that L is the rounded dot of the vector and its
+; normal. Thus R*(x*x+y*y) < 262144*(L+1): both floor errors together
+; change its numerator by at most 16*(409+409), below half a unit.
+; Every accepted R*L >= 262144-1024. Hence x*x+y*y < 256*L*(L+1)/255
+; < (L+2)^2 throughout the table. The same bound applies to either axis.
+contact_root_certificate::
+ ld hl,#(normal_cache_value+4)
+ ld a,(hl+)
+ sub #126
+ ld e,a
+ ld a,(hl)
+ sbc #0
+ ld d,a
+ ld a,e
+ sub #<(411-126)
+ ld a,d
+ sbc #>(411-126)
+ jr nc,contact_root_uncertain
+ ld h,d
+ ld l,e
+ add hl,hl
+ ld de,#contact_root_limits
+ add hl,de
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl)
+ and #15
+ ld d,a
+ ld a,c
+ sub e
+ ld e,a
+ ld a,b
+ sbc d
+ jr nz,contact_root_uncertain
+ ld a,(hl)
+ swap a
+ and #15
+ cp e
+ jr c,contact_root_uncertain
+ ld a,#64
+ ret
+contact_root_uncertain:
+ ld a,#2
+ ret
+
+contact_root_limits:
+contact_length = 126
+ .rept 411-126
+contact_error = (131071-16*contact_length)/(contact_length+2)
+ ; A four-bit width covers every admitted reciprocal at this tolerance.
+ .ifgt (contact_error-940)
+contact_error = 940
+ .endif
+contact_min = (262144-contact_error+contact_length-1)/contact_length
+contact_max = (262144+contact_error)/contact_length
+ .db <contact_min, (>contact_min) + 16*(contact_max-contact_min)
+contact_length = contact_length+1
+ .endm

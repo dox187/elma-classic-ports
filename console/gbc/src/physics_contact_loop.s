@@ -479,7 +479,7 @@ contact_loop_normalize:
  call _riding_normal_fast
  add sp,#10
  .ifdef RIDING_NORMAL_ATLAS
- jr contact_loop_accept
+ jp contact_mark_radial
 contact_loop_accept_radial:
  ld b,#1
  jr contact_loop_accept_kind
@@ -512,6 +512,40 @@ contact_loop_merge:
  ret z
  pop hl                      ; leave the enclosing iterator on an early pair
  ret
+ .ifdef RIDING_NORMAL_ATLAS
+; Every endpoint which reaches normalize supplied its physical squared length.
+; Tag 2 reuses the normalized vector; tag 64 also certifies both contact points.
+contact_mark_radial:
+ ld hl,#normal_cache_key+6
+ ld a,(hl-)
+ or a
+ jr nz,contact_read_root
+ ld a,(hl)
+ cp #64
+ jr c,contact_exact_vector
+contact_read_root:
+ ; The strict disk bounds the reciprocal table index to 0..296.
+ ld a,(hl+)
+ and #254
+ ld e,a
+ ld d,(hl)
+ ld hl,#(_riding_normal_rsqrt-64)
+ add hl,de
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ ld e,#33
+ ld hl,#contact_root_certificate
+ call ___sdcc_bcall_ehl
+ jr contact_vector_tag
+contact_exact_vector:
+ ; The deep quotient truncates by less than one Q14 unit on either axis.
+ ; Multiplying this error by the radius (<=127) still rounds to the input.
+ ld a,#64
+contact_vector_tag:
+ ld (#normal_cache_valid),a
+ jp contact_loop_accept_radial
+ .endif
 contact_loop_xy:
  ld hl,#contact_loop_x
  ld a,(hl+)

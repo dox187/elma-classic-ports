@@ -39,6 +39,8 @@ sqrt_large:
  jr sqrt_restore
 
 sqrt_small:
+; C:E is an unsigned 14-bit squared length. The root fits in E.
+_riding_isqrt14_regs::
  ld a,#35
  ld (#0x2000),a
  ld a,c

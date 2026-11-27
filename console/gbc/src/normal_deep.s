@@ -4,24 +4,17 @@
 ; At that size each fractional quotient digit needs one byte of remainder.
 ; Keep the full signed solver for callers supplying a nonphysical d2.
 normal_fraction::
- ld hl,#normal_cache_key+7
- ld d,(hl)
- dec hl
- ld e,(hl)
- push de
- dec hl
- ld d,(hl)
- dec hl
- ld e,(hl)
- push de
- call _riding_isqrt20
- add sp,#4
- ld a,d
- or a
+ ; The caller has already classified d2 as negative or below 16384.
+ ; An arbitrary negative key still needs the original wide kernel.
+ ld a,(#normal_cache_key+7)
+ bit 7,a
  jr nz,normal_fraction_miss
+ ld hl,#normal_cache_key+4
+ ld a,(hl+)
+ ld e,a
+ ld c,(hl)
+ call _riding_isqrt14_regs
  ld a,e
- cp #128
- jr nc,normal_fraction_miss
  ld c,a
  or a
  jr z,normal_fraction_zero

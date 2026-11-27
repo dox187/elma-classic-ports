@@ -185,41 +185,30 @@ selected:
  ld a,(hl)
  ss_q24
 .endm
-; Both source addresses are known. Read their difference one digit at a
-; time, keeping only the result in registers. INC HL preserves borrow.
+; Read the subtrahend once. The incrementing loads walk the minuend
+; without disturbing the borrow between its four bytes.
 .macro ss_delta32 left,right
- ld hl,#(right)
- ld a,(#(left))
- sub (hl)
- ld e,a
- inc hl
- ld a,(#(left+1))
- sbc (hl)
- ld d,a
- inc hl
- ld a,(#(left+2))
- sbc (hl)
- ld c,a
- inc hl
- ld a,(#(left+3))
- sbc (hl)
- ld b,a
+ ss_read right
+ ss_reverse_sub left
 .endm
-.macro ss_arm body,wheel,destination
- ld hl,#(_Bike+body)
- .irp digit,0,1,2,3
- ld a,(#(_Bike+wheel+digit))
- .if digit
- sbc (hl)
- .else
- sub (hl)
- .endif
- ld (#(destination+digit)),a
- .if digit-3
- inc hl
- .endif
- .endm
+
+; BC:DE holds the shared body coordinate or the individual arm.
+.macro ss_write_delta left,destination,store
+ ld hl,#(left)
+ ld a,(hl+)
+ sub e
+ store (#(destination)),a
+ ld a,(hl+)
+ sbc d
+ store (#(destination+1)),a
+ ld a,(hl+)
+ sbc c
+ store (#(destination+2)),a
+ ld a,(hl+)
+ sbc b
+ store (#(destination+3)),a
 .endm
+
 ; The native table products are (raw + 2^23) = integer*2^24 + biased.
 ; The wheel uses only the integer. The body gets both pieces, and four
 ; such biased fractions per axis account for exactly two whole units.
@@ -754,19 +743,8 @@ upper_disp:
 ; The four spring displacements occupy the future damper-product rows.
 ; The spring batch consumes all four before the damper batch fills its rows.
 .macro ss_displacement_axis anchor,arm,destination
- ld hl,#(ss_damping+arm)
- .irp digit,0,1,2,3
- ld a,(#(_riding_pose_anchor+anchor+digit))
- .if digit
- sbc (hl)
- .else
- sub (hl)
- .endif
- ldh (#(ss_force_products+destination+digit)),a
- .if digit-3
- inc hl
- .endif
- .endm
+ ss_read ss_damping+arm
+ ss_write_delta _riding_pose_anchor+anchor,(ss_force_products+destination),ldh
 .endm
 .macro ss_wheel_displacement offset
  ss_displacement_axis offset,(16+offset),(28+offset)
@@ -1037,10 +1015,12 @@ _riding_spring_geometry::
  ld a,e
  ld (hl+),a
  ld (hl),d
- ss_arm 0,24,ss_damping+16
- ss_arm 0,48,ss_damping+20
- ss_arm 4,28,ss_damping+24
- ss_arm 4,52,ss_damping+28
+ ss_read _Bike
+ ss_write_delta (_Bike+24),(ss_damping+16),ld
+ ss_write_delta (_Bike+48),(ss_damping+20),ld
+ ss_read _Bike+4
+ ss_write_delta (_Bike+28),(ss_damping+24),ld
+ ss_write_delta (_Bike+52),(ss_damping+28),ld
  jp ss_spin_narrow
 
 _riding_spring_inputs::

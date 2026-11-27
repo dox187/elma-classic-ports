@@ -12,25 +12,11 @@ RIDER_BOUND_METRES = 3
 .area _CODE
 .endif
 _gbc_bike_bounded::
- ld b,#WHEEL_BOUND_METRES
- ld hl,#_gbc_bike+10
- call bounds_x
+ ld hl,#_gbc_bike+2
+ call bounds_axis
  jr nc,bounds_no
- ld hl,#_gbc_bike+14
- call bounds_y
- jr nc,bounds_no
- ld hl,#_gbc_bike+20
- call bounds_x
- jr nc,bounds_no
- ld hl,#_gbc_bike+24
- call bounds_y
- jr nc,bounds_no
- ld b,#RIDER_BOUND_METRES
- ld hl,#_gbc_bike+30
- call bounds_x
- jr nc,bounds_no
- ld hl,#_gbc_bike+34
- call bounds_y
+ ld hl,#_gbc_bike+6
+ call bounds_axis
  jr nc,bounds_no
  ld e,#1
  ret
@@ -38,62 +24,71 @@ bounds_no:
  ld e,#0
  ret
 
-; Subtract part from body: the interval is symmetric. Keep the high word
-; in H:C and the fractional word in DE. B retains the inclusive metre limit.
-; Carry set means the coordinate is valid.
-bounds_x:
- ld a,(#_gbc_bike)
- sub a,(hl)
- ld e,a
- inc hl
- ld a,(#_gbc_bike+1)
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,(#_gbc_bike+2)
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,(#_gbc_bike+3)
- sbc a,(hl)
- ld h,a
- jr bounds_delta
-bounds_y:
- ld a,(#_gbc_bike+4)
- sub a,(hl)
- ld e,a
- inc hl
- ld a,(#_gbc_bike+5)
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,(#_gbc_bike+6)
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,(#_gbc_bike+7)
- sbc a,(hl)
- ld h,a
-bounds_delta:
- ; Bias the high word by the limit. Its upper endpoint must be integral.
+; An integer difference strictly inside (-limit,limit) is safe for every
+; combination of fractions. Only the two endpoints need the low words.
+; BC is the body integer plus the wheel limit, modulo 65536. HL walks the
+; integer words of the three successive 10-byte records on this axis.
+.macro bounds_part limit,distance,?edge,?valid
+ ld de,#9
+ add hl,de
  ld a,c
- add a,b
- ld c,a
- ld a,h
- adc a,#0
- or a,a
- jr nz,bounds_invalid
+ sub (hl)
+ inc hl
+ ld e,a
  ld a,b
- add a,a
- cp a,c
- jr c,bounds_invalid
- jr nz,bounds_valid
- ld a,d
- or a,e
- jr nz,bounds_invalid
-bounds_valid:
- scf
+ sbc (hl)
+ or a
+ ret nz                          ; high byte outside the admissible range
+ ld a,e
+ sub #(WHEEL_BOUND_METRES-limit+1)
+ cp #(2*limit-1)
+ jr c,valid                      ; covers every strictly interior integer
+ inc a                           ; integer difference plus this part's limit
+ jr z,edge                       ; negative limit
+ cp #(2*limit)
+ ret nz                          ; all remaining non-endpoints are too large
+edge:
+ ld de,#-distance
+ call bounds_fraction
+ ret nc
+valid:
+.endm
+
+bounds_axis:
+ ld a,(hl+)
+ add #WHEEL_BOUND_METRES
+ ld c,a
+ ld a,(hl)
+ adc #0
+ ld b,a
+ bounds_part WHEEL_BOUND_METRES,10
+ bounds_part WHEEL_BOUND_METRES,20
+ bounds_part RIDER_BOUND_METRES,30
  ret
-bounds_invalid:
- and a,a
+
+; HL is the part's top byte. Compare body >= part at the negative limit
+; and part >= body at the positive limit, in unsigned 16-bit fractions.
+bounds_fraction:
+ push hl
+ dec hl
+ dec hl
+ dec hl
+ push hl
+ add hl,de
+ pop de
+ or a
+ jr nz,bounds_fraction_compare
+ push hl
+ ld h,d
+ ld l,e
+ pop de
+bounds_fraction_compare:
+ ld a,(de)
+ sub (hl)
+ inc de
+ inc hl
+ ld a,(de)
+ sbc (hl)
+ ccf
+ pop hl
  ret
