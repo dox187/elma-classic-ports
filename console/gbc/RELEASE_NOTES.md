@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test61 — Bowling braking, throttle and head clearance
+
+Bowling braking improved from 28.70 to 29.13 updates/s, with five long
+intervals out of 99. The wheel solver reuses a shared terrain vertex on
+every integer position in a certified strip. Throttle and body updates use
+fewer instructions, and the head scan reuses the course clearance map.
+The principal replays now have 97 three-refresh intervals out of 25,310.
+All 100,382 recorded physics substeps matched test60.
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test61-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test61--bowling-braking-throttle-and-head-clearance)
+
 ## 0.96 test60 — Wheel endpoints, head sweeps and object contacts
 
 The wheel solver looks up more endpoint lengths and reuses their rounding

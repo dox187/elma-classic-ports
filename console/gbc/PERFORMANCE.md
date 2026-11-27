@@ -4512,3 +4512,57 @@ with one late update in the entry test. Player profiles, records and battery
 reload passed. These timings were measured in PyBoy.
 
 SHA-256 `68780e6d616d633c7853bec36b500cc3d5100d2d6b2ca5bfb053701b0b87e5c2`.
+
+## 0.96 test61 — Bowling braking, throttle and head clearance
+
+On Bowling, 197 consecutive wheel-center X coordinates across 64 Y rows
+have either a shared-vertex contact or an empty result. The builder compares
+both rounds of the shared endpoint projection with the original ordered
+geometry for every center. The linked reader preserves untouched contact
+bytes and uses the ordinary terrain solver outside its certified runs.
+The independent Bowling seed retained one long interval. A separate
+shallow rolling arithmetic trial slowed Bowling and was discarded.
+
+The scheduled controls compare the full signed wheel speed with the original
+cutoff and write the final torque directly to each wheel. Body impulses use
+consecutive source and destination addresses. The head scan keeps the remaining
+record count in a register and uses the existing metre map to certify clear
+tiles before its exact sweep.
+
+| PyBoy measurement | test60 | test61 |
+| --- | ---: | ---: |
+| Weighted primary updates/s over 25,310 intervals | 29.804 | 29.807 |
+| Three-refresh intervals, catalog / extended / complete Freefall | 75 / 27 / 0 | 69 / 28 / 0 |
+| Three-refresh intervals on independent seed out of 5,302 | 42 | 40 |
+| Mean active update on primary replays, T-cycles | 209,545 | 209,234 |
+| Short Bowling braking, late out of 99 | 8 | 5 |
+| Short Bowling braking, updates/s | 28.70 | 29.13 |
+| Independent Haircut seed, updates/s | 28.48 | 28.54 |
+| Haircut peak active update, T-cycles | 382,208 | 376,744 |
+| Historical peak physics over 642 placements | 59.91 ms | 59.85 ms |
+| Historical updates over budget out of 2,432 | 321 | 317 |
+| Forced Steep Corner peak physics | 64.25 ms | 64.18 ms |
+
+Labyrinth throttle and Hooked braking cleared their last late intervals.
+Twin Peaks throttle, Hang Tight braking and extended Long Haul throttle
+each gained one. Extended Bumpy Journey braking was the slowest primary
+route at 28.85 updates/s. The longest individual controller intervals still
+took three refreshes, equivalent to 19.91 updates/s for that interval.
+
+Total physics cycles decreased on all 54 courses in the placement sweep,
+from 569,535,124 to 568,496,512 T. The Steep Corner grid improved from
+91,730,604 to 91,662,728 T. All 200 grid updates remain over budget. At the
+peak, wheels used 382,172 T, suspension 94,308 T, head contact 9,240 T and
+other physics 52,624 T.
+
+All 100,382 raw physics substeps matched test60 across the primary replays,
+independent seed and forced placements. The cutoff and brake controls matched
+on 1,464 signed boundary cases, including forward and reversed orientation.
+All 29,764 Bowling queries matched the original solver, including every
+new center on both wheels. The ordered geometry suite matched 298,416
+queries and 84 partial lists. The native speed and braking suite matched
+3,170 states in 122 cases, and the seven visual routes matched 1,216
+presentations and 61,845 background cells. All 54 courses started, with
+one late entry update. Player profiles and battery reload passed.
+
+SHA-256 `dd3eeb31095e740cca71c004e49dbb5ecbfd8a2654fbae14b9eb943d952a98d7`.
