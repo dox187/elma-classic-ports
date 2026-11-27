@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test60 — Wheel endpoints, head sweeps and object contacts
+
+The wheel solver looks up more endpoint lengths and reuses their rounding
+results. Two-contact pivots take fewer instructions. The head scan skips
+unreachable terrain edges in one pass, and the object filter checks fewer
+distant objects. Haircut improved from 28.36 to 28.48 updates/s on the
+independent replay. Across the primary replays, 102 of 25,310 intervals took
+a third refresh, down from 110. The forced Steep Corner peak was 64.25 ms.
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test60-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test60--wheel-endpoints-head-sweeps-and-object-contacts)
+
 ## 0.96 test59 — Endpoint lengths and object contact checks
 
 On Steep Corner the slowest forced update fell from 66.30 to 64.83 ms.

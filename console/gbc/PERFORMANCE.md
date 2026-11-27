@@ -4454,3 +4454,61 @@ Seven visual replays matched all 1,216 presentations, including the clock
 pixels, and 61,845 background cells.
 
 SHA-256 `cc3da5e5e95b5b7c02f9670c40cead0e35f2ce1c384a411a63ceb282ee924a50`.
+
+## 0.96 test60 — Wheel endpoints, head sweeps and object contacts
+
+Physical wheel endpoints now use 64-unit slots for squared distances from
+32,768 to 65,535 and the existing 32-unit slots above that. Each reciprocal
+bin also identifies the length for which both rounded axes reconstruct the
+original point. Ambiguous slots still use the original dot product and
+endpoint check. The normalized axes and length are written once into the
+cache before copying the six result bytes to the caller. Across both tables
+367,168 signed offsets have an exact lookup, up from 292,128. The linked
+oracle checked 4,473 physical slots/sign cases and 540 arbitrary squared
+length inputs against test59.
+
+The ordered wheel iterator reuses the source record cursor on early exit and
+forms the offset from a shared corner vertex once. Two-contact pivots classify
+both speed axes inline and keep the impulse operands in registers. An exact
+leading-digit separation estimate added 2,780 T to the Steep Corner peak in
+isolation and was discarded. Reusing a suspension prefix across turns left
+Haircut's cadence unchanged and was also discarded.
+
+On courses with more than eight objects the contact filter assigns bits by
+integer X stripe. Each object marks the cells reachable inside the original
+inclusive Q16 axis bound of 52,429. This uses the existing two SRAM pages.
+The swept-head iterator keeps all four query bounds in registers while
+scanning consecutive terrain records. It publishes the cursor and remaining
+count on a hit or at the end, preserving terrain order.
+
+| PyBoy measurement | test59 | test60 |
+| --- | ---: | ---: |
+| Primary updates/s over 25,310 intervals | 29.799 | 29.804 |
+| Three-refresh intervals, catalog / extended / complete Freefall | 82 / 28 / 0 | 75 / 27 / 0 |
+| Independent seed, three-refresh intervals out of 5,302 | 45 | 42 |
+| Mean active update, primary, T-cycles | 209,703 | 209,545 |
+| Bowling braking, slowest primary replay, updates/s | 28.70 | 28.70 |
+| Haircut, slowest independent replay, updates/s | 28.36 | 28.48 |
+| Haircut peak active update, T-cycles | 394,976 | 382,208 |
+| Framework / Bowling / Hang Tight braking, late out of 99 each | 5 / 8 / 6 | 4 / 8 / 5 |
+| Peak physics over 642 historical placements | 60.10 ms | 59.91 ms |
+| Historical updates over budget out of 2,432 | 322 | 321 |
+| Peak physics over the Steep Corner grid | 64.83 ms | 64.25 ms |
+
+The historical placement sweep used fewer total physics cycles on each of
+the 54 courses, from 570,428,048 to 569,535,124 T overall. On the 25-point
+Steep Corner grid the total fell from 92,430,484 to 91,730,604 T. All 200
+updates there still exceeded the 280,896 T budget. At (25,176, 39,464),
+wheel 2 with input 9 used 382,172 T for the wheels, 94,332 T for suspension,
+9,240 T for the head and 53,188 T for other physics. On ordinary controller
+replays the longest interval took three refreshes (19.91 updates/s).
+
+All 76,568 primary, 16,015 independent and 7,799 forced substeps matched
+test59 byte for byte. All 298,416 ordered terrain queries and 84 partial
+leaves matched. The linked head test covered 49,086 queries. The speed and
+braking suite matched 3,170 states in 122 cases. Seven visual replays matched
+1,216 presentations and 61,845 background cells. All 54 levels started,
+with one late update in the entry test. Player profiles, records and battery
+reload passed. These timings were measured in PyBoy.
+
+SHA-256 `68780e6d616d633c7853bec36b500cc3d5100d2d6b2ca5bfb053701b0b87e5c2`.
