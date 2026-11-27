@@ -51,13 +51,20 @@ def check(rom):
             if count:
                 cart.m[start:start+len(data)] = data
             cart.m[cart.sym['_game_world']+32] = count
+            # Course selection may follow a save/menu access. Check that
+            # SRAM0 gets selected and that both adjacent scratch bytes survive.
+            cart.m[0x4000] = 0
+            cart.m[0xa5ff], cart.m[0xa800] = 0x5a, 0xa5
+            cart.m[0x4000] = 3
+            cart.m[0] = 0
             invoke(cart, '_gbc_build_object_regions')
-            xs, ys = [0]*64, [0]*64
+            assert (cart.m[0xa5ff], cart.m[0xa800]) == (0x5a, 0xa5)
+            xs, ys = [0]*256, [0]*256
             objects = [(x>>16, y>>16) for _, _, _, x, y, _ in struct.iter_unpack('<HHBiiB', data)]
             for index, (x, y) in enumerate(objects):
                 for delta in (-1, 0, 1):
-                    xs[(x+delta)&63] |= 1 << (index%8)
-                    ys[(y+delta)&63] |= 1 << (index%8)
+                    xs[(x+delta)&255] |= 1 << (index%8)
+                    ys[(y+delta)&255] |= 1 << (index%8)
             points = [((rng.randrange(65536), rng.randrange(65536)), i%3)
                       for i in range(256)]
             points.extend((((x+dx)&65535, (y+dy)&65535), slot) for x, y in objects
@@ -68,7 +75,7 @@ def check(rom):
                 for pos, (px, py) in zip((12, 22, 42), parts):
                     cart.m[pose+pos:pose+pos+2] = struct.pack('<H', px)
                     cart.m[pose+pos+4:pose+pos+6] = struct.pack('<H', py)
-                expected = any(xs[px & 63] & ys[py & 63] for px, py in parts)
+                expected = any(xs[px & 255] & ys[py & 255] for px, py in parts)
                 assert bool(invoke(cart, '_gbc_objects_maybe_reachable')) == expected, (level, parts)
                 tested += 1
     finally:

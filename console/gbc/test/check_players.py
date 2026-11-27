@@ -55,7 +55,7 @@ def finish_fixture(d, at_frames=None, expect_new=True):
     """Keep the normal clock/finish/save path; supply only flower contact."""
     # Supply the flower contact before the broad phase reads the wheel.
     # A distant stationary wheel can correctly skip every narrow-phase call.
-    address = d.symbols['_gbc_objects_bounds']
+    address = d.symbols.get('_gbc_objects_maybe_reachable', d.symbols['_gbc_objects_bounds'])
     called = []
     frozen_patterns, frozen_maps, frozen_sprites = {}, [], []
     overlay = d.symbols['_result_overlay']

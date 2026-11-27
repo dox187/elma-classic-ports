@@ -8,6 +8,11 @@
 #define WORLD_MEMORY_CALL
 #endif
 
+/* On the signed 8 MiB cart, SRAM0 A000..A56F belongs to scenery.
+ * The two object-membership pages stay below the B000 map mirror. */
+#define WORLD_OBJECT_X_REGIONS 0xa600
+#define WORLD_OBJECT_Y_REGIONS 0xa700
+
 /* Compact SRAM bank0 lookup: 1024 bucket heads at A000-A7FF and 444
  * slot-indexed {id,next} entries at A800-AEEF. IDs span all 16 bits; slots
  * are 0..443 or FFFF to remove an ID. Remove a slot's previous ID before

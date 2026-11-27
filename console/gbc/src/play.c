@@ -8,6 +8,7 @@
 #include "bike_render16.h"
 #include "riding_constants.h"
 #include "world.h"
+#include "world_memory.h"
 #include "menu.h"
 #include "physics_core.h"
 #include "splash.h"
@@ -87,24 +88,27 @@ static uint8_t visible_objects[LEVEL_OBJECT_MAX],visible_count;
  * most eight pixels on each axis, so a crossing cannot wrap a count. */
 static uint8_t visibility_regions[256],objects_region_x,objects_region_y;
 
-/* Project object positions onto two 64-metre periodic axes. Each object
- * sets the same lane on X and Y. An exact touch requires both integer
- * coordinates to differ by at most one, including across the signed seam. */
-static uint8_t object_x_lanes[64],object_y_lanes[64];
-
 void gbc_build_object_regions(void) {
     const game_object_t *object;
-    uint8_t i,lane=1,x_count=0,y_count=0;
-    memset(object_x_lanes,0,sizeof(object_x_lanes));
-    memset(object_y_lanes,0,sizeof(object_y_lanes));
+    uint8_t i,x_count=0,y_count=0;
+#ifdef WORLD_SIGNED_BG
+    uint8_t lane=1;
+    uint8_t *xs=(uint8_t *)WORLD_OBJECT_X_REGIONS,*ys=(uint8_t *)WORLD_OBJECT_Y_REGIONS;
+    ENABLE_RAM_MBC5;SWITCH_RAM_MBC5(0);
+    memset(xs,0,256);memset(ys,0,256);
+#endif
     memset(visibility_regions,0,sizeof(visibility_regions));
     for(i=0,object=level_objects;i<OBJECT_COUNT;++i,++object) {
+#ifdef WORLD_SIGNED_BG
+        /* A touch requires both integer positions to differ by at most one,
+         * including across the signed seam. Each object uses one common bit. */
         uint8_t x=(uint8_t)(object->world_x>>16),y=(uint8_t)(object->world_y>>16),k;
         for(k=0;k<3;++k) {
-            object_x_lanes[(x+k-1)&63]|=lane;
-            object_y_lanes[(y+k-1)&63]|=lane;
+            xs[(uint8_t)(x+k-1)]|=lane;
+            ys[(uint8_t)(y+k-1)]|=lane;
         }
         lane=lane==128?1:lane<<1;
+#endif
         visibility_regions[(uint8_t)(object->x-167)]|=1;
         visibility_regions[(uint8_t)(object->x+8)]|=1;
         visibility_regions[(uint8_t)(object->y-143)]|=16;
@@ -226,33 +230,31 @@ uint8_t gbc_object_touch(const gbc_pose_t *pose,const game_object_t *obj,uint8_t
 void gbc_objects_bounds(uint16_t *bounds) __sdcccall(0);
 uint8_t gbc_object_near(const game_object_t *obj,const uint16_t *bounds) __sdcccall(0);
 
+#ifdef WORLD_SIGNED_BG
+#if (WORLD_OBJECT_X_REGIONS & 255) || WORLD_OBJECT_Y_REGIONS != WORLD_OBJECT_X_REGIONS + 256
+#error Object membership requires adjacent page-aligned SRAM tables.
+#endif
 /* A shared bit is only a candidate. The caller keeps the ordered scan
  * for candidates, including apple gravity and flower eligibility. */
 uint8_t gbc_objects_maybe_reachable(void) __naked {
     __asm
         .macro test_circle offset,next
         ld a,(#(_gbc_bike+offset))
-        and #63
         ld l,a
-        ld h,#0
-        add hl,de
         ld a,(hl)
         or a
         jr z,next
         ld b,a
         ld a,(#(_gbc_bike+offset+4))
-        and #63
         ld l,a
-        ld h,#0
-        ld de,#_object_y_lanes
-        add hl,de
+        inc h
         ld a,(hl)
+        dec h
         and b
         ret nz
-        ld de,#_object_x_lanes
 next:
         .endm
-        ld de,#_object_x_lanes
+        ld h,#>WORLD_OBJECT_X_REGIONS
         test_circle 12,lanes_wheel_2
         test_circle 22,lanes_head
         test_circle 42,lanes_clear
@@ -260,6 +262,10 @@ next:
         ret
     __endasm;
 }
+
+#else
+#define gbc_objects_maybe_reachable() 1
+#endif
 
 static void objects_near_add(uint8_t i) {
     if(objects_near_count<sizeof(objects_near))objects_near[objects_near_count++]=i;
