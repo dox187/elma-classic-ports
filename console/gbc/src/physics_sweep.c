@@ -310,13 +310,18 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
 /* ABI1 supplies min/max X in E/D and min/max Y in C/B, returning the
  * accepted record in BC. Every consumed record advances the shared cursor
  * by sizeof(seg_t), matching seg_next on both rejection and early hit. */
+/* Only records accepted by the first three comparisons need the last bound.
+ * Keeping the record count in C removes a stack round trip per miss. */
+static uint8_t head_box_ymin;
 static const seg_t *next_head_box(uint16_t xs, uint16_t ys) __naked {
     xs;ys;
     __asm
+        ld a,c
+        ld (#_head_box_ymin),a
         ld a,(#_Seg_left)
         or a
         jr z,head_box_empty$
-        push af
+        ld c,a
         ld hl,#_Seg_cur
         ld a,(hl+)
         ld h,(hl)
@@ -339,9 +344,11 @@ head_box_bounds$:
         cp (hl)
         inc hl
         jr c,head_box_ylow$
-        ld a,(hl+)
-        cp c
-        jr nc,head_box_hit$
+        ld a,(#_head_box_ymin)
+        cp (hl)
+        inc hl
+        jr c,head_box_hit$
+        jr z,head_box_hit$
         jr head_box_next$
 head_box_xlow$:
         inc hl
@@ -350,13 +357,13 @@ head_box_xhigh$:
 head_box_ylow$:
         inc hl
 head_box_next$:
-        pop af
-        dec a
-        jr z,head_box_end$
-        push af
-        jr head_box_record$
+        dec c
+        jr nz,head_box_record$
+        xor a
+        ld bc,#0
+        jr head_box_save$
 head_box_hit$:
-        pop af
+        ld a,c
         dec a
         ld bc,#-18
         push hl
@@ -364,9 +371,6 @@ head_box_hit$:
         ld b,h
         ld c,l
         pop hl
-        jr head_box_save$
-head_box_end$:
-        ld bc,#0
 head_box_save$:
         ld (#_Seg_left),a
         ld a,l
@@ -593,6 +597,7 @@ static uint8_t head_terrain_clear(void) {
 #endif
 
 
+#ifndef RIDING_HEAD_TERRAIN
 /* A cached nonempty leaf can still have whole square metres free of all
  * wheel-expanded boxes. Test the query endpoint's 1 m tile in that leaf.
  * A matching pair of endpoints puts their entire sweep inside the tile. */
@@ -649,6 +654,7 @@ tile_occupied:
         ret
     __endasm;
 }
+#endif
 /* In the banked ABI the four coordinates start at SP+6. A zero-count leaf
  * contains no wheel-expanded boxes. Both endpoints inside that same convex
  * 4 m cell (or 1 m child) prove the complete head path clear. Compare all
@@ -875,11 +881,16 @@ uint8_t HEAD_QUERY(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED {
 #ifdef __SDCC
             uint8_t mask=0;
             if(!Seg_left) mask=Seg_subcell==255?0xf0:0xfc;
+#ifndef RIDING_HEAD_TERRAIN
+            /* The integrated metre map certifies clear tiles before the
+             * finite sweep. Standalone builds can use the looser wheel
+             * boxes in the resident leaf for this shortcut. */
             else {
                 uint8_t lo=(uint8_t)(128u+((b&3u)<<4));
                 uint8_t hi=(uint8_t)(128u+((b&12u)<<2));
                 if(tile_clear(((uint16_t)hi<<8)|lo))mask=0xfc;
             }
+#endif
             if(mask) {
                 riding_head_clear_x=(uint16_t)((uint32_t)qx>>8)&(0xff00u|mask);
                 riding_head_clear_y=(uint16_t)((uint32_t)qy>>8)&(0xff00u|mask);
