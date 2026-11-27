@@ -222,11 +222,13 @@ ring_write_contact:
  ld a,(#normal_cache_value+4)
  ld (hl+),a
  ld (hl),#1
+ ld c,#0                     ; the previous physical cache key was replaced
  ld a,#1
  or a
  ret
 .area _CODE_9
 ring_copy:
+ ld c,#1                     ; the physical input and the cached normal survived
  pop de
  jp normal_cache_copy
 
@@ -382,7 +384,32 @@ ring_vector_miss:
  ret
 
 _riding_ring_equal_known::
- call ring_known_vector
+ ; The unchanged certificate means both rounded endpoints are q - raw.
+ ; Stream the signed little-endian offsets; each axis starts its own borrow.
+ ld a,(#normal_cache_valid)
+ bit 7,a
+ jr nz,ring_equal_adjusted
+ and #0x40
+ ret z
+ ld hl,#normal_cache_key
+ .macro ring_equal_axis query,point
+ ld a,(#query)
+ sub (hl)
+ inc hl
+ ld (#_Ct+point),a
+ ld (#_Ct+10+point),a
+ ld a,(#query+1)
+ sbc (hl)
+ inc hl
+ ld (#_Ct+point+1),a
+ ld (#_Ct+10+point+1),a
+ .endm
+ ring_equal_axis _riding_contact_qx,6
+ ring_equal_axis _riding_contact_qy,8
+ ld a,#2
+ ret
+ring_equal_adjusted:
+ call ring_read_vector
  jr ring_equal_result
 _riding_ring_equal_points::
  ld de,#_Ct

@@ -11,6 +11,7 @@ _riding_program_mode:: .ds 1
 ; The initializer clears the count and reuse flag before publishing Ct[0].
 contact_loop_found: .ds 1
  .ifdef RIDING_NORMAL_ATLAS
+; 1 means Ct[0] owns the physical normal cache; 2 also certifies tx/ty.
 _riding_first_point_ready:: .ds 1
  .endif
 contact_loop_k: .ds 2
@@ -496,12 +497,16 @@ contact_loop_accept:
  ld b,#0
 contact_loop_accept_kind:
  .endif
- ld a,(#contact_loop_found)
+ ld hl,#contact_loop_found
+ ld a,(hl)
  or a,a
  jr nz,contact_loop_merge
  inc a
- ld (#contact_loop_found),a
- ld hl,#contact_loop_k
+ ld (hl+),a
+ .ifdef RIDING_NORMAL_ATLAS
+ ld (hl),b
+ inc hl
+ .endif
  ld (hl),#<(_Ct+10)
  inc hl
  ld (hl),#>(_Ct+10)
@@ -551,6 +556,7 @@ contact_exact_vector:
  ld a,#64
 contact_vector_tag:
  ld (#normal_cache_valid),a
+ ld c,#0
  jp contact_loop_accept_radial
  .endif
 contact_loop_xy:

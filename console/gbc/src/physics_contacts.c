@@ -134,7 +134,15 @@ uint8_t riding_contact_merge(void) __naked {
     ld b,a
 _riding_contact_merge_kind::
     ; B is one when the iterator has the physical endpoint normal for
-    ; Ct[1] cached. The six-byte equality check also proves Ct[0].
+    ; Ct[1] cached. C marks a hit on the existing physical input. If the
+    ; retained first normal owns that entry, the six bytes are already equal.
+    ld a,b
+    and c
+    jr z,merge_compare
+    ld a,(#_riding_first_point_ready)
+    or a
+    jr nz,_riding_contact_merge_equal_known
+merge_compare:
     ld hl,#_Ct
     ld de,#(_Ct+10)
     .rept 6
@@ -153,7 +161,8 @@ _riding_contact_merge_equal_known::
 merge_equal_unverified:
     call _riding_ring_equal_points
 merge_equal_result:
-    ; Only the unchanged-normal result (2) makes Ct[0].tx/ty reusable.
+    ; A renormalized Ct[0] (1) owns the new physical cache entry.
+    ; The unchanged result (2) also makes Ct[0].tx/ty reusable.
     ld (#_riding_first_point_ready),a
     or a
     jp nz,merge_complete
