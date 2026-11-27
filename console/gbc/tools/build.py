@@ -14,6 +14,7 @@ import brake_dispatch
 import corner_bank
 import corner_cells
 import gravity_strips
+import hang_terrain
 import head_clearance
 import head_refinement
 import head_lane_tables
@@ -82,6 +83,13 @@ def validate_linked_layout(symbol_path,rom_mib):
                 symbols.get('_riding_reaction_words') != start or
                 symbols.get('_riding_reaction_words_end') != start + 14 * 256):
             raise ValueError('Reaction reader requires fixed ROM and two aligned signed16 tables')
+    if '_hang_wheel_select' in symbols:
+        if (symbols.get('_physics_bank_87') != 0x574000 or
+                symbols['_hang_wheel_select'] >> 16 != hang_terrain.BANK):
+            raise ValueError('Hang Tight reader must follow the packed terrain in bank 87')
+        if '_hang_query' in symbols and (symbols['_hang_query'] >> 16 != 7 or
+                symbols['_riding_sparse_bind'] + 1 + symbols['hang_stub_bytes'] > symbols['_riding_sparse_lookup']):
+            raise ValueError('Hang Tight wheel dispatch or query is misplaced')
     if '_bowling_wheel_select' in symbols:
         if (symbols['_physics_bank_86'] != 0x564000 or symbols['_bowling_wheel_select'] >> 16 != 86 or
                 symbols['_bowling_terrain_end'] > 0x568000):
@@ -581,6 +589,8 @@ def main():
     head_lanes = scheduled and rom_mib == 8 and graphics['map_codec'] == rolling_map_banks.CODEC
     if head_lanes:
         levels, terrain_banks, _ = head_clearance.packed_inputs(a.gen)
+        hang = hang_terrain.generate(a.gen, BASE/'src/hang_terrain.inc', levels, terrain_banks)
+        sources[sources.index(a.gen/'physics_bank_87.c')] = hang
         bowling = bowling_planes.generate(a.gen, BASE/'src/bowling_planes.inc', levels, terrain_banks)
         sources[sources.index(a.gen/'physics_bank_86.c')] = bowling
         for bank, path in gravity_strips.generate(a.gen, BASE/'src/gravity_strip.inc', levels, terrain_banks).items():
