@@ -50,6 +50,15 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test59 — Endpoint lengths and object contact checks
+
+On Steep Corner the slowest forced update fell from 66.30 to 64.83 ms.
+The wheel solver looks up a rounded endpoint length when all reachable
+vectors in its slot agree. During riding, two coarse maps reject distant
+apples, killers and flowers. The primary replays needed a third refresh
+110 times in 25,310 intervals, the independent seed 45 times in 5,302.
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test59-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test59--endpoint-lengths-and-object-contact-checks)
+
 ## 0.96 test58 — Ordered terrain, braking and camera scroll
 
 The wheel solver reads ordered terrain programs directly from its own ROM bank.

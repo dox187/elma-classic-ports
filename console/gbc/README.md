@@ -3,12 +3,12 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test58 — 8 MiB](build/elma-gbc-v0.96-test58-8m.gbc)**.
-The controller replays averaged 29.796 updates/s over 25,310 intervals.
-115 intervals took three display refreshes, down from 130 in test57.
+**[0.96 test59 — 8 MiB](build/elma-gbc-v0.96-test59-8m.gbc)**.
+The primary controller replays averaged 29.799 updates/s over 25,310 intervals.
+110 intervals took three display refreshes, down from 115 in test58.
 Bowling braking was the slowest primary replay at 28.70 updates/s.
-The longest forced Steep Corner physics update took 66.30 ms.
-The whole-game budget is 33.49 ms. [Timings and remaining slowdowns](PERFORMANCE.md#096-test58--ordered-terrain-braking-and-camera-scroll)
+The longest forced Steep Corner physics update took 64.83 ms.
+The whole-game budget is 33.49 ms. [Timings and remaining slowdowns](PERFORMANCE.md#096-test59--endpoint-lengths-and-object-contact-checks)
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
@@ -420,3 +420,4 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | test56 | Shortened suspension, rolling and planar contacts on braking routes |
 | test57 | Shortened wheel responses and prepared suspension during short waits |
 | test58 | Streamed ordered edges and shortened braking, scenery and camera work |
+| test59 | Tabulated wheel endpoint lengths and skipped distant object checks |

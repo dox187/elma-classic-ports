@@ -4393,3 +4393,64 @@ on all fine tiles raised the Steep Corner peak to 580,952 T despite one
 fewer late interval on the short replays.
 
 SHA-256 `2d08e939c7b823aad21e9d1be46a6ff55d94638d0e6679976b6497cc52e5ee04`.
+
+## 0.96 test59 — Endpoint lengths and object contact checks
+
+The Steep Corner peak includes seven wheel endpoints that miss the physical
+normal atlas. For squared distances from 65,536 through 168,447 the builder
+enumerates every signed integer offset and computes the original rounded dot.
+Each 32-unit slot can return a length when all reachable vectors in it agree.
+Sixty-four shared patterns encode the decisions for 201 reciprocal bins.
+The linked tables cover 292,128 vectors directly. The remaining 31,216 use
+the original dot. Public calls with an independently supplied squared
+distance also retain their full calculation. Suspension selects the signed
+reaction torque projection once for both wheel-arm axes.
+
+Two 256-byte pages in cartridge RAM bank 0 record where an object might
+touch either wheel or the head. Each object sets the same bit for its
+integer X and Y coordinates and their immediate neighbors. A shared bit
+triggers the ordered object checks, including flower eligibility and apple
+gravity. This also handles the signed coordinate seam. The tables occupy
+A600–A7FF, above the scenery slots and below the map mirror and save journal.
+A WRAM-backed trial used 128 bytes of stack headroom and was discarded.
+The HUD stores only the five changing pixel rows of each clock glyph in an
+eight-byte stride. The camera keeps its scroll limits for the selected course.
+
+| PyBoy measurement | test58 | test59 |
+| --- | ---: | ---: |
+| Weighted updates/s over 25,310 primary intervals | 29.796 | 29.799 |
+| Three-refresh intervals, catalog / extended / complete Freefall | 84 / 31 / 0 | 82 / 28 / 0 |
+| Independent seed, three-refresh intervals out of 5,302 | 51 | 45 |
+| Mean active update, primary, T-cycles | 211,414 | 209,703 |
+| Bowling braking, slowest primary replay, updates/s | 28.70 | 28.70 |
+| Haircut, slowest independent replay, updates/s | 28.30 | 28.36 |
+| Framework / Bowling / Hang Tight braking, late out of 99 each | 5 / 8 / 5 | 5 / 8 / 6 |
+| Peak over 642 historical wheel placements, physics only | 60.66 ms | 60.10 ms |
+| Historical placement updates over budget, out of 2,432 | 323 | 322 |
+| Peak over the 25-point Steep Corner grid, physics only | 66.30 ms | 64.83 ms |
+
+The slowest individual controller interval took three refreshes (19.91
+updates/s over that interval). On Gravity Ride all 66 short and 589 extended
+braking intervals took two refreshes. Each approach had one late interval
+under throttle. At the previously reported Curvaceous corner (65,288, 19,432),
+wheel 2 with input 9 took 400,688 T (47.77 ms), down from 403,384 T in test57.
+At that same position throttle alone took 452,044 T (53.89 ms).
+
+Total physics time fell on all 54 courses in the historical placement sweep,
+from 571,106,444 to 570,428,048 T. On the Steep Corner grid it fell from
+93,163,512 to 92,430,484 T. All 200 forced updates there still exceeded the
+280,896 T whole-game budget on physics alone. At (25,176, 39,464), wheel 2
+with input 9 spent 387,064 T on the wheels, 94,332 T on suspension, 9,240 T
+on head contact and 53,188 T on other physics.
+
+The 76,568 primary, 16,015 independent and 7,799 forced physics substeps
+matched test58 byte for byte. All 298,416 ordered terrain queries and 84
+partial leaves matched. The endpoint oracle checked 3,859 linked physical
+vectors and 432 arbitrary squared lengths. The object filter passed 24,272
+checks, including SRAM bank selection and signed wrap. The speed-limit
+suite matched all 3,170 states in 122 cases. The player, finish and save
+reload checks passed. All 54 courses started with one late entry update.
+Seven visual replays matched all 1,216 presentations, including the clock
+pixels, and 61,845 background cells.
+
+SHA-256 `cc3da5e5e95b5b7c02f9670c40cead0e35f2ce1c384a411a63ceb282ee924a50`.
