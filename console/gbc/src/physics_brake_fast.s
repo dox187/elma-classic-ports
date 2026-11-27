@@ -50,7 +50,7 @@ brake_switch:
  ; GENERATED BRAKE PAGES
 ; Both wheel angles and velocities have fixed locations. Keeping their
 ; addresses in the instruction saves the wheel pointer across Q24 calls.
-.macro brake_wheel offset,dbrake,damping,?lower_nonzero
+.macro brake_wheel offset,dbrake,residual
  ld hl,#(_Bike+dbrake)
  ld a,(#_Bike+16)
  add (hl)
@@ -79,14 +79,8 @@ brake_switch:
  ld a,(hl)
  sbc d
  ld e,a
- call brake_angle_value
- ; The two's complement of spring+damping equals ~(spring-1+damping).
- ld a,b
- or c
- jr nz,lower_nonzero
- dec de
-lower_nonzero:
- dec bc
+ brake_angle_value
+ ; Complement spring + (damping - 1) to negate the sum.
  push de
  push bc
  ld hl,#(_Bike+20)
@@ -112,7 +106,7 @@ lower_nonzero:
  inc hl
  .endif
  .endm
- call damping
+ brake_damping residual
  pop hl
  ld a,c
  add l
@@ -134,12 +128,6 @@ lower_nonzero:
  pop hl
  brake_store
 .endm
-brake_fields:
- push bc
- push de
- brake_wheel 0,101,brake_damp_first
- brake_wheel 24,105,brake_damp_last
- ret
  .else
  push bc
  push de
@@ -289,12 +277,20 @@ brake_damping_phase:
 .ifdef brake_tables
 ; The angle difference has already been arithmetically shifted by one
 ; byte. Its fourth byte is therefore the sign extension of E.
-brake_angle_value:
+.macro brake_angle_value ?word,?done
  ld a,b
  add a,a
  sbc a,a
  cp e
- jr nz,brake_angle_wide
+ jr z,word
+ ld a,e
+ add a,a
+ sbc a,a
+ ld d,a
+ ld a,#brake_angle_index
+ call brake_wide
+ jr done
+word:
  ld l,c
  ld h,#>brake_angle_rows
  ld e,(hl)
@@ -317,18 +313,12 @@ brake_angle_value:
  sbc a,a
  ld d,a
  ld e,a
- ret
-brake_angle_wide:
- ld a,e
- add a,a
- sbc a,a
- ld d,a
- ld a,#brake_angle_index
- jp brake_wide
+done:
+.endm
 
 ; Only the second wheel's damping publishes a residual at this ABI.
-; The byte rows give the exact signed 24-bit remainder and quotient.
-.macro brake_damping residual,?word,?wide
+; The byte rows give the signed 24-bit remainder and adjusted quotient.
+.macro brake_damping residual,?word,?wide,?done,?decrement_low
  ld a,b
  add a,a
  sbc a,a
@@ -343,10 +333,10 @@ brake_angle_wide:
  jr nz,word
  ld l,c
  .if residual
- ld h,#>brake_damp_byte
+ ld h,#>brake_damp_low
  ld a,(hl)
  ldh (#_q24_fraction),a
- inc h
+ ld h,#>brake_damp_byte
  ld a,(hl)
  ldh (#_q24_fraction+1),a
  inc h
@@ -357,7 +347,7 @@ brake_angle_wide:
  ldh (#_q24_fraction+3),a
  inc h
  .else
- ld h,#>(brake_damp_byte+768)
+ ld h,#>(brake_damp_byte+512)
  .endif
  ld c,(hl)
  inc h
@@ -371,10 +361,18 @@ brake_angle_wide:
  xor a
  ldh (#_q24_saturated),a
  .endif
- ret
+ jr done
 wide:
  ld a,#brake_damping_index
- jp brake_wide
+ call brake_wide
+ ; Generic Q24 returns the unadjusted integer. Preserve its residual.
+ ld a,b
+ or c
+ jr nz,decrement_low
+ dec de
+decrement_low:
+ dec bc
+ jr done
 word:
  ld d,#>brake_damp_low
  ld e,c
@@ -395,13 +393,16 @@ word:
  ld a,(de)
  adc (hl)
  .if residual
- push af
- xor #0x80
- ldh (#_q24_fraction+2),a
- add a,a
+ ; Move the integer carry into bit 0 while complementing the sign bit.
+ ; RRA then returns the carry for the integer and restores the fraction byte.
+ rla
+ ld b,a
+ ccf
  sbc a,a
  ldh (#_q24_fraction+3),a
- pop af
+ ld a,b
+ rra
+ ldh (#_q24_fraction+2),a
  .endif
  inc d
  inc h
@@ -424,12 +425,15 @@ word:
  xor a
  ldh (#_q24_saturated),a
  .endif
- ret
+done:
 .endm
-brake_damp_first:
- brake_damping 0
-brake_damp_last:
- brake_damping 1
+
+brake_fields:
+ push bc
+ push de
+ brake_wheel 0,101,0
+ brake_wheel 24,105,1
+ ret
 brake_wide:
  dec sp
  call _q24_apply_a

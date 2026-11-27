@@ -59,12 +59,16 @@ def generate(gen, assembly, destination=None):
         m = scales['W'][0]
         # A signed-byte damping result fits signed16 for the admitted scales.
         signed_bytes = list(range(128)) + list(range(-128, 0))
-        rows8 = [[(v * m >> shift) & 255 for v in signed_bytes] for shift in (0, 8, 16)]
-        rows8.extend([[(v * m + (1 << 23)) >> shift & 255 for v in signed_bytes]
-                      for shift in (24, 32)])
+        # The low remainder byte is shared with brake_damp_low. Store the
+        # integer damping minus one so the final complement negates the sum.
+        rows8 = [[(v * m >> shift) & 255 for v in signed_bytes] for shift in (8, 16)]
+        quotients = [((v * m + (1 << 23)) >> 24) - 1 for v in signed_bytes]
+        rows8.extend([[(q >> shift) & 255 for q in quotients] for shift in (0, 8)])
         tables.append(('brake_damp_byte', rows8))
         for name, inputs, bias in [('brake_damp_low', range(256), 1 << 23),
-                                   ('brake_damp_high', [((v + 128) % 256) - 128 for v in range(256)], 0)]:
+                                   ('brake_damp_high', [((v + 128) % 256) - 128 for v in range(256)], -(1 << 16))]:
+            # The high digit is shifted left by eight by the reader. Its bias
+            # therefore subtracts one integer unit without changing the residual.
             tables.append((name, [[((v*m+bias) >> shift) & 255 for v in inputs]
                                   for shift in range(0, 40, 8)]))
         for name, table in tables:
