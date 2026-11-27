@@ -313,13 +313,16 @@ def exercise_corners(target, oracle, points, profile=None, both_wheels=False):
             for j, cart in enumerate((target, oracle)):
                 cart.substeps.clear()
                 cart.profiling = profile == (level+1, x, y, buttons)
+                if cart.profiling:
+                    cart.elapsed.clear()
+                    cart.calls.clear()
                 cart.invoke('_riding_scheduled_frame', a=buttons)
                 if cart.profiling:
                     assert not cart.started
                     parts = ', '.join(f'{label} {ticks} T ({cart.calls[label]} calls)'
                                       for label, ticks in cart.elapsed.items())
                     rest = cart.solver_cycles - sum(cart.elapsed.values())
-                    print(f'{("ROM", "reference")[j]} profile: {parts}, other {rest} T.')
+                    print(f'{("ROM", "reference")[j]} profile (wheel {wheel // 24}): {parts}, other {rest} T.')
                 course_time[j][level+1] += cart.solver_cycles
                 assert cart.solver_cycles > 0
                 peak[j] = max(peak[j], (cart.solver_cycles, level+1, x, y, buttons, wheel // 24))
