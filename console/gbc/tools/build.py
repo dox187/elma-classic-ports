@@ -12,6 +12,7 @@ import bike_frames16
 import brake_dispatch
 import corner_bank
 import corner_cells
+import gravity_strips
 import head_clearance
 import head_refinement
 import head_lane_tables
@@ -570,6 +571,9 @@ def main():
         sources = rolling_map_banks.bank_sources(sources, graphics, a.gen, BASE/'src')
     head_lanes = scheduled and rom_mib == 8 and graphics['map_codec'] == rolling_map_banks.CODEC
     if head_lanes:
+        levels, terrain_banks, _ = head_clearance.packed_inputs(a.gen)
+        for bank, path in gravity_strips.generate(a.gen, BASE/'src/gravity_strip.inc', levels, terrain_banks).items():
+            sources[sources.index(a.gen/f'physics_bank_{bank}.c')] = path
         tables, directory = corner_cells.generate(a.gen, BASE/'src/corner_cell_reader.inc')
         step = BASE/'src/physics_step_scheduled.s'
         step_game = a.gen/'physics_step_corners.s'

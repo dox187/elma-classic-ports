@@ -1455,6 +1455,36 @@ _riding_sparse_wheel_inputs::
     cp #255
     jr nz,ws_have_answer
     jr ws_cert
+_riding_gravity_strip::
+    ; Only the level-specific wheel dispatcher reaches this lookup.
+    ld h,d
+    ld l,e
+    inc hl
+    inc hl
+    ld a,(hl)
+    sub #169
+    cp #2
+    jr c,strip_page_59
+    jr z,strip_page_80
+    cp #5
+    ld a,#255
+    ret nz
+    ld hl,#_riding_gravity_strip_76
+    ld a,#76
+    jr strip_call
+strip_page_59:
+    ld hl,#_riding_gravity_strip_59
+    ld a,#59
+    jr strip_call
+strip_page_80:
+    ld hl,#_riding_gravity_strip_80
+    ld a,#80
+strip_call:
+    ld b,d
+    ld c,e
+    ld e,a
+    jp ___sdcc_bcall_ehl
+
 _riding_corner_wheel_inputs::
     push hl
     ld a,(hl+)
@@ -1462,6 +1492,11 @@ _riding_corner_wheel_inputs::
     ld e,a
     push de
     call _riding_corner_gravity
+    cp #255
+    jr nz,ws_have_answer
+    call _riding_gravity_strip
+    pop de
+    push de
     cp #255
     jr nz,ws_have_answer
     jr ws_cert
