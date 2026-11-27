@@ -209,18 +209,20 @@ _riding_contact_push::
  ; 16639] contributes at least -64. If both coefficients are positive,
  ; their high-byte sum <=100 bounds their sum by 26110 and the rounded
  ; dot by 406. A negative term leaves at most one positive contribution.
+ ; Every supported shallow plane satisfies all three bounds. A failed
+ ; bound can go directly to the full projection.
  ld a,(hl-)
  add #16
  cp #81
- jr nc,fine_calculate
+ jr nc,fine_project_general
  dec hl
  add (hl)                     ; ny high + 16 + signed nx high, modulo 256
  cp #117
- jr nc,fine_calculate
+ jr nc,fine_project_general
  ld a,(hl)
  add #16
  cp #81
- jr nc,fine_calculate
+ jr nc,fine_project_general
 fine_in_band:
  xor a
  ld d,a
@@ -260,7 +262,7 @@ fine_surface_y_high:
 fine_surface_y_negative:
  add a,#2
  cp a,#130
- jr nc,fine_calculate
+ jr nc,fine_project_general
  ld hl,#4
  add hl,de
  ld a,(de)
@@ -271,17 +273,17 @@ fine_surface_x:
  ld a,(hl-)
  add a,#2
  cp a,#130
- jr nc,fine_calculate
+ jr nc,fine_project_general
  dec hl
  ld a,(hl-)
  bit 7,a
- jr nz,fine_calculate
+ jr nz,fine_project_general
  cp a,#0x3f
- jr c,fine_calculate
+ jr c,fine_project_general
  jr nz,fine_surface_x_high
  ld a,(hl)
  cp a,#0xf0
- jr c,fine_calculate
+ jr c,fine_project_general
 fine_surface_x_high:
  ld hl,#4
  add hl,de
@@ -304,6 +306,7 @@ fine_surface_bound:
 fine_calculate:
  call fine_shallow_fraction
  jr c,fine_length
+fine_project_general:
  ld hl,#4
  add hl,de
  ld a,(de)
