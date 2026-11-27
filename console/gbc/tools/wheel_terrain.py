@@ -1,6 +1,7 @@
 """Compile conservative wheel certificates from the cartridge's ordered collision records."""
 from collections import Counter
 from functools import lru_cache
+from pathlib import Path
 import json
 import re
 import struct
@@ -284,6 +285,9 @@ def generate(gen, dest=None):
     out += refinement_tables(levels, banks, rows, codes, patterns)
     from wheel_candidates import tables as candidate_tables
     out += candidate_tables(levels, banks)
+    # Append the reader after the fixed-address collision data in bank 80.
+    reader = Path(__file__).resolve().parents[1] / 'src/wheel_candidate_regions.inc'
+    out += reader.read_text().splitlines()
     path = dest/'wheel_terrain_rows.s'
     write_if_changed(path,'\n'.join(out)+'\n')
     return path
@@ -297,9 +301,11 @@ def validate_layout(symbols):
         raise ValueError('Wheel terrain requires its caller in bank 9 and a fixed-ROM reader')
     if '_riding_candidate_gate' in symbols and (
             symbols['_riding_candidate_gate'] >> 16 != 9 or symbols['_riding_candidate_solve'] >> 16 != 9 or
-            symbols['_riding_candidate_select'] >> 16 != 5 or symbols['_riding_candidate_leaves'] >> 16 != 5 or
-            symbols['_riding_candidate_programs'] >> 16 != 7 or symbols['_candidate_slots'] >= 0x4000):
-        raise ValueError('Ordered wheel candidate lookup requires its linked FIFO pointers in fixed ROM')
+            symbols['_riding_candidate_select'] >> 16 != 80 or symbols['_riding_candidate_leaves'] >> 16 != 80 or
+            symbols['_riding_candidate_programs'] >> 16 != 5 or symbols['_riding_candidate_decode'] >> 16 != 5 or
+            not symbols['_riding_gravity_end_80'] <= symbols['_riding_candidate_leaves'] <
+            symbols['_riding_candidate_select'] or symbols['_candidate_slots'] >= 0x4000):
+        raise ValueError('Invalid bank layout for ordered wheel candidate tables, reader or FIFO pointers')
     if '_riding_leaf_dispatch' in symbols and (symbols['_riding_leaf_dispatch'] >= 0x4000 or
             symbols['_riding_leaf_classify'] >> 16 != 31 or symbols['_riding_leaf_general'] >> 16 != 9):
         raise ValueError('Wheel neighborhood queries require a fixed reader and classifiers in banks 31 and 9')

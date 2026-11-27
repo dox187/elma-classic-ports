@@ -460,8 +460,11 @@ if __name__ == '__main__':
     parser.add_argument('--rom', type=Path, required=True)
     parser.add_argument('--reference', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, required=True)
-    parser.add_argument('--placement-manifest', type=Path,
-                        help='use the corner cells from an earlier build for identical physics starts')
+    starts = parser.add_mutually_exclusive_group()
+    starts.add_argument('--neighborhood', type=int, nargs=3, metavar=('COURSE', 'X', 'Y'),
+                        help='test a 5 by 5 grid of physics starts at 24-unit spacing')
+    starts.add_argument('--placement-manifest', type=Path,
+                       help='use the corner cells from an earlier build for identical physics starts')
     parser.add_argument('--both-wheels', action='store_true',
                         help='repeat each scheduled start on each wheel, independent of tile ordering')
     parser.add_argument('--profile', type=int, nargs=4, metavar=('COURSE', 'X', 'Y', 'BUTTONS'),
@@ -471,6 +474,12 @@ if __name__ == '__main__':
     cells = {tuple(row) for row in data['cells']}
     assert len(cells) == len(data['cells']), 'duplicate manifest cells'
     placements = None
+    if args.neighborhood:
+        course, x, y = args.neighborhood
+        if not 1 <= course <= 54:
+            parser.error('neighborhood COURSE must be between 1 and 54')
+        placements = {(course-1, x+dx, y+dy)
+                      for dx in range(-48, 49, 24) for dy in range(-48, 49, 24)}
     if args.placement_manifest:
         placed = {tuple(row) for row in json.loads(args.placement_manifest.read_text())['cells']}
         placements = unlisted_corners(args.manifest.parent, placed) | {(l, x+8, y+8) for l,x,y in placed}
