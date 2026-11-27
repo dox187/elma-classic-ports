@@ -295,32 +295,14 @@ pair_bound_unknown:
 ; for rest, one below the radius, two above it, or three for the strip
 ; requiring the existing exact squared-speed comparison.
 .area _CODE_9
-_riding_pair_speed_class::
- ld h,d
- ld l,e
- ld c,#0
- call pair_speed_axis
- ld b,a
- call pair_speed_axis
- add b
- cp #89                        ; |vx|+|vy| <= (88+2)*256 < 23069
- jr c,pair_speed_slow
- ld a,#3
- ret
-pair_speed_slow:
- ld a,c
- or a
- ret z
- ld a,#1
- ret
-pair_speed_axis:
+.macro pair_speed_digit
  ld a,(hl+)
  or c
  ld c,a
  ld a,(hl+)
  ld e,a
  or c
- ld c,a                         ; zero only when all lower words are zero
+ ld c,a
  ld a,e
  add a
  sbc a
@@ -332,11 +314,29 @@ pair_speed_axis:
  xor d
  jr nz,pair_speed_fast
  ld a,e
- xor d                         ; high byte of v (positive) or ~v (negative)
+ xor d
  cp #91
- ret c
+ jr nc,pair_speed_fast
+.endm
+_riding_pair_speed_class::
+ ld h,d
+ ld l,e
+ ld c,#0
+ pair_speed_digit
+ ld b,a
+ pair_speed_digit
+ add b
+ cp #89
+ jr c,pair_speed_slow
+ ld a,#3
+ ret
+pair_speed_slow:
+ ld a,c
+ or a
+ ret z
+ ld a,#1
+ ret
 pair_speed_fast:
- add sp,#2                      ; bypass the other axis and return to the solver
  ld a,#2
  ret
 
@@ -469,15 +469,13 @@ _riding_pair_supports::
  or a
  jr nz,pair_zero_velocity
  ld hl,#_riding_pair_velocity
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld b,d
- ld c,e
- ld d,h
- ld e,l
- ld h,b
- ld l,c
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ ld h,d
+ ld l,e
+ ld d,b
+ ld e,c
  call _riding_dotq14_regs
  ld a,h
  or l
@@ -571,8 +569,6 @@ pair_inward_impulse:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- push de
- push hl
  inc de
  inc de
  inc de
@@ -603,12 +599,10 @@ pair_impulse_y:
  or c
  jr z,pair_inward
 pair_impulse_dot:
- add sp,#4
  ld e,#93
  ld hl,#_riding_pair_impulse_bound
  jp ___sdcc_bcall_ehl
 pair_inward:
- add sp,#4
 pair_supported:
  ld a,#1
  ret
