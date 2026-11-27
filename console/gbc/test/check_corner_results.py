@@ -21,7 +21,7 @@ class WheelQueries(Cartridge):
         self.m[0, main:main+6] = struct.pack('<BHBH', 0xcd, addr, 0xc3, self.code+3)
         self.p.hook_register(0, main+3, self.end_schedule, None)
 
-    def observe_substeps(self, fields, profile=False):
+    def observe_substeps(self, fields):
         # There is one near CALL to ph_step inside the scheduler's shared interval.
         begin = self.sym['_riding_scheduled_frame']
         bank, address = begin >> 16, begin & 65535
@@ -30,18 +30,18 @@ class WheelQueries(Cartridge):
         call = struct.pack('<BH', 0xcd, self.sym['_ph_step'] & 65535)
         assert block.count(call) == 1
         self.substeps = []
+        self.profiling = False
         ranges = [(self.sym[field], self.sym[field]+size) for field, size in fields]
         def returned(_):
-            if profile and self.profiling:
+            if self.profiling:
                 self.profile_return('head')
             state = b''.join(bytes(self.m[lo:hi]) for lo, hi in ranges)
             self.substeps.append((self.reg.A, state))
         self.p.hook_register(bank, address+block.index(call)+3, returned, None)
-        if profile:
-            self.install_profile()
 
     def install_profile(self):
-        self.profiling = False
+        self.profiling = True
+        self.profile_hooks = []
         self.started, self.elapsed, self.calls = {}, Counter(), Counter()
         step = self.sym['_ph_step']
         # The head routine is a tail call from ph_step. Its return is
@@ -53,13 +53,20 @@ class WheelQueries(Cartridge):
         for name, label in (('_riding_suspension_scheduled', 'suspension'),
                             ('_riding_step_wheels', 'wheels'), ('_riding_step_head', 'head')):
             addr = self.sym[name]
-            self.p.hook_register(addr >> 16, addr & 65535, self.profile_entry, label)
+            self.profile_hooks.append((addr >> 16, addr & 65535, self.profile_entry, label))
             if label == 'head':
                 continue
             call = struct.pack('<BH', 0xcd, addr & 65535)
             assert block.count(call) == 1
-            self.p.hook_register(step >> 16, (step & 65535)+block.index(call)+3,
-                                 self.profile_return, label)
+            self.profile_hooks.append((step >> 16, (step & 65535)+block.index(call)+3,
+                                       self.profile_return, label))
+        for hook in self.profile_hooks:
+            self.p.hook_register(*hook)
+
+    def remove_profile(self):
+        for bank, address, _, _ in self.profile_hooks:
+            self.p.hook_deregister(bank, address)
+        self.profiling = False
 
     def profile_entry(self, label):
         if self.profiling:
@@ -317,7 +324,7 @@ def exercise_corners(target, oracle, points, profile=None, both_wheels=False):
     peak = [(0,), (0,)]
     for cart in (target, oracle):
         cart.time_scheduled_frames()
-        cart.observe_substeps(fields + (('_riding_subphase', 1),), profile is not None)
+        cart.observe_substeps(fields + (('_riding_subphase', 1),))
     if both_wheels:
         starts = [(point, wheel) for point in sorted(points) for wheel in (24, 48)]
     else:
@@ -337,10 +344,11 @@ def exercise_corners(target, oracle, points, profile=None, both_wheels=False):
         for buttons in (1, 2, 4, 9):
             for j, cart in enumerate((target, oracle)):
                 cart.substeps.clear()
-                cart.profiling = profile == (level+1, x, y, buttons)
-                if cart.profiling:
-                    cart.elapsed.clear()
-                    cart.calls.clear()
+                # Limit component breakpoints to the requested input. A PyBoy
+                # hook on a banked tail call can re-fire without advancing the
+                # CPU at a display boundary, including on unrelated placements.
+                if profile == (level+1, x, y, buttons):
+                    cart.install_profile()
                 cart.invoke('_riding_scheduled_frame', a=buttons)
                 if cart.profiling:
                     assert not cart.started
@@ -348,6 +356,7 @@ def exercise_corners(target, oracle, points, profile=None, both_wheels=False):
                                       for label, ticks in cart.elapsed.items())
                     rest = cart.solver_cycles - sum(cart.elapsed.values())
                     print(f'{("ROM", "reference")[j]} profile (wheel {wheel // 24}): {parts}, other {rest} T.')
+                    cart.remove_profile()
                 course_time[j][level+1] += cart.solver_cycles
                 assert cart.solver_cycles > 0
                 peak[j] = max(peak[j], (cart.solver_cycles, level+1, x, y, buttons, wheel // 24))
