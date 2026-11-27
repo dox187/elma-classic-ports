@@ -76,56 +76,76 @@ coord_full_next:
         ld (#_prepare_index),a
         ret
 coord_item:
+        ; Resolve at most four cells per guard. The low-ID plane becomes the
+        ; published tile plane after acquisition, so both source pointers can
+        ; advance together and pin hits need no per-cell index calculation.
         ld a,(#_prepare_index)
         ld e,a
+        add #4
+        ld hl,#_prepare_count
+        cp (hl)
+        jr c,coord_group
+        ld a,(hl)
+coord_group:
+        ld (#_prepare_index),a
         ld d,#0
         ld hl,#_strip_low
         add hl,de
-        ld c,(hl)
+        push hl
         ld hl,#_strip_high
         add hl,de
-        ld b,(hl)
-        ld h,#0xa0
-        ld l,c
-        ld a,(hl)
+        pop de
+        ld b,#0xa1
+coord_pin:
+        ld a,(de)
+        ld c,a
+        ld a,(bc)
+        cp (hl)
+        jr nz,coord_dynamic
+        dec b
+        ld a,(bc)
         or a
         jr z,coord_dynamic
-        inc h
-        ld d,a
-        ld a,(hl)
-        cp b
-        jr nz,coord_dynamic
-        ld a,d
         dec a
-        jr coord_publish_low
+        inc b
+coord_store:
+        ld (de),a
+        inc de
+        inc hl
+        ld a,(#_prepare_index)
+        add #<(_strip_low)
+        cp e
+        jr nz,coord_pin
+        ret
 coord_dynamic:
-        ld d,#0
+        push hl
         push de
+        ld b,(hl)
+        ld a,e
+        sub #<(_strip_low)
+        ld e,a
+        ld d,#0
+        ld hl,#_coord_boundary
+        cp (hl)
+        ld hl,#_coord_start
+        jr c,coord_base
+        ld hl,#_coord_wrap
+coord_base:
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
         ld a,(#_coord_vertical)
         or a
         jr z,coord_offset
+        push hl
         ld hl,#_coord_steps
         add hl,de
         add hl,de
         ld a,(hl+)
         ld d,(hl)
         ld e,a
+        pop hl
 coord_offset:
-        ld hl,#_coord_start
-        ld a,(#_prepare_index)
-        push de
-        ld e,a
-        ld a,(#_coord_boundary)
-        cp e
-        jr z,coord_wrapped
-        jr nc,coord_base
-coord_wrapped:
-        ld hl,#_coord_wrap
-coord_base:
-        pop de
-        ld a,(hl+)
-        ld h,(hl)
-        ld l,a
         add hl,de
         ld d,h
         ld e,l
@@ -152,29 +172,21 @@ coord_resolved:
         or a
         ld a,e
         pop de
-        jr z,coord_publish_low
-        ld hl,#_strip_attrs
-        add hl,de
+        jr z,coord_bank_ready
+        ld h,d
+        ld l,e
+        ld bc,#(_strip_attrs-_strip_low)
+        add hl,bc
         set 3,(hl)
-coord_publish_low:
-        ld d,#0
-        ld hl,#_output_tiles
-        add hl,de
-        ld (hl),a
-        ld hl,#_prepare_index
-        inc (hl)
-        ld a,(hl)
-        ld hl,#_prepare_count
-        cp (hl)
-        ret z
-        and #3
-        jp nz,coord_item
-        ret
+coord_bank_ready:
+        pop hl
+        ld b,#0xa1
+        jr coord_store
     __endasm;
 }
 static void prepare_publish(uint8_t vertical) {
     gbc_video_world_strip_pair(prepare_strip_x,prepare_strip_y,vertical,prepare_count,
-                               all_patterns ? strip_low : output_tiles,strip_attrs);
+                               strip_low,strip_attrs);
 }
 
 void world_begin(uint16_t x,uint16_t y) BANKED {
