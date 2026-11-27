@@ -627,12 +627,12 @@ contact_loop_in_radius:
 contact_region_dispatch:
  ld a,#93
  ld (#0x2000),a
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  call contact_region_query
  ld h,a
  ld a,#9
  ld (#0x2000),a
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  ld a,h
  ret
 
@@ -660,7 +660,7 @@ _riding_terrain_dotq14::
  ld a,#34
  ld (#0x2000),a
  call terrain_minor_lookup
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  jp nc,_dotq14
  pop hl
@@ -820,11 +820,11 @@ _riding_plane_fill::
  push de
  ld a,#6
  ld (#0x2000),a
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  call terrain_plane_setup
  ld a,#9
  ld (#0x2000),a
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  pop de
  pop bc
 _riding_plane_affine::

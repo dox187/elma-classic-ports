@@ -412,7 +412,7 @@ exact_product_byte_sign:
  sbc a,a
  ld b,a
 exact_product_byte_done:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 ; B:DE is an unsigned 24-bit magnitude, C selects a row in banks 36..43.
@@ -1202,7 +1202,7 @@ math32_dot_shallow_row:
  add a,a
  sbc a,a
  ld b,a                      ; sign of the rounded, signed-byte product
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  pop hl
  ld a,e
@@ -1681,7 +1681,7 @@ _riding_projection_hit::
  ld (#0x3000),a
  .endif
 math32_projection_restore:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
  .ifdef RIDING_PROJECTION_TABLES

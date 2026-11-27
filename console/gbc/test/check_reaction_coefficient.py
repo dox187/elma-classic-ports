@@ -72,6 +72,29 @@ def check(rom, gen):
                 check_return(code+3)
                 got = (regs.B << 24) | (regs.C << 16) | (regs.D << 8) | regs.E
                 assert got == result(v, scale) & 0xffffffff, (phase, v, got)
+
+        if 'ss_prepare_reaction' in symbols:
+            prepare = symbols['ss_prepare_reaction'] & 65535
+            project = symbols['ss_reaction_q14'] & 65535
+            # Exercise both signed high-word corrections, their limits and the wide fallback.
+            torques = {h*65536 + low for h in range(-4, 5)
+                       for low in (-32768, -32767, -8192, -1, 0, 1, 8192, 32767)}
+            torques.update((-2**31, 2**31-1))
+            for arm in (-32768, -2049, -2048, -2047, -1, 0, 1, 2047, 2048, 32767):
+                body = [0xcd, prepare & 255, prepare >> 8, 0x01, arm & 255, (arm >> 8) & 255,
+                        0xcd, project & 255, project >> 8]
+                end = code + len(body)
+                mem[code:end+2] = body + [0x18, 0xfe]
+                for torque in torques:
+                    regs.B, regs.C = (torque >> 24) & 255, (torque >> 16) & 255
+                    regs.D, regs.E = (torque >> 8) & 255, torque & 255
+                    regs.PC, regs.SP = code, stack
+                    emu.tick(1, False)
+                    check_return(end)
+                    got = (regs.HL << 16) | (regs.D << 8) | regs.E
+                    expected = max(-2**31, min(2**31-1, (torque*arm + 8192) >> 14))
+                    assert got == expected & 0xffffffff, (torque, arm, got, expected)
+            print(f'{len(torques)*10} signed reaction-arm projections matched')
     finally:
         emu.stop(save=False)
     print(f'131072 signed16 and {2*len(wide)} signed32 reaction products matched')

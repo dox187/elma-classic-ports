@@ -7,11 +7,11 @@
 _riding_leaf_dispatch::
  ld a,#31
  ld (#0x2000),a
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  call wheel_leaf_request
  ld a,#9
  ld (#0x2000),a
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  jp (hl)
 wheel_leaf_result:
  ld a,c

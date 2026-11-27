@@ -202,7 +202,7 @@ phase_ready:
  ldh (#_q24_fraction+1),a
  xor a
  ldh (#_q24_saturated),a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  .endm
 
@@ -379,7 +379,7 @@ phase_finish:
  xor a
  ldh (#_q24_saturated),a
  ld (#0x3000),a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ldh a,(#_q24_fraction+2)
  add a,a
@@ -509,7 +509,7 @@ angle_low_load:
  jp angle_restore
  .endm
 angle_restore:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 .else

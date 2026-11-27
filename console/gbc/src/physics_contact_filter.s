@@ -66,7 +66,7 @@ _riding_push_byte::
  inc a
  ld (de),a
 fine_push_length_done:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  pop bc
  pop de

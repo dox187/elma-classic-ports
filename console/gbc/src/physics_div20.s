@@ -89,7 +89,7 @@ div20_two:
 div20_last:
  div20_next e
  ld h,a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  pop af
  bit 7,a

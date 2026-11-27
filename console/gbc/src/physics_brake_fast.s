@@ -39,11 +39,11 @@ _riding_brake_fields::
 .area _CODE
 brake_switch:
  ld a,#93
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  ld (#0x2000),a
  call brake_fields
  ld a,#8
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  ld (#0x2000),a
  ret
 .area _CODE_93

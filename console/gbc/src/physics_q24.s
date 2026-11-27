@@ -282,7 +282,7 @@ q_return:
 q_restore:
  xor a
  ld (#0x3000),a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  pop hl
  inc sp

@@ -562,7 +562,7 @@ roll_project_directory:
  call roll_project_component
  xor a
  ld (#0x3000),a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  jr roll_store_second
 roll_project_zero:
@@ -585,7 +585,7 @@ roll_project_shallow:
  ld a,b
  sbc #0
  ld c,a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  pop hl
  ld a,d
@@ -752,7 +752,7 @@ roll_component_miss:
  ; A directory miss can have any signed16 coefficient, including -32768.
  xor a
  ld (#0x3000),a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ldhl sp,#6
  call _riding_mulq14_regs
@@ -786,7 +786,7 @@ roll_table_wide:
  and a
  ret
 roll_restore_bank:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 
@@ -930,7 +930,7 @@ ground_resume_pair:
  jp ground_generic_pair
 ground_return:
 ground_restore:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 

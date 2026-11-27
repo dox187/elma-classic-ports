@@ -67,7 +67,7 @@ mul_square_index:
  ld l,(hl)
  ld h,#0
 contact_restore_current:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 mul_product:

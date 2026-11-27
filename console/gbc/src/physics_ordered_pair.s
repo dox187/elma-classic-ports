@@ -619,11 +619,11 @@ pair_supported:
 ; stack. Return through fixed ROM before continuing in the wheel bank.
 pair_geometry_dot:
  ld a,#93
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  ld (#0x2000),a
  call terrain_record_dot
  ld a,#9
- ld (#__current_bank),a
+ ldh (#__current_bank),a
  ld (#0x2000),a
  jp pair_geometry_sign
 .endif

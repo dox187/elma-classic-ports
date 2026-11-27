@@ -420,11 +420,11 @@ motion_map:
  ld (#0x2000),a
  jp (hl)
 motion_generic:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  jp _riding_circle_axes
 motion_restore:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 

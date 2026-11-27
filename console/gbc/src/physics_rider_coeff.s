@@ -29,7 +29,7 @@ rider_check_input:
  ld (#0x2000),a
  call rider_lookup
 rider_restore:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 rider_wide:

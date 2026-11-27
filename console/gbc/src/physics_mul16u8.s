@@ -74,7 +74,7 @@ fraction_first_positive:
  dec a
 fraction_second_positive:
  ld b,a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 

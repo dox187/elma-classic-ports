@@ -1655,7 +1655,7 @@ batch_extended_miss:
  ld a,#35
  ld (#batch_code+(batch_return_bank-batch_start)+1),a
  ld hl,#roll_exact_dots
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  jp rom_slope_map
 
 ; Add k times the signed coefficient EC to B:HL. D keeps the round byte.

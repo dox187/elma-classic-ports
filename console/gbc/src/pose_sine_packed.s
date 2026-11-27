@@ -6,7 +6,7 @@ _riding_sin16::
  ld e,(hl)
  inc hl
  ld d,(hl)
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  push af
  ld a,#1
  ld (#0x2000),a

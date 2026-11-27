@@ -75,6 +75,6 @@ sqrt_byte:
  ld l,e
  ld e,(hl)
 sqrt_restore:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret

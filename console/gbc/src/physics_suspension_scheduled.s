@@ -1066,7 +1066,7 @@ ss_try_mirrored:
  ret nz
  ld hl,#ss_force_products+40
  .irp offset,0,1,2,3
- ld a,(#ss_force_products+36+offset)
+ ldh a,(#ss_force_products+36+offset)
  cp a,(hl)
  ret nz
  .if offset-3
@@ -1294,7 +1294,7 @@ ss_wheels_done:
  .rept 4
  ld (hl+),a
  .endm
- ld (#_q24_saturated),a
+ ldh (#_q24_saturated),a
  ss_read _angular_residual
  jp _riding_step_commit_fraction_regs
 ss_angular_forces:
@@ -1398,7 +1398,7 @@ ss_wide_torque:
  ss_raw_product ss_spring_y1,_riding_pose_anchor+12,ss_force_products+32,ss_spring_y1_rows,ss_spring_y1_fold
 
 ss_near_area
-ss_prepare_reaction:
+ss_prepare_reaction::
  ss_write ss_tr
  ; tr = (int16_t)tr + H*65536. Cache H once for both axes.
  ld a,d
@@ -1408,35 +1408,57 @@ ss_prepare_reaction:
  ld c,a
  ld a,b
  adc a,#0
- or a
+ ld b,a
+ ld a,c
+ add a
+ sbc a
+ cp b
  ld a,c
  jr z,ss_reaction_high_ready
- ld a,#255
+ ld a,#4
 ss_reaction_high_ready:
  ld (#ss_reaction_high),a
  ret
 
 ; round(tr*arm/16384) = round((int16_t)tr*arm/16384) + 4*H*arm.
-; For H=1..3 and a signed12 arm the complete sum fits signed16.
+; For |H| <= 3 and a signed12 arm the complete sum fits signed16.
 ; All other widths take the original full signed48 product.
-ss_reaction_q14:
+ss_reaction_q14::
  ld a,(#ss_reaction_high)
  or a
  jr z,ss_reaction_q14_word
- cp a,#4
- jr nc,ss_reaction_q14_wide
  ld e,a
+ add #3
+ cp #7
+ jr nc,ss_reaction_q14_wide
  ld a,b
  add a,#8
  cp a,#16
  jr nc,ss_reaction_q14_wide
  ld h,b
  ld l,c
+ bit 7,e
+ jr nz,ss_reaction_negative
  dec e
  jr z,ss_reaction_q14_scale
  add hl,hl
  dec e
  jr z,ss_reaction_q14_scale
+ add hl,bc
+ jr ss_reaction_q14_scale
+ss_reaction_negative:
+ xor a
+ sub c
+ ld l,a
+ sbc a
+ sub b
+ ld h,a
+ inc e
+ jr z,ss_reaction_q14_scale
+ add hl,hl
+ inc e
+ jr z,ss_reaction_q14_scale
+ add hl,hl
  add hl,bc
 ss_reaction_q14_scale:
  add hl,hl
@@ -3660,7 +3682,7 @@ ss_spin_rows_mapped:
  ss_spin_row ss_spin_row_y1,28
  ss_spin_row ss_spin_row_x0,16
  ss_spin_row ss_spin_row_x1,20
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 
@@ -3795,7 +3817,7 @@ ss_damp_finish:
  ld h,d
  pop de
  ld d,h
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ld a,l
  ret
@@ -3822,7 +3844,7 @@ ss_spring_rows:
  adc a,#0
  ld c,a
  ld b,#0
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 
@@ -3968,7 +3990,7 @@ ss_mt_product_single:
  ld l,c
  ld bc,#0
 ss_mt_product_done:
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 
@@ -3992,7 +4014,7 @@ ss_mt_wide_rows:
  ld a,(#ss_spin_mid+7)
  or a
  call nz,ss_mt_wide_row
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 ss_mt_wide_row:
@@ -4406,7 +4428,7 @@ ss_force_last_lane:
 ss_force_restore:
  xor a
  ld (#0x3000),a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 
@@ -4701,7 +4723,7 @@ gas_read_fixed:
  add a,a
  sbc a,a
  ld b,a
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  scf
  ret

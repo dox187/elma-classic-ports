@@ -374,7 +374,7 @@ rider_spin_corrected:
  .endif
 rider_spin_u8:
  call _riding_mul16u8_unsigned ; preserves multiplier C
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
 
@@ -486,7 +486,7 @@ rider_spin_short_word:
  push bc
  ld c,a
  call _riding_mul16u8_unsigned ; unsigned omega * high tangent byte
- ld a,(#__current_bank)
+ ldh a,(#__current_bank)
  ld (#0x2000),a
  jp rider_spin_word_sum
 
