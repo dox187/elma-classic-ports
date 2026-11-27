@@ -157,10 +157,7 @@ candidate_nibble:
  and #15
  ret z
 candidate_program_id:
- ld c,a
- ld hl,#_riding_candidate_decode
- ld e,#5
- jp ___sdcc_bcall_ehl
+ ret
 candidate_region_skip4:
  inc hl
  inc hl

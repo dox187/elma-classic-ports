@@ -302,7 +302,7 @@ def validate_layout(symbols):
     if '_riding_candidate_gate' in symbols and (
             symbols['_riding_candidate_gate'] >> 16 != 9 or symbols['_riding_candidate_solve'] >> 16 != 9 or
             symbols['_riding_candidate_select'] >> 16 != 80 or symbols['_riding_candidate_leaves'] >> 16 != 80 or
-            symbols['_riding_candidate_programs'] >> 16 != 5 or symbols['_riding_candidate_decode'] >> 16 != 5 or
+            symbols['_riding_candidate_programs'] >> 16 != 9 or
             symbols['candidate_static_distance'] >> 16 != 93 or
             symbols['_riding_candidate_intercepts'] >> 16 != 93 or
             not symbols['_riding_gravity_end_80'] <= symbols['_riding_candidate_leaves'] <

@@ -29,7 +29,7 @@ UNIFORM_REGIONS = (
 REGIONS = TILED_REGIONS + UNIFORM_REGIONS
 
 
-# The wheel reader has 314 bytes for its ordered programs in bank 5.
+# The wheel reader has 314 bytes for its ordered programs in bank 9.
 # Bank 93 stores five bytes per affine operand beside the projection code.
 PROGRAM_BYTES = 314
 PLANE_OPERANDS = 31
@@ -171,7 +171,7 @@ def tables(levels, banks, output_dir):
                 values = ids[row*w:(row+1)*w]+[0]
                 packed = [values[k] | (values[k+1] << 4) for k in range(0,w,2)]
                 lines += [' .db '+','.join(map(str,packed))]
-    lines += ['.area _CODE_5', '_riding_candidate_programs::']
+    lines += ['.area _CODE_9', '_riding_candidate_programs::']
     for i in range(1,len(programs)+1):
         lines += [f' .db candidate_program_{i}-_riding_candidate_payload']
     lines += ['_riding_candidate_payload::']
