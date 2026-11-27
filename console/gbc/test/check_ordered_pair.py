@@ -119,7 +119,7 @@ def check_speed_class(cart):
     velocity = cart.symbols['_Bike'] + 32
     limit = 23069
     pairs = set()
-    for x in (0, 1, 255, 256, 8191, 16128, 16384, 22528, limit-1, limit):
+    for x in (0, 1, 255, 256, 8191, 10856, 16128, 16384, 20355, 22528, limit-1, limit):
         edge = isqrt(limit*limit - x*x)
         for y in (0, 1, edge-1, edge, edge+1, 23295, 23296, 32768, 65536):
             for sx in (-1, 1):
@@ -128,12 +128,23 @@ def check_speed_class(cart):
                     pairs.add((sy*y, sx*x))
     pairs.update(((1 << 30, 0), (0, -1 << 31), (-65536, 65535)))
     seen = set()
+    # The two off-axis integer points (10856, 20355) and its transpose
+    # lie exactly on this circle. Only equality on an axis selects fast.
+    inputs = 0xdf84
+    cart.mem[inputs:inputs+14] = struct.pack('<Hiii', velocity-8, 0, 0, 0)
+    cart.mem[cart.symbols['_riding_subphase']] = 0
+    ct = cart.symbols['_Ct']
+    contacts = struct.pack('<10h', 0, 16384, 404, 110, 80, 0, 16384, 409, -110, 75)
     for vx, vy in pairs:
         cart.mem[velocity:velocity+8] = struct.pack('<ii', vx, vy)
         answer = cart.call('_riding_pair_speed_class', velocity, 0)
         fast = max(abs(vx), abs(vy)) >= limit or vx*vx+vy*vy > limit*limit
         expected = 2 if fast else int(bool(vx or vy))
         assert answer in (expected, 3), (vx, vy, answer, expected)
+        if answer == 3:
+            cart.mem[ct:ct+20] = contacts
+            cart.call('_riding_wheel_contact', inputs, 2)
+            assert cart.mem[cart.symbols['_riding_pair_shift']] == (10 if fast else 6), (vx, vy)
         seen.add(answer)
     assert seen == {0, 1, 2, 3}, seen
     return len(pairs)
