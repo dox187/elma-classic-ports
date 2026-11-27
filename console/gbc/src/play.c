@@ -88,6 +88,16 @@ static uint8_t visible_objects[LEVEL_OBJECT_MAX],visible_count;
  * most eight pixels on each axis, so a crossing cannot wrap a count. */
 static uint8_t visibility_regions[256],objects_region_x,objects_region_y;
 
+#ifdef WORLD_SIGNED_BG
+static void mark_object_axis(uint8_t *page, int32_t center, uint8_t bit) {
+    uint8_t cell=(uint8_t)(center>>16);
+    uint16_t fraction=(uint16_t)center;
+    page[cell]|=bit;
+    if(fraction<52429U)page[(uint8_t)(cell-1)]|=bit;
+    if(fraction>=65536UL-52429U)page[(uint8_t)(cell+1)]|=bit;
+}
+#endif
+
 void gbc_build_object_regions(void) {
     const game_object_t *object;
     uint8_t i,x_count=0,y_count=0;
@@ -103,15 +113,11 @@ void gbc_build_object_regions(void) {
         /* On sparse courses each object has a distinct bit. Beyond eight,
          * reuse bits by X stripe so nearby X queries mostly consider local Y
          * values. The exact contact first bounds each Q16 delta to 52429. */
-        uint8_t x=(uint8_t)(object->world_x>>16),y=(uint8_t)(object->world_y>>16);
-        uint16_t xf=(uint16_t)object->world_x,yf=(uint16_t)object->world_y;
+        uint8_t x=(uint8_t)(object->world_x>>16);
         static const uint8_t stripe_bits[]={1,2,4,8,16,32,64,128};
         uint8_t bit=OBJECT_COUNT>8?stripe_bits[x&7]:lane;
-        xs[x]|=bit;ys[y]|=bit;
-        if(xf<52429U)xs[(uint8_t)(x-1)]|=bit;
-        if(xf>=65536UL-52429U)xs[(uint8_t)(x+1)]|=bit;
-        if(yf<52429U)ys[(uint8_t)(y-1)]|=bit;
-        if(yf>=65536UL-52429U)ys[(uint8_t)(y+1)]|=bit;
+        mark_object_axis(xs,object->world_x,bit);
+        mark_object_axis(ys,object->world_y,bit);
         lane=lane==128?1:lane<<1;
 #endif
         visibility_regions[(uint8_t)(object->x-167)]|=1;
