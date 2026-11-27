@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test58 — Ordered terrain, braking and camera scroll
+
+The wheel solver reads ordered terrain programs directly from its own ROM bank.
+Braking shares product-table rows, and terrain projections use fewer stack
+operations. The camera publishes fine scroll directly and resolves scenery in
+groups of four cells. Across the primary controller replays, 115 of 25,310
+intervals needed a third refresh, down from 130. All 100,382 recorded physics
+substeps matched test57. The Steep Corner stress grid peaked at 66.30 ms.
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test58-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test58--ordered-terrain-braking-and-camera-scroll)
+
 ## 0.96 test57 — Wheel response and suspension preparation
 
 The short Framework braking replay improved from 11 late intervals to 6 out

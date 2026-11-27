@@ -4340,3 +4340,56 @@ presentations and 61,845 background cells. All 54 courses started, with one
 late update in the entry sweep. Measurements are from PyBoy.
 
 SHA-256 `a913b4108c48641077eaca46d8ec9fecdd41bb07d6d2b16d907e1bca1121129f`.
+
+## 0.96 test58 — Ordered terrain, braking and camera scroll
+
+Bank 9 holds both the ordered terrain programs and their interpreter. Each
+step reads its original leaf ordinal and advances the terrain cursor at the
+same point as the general iterator. This removes a program copy and frees
+37 bytes of work RAM. The two signed products for contact projection stay
+in the fixed bank, with the second coefficient read before the next table
+lookup. Braking shares table bytes for positive and negative damping and
+keeps the common product in registers.
+
+When the prepared camera stays in the same tile, the renderer updates the
+scroll registers directly. Body projection uses the integral-origin path
+when available. Hidden strips resolve four tiles per group in place. If the
+predicted crossing lies more than two updates away, suspension preparation
+gets the first part of the available wait.
+
+| PyBoy measurement | test57 | test58 |
+| --- | ---: | ---: |
+| Weighted updates/s over 25,310 primary intervals | 29.787 | 29.796 |
+| Three-refresh intervals, catalog / extended / complete Freefall | 98 / 32 / 0 | 84 / 31 / 0 |
+| Independent seed, three-refresh intervals out of 5,302 | 62 | 51 |
+| Mean active update, primary, T-cycles | 212,956 | 211,414 |
+| Slowest primary replay, Bowling braking, updates/s | 28.43 | 28.70 |
+| Slowest independent replay, Haircut, updates/s | 28.01 | 28.30 |
+| Framework / Bowling / Hang Tight braking, late out of 99 each | 6 / 10 / 6 | 5 / 8 / 5 |
+| Peak physics time across 642 historical placements | 61.63 ms | 60.66 ms |
+| Historical placement updates over budget, out of 2,432 | 330 | 323 |
+| Peak physics time over the 25-point Steep Corner grid | 67.59 ms | 66.30 ms |
+
+The slowest regular input interval took three display refreshes (19.91
+updates/s for that interval). On the historical placements, physics time
+fell on every course, from 573,155,300 to 571,106,444 T in total. On the
+separate Steep Corner grid, the total fell from 95,324,656 to 93,163,512 T.
+All 200 forced updates still exceeded the 280,896 T whole-game budget on
+physics alone. At (25,176, 39,464), input 9 on wheel 2, wheel work took
+399,168 T, suspension 94,596 T, head contact 9,240 T and other physics
+53,188 T.
+
+The 76,568 primary, 16,015 independent and 7,799 forced substeps matched
+test57 byte for byte. All 298,416 ordered terrain queries and 84 shortened
+leaves matched both contact records and cursor state. The brake oracle
+passed 2,524 cases. The speed-limit suite matched 3,170 states across 122
+cases. The aligned screen-coordinate routine passed 1,024 boundary and
+random cases. Seven visual routes matched through 1,216 presentations and
+61,845 background cells. All 54 levels started, with one late entry update.
+
+Two alternatives were discarded. Skipping distant scenery preparation
+entirely raised the number of short-replay misses. Admitting affine slopes
+on all fine tiles raised the Steep Corner peak to 580,952 T despite one
+fewer late interval on the short replays.
+
+SHA-256 `2d08e939c7b823aad21e9d1be46a6ff55d94638d0e6679976b6497cc52e5ee04`.
