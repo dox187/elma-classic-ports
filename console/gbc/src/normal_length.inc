@@ -1,55 +1,52 @@
-; A physical squared length in [65536,168447] selected this bank. One
-; reciprocal spans 512 squared units. Its two-byte row holds the base
-; length minus 250 and two ascending cuts in the sixteen 32-unit slots.
-; A cut and its successor reserve the uncertainty on either side of a
-; rounded-length transition. Slot 0 or 15 may border a third transition.
-.macro normal_length_reader table, ?second, ?accepted, ?miss
+; In each reciprocal bin of 512 squared units, 16 slots share a pattern
+; of two-bit results. Zero requests the full dot. The other codes select
+; the bin's base length or either of the next two integers.
+normal_read_lower::
+ ld d,#0
+ jr normal_read_row
+normal_read_upper::
+ ld d,#1
+normal_read_row:
  ld a,(#normal_cache_key+5)
  ld c,a
  and #254
- ld l,a
- ld h,#0
- ld de,#table
+ ld e,a
+ ld hl,#normal_length_rows
  add hl,de
  ld a,(hl+)
  ld b,a
- ld e,(hl)
- ld a,(#normal_cache_key+4)
+ ld l,(hl)
+ ld h,#0
+ add hl,hl
+ add hl,hl
+ ld de,#normal_length_patterns
+ add hl,de
+ ; C = (squared >> 5) & 15, including the top bit from byte one.
  rr c
+ ld a,(#normal_cache_key+4)
  rra
- rrca
- rrca
- rrca
- rrca
+ swap a
  and #15
  ld c,a
- jr z,miss
- cp #15
- jr z,miss
- ld a,e
- and #15
- ld d,a
- ld a,c
- sub d
- jr c,second
- cp #2
- jr c,miss
- inc b
-second:
- swap e
- ld a,e
- and #15
+ srl a
+ srl a
  ld e,a
- ld a,c
- sub e
- jr c,accepted
- cp #2
- jr c,miss
- inc b
-accepted:
- ld c,b
+ ld d,#0
+ add hl,de
+ ld a,(hl)
+ bit 1,c
+ jr z,normal_length_half
+ swap a
+normal_length_half:
+ bit 0,c
+ jr z,normal_length_digit
+ rrca
+ rrca
+normal_length_digit:
+ and #3
+ ld c,a
+ ret z
+ add b
+ dec a
+ ld c,a
  ret
-miss:
- ld c,#0
- ret
-.endm

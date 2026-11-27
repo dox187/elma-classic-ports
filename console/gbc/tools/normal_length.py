@@ -1,52 +1,48 @@
-"""Certify rounded normal lengths for physical wheel vectors in reciprocal-root bins."""
+"""Pack exact rounded contact lengths for reachable integer wheel offsets."""
+from collections import Counter
 from math import isqrt
 
 from head_clearance import write_if_changed
 
 
-def length_row(start, reciprocal):
-    # For n=floor(x*r/16), the exact length numerator times sixteen is
-    # r*d2 - x*(x*r mod 16) - y*(y*r mod 16). Bound both discarded
-    # fractions for every signed vector using |x|+|y| <= sqrt(2*d2).
-    margin = 15 * isqrt(2 * (start + 511))
-    slots = [(((d2 * reciprocal - margin + 131072) >> 18),
-              (((d2 + 31) * reciprocal + margin + 131072) >> 18))
-             for d2 in range(start, start + 512, 32)]
-    # Pick the base and cuts retaining the most slots. For each returned
-    # slot both integer bounds must equal the reader's decoded result.
-    best = None
-    for base in range(slots[0][0] - 1, slots[0][1] + 2):
-        for first in range(16):
-            for second in range(first, 16):
-                retained = 0
-                for k, (lower, upper) in enumerate(slots):
-                    if k in (0, 15, first, first + 1, second, second + 1):
-                        continue
-                    if lower != upper or lower != base + (k > first) + (k > second):
-                        break
-                    retained += 1
-                else:
-                    choice = retained, base, first, second
-                    if best is None or choice > best:
-                        best = choice
-    assert best and best[0] and 250 < best[1] < 506
-    _, base, first, second = best
-    return base - 250, first | second << 4
-
-
 def generate(gen, reader, roots_path):
     roots = tuple(map(int, roots_path.read_text().split('\n', 1)[1].strip().rstrip(',').split(',')))
-    results = []
-    for bank, name, lower, upper in ((5, 'lower', 65536, 131072), (93, 'upper', 131072, 168448)):
-        out = [f'.module normal_length_{name}', reader.read_text(), f'.area _CODE_{bank}',
-               f'normal_read_{name}::', f' normal_length_reader normal_length_{name}',
-               f'normal_length_{name}::']
-        data = []
-        for start in range(lower, upper, 512):
-            data.extend(length_row(start, roots[(start - 16384) >> 9]))
+    lower, upper = 65536, 168448
+    slots = [Counter() for _ in range((upper-lower)//32)]
+    # Signed Q14 normals round downward before the final once-rounded dot.
+    # Equal squared distances can therefore have different lengths.
+    radius = isqrt(upper-1)
+    for x in range(-radius, radius+1):
+        for y in range(-radius, radius+1):
+            squared = x*x + y*y
+            if lower <= squared < upper:
+                r = roots[(squared-16384) >> 9]
+                length = (x*(x*r >> 4) + y*(y*r >> 4) + 8192) >> 14
+                slots[(squared-lower) >> 5][length] += 1
+
+    rows, patterns = [], {}
+    for i in range(0, len(slots), 16):
+        bins = slots[i:i+16]
+        # Each code selects one of three consecutive results. Code zero
+        # delegates empty and ambiguous slots to the original dot product.
+        counts = Counter()
+        for group in bins:
+            if len(group) == 1:
+                counts.update(group)
+        base = max(counts, key=lambda n: (sum(counts[n+j] for j in range(3)), -n))
+        codes = []
+        for group in bins:
+            length = next(iter(group)) if len(group) == 1 else None
+            codes.append(length-base+1 if length is not None and base <= length <= base+2 else 0)
+        pattern = bytes(sum(codes[j+k] << (2*k) for k in range(4)) for j in range(0, 16, 4))
+        assert 250 < base < 504
+        rows.extend((base-250, patterns.setdefault(pattern, len(patterns))))
+
+    out = ['.module normal_lengths', '.area _CODE_5', reader.read_text()]
+    for name, data in (('normal_length_rows', rows), ('normal_length_patterns', b''.join(patterns))):
+        out.append(name+'::')
         for i in range(0, len(data), 16):
-            out.append(' .db ' + ','.join(map(str, data[i:i+16])))
-        path = gen/f'normal_length_{name}.s'
-        write_if_changed(path, '\n'.join(out) + '\n')
-        results.append(path)
-    return results
+            out.append(' .db '+','.join(map(str, data[i:i+16])))
+    path = gen/'normal_lengths.s'
+    write_if_changed(path, '\n'.join(out)+'\n')
+    return path

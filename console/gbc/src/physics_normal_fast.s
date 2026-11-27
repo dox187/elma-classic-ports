@@ -325,9 +325,8 @@ normal_cache_store_result:
 
  .ifdef RIDING_NORMAL_ATLAS
 .area _CODE_9
-; Only true squared lengths in [65536,168447] index these two tables.
-; A zero return requests the full normalized-vector dot. The two-byte
-; row decodes in its own bank, preserving the original reciprocal.
+; Only true squared lengths in [65536,168447] select a slot in bank 5.
+; A zero return requests the full normalized-vector dot.
 normal_physical_length:
  ld a,(#normal_cache_key+7)
  or a
@@ -341,12 +340,11 @@ normal_physical_length:
  cp #146                 ; 73 reciprocal bins above 131072
  jr nc,normal_length_miss
  ld hl,#normal_read_upper
- ld e,#93
  jr normal_read
 normal_low_range:
  ld hl,#normal_read_lower
- ld e,#5
 normal_read:
+ ld e,#5
  call ___sdcc_bcall_ehl
  ld a,c
  or a

@@ -122,25 +122,26 @@ def check_physical_lengths(target, oracle, totals):
         return (address >> 16)*16384 + (address & 16383)
 
     roots = struct.unpack_from('<297H', target.image, rom_offset('_riding_normal_rsqrt'))
-    tables = [rom_offset('normal_length_'+name) for name in ('lower', 'upper')]
+    rows = rom_offset('normal_length_rows')
+    patterns = rom_offset('normal_length_patterns')
     representatives = {}
     for x in range(-410, 411):
         for y in range(-410, 411):
             squared = x*x + y*y
             if not 65536 <= squared < 168448:
                 continue
-            offset = tables[(squared >> 16)-1] + ((squared >> 8) & 254)
-            base, cuts = target.image[offset:offset+2]
-            first, second = cuts & 15, cuts >> 4
+            offset = rows + 2*((squared-65536) >> 9)
+            base, pattern = target.image[offset:offset+2]
             slot = (squared >> 5) & 15
+            code = (target.image[patterns+4*pattern+slot//4] >> (2*(slot%4))) & 3
             representatives.setdefault(squared >> 5, (x, y, squared))
-            if slot in (0, 15, first, first+1, second, second+1):
+            if not code:
                 totals['full dot fallbacks'] += 1
                 continue
             reciprocal = roots[(squared-16384) >> 9]
             nx, ny = x*reciprocal >> 4, y*reciprocal >> 4
             expected = (x*nx + y*ny + 8192) >> 14
-            assert base+250+(slot > first)+(slot > second) == expected, (x, y, squared)
+            assert base+249+code == expected, (x, y, squared)
             totals['certified physical lengths'] += 1
 
     # Invoke every populated slot and compare all six output bytes with
