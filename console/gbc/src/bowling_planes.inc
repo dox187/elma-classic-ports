@@ -81,20 +81,13 @@ _bowling_flat::
  sub #192
  jr c,bowling_miss
  ld c,a
- ; FLAT_Y through FLAT_Y+63. Each entry contains a lower inclusive and
- ; upper exclusive X followed by its initial distance code.
+ ; Each upper X bound is exclusive. The strip starts on an X page.
+ ld a,d
+ sub #bowling_start_page
+ cp #bowling_page_count
+ jr nc,bowling_miss
  ld hl,#bowling_ranges
 bowling_range:
- ld a,(hl+)
- ld b,a
- ld a,(hl+)
- cp d
- jr c,bowling_upper
- jr nz,bowling_miss
- ld a,e
- cp b
- jr c,bowling_miss
-bowling_upper:
  ld a,(hl+)
  ld b,a
  ld a,(hl+)
@@ -106,18 +99,24 @@ bowling_upper:
  jr c,bowling_found
 bowling_next:
  inc hl
- ld a,(hl)
- inc hl
- or (hl)
- dec hl
- jr nz,bowling_range
+ jr bowling_range
 bowling_miss:
  ld a,#255
  ret
 bowling_found:
  ld a,(hl)
+ cp #255
+ ret z
  or a
  ret z
+ cp #1
+ jr nz,bowling_flat_run
+ ld b,d
+ ld d,e
+ ld e,#5
+ ld hl,#bowling_shared_cap
+ jp ___sdcc_bcall_ehl
+bowling_flat_run:
  add c
  ld c,a
  cp #154                   ; 410 - 256
@@ -238,3 +237,53 @@ bowling_distance:
  ld (hl),a
  ld a,#1
  ret
+
+.area _CODE_5
+bowling_shared_cap:
+ ld hl,#_riding_contact_qx
+ ld a,d
+ ld (hl+),a
+ ld a,b
+ and #15
+ ld (hl+),a
+ ld a,c
+ add #<bowling_first_y
+ ld (hl+),a
+ ld (hl),#>bowling_first_y
+ ld hl,#_riding_dense_vertex
+ ld a,#<bowling_cap_x
+ ld (hl+),a
+ ld a,#>bowling_cap_x
+ ld (hl+),a
+ ld a,#<bowling_cap_y
+ ld (hl+),a
+ ld (hl),#>bowling_cap_y
+ ; The shared resolver uses both contacts as scratch, while this wheel
+ ; query publishes only the first six bytes of a single active contact.
+ ld hl,#(_Ct+6)
+ ld b,#7
+bowling_save_contacts:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ push de
+ dec b
+ jr nz,bowling_save_contacts
+ ld hl,#_riding_shared_cap
+ ld e,#9
+ call ___sdcc_bcall_ehl
+ ld c,a
+ ld b,#7
+ ld hl,#(_Ct+19)
+bowling_restore_contacts:
+ pop de
+ ld a,d
+ ld (hl-),a
+ ld a,e
+ ld (hl-),a
+ dec b
+ jr nz,bowling_restore_contacts
+ ld a,c
+ ret
+.area _CODE_86

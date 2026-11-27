@@ -9,12 +9,14 @@ import sys
 from check_corner_results import WheelQueries
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from bowling_planes import BANK, COURSE, FLAT_RUNS, FLAT_Y, slope_contains
+from bowling_planes import BANK, COURSE, FLAT_RUNS, FLAT_Y, SHARED_CAP, slope_contains
 
 
 def probes():
     points = set()
-    for start, end, _ in FLAT_RUNS:
+    for start, end, code in FLAT_RUNS:
+        if code == SHARED_CAP:
+            points.update((x, y) for x in range(start, end) for y in range(FLAT_Y, FLAT_Y+64))
         for x in (start-1, start, start+1, end-2, end-1, end):
             points.update((x, y) for y in range(FLAT_Y-1, FLAT_Y+65))
     for x in (171775, 171776, 171887, 171888, 171983, 171984, 172287, 172288):
