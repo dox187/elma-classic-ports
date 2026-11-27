@@ -39,54 +39,17 @@ _riding_mul16u8_unsigned::
  ld h,#0
  ret
 
-; Exact signed16 normal components times the unsigned-byte coordinates
-; C,B. Return their signed32 sum in BC:DE.
-; The low lookup digit carries into the next product before rounding.
-_riding_fraction_pair::
- push bc
- call fraction_axis
- pop bc
- push af
- push de
- ld c,b
- call fraction_axis
- pop bc
- ld h,a                   ; second product, upper byte
- ld a,e
- add c
- ld e,a
- ld a,d
- adc b
- ld d,a
- pop bc                   ; first product's upper byte in B
- ld a,b
- adc h
- ld c,a
- ; Sum of both sign extensions and the carry from byte two.
- ld a,#0
- adc #0
- bit 7,b
- jr z,fraction_first_positive
- dec a
-fraction_first_positive:
- bit 7,h
- jr z,fraction_second_positive
- dec a
-fraction_second_positive:
- ld b,a
- ldh a,(#__current_bank)
- ld (#0x2000),a
- ret
-
 ; C is the unsigned coordinate. Obtain the low and high parts of both
 ; unsigned byte products in one selected bank. Correct the signed high
 ; digit modulo 256. Every signed16-by-byte product fits signed24.
-fraction_axis:
+.macro fraction_axis preserve_pointer,positive
  ld a,(hl+)
  ld e,a
  ld a,(hl+)
  ld d,a
+ .if preserve_pointer
  push hl
+ .endif
  .ifdef RIDING_SCALE_DIRECTORY
  ld l,c
  ld h,#>_riding_scale_directory
@@ -121,8 +84,49 @@ fraction_axis:
  ld a,b
  adc #0
  bit 7,l
- jr z,fraction_axis_done
+ jr z,positive
  sub c
-fraction_axis_done:
+positive:
+ .if preserve_pointer
  pop hl
+ .endif
+.endm
+
+; Exact signed16 normal components times the unsigned-byte coordinates
+; C,B. Return their signed32 sum in BC:DE.
+; The low lookup digit carries into the next product before rounding.
+_riding_fraction_pair::
+ push bc
+ fraction_axis 1,fraction_first_done
+ pop bc
+ push af
+ push de
+ ld c,b
+ fraction_axis 0,fraction_second_done
+ pop bc
+ ld h,a                   ; second product, upper byte
+ ld a,e
+ add c
+ ld e,a
+ ld a,d
+ adc b
+ ld d,a
+ pop bc                   ; first product's upper byte in B
+ ld a,b
+ adc h
+ ld c,a
+ ; Sum of both sign extensions and the carry from byte two.
+ ld a,#0
+ adc #0
+ bit 7,b
+ jr z,fraction_first_positive
+ dec a
+fraction_first_positive:
+ bit 7,h
+ jr z,fraction_second_positive
+ dec a
+fraction_second_positive:
+ ld b,a
+ ldh a,(#__current_bank)
+ ld (#0x2000),a
  ret
