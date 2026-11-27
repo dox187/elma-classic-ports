@@ -313,7 +313,6 @@ pair_speed_slow:
  ret z
  ld a,#1
  ret
-.area _CODE
 pair_speed_axis:
  ld a,(hl+)
  or c

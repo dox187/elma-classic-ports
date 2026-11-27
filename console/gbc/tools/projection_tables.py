@@ -328,6 +328,12 @@ def validate_layout(symbols):
         if bank == 20 and '_riding_wheel_refinement' in symbols:
             tail = symbols['_riding_wheel_refinement']
             tail_end = symbols.get('_wheel_refinement_end')
+        if f'patch_data_start_{bank}' in symbols:
+            patch_start = symbols[f'patch_data_start_{bank}']
+            patch_end = symbols[f'patch_data_end_{bank}']
+            if patch_start != start+expected_size or not patch_start < patch_end == tail:
+                raise ValueError(f'Ordered pair blocks overlap projection or head tables in bank {bank}')
+            tail = patch_start
         if (symbols.get(f'_riding_projection_bank_{bank}') != start or
                 symbols.get(f's__CODE_{bank}') != start or
                 tail != start+expected_size or tail_end != end):

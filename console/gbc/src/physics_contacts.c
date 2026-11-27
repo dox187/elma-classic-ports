@@ -1525,6 +1525,7 @@ ws_cert:
     add hl,de
     call wheel_query_position
     call _contacts
+_riding_patch_have_answer::
 ws_have_answer:
     or a,a
     jp z,wheel_no_contact

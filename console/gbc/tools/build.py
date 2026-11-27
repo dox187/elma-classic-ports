@@ -18,6 +18,7 @@ import head_refinement
 import head_lane_tables
 import mul_table
 import normal_atlas
+import pair_patches
 import pose_products
 import phase_tables
 import projection_tables
@@ -574,6 +575,8 @@ def main():
         levels, terrain_banks, _ = head_clearance.packed_inputs(a.gen)
         for bank, path in gravity_strips.generate(a.gen, BASE/'src/gravity_strip.inc', levels, terrain_banks).items():
             sources[sources.index(a.gen/f'physics_bank_{bank}.c')] = path
+        patch_source = pair_patches.generate(a.gen, BASE/'src/pair_patches.inc', levels, terrain_banks)
+        sources.insert(sources.index(a.gen/'head_quarters.s'), patch_source)
         tables, directory = corner_cells.generate(a.gen, BASE/'src/corner_cell_reader.inc')
         step = BASE/'src/physics_step_scheduled.s'
         step_game = a.gen/'physics_step_corners.s'

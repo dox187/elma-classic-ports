@@ -88,6 +88,11 @@ corner_has_secondary:
  ld (#corner_ram+(corner_sparse_branch-corner_template)+1),a
  pop af
 corner_level_ready:
+ cp #37
+ jr nz,corner_existing_level
+ ld hl,#_riding_patch_wheel_inputs
+ jr corner_disable_bind
+corner_existing_level:
  cp #10
  jr z,corner_dense_target
  ; Check the first position after a course reset. Seeding the invalid
@@ -386,5 +391,8 @@ _riding_sparse_lookup = corner_ram + (corner_lookup_src-corner_template)
 corner_quarter_old = corner_ram+(corner_old_compare-corner_template)+1
 _riding_corner_pair_map = corner_ram+(corner_pair_map-corner_template)
 .globl _riding_sparse_bind, _riding_sparse_lookup, _riding_corner_pair_map
+_patch_sparse_y0 = corner_key+4
+_patch_sparse_y1 = corner_second+4
+.globl _patch_sparse_y0, _patch_sparse_y1
 
 .area _CODE_32
