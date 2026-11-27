@@ -58,6 +58,7 @@ class HeadVerifier:
     """Observe actual head publications without changing registers or memory."""
     def __init__(self,d):
         self.d=d;self.stack=[];self.returns=set();self.counts=Counter()
+        self.viewport_requested=None
         self.height=d.rom_constant('game_sprite_height',8)
         self.index=d.rom_constant('game_head_oam_index',24)
         self.frame_bytes=self.height*2
@@ -121,6 +122,10 @@ class HeadVerifier:
             shadow=d.symbols['_shadow_OAM']+self.index*4
             if d.p.memory[shadow+2]!=after[0][2]:self.counts['double_buffer_publications']+=1
         if name=='bike_render_draw' and d.byte('game_ready') and d.byte('game_state')not in(MENU,PAUSED):
+            # world_scroll has published both the tilemap and the scroll registers.
+            if self.viewport_requested==d.level_index():
+                d.visible_vram(force=True)
+                self.viewport_requested=None
             shadow=d.symbols['_shadow_OAM']+self.index*4;oam=bytes(d.p.memory[shadow:shadow+4])
             assert (oam[0],oam[1])==expected[1],('head shadow pose differs',oam,expected[1])
             start=0x8000+oam[2]*16
@@ -204,7 +209,7 @@ def world_check(d,index,record,physics):
     assert d.byte('game_apples_left')==sum(o[2]==2 and flag for o,flag in zip(objects,active))
     bike=d.bike();sx,sy=(n/65536 for n in physics['start_q16'])
     assert abs(bike['wheel0']['x']-sx)<.6 and abs(bike['wheel0']['y']-sy)<.6,('spawn',index,bike['wheel0'],[sx,sy])
-    d.physical_bounds(bike);d.visible_vram(force=True);object_graphics_check(d)
+    d.physical_bounds(bike);object_graphics_check(d)
     return {'objects':len(objects),'apples':sum(o[2]==2 for o in objects),'killers':sum(o[2]==3 for o in objects),'gravity_objects':sum(bool(o[5])for o in objects),'start_state':d.byte('game_state')}
 
 
@@ -315,7 +320,9 @@ def main():
             if index:
                 d.level_menu();assert d.byte('game_state')in(MENU,PAUSED)
                 d.pulse('down');menu_rows+=menu_check(d,index,names)
+            head.viewport_requested=index
             d.phase='all-levels';d.pulse('a');d.ready()
+            assert head.viewport_requested is None,('missing published course viewport',index)
             source=d.level_source(index);details=world_check(d,index,record,physics[index])
             details.update({'index':index,'name':record['name'],'palette':palette_check(d,source),
                             'hud_apple_count':hud_count_check(d,record),'overruns':d.word('game_overruns')})
@@ -324,11 +331,13 @@ def main():
                 frozen=(d.time_frames(),d.bike(),d.word('game_steps'))
                 d.tick(20);assert frozen==(d.time_frames(),d.bike(),d.word('game_steps'))
                 d.pulse('down');menu_rows+=menu_check(d,1,names)
+                head.viewport_requested=index
                 d.pulse('b')
                 if '_menu_screen'in d.symbols:d.pulse('b')
                 assert d.byte('game_state')==RIDING and d.level_index()==0
                 assert d.time_frames()>=frozen[0],'menu resume reset the race timer'
-                d.visible_vram(force=True);palette_check(d,source)
+                assert head.viewport_requested is None,'missing published viewport after resume'
+                palette_check(d,source)
             idle_steps=d.word('game_steps')
             for _ in range(args.idle_updates):
                 if d.byte('game_state')!=RIDING:break
