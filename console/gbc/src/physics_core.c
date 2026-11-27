@@ -111,8 +111,10 @@ extern int16_t riding_pose_rest[2];
 void riding_step_head_position(void) __sdcccall(0);
 void riding_step_controls(uint8_t input);
 int16_t riding_step_gravity(const int32_t *whole, const int32_t *fraction);
+#ifndef RIDING_IMMEDIATE_DRIVE
 const int32_t riding_drive_bounds[2]={WHEEL_MAXW,-WHEEL_MAXW};
 const int32_t riding_drive_torque[2]={GAS_TQ,-GAS_TQ};
+#endif
 #define head_position riding_step_head_position
 #else
 static void head_position(void) {

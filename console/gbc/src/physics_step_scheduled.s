@@ -25,20 +25,18 @@ step_fraction = 48
  ld c,a
  ld b,(hl)
 .endm
-.macro step_add32 address
- ld hl,#(address)
- ld a,(hl)
- add a,e
+; Advance both streams by one signed32 word, retaining carry between bytes.
+.macro step_add_word
+ .irp offset,0,1,2,3
+ ld a,(de)
+ .if offset
+ adc (hl)
+ .else
+ add (hl)
+ .endif
  ld (hl+),a
- ld a,(hl)
- adc a,d
- ld (hl+),a
- ld a,(hl)
- adc a,c
- ld (hl+),a
- ld a,(hl)
- adc a,b
- ld (hl),a
+ inc de
+ .endm
 .endm
 ; Gravity is signed16. A carry into the upper half from a negative
 ; impulse cancels its sign extension; a positive impulse needs a carry.
@@ -65,6 +63,26 @@ done:
  push bc
  push de
 .endm
+
+.ifdef STEP_DRIVE_LIMIT
+.macro step_torque_field base,value
+ ld hl,#(_riding_suspension_state+base)
+ ld a,#<(value)
+ ld (hl+),a
+ ld a,#>(value)
+ ld (hl+),a
+ add a
+ sbc a
+ ld (hl+),a
+ ld (hl),a
+.endm
+.macro step_clear_torque base
+ ld hl,#(_riding_suspension_state+base)
+ .rept 4
+ ld (hl+),a
+ .endm
+.endm
+.endif
 
 ; Set both torques once. Braking supersedes throttle in the PC solver.
 ; On the first brake substep, capture each angle relative to the body.
@@ -98,6 +116,61 @@ step_brake:
  ld bc,#(_riding_suspension_state+32)
  jp _riding_brake_fields
 step_drive:
+ .ifdef STEP_DRIVE_LIMIT
+ rrca                         ; carry contains throttle
+ ld a,#0
+ ld (#(_Bike+98)),a
+ jr nc,step_disabled
+ ld hl,#(_Bike+71)
+ ld de,#STEP_DRIVE_LIMIT
+ ld c,a                       ; zero for the right wheel
+ ld a,(#(_Bike+96))
+ or a
+ jr z,step_drive_bound
+ ld hl,#(_Bike+47)
+ dec de
+ dec c                        ; left: omega > -limit iff ~omega < limit-1
+step_drive_bound:
+ ld a,(hl-)
+ xor c
+ add a
+ jr c,step_drive_allowed
+ ld b,a
+ ld a,(hl-)
+ xor c
+ or b
+ jr nz,step_disabled
+ ld a,(hl-)
+ xor c
+ cp d
+ jr nz,step_drive_check
+ ld a,(hl)
+ xor c
+ cp e
+step_drive_check:
+ jr nc,step_disabled
+step_drive_allowed:
+ ld a,c
+ or a
+ jr nz,step_negative_torque
+ step_torque_field 32,STEP_DRIVE_TORQUE
+ ld hl,#(_riding_suspension_state+18)
+ jr step_zero_field           ; sign extension left A zero
+step_negative_torque:
+ step_torque_field 18,-STEP_DRIVE_TORQUE
+ jr step_clear_right
+step_disabled:
+ xor a
+ step_clear_torque 18
+step_clear_right:
+ xor a
+ ld hl,#(_riding_suspension_state+32)
+step_zero_field:
+ .rept 4
+ ld (hl+),a
+ .endm
+ ret
+ .else
  ld b,a
  xor a
  ld (#(_Bike+98)),a
@@ -139,6 +212,8 @@ step_store_torque:
  ld a,(hl)
  ld (de),a
  ret
+
+ .endif
 
 ; DE and BC point to the two generated int32 rows for gravity. Its integer
 ; part fits int16, its fraction fits uint8. Return the magnitude in BC.
@@ -182,9 +257,7 @@ _riding_step_commit_fraction_regs::
  ld (hl+),a
  add a,a
  sbc a,a
- ld (hl),a
- ld a,c
- add a,a
+ ld (hl),a                    ; SBC A,A preserved the sign-bit carry
  ld a,b
  adc a,#0
  ret z
@@ -251,21 +324,21 @@ step_rider_response:
  call _riding_rider_response_after_limit
  add sp,#16
  ; Only now can the rider's old body velocity and residual be replaced.
- step_load32 _riding_suspension_state+step_dwb
- step_add32 _Bike+20
- step_load32 _riding_suspension_state+step_fraction
+ ld de,#(_riding_suspension_state+step_dwb)
+ ld hl,#(_Bike+20)
+ step_add_word
+ ; The angular residual follows the impulse in the suspension workspace.
  ld hl,#_angular_residual
- ld a,e
+ .rept 4
+ ld a,(de)
+ inc de
  ld (hl+),a
- ld a,d
- ld (hl+),a
- ld a,c
- ld (hl+),a
- ld (hl),b
- step_load32 _riding_suspension_state+step_dvbx
- step_add32 _Bike+8
- step_load32 _riding_suspension_state+step_dvby
- step_add32 _Bike+12
+ .endm
+ ; X/Y impulses and body velocities are contiguous in the same order.
+ ld de,#(_riding_suspension_state+step_dvbx)
+ ld hl,#(_Bike+8)
+ step_add_word
+ step_add_word
  ret
 step_neg_gravity:
  xor a
@@ -459,11 +532,11 @@ frame_publish:
 
 frame_interval:
  push de
- push bc
+ ld c,b                       ; both bounds predicates preserve C
  call _wheels_in_grid
+ ld b,c
  ld c,a
- ldhl sp,#1
- ld a,(hl)
+ ld a,b
  push bc
  call _ph_step
  pop bc
@@ -471,10 +544,12 @@ frame_interval:
  jr z,frame_alive
  ld a,c
  or a
- call nz,_head_body_in_level
+ jr z,frame_alive
+ ld c,b
+ call _head_body_in_level
+ ld b,c
 frame_alive:
  ld (#_gbc_bike+50),a
- pop bc
  pop de
  ld c,a
  ld hl,#_riding_audio_impact

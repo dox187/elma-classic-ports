@@ -592,6 +592,7 @@ def main():
     if scheduled and graphics['map_codec']==rolling_map_banks.CODEC:
         sources = rolling_map_banks.bank_sources(sources, graphics, a.gen, BASE/'src')
     head_lanes = scheduled and rom_mib == 8 and graphics['map_codec'] == rolling_map_banks.CODEC
+    immediate_drive = False
     if head_lanes:
         levels, terrain_banks, _ = head_clearance.packed_inputs(a.gen)
         hang = hang_terrain.generate(a.gen, BASE/'src/hang_terrain.inc', levels, terrain_banks)
@@ -605,7 +606,13 @@ def main():
         tables, directory = corner_cells.generate(a.gen, BASE/'src/corner_cell_reader.inc')
         step = BASE/'src/physics_step_scheduled.s'
         step_game = a.gen/'physics_step_corners.s'
-        head_clearance.write_if_changed(step_game, 'RIDING_CORNER_CELLS = 1\n'+step.read_text())
+        header = (a.gen/'riding_constants.h').read_text()
+        drive = dict(re.findall(r'^#define (WHEEL_MAXW|GAS_TQ) (\d+)$', header, re.M))
+        prefix = 'RIDING_CORNER_CELLS = 1\n'
+        immediate_drive = len(drive) == 2 and 0 < int(drive['WHEEL_MAXW']) < 32768 and int(drive['GAS_TQ']) < 32768
+        if immediate_drive:
+            prefix += f"STEP_DRIVE_LIMIT = {drive['WHEEL_MAXW']}\nSTEP_DRIVE_TORQUE = {drive['GAS_TQ']}\n"
+        head_clearance.write_if_changed(step_game, prefix+step.read_text())
         sources[sources.index(step)] = step_game
         lookup = a.gen/'corner_lookup_game.s'
         head_clearance.write_if_changed(lookup, (BASE/'src/corner_lookup.s').read_text() + directory)
@@ -668,7 +675,8 @@ def main():
         sources.insert(0, page)
     def source_flags(path):
         if scheduled and path == BASE/'src/physics_core.c':
-            return ['-DRIDING_PAIRED_ROTATION'] + (['-DRIDING_SEAT_LOOKUP'] if seat_lookup else [])
+            flags = ['-DRIDING_PAIRED_ROTATION'] + (['-DRIDING_SEAT_LOOKUP'] if seat_lookup else [])
+            return flags + (['-DRIDING_IMMEDIATE_DRIVE'] if immediate_drive else [])
         if scheduled and path == BASE/'src/play.c': return ['-DRIDING_BANKED_DRAW']
         if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS']
