@@ -74,7 +74,8 @@ class Replay:
         if prepare or wide:
             self.hook('_physics_prepare_spring',self.enter_prepare)
         if wide:
-            self.hook('_riding_spring_geometry',self.seed_wide_geometry)
+            self.hook('_riding_spring_prefix' if '_riding_spring_prefix' in self.sy else
+                      '_riding_spring_geometry',self.seed_wide_geometry)
         if prepare:
             for stage,(site,_) in zip((0,*range(2,len(self.sites)+1)),self.sites):
                 self.install(site+5, lambda _,s=stage:self.check_guard(s))
@@ -296,8 +297,10 @@ def main():
         labels=('geometry','wheel velocities and symmetry','first moment','second moment','spring products','damper products')
     if len(sites)>=7:
         labels+=('angular damping moment',)
-    if len(sites)==8:
+    if len(sites)>=8:
         labels+=('base forces',)
+    if len(sites)==9:
+        labels=('wheel offsets','angular geometry',*labels[1:])
     paths=bounds(a.rom,sy,{k:pc+5 for k,(pc,_) in zip(labels,sites)},
                  {pc for pc,_ in sites})
     print('Worst-case reachable SM83 T-cycles after each guard',paths)

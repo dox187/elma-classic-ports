@@ -869,14 +869,22 @@ _physics_prepare_spring::
  ld a,(hl+)
  ld d,(hl)
  ld e,a                         ; next-input deadline is start + 2
- ld a,#12                       ; geometry plus two reserved LCD lines
+ ld a,#6                        ; angular speed and wheel offsets
  call _riding_spring_budget
  ret nc
  push de
- call _riding_spring_geometry
+ call _riding_spring_prefix
+ pop de
+ ld a,#2
+ ld (#_riding_spring_ready),a
+ ld a,#9                        ; rotated arms and speed, including the return margin
+ call _riding_spring_budget
+ ret nc
+ push de
+ call ss_spin_narrow
  ld a,#1
  jp c,ss_prepared_wide
- inc a
+ ld a,#3
  ld (#_riding_spring_ready),a
  pop de
  ld a,#6                        ; displacements, relative speeds and symmetry
@@ -887,7 +895,7 @@ _physics_prepare_spring::
  call ss_try_mirrored
  pop de
  jr z,ss_prepared_moments
- ld a,#3
+ ld a,#4
  ld (#_riding_spring_ready),a
  ld a,#7                        ; 4,372 T plus two reserved LCD lines
  call _riding_spring_budget
@@ -895,7 +903,7 @@ _physics_prepare_spring::
  push de
  call ss_first_moment
  pop de
- ld a,#4
+ ld a,#5
  ld (#_riding_spring_ready),a
  ld a,#7                        ; 4,412 T plus two reserved LCD lines
  call _riding_spring_budget
@@ -904,7 +912,7 @@ _physics_prepare_spring::
  call ss_second_moment
  pop de
 ss_prepared_moments:
- ld a,#5
+ ld a,#6
  ld (#_riding_spring_ready),a
  ld a,#6
  call _riding_spring_budget
@@ -913,7 +921,7 @@ ss_prepared_moments:
  call _riding_prepare_spring_products
  pop de
  ret c
- ld a,#6
+ ld a,#7
  ld (#_riding_spring_ready),a
  ld a,#6
  call _riding_spring_budget
@@ -922,7 +930,7 @@ ss_prepared_moments:
  call _riding_prepare_damper_products
  pop de
  ret c
- ld a,#7
+ ld a,#8
  ld (#_riding_spring_ready),a
  ; The two equal springs require no angular force. For the certified
  ; four-term case every relative speed has already supplied its wheel
@@ -943,7 +951,7 @@ ss_prepared_moments:
  ss_store ss_prepared_damping
  ld a,#2
  ld (#ss_damp_long),a
- ld a,#8
+ ld a,#9
  ld (#_riding_spring_ready),a
  pop de
  ldh a,(ss_force_wide_used)
@@ -955,7 +963,7 @@ ss_prepared_moments:
  ld e,#15
  ld hl,#ss_prepare_base_forces
  call ___sdcc_bcall_ehl
- ld a,#9
+ ld a,#10
  ld (#_riding_spring_ready),a
  ret
 ss_prepared_wide:
@@ -1004,20 +1012,19 @@ ss_prepare_epoch:
 ss_prepare_ok:
  scf
  ret
-ss_prepare_late:
- or a
- ret
 ss_prepare_changed::
  ; Use the later line for the remaining budget. Crossing into VBlank or
  ; wrapping to a new visible frame still requires a fresh epoch snapshot.
  cp #144
- jr nc,ss_prepare_late
+ ret nc
  inc c
  cp c
  jr z,ss_prepare_epoch
- jr ss_prepare_late
+ss_prepare_late:
+ or a
+ ret
 
-_riding_spring_geometry::
+_riding_spring_prefix::
  ld e,#b_body_oms
  ld hl,#_body_oms
  call ___sdcc_bcall_ehl
@@ -1035,7 +1042,7 @@ _riding_spring_geometry::
  ss_read _Bike+4
  ss_write_delta (_Bike+28),(ss_damping+24),ld
  ss_write_delta (_Bike+52),(ss_damping+28),ld
- jp ss_spin_narrow
+ ret
 
 _riding_spring_inputs::
  call ss_wheel_values
@@ -1216,6 +1223,8 @@ _riding_suspension_scheduled::
  dec b
  jr z,ss_need_wide
  dec b
+ jr z,ss_need_spin
+ dec b
  jr z,ss_need_inputs
  dec b
  jr z,ss_need_both_moments
@@ -1237,7 +1246,9 @@ ss_need_second_moment:
  call ss_second_moment
  jr ss_have_inputs
 ss_need_geometry:
- call _riding_spring_geometry
+ call _riding_spring_prefix
+ss_need_spin:
+ call ss_spin_narrow
  jr nc,ss_need_inputs
 ss_need_wide:
  call ss_spin_full
@@ -1521,7 +1532,7 @@ ss_coarse_arm:
  bit 7,(hl)
  ld de,#0x7fff
  ret z
- ld de,#0x8000
+ inc de
  ret
 
  .ifdef RIDING_REACTION_WORDS
@@ -2068,6 +2079,9 @@ ss_spin_four:
 ss_spin_defer:
  scf
  ret
+; Keep the complete geometry entry for callers that need both stages.
+_riding_spring_geometry::
+ call _riding_spring_prefix
 ss_spin_narrow:
  ld hl,#_riding_suspension_state+4
  ld a,(hl+)

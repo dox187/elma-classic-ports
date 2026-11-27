@@ -1,4 +1,4 @@
-"""Check both complete signed16 C_REACT domains and the signed32 fallback on the linked cart."""
+"""Check torque selection, coefficients and arm projections on the linked cart."""
 import argparse
 from io import BytesIO
 from pathlib import Path
@@ -7,6 +7,37 @@ import re
 import struct
 
 from pyboy import PyBoy
+
+
+def wheel_reaction_cases():
+    # Cover every reciprocal index, including both sides of the close-distance cutoff.
+    arms = {}
+    for x in range(128):
+        for y in range(128):
+            index = min(255, (x*x + y*y) >> 5)
+            arms.setdefault(index, (x*16, y*16))
+    assert len(arms) == 256
+    rng = random.Random(456)
+    for phase in range(2):
+        for x, y in arms.values():
+            for tq in (2400, -2400, 2401, -2399, 32767, -32768, 32768, -32769,
+                       0x1000000, -0x1000000, 2**31-1, -2**31):
+                yield phase, tq, x, y
+        for _ in range(400):
+            yield phase, rng.randint(-2**31, 2**31-1), rng.randint(-32768, 32767), rng.randint(-32768, 32767)
+
+
+def reaction_input(torque, x, y):
+    index = min(255, (((x >> 4)**2 + (y >> 4)**2) >> 5))
+    if index < 16 and (x or y):
+        magnitude = (abs(torque) << 22) // (x*x + y*y)
+        raw = -magnitude if torque < 0 else magnitude
+    else:
+        # The packed reciprocal rounds 2^17 / (max(index,16) + 1/2).
+        denominator = 2*max(index, 16) + 1
+        reciprocal = ((1 << 18) + denominator//2) // denominator
+        raw = (torque*reciprocal) >> 8
+    return max(-2**31, min(2**31-1, raw))
 
 
 def check(rom, gen):
@@ -95,6 +126,27 @@ def check(rom, gen):
                     expected = max(-2**31, min(2**31-1, (torque*arm + 8192) >> 14))
                     assert got == expected & 0xffffffff, (torque, arm, got, expected)
             print(f'{len(torques)*10} signed reaction-arm projections matched')
+
+        if 'ss_wheel_reaction_value' in symbols:
+            entry = symbols['ss_wheel_reaction_value'] & 65535
+            coarse = symbols['ss_coarse']
+            phase_scales = list(map(int, scales.groups()))
+            mem[code:code+5] = [0xcd, entry & 255, entry >> 8, 0x18, 0xfe]
+            for count, (phase, torque, x, y) in enumerate(wheel_reaction_cases(), 1):
+                arms = struct.pack('<hh', x, y)
+                tq = struct.pack('<i', torque)
+                mem[coarse:coarse+4], mem[out:out+4] = arms, tq
+                mem[symbols['_riding_subphase']] = phase
+                regs.B, regs.C = (y >> 8) & 255, y & 255
+                regs.D, regs.E = (x >> 8) & 255, x & 255
+                regs.HL, regs.PC, regs.SP = out, code, stack
+                emu.tick(1, False)
+                check_return(code+3)
+                actual = (regs.B << 24) | (regs.C << 16) | (regs.D << 8) | regs.E
+                expected = result(reaction_input(torque, x, y), phase_scales[phase])
+                assert actual == expected & 0xffffffff, (phase, torque, x, y, actual, expected)
+                assert bytes(mem[coarse:coarse+4]) == arms and bytes(mem[out:out+4]) == tq
+            print(f'{count} wheel reactions matched across both phases')
     finally:
         emu.stop(save=False)
     print(f'131072 signed16 and {2*len(wide)} signed32 reaction products matched')

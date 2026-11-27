@@ -671,7 +671,7 @@ static void game_loop(void) BANKED {
 #if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
             /* A short tail can still fit the guarded geometry stage after
              * the last safe starting line for scenery. */
-            else if(line<131)
+            else if(line<138)
                 physics_prepare_spring(now-1);
 #endif
         }
