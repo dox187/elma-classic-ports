@@ -21,6 +21,9 @@ UNIFORM_REGIONS = (
     (31, 25536, 39296, 48, 144), (31, 23488, 38912, 64, 144), (31, 23552, 38912, 16, 144),
     (31, 26944, 39392, 64, 64), (31, 27168, 39488, 64, 64),
     (31, 27168, 39696, 208, 128),
+    (31, 25152, 39360, 192, 128), (31, 26880, 39360, 192, 128),
+    (31, 27136, 39424, 128, 128), (31, 27136, 39680, 256, 192),
+    (31, 23296, 39360, 256, 128), (31, 23168, 39744, 128, 128),
 )
 REGIONS = TILED_REGIONS + UNIFORM_REGIONS
 
@@ -102,6 +105,17 @@ def tables(levels, banks):
                 indices.append(programs.get(program, 0))
         if any(indices):
             leaves[key].append((x//16 & 255, y//16 & 255, width//16, height//16, indices))
+    # Work backwards so the first matching rectangle keeps its exact program.
+    # A rectangle already covered by identical later programs needs no test.
+    for regions in leaves.values():
+        covered = {}
+        for n in range(len(regions) - 1, -1, -1):
+            x, y, w, h, ids = regions[n]
+            tiles = {(x+xx, y+yy): ids[0] if len(ids) == 1 else ids[yy*w+xx]
+                     for yy in range(h) for xx in range(w)}
+            if all(covered.get(tile) == code for tile, code in tiles.items()):
+                del regions[n]
+            covered.update(tiles)
     # Other courses pay only the inexpensive admission comparisons, without
     # a ROM switch or touching any wheel/contact state.
     courses = sorted({key[0] for key in leaves})
