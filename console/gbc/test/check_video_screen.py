@@ -13,7 +13,8 @@ def signed(x,bits=32):
 def main():
     OUT.mkdir(parents=True,exist_ok=True)
     assembly=(BASE/'src/video_screen_fast.s').read_bytes()
-    (OUT/'screen.s').write_bytes(assembly)
+    # Link the fraction page first in bank 5, as in the playable cartridge.
+    (OUT/'screen.s').write_bytes(b'SCREEN_FRACTION_PAGE = 1\n'+assembly)
     rng=random.Random(0x5c3ee)
     values=[-2147483648,-16777217,-16777216,-65536,-1,0,1,65535,65536,16777215,16777216,2147483647]
     # Every transition of floor(12*f/65536), including carries across a full metre.
@@ -97,9 +98,10 @@ void main(void){
  done=1;while(1)vsync();
 }
 ''')
-    command=[str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yo32','-Wl-m','-Wl-j','-o',str(OUT/'check.gbc'),str(OUT/'check.c'),str(OUT/'near.c'),str(OUT/'screen.s'),*map(str,banks)]
+    command=[str(BASE/'.toolchain/gbdk/bin/lcc'),'-msm83:gb','-Wf--opt-code-size','-Wm-yC','-Wm-yt0x19','-Wm-yo32','-Wl-m','-Wl-j','-o',str(OUT/'check.gbc'),str(OUT/'screen.s'),str(OUT/'check.c'),str(OUT/'near.c'),*map(str,banks)]
     r=subprocess.run(command,capture_output=True,text=True);assert r.returncode==0,r.stdout+r.stderr
-    symbols={k:int(v,16) for k,v in re.findall(r'DEF (_\w+) 0x([0-9A-Fa-f]+)',(OUT/'check.noi').read_text())}
+    symbols={k:int(v,16) for k,v in re.findall(r'DEF (\w+) 0x([0-9A-Fa-f]+)',(OUT/'check.noi').read_text())}
+    assert symbols['fraction_pixels']==0x054000
     p=PyBoy(str(OUT/'check.gbc'),window='null',sound_emulated=False,cgb=True);p.set_emulation_speed(0)
     cycles=[];sprite_cycles=[];start=[];sprite_start=[]
     def enter(_):start.append(p._cycles())

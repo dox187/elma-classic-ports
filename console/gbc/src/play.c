@@ -108,6 +108,7 @@ static void build_visibility_regions(void) {
 
 static bike_screen_t screen;
 static int16_t body_world[2],next_camera_x,next_camera_y;
+enum { CAMERA_UNPREPARED, CAMERA_PROJECTED, CAMERA_SAME_TILE };
 static uint8_t camera_prepared;
 #define body_world_x body_world[0]
 #define body_world_y body_world[1]
@@ -143,7 +144,7 @@ static void project_camera(uint8_t jump) {
 static void position_camera(uint8_t jump) {
     if(jump || !camera_prepared)project_camera(jump);
     game_camera_x=next_camera_x;game_camera_y=next_camera_y;
-    camera_prepared=0;
+    camera_prepared=CAMERA_UNPREPARED;
 }
 
 void gbc_video_sprite_screen(bike_screen_t *dest) __sdcccall(0);
@@ -452,7 +453,7 @@ static void video_init(void) {
 
 static void restore_game(void) {
     game_ready=0;DISPLAY_OFF;
-    camera_prepared=0;objects_valid=0;objects_used=40;
+    camera_prepared=CAMERA_UNPREPARED;objects_valid=0;objects_used=40;
     video_init();world_begin(game_camera_x,game_camera_y);
     gbc_video_body_world(body_world);
     bike_screen();bike_render_draw(&gbc_bike,&screen);draw_objects();draw_hud();
@@ -479,9 +480,19 @@ static void start_game(void) {
 
 void game_present(void) {
     uint16_t old_x=game_camera_x,old_y=game_camera_y;
+#ifdef WORLD_SIGNED_BG
+    uint8_t fine_scroll=camera_prepared==CAMERA_SAME_TILE;
+#endif
     if(game_state==FINISHED && last_hud_state==FINISHED)return;
     bike_render_prepare(&gbc_bike);
-    position_camera(0);world_scroll(old_x,old_y,game_camera_x,game_camera_y);
+    position_camera(0);
+#ifdef WORLD_SIGNED_BG
+    /* The prediction was made from this published tile. Its prepared scenery
+     * stays hidden until a tile crossing. Reset and restore clear the hint. */
+    if(fine_scroll)move_bkg((uint8_t)game_camera_x,(uint8_t)game_camera_y);
+    else
+#endif
+        world_scroll(old_x,old_y,game_camera_x,game_camera_y);
     bike_screen();bike_render_draw(&gbc_bike,&screen);draw_objects();
     if(game_state==FINISHED) {
         game_ready=0;
@@ -518,45 +529,40 @@ static uint8_t prediction_rank(uint16_t from,uint16_t to,uint16_t limit) {
     return crossing_rank[from&7][to&7];
 }
 
-/* Prepare hidden cells while keeping the published camera at the current
- * frame. A partial-tile move predicts the same first crossing as the rider. */
-static void prepare_scenery_view(uint16_t start,uint8_t same_tile) {
-    uint16_t x=next_camera_x,y=next_camera_y;
-    if(same_tile) {
+/* Predict the next tile from the camera's pixel phase without moving the
+ * published view. Rank 11 reaches its edge in two updates from the old
+ * position. A more distant strip can use time left after suspension. */
+static void prepare_next_view(uint16_t start,uint8_t late) {
+    uint16_t changed,x,y;
+    uint8_t same_tile;
+    project_camera(0);
+    x=next_camera_x;y=next_camera_y;
+    changed=(x^game_camera_x)|(y^game_camera_y);
+    same_tile=changed<8U;
+    camera_prepared=same_tile?CAMERA_SAME_TILE:CAMERA_PROJECTED;
+    if(changed && same_tile) {
         uint8_t tx=prediction_rank(game_camera_x,x,WORLD_WIDTH-160);
         uint8_t ty=prediction_rank(game_camera_y,y,WORLD_HEIGHT-144);
-        if(tx==255 && ty==255)return;
-        if(tx<=ty)x=x>game_camera_x?(game_camera_x|7U)+1:(game_camera_x&~7U)-1;
-        if(ty<=tx)y=y>game_camera_y?(game_camera_y|7U)+1:(game_camera_y&~7U)-1;
-    }
-    world_prepare(game_camera_x,game_camera_y,x,y,start);
-}
-
-static void prepare_next_view(uint16_t start,uint8_t late) {
-    uint16_t changed;
-    uint8_t same_tile;
-    project_camera(0);camera_prepared=1;
-    changed=(next_camera_x^game_camera_x)|(next_camera_y^game_camera_y);
-    same_tile=changed<8U;
+        if(tx==255 && ty==255)changed=0;
+        else {
+            if(tx<=ty)x=x>game_camera_x?(game_camera_x|7U)+1:(game_camera_x&~7U)-1;
+            if(ty<=tx)y=y>game_camera_y?(game_camera_y|7U)+1:(game_camera_y&~7U)-1;
 #if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
-    /* When recovering from a long update, no scenery is due while the
-     * camera stays in this tile. Prepare next-step forces before lookahead. */
-    if(late && same_tile && changed) {
-        uint8_t line;
-        physics_prepare_spring(start);
-        line=LY_REG;
-        if(line<108 || line>=144)prepare_scenery_view(start,1);
-        return;
+            if(late || (tx>11 && ty>11)) {
+                uint8_t line;
+                physics_prepare_spring(start);
+                line=LY_REG;
+                if(line<108 || line>=144)world_prepare(game_camera_x,game_camera_y,x,y,start);
+                return;
+            }
+#endif
+        }
     }
+    if(changed)world_prepare(game_camera_x,game_camera_y,x,y,start);
+#if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
+    physics_prepare_spring(start);
 #else
     (void)late;
-#endif
-    if(changed)prepare_scenery_view(start,same_tile);
-#if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
-    /* On time, or at a tile crossing, scenery has first claim. Its 3K caller margin
-     * covers a declined spring guard. Accepted blocks reserve their own
-     * return margin and recheck the same deadline between stages. */
-    physics_prepare_spring(start);
 #endif
 }
 

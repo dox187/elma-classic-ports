@@ -45,6 +45,8 @@ def validate_linked_layout(symbol_path,rom_mib):
     """Include library/startup areas when checking the physical ROM windows."""
     symbols={name:int(value,16) for name,value in
              re.findall(r'^DEF (\S+) 0x([0-9A-Fa-f]+)$',symbol_path.read_text(),re.M)}
+    if 'screen_fraction_page' in symbols and symbols.get('fraction_pixels') != 0x054000:
+        raise ValueError('Screen projection needs its fraction table at the start of bank 5')
     if 's__HRAM' in symbols:
         start = symbols['s__HRAM']
         if start < 0xff80 or start + symbols['l__HRAM'] > 0xffff:
@@ -650,6 +652,12 @@ def main():
                                        'bike_render16_init.c','riding16_meta.c'):
             return flags+['-DWORLD_SIGNED_BG']
         return flags
+    if scheduled:
+        screen = BASE/'src/video_screen_fast.s'
+        page = a.gen/'video_screen_game.s'
+        head_clearance.write_if_changed(page, 'SCREEN_FRACTION_PAGE = 1\n' + screen.read_text())
+        sources.remove(screen)
+        sources.insert(0, page)
     def source_flags(path):
         if scheduled and path == BASE/'src/physics_core.c':
             return ['-DRIDING_PAIRED_ROTATION'] + (['-DRIDING_SEAT_LOOKUP'] if seat_lookup else [])

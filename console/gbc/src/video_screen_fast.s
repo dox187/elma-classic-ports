@@ -3,6 +3,30 @@
 .module video_screen_fast
 .area _CODE_5
 
+; A marked byte holds the upper candidate. The two thresholds are
+; ceil(16384/3)-0x1500 and ceil(32768/3)-0x2a00 respectively.
+.macro quarter_pixels base
+ .rept 21
+ .db base
+ .endm
+ .db (0x80+base+1)
+ .rept 20
+ .db (base+1)
+ .endm
+ .db (0xc0+base+2)
+ .rept 21
+ .db (base+2)
+ .endm
+.endm
+.ifdef SCREEN_FRACTION_PAGE
+screen_fraction_page == 1
+.endif
+fraction_pixels::
+ quarter_pixels 0
+ quarter_pixels 3
+ quarter_pixels 6
+ quarter_pixels 9
+
 .macro load_origin offset
  ld hl,#(_game_world+offset)
  ld a,(hl+)
@@ -135,9 +159,27 @@ _gbc_video_parts_screen_end::
 ; The camera uses the body's two clamped level pixels before it can scroll.
 _gbc_video_body_world::
  load_origin 8
- project_and_push 4,project_y
+ ld hl,#(_gbc_bike+4)
+ ld a,d
+ or e
+ jr nz,body_fractional_y
+ call integral_y
+ jr body_store_y
+body_fractional_y:
+ call project_y
+body_store_y:
+ push hl
  load_origin 4
- project_and_push 0,project_x
+ ld hl,#_gbc_bike
+ ld a,d
+ or e
+ jr nz,body_fractional_x
+ call integral_x
+ jr body_store_x
+body_fractional_x:
+ call project_x
+body_store_x:
+ push hl
  ldhl sp,#6
  ld a,(hl+)
  ld h,(hl)
@@ -156,11 +198,16 @@ _gbc_video_body_world_end::
 ; integer origin in BC and read the low fraction byte only at a rounding
 ; boundary on X. DE is free between points in an integral batch.
 .macro lookup_fraction boundary
+ .ifdef SCREEN_FRACTION_PAGE
+ ld e,a
+ ld d,#>fraction_pixels
+ .else
  add a,#<fraction_pixels
  ld e,a
  ld a,#>fraction_pixels
  adc a,#0
  ld d,a
+ .endif
  ld a,(de)
  bit 7,a
  jr nz,boundary
@@ -310,12 +357,17 @@ project_pixels:
 
  ; At 12 px/m, the high fractional byte selects the pixel except at
  ; 0x15xx and 0x2axx within each quarter, where the low byte breaks the tie.
+ .ifdef SCREEN_FRACTION_PAGE
+ ld c,d
+ ld b,#>fraction_pixels
+ .else
  ld a,d
  add a,#<fraction_pixels
  ld c,a
  ld a,#>fraction_pixels
  adc a,#0
  ld b,a
+ .endif
  ld a,(bc)
  bit 7,a
  jr nz,fraction_boundary
@@ -346,24 +398,3 @@ clip_pixel:
  ret z
  ld hl,#-3072
  ret
-
-; A marked byte holds the upper candidate. The two thresholds are
-; ceil(16384/3)-0x1500 and ceil(32768/3)-0x2a00 respectively.
-.macro quarter_pixels base
- .rept 21
- .db base
- .endm
- .db (0x80+base+1)
- .rept 20
- .db (base+1)
- .endm
- .db (0xc0+base+2)
- .rept 21
- .db (base+2)
- .endm
-.endm
-fraction_pixels:
- quarter_pixels 0
- quarter_pixels 3
- quarter_pixels 6
- quarter_pixels 9
