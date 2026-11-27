@@ -54,7 +54,32 @@ def check(rom):
             assert bytes(mem[record-1:record+11]) == b'\x39'+raw+b'\x93', (nx, ny, length, qx, qy)
             assert mem[symbols['__current_bank']] == 9
             assert bytes(mem[0x4000:0x4020]) == image[9*16384:9*16384+32]
-        print('393216 table inputs and 6144 linked contact-point cases passed')
+        # The uncached merge reconstructs both points with the same length.
+        # Check every narrow length, including rounding ties and the signed
+        # high digit, as well as the saturated fallback for wide lengths.
+        pair = symbols['_riding_contact_length_point']
+        bank = pair >> 16
+        mem[0x2000] = mem[symbols['__current_bank']] = bank
+        mem[code:code+6] = [0xf3, 0xcd, pair & 255, pair >> 8 & 255, 0x18, 0xfe]
+        cases = 0
+        for length in (*range(512), -32768, -32767, -512, -1, 512, 16384, 32767):
+            for nx in (-32768, -16384, -8192, -32, -1, 0, 1, 32, 8192, 16384, 32767,
+                       rng.randrange(-32768, 32768)):
+                ny, qx, qy = (rng.randrange(-32768, 32768) for _ in range(3))
+                header = struct.pack('<3h', nx, ny, length)
+                mem[record-1:record+11] = b'\x39'+header+b'\xaa'*4+b'\x93'
+                for axis, q in (('x', qx), ('y', qy)):
+                    pos = symbols['_riding_contact_q'+axis]
+                    mem[pos:pos+2] = struct.pack('<h', q)
+                reg.SP, reg.PC, reg.B, reg.C = stack, code, record >> 8, record & 255
+                p.tick(1, False)
+                projected = [max(-32768, min(32767, (n*length+8192) >> 14)) for n in (nx, ny)]
+                point = struct.pack('<HH', (qx-projected[0]) & 65535, (qy-projected[1]) & 65535)
+                assert bytes(mem[record-1:record+11]) == b'\x39'+header+point+b'\x93', (nx, ny, length)
+                assert (reg.PC, reg.SP) == (code+4, stack) and mem[symbols['__current_bank']] == bank
+                assert bytes(mem[0x4000:0x4020]) == image[bank*16384:bank*16384+32]
+                cases += 1
+        print(f'393216 table inputs, 6144 linked point lookups and {cases} uncached point pairs passed')
     finally:
         p.stop(save=False)
 

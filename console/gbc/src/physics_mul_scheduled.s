@@ -66,6 +66,7 @@ mul_square_index:
  inc h
  ld l,(hl)
  ld h,#0
+contact_restore_current:
  ld a,(#__current_bank)
  ld (#0x2000),a
  ret
@@ -283,3 +284,145 @@ contact_point_group:
  ld h,a
  pop de
  ret
+
+.area _CODE_28
+_riding_contact_equal_offset::
+ ld bc,#_Ct
+ call _riding_contact_length_point
+ ; Both records have the same projected point. DE and BC still hold
+ ; the rounded offsets that the merge must normalize a second time.
+ ld hl,#(_Ct+6)
+ .irp offset,16,17,18,19
+ ld a,(hl+)
+ ld (#_Ct+offset),a
+ .endm
+ ret
+_riding_contact_length_point::
+ ; BC addresses nx,ny,length,tx,ty. This entry is banked from the
+ ; uncached merge path. The table and the old wide kernel agree on Q14.
+ ld d,b
+ ld e,c
+ ld hl,#4
+ add hl,de
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+ ld a,b
+ cp #2
+ jr nc,merge_wide_length
+ ld h,d
+ ld l,e
+ call _riding_contact_length_pair
+ inc hl
+ inc hl
+ jr merge_write_point
+merge_wide_length:
+ ld h,d
+ ld l,e
+ ld d,b
+ ld e,c
+ push de
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ push hl
+ call _mulq14
+ pop hl
+ pop de
+ push bc
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ inc hl
+ inc hl
+ push hl
+ call _mulq14
+ pop hl
+ pop de
+merge_write_point:
+ ld a,(#_riding_contact_qx)
+ sub e
+ ld (hl+),a
+ ld a,(#_riding_contact_qx+1)
+ sbc d
+ ld (hl+),a
+ ld a,(#_riding_contact_qy)
+ sub c
+ ld (hl+),a
+ ld a,(#_riding_contact_qy+1)
+ sbc b
+ ld (hl),a
+ ret
+; HL addresses two signed normals, BC is the shared length in [0,511].
+; Return DE,BC as independently rounded Q14 offsets, HL at the length.
+_riding_contact_length_pair::
+ call contact_length_axis
+ push de
+ call contact_length_axis
+ ld b,d
+ ld c,e
+ pop de
+ ret
+
+contact_length_axis:
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ push hl
+ push bc
+ push de
+ ; The unsigned reader leaves its table mapped. Restore the caller's
+ ; bank in fixed ROM before resuming this digit pair in bank 28.
+ call contact_length_digit
+ ; Only bits 8 and above can affect the rounded result. Add the bias
+ ; before adding normal*256 for lengths whose upper byte is one.
+ ld a,d
+ add #32
+ jr nc,contact_length_biased
+ inc hl
+contact_length_biased:
+ pop de
+ pop bc
+ bit 0,b
+ jr z,contact_length_sign
+ add e
+ ld e,a
+ ld a,l
+ adc d
+ ld l,a
+ ld a,h
+ adc #0
+ ld h,a
+ ld a,e
+contact_length_sign:
+ ; A negative normal is its unsigned word minus 65536. Subtract
+ ; length from the upper word before extracting the signed Q14 result.
+ bit 7,d
+ jr z,contact_length_round
+ ld e,a
+ ld a,l
+ sub c
+ ld l,a
+ ld a,h
+ sbc b
+ ld h,a
+ ld a,e
+contact_length_round:
+ rlca
+ rlca
+ and #3
+ add hl,hl
+ add hl,hl
+ or l
+ ld e,a
+ ld d,h
+ pop hl
+ ret
+
+contact_length_digit:
+ ld hl,#contact_restore_current
+ push hl
+ jp _riding_mul16u8_unsigned

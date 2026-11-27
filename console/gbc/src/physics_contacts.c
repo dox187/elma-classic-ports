@@ -166,18 +166,12 @@ merge_equal_result:
     ld (#_riding_first_point_ready),a
     or a
     jp nz,merge_complete
-    call merge_project_first
-    ld hl,#(_Ct+6)
-    ld de,#(_Ct+16)
-    .rept 4
-    ld a,(hl+)
-    ld (de),a
-    inc de
-    .endm
-    ld de,#0
-    ld b,d
-    ld c,e
-    jr merge_average
+    ; Equal normals give equal rounded points for every query. When
+    ; the atlas has no round-trip proof, reconstruct both coordinates.
+    ld e,#28
+    ld hl,#_riding_contact_equal_offset
+    call ___sdcc_bcall_ehl
+    jr merge_normalize
 merge_different:
     ld de,#(_Ct+10)
     dec b
@@ -227,7 +221,6 @@ merge_separation:
     rr e
     sra b
     rr c
-merge_average:
     ; Normalization below can replace the first vector in the same query.
     xor a
     ld (#_riding_first_point_ready),a
@@ -257,6 +250,7 @@ merge_average:
     ld a,(#_riding_contact_qy+1)
     sbc b
     ld b,a
+merge_normalize:
     push de
     push bc
     call _riding_normal_merge_ring
@@ -275,48 +269,11 @@ merge_project_first:
     ret nz
     ld de,#_Ct
 merge_calculate:
-    ; Use each normal component as the table coefficient. Both axes share
-    ; the signed length and retain their independent saturated Q14 rounding.
-    push de
-    ld hl,#4
-    add hl,de
-    ld a,(hl+)
-    ld d,(hl)
-    ld e,a
-    pop hl
-    push de
-    ld a,(hl+)
-    ld c,a
-    ld a,(hl+)
-    ld b,a
-    push hl
-    call _mulq14
-    pop hl
-    pop de
-    push bc
-    ld a,(hl+)
-    ld c,a
-    ld a,(hl+)
-    ld b,a
-    inc hl
-    inc hl
-    push hl
-    call _mulq14
-    pop hl
-    pop de
-    ld a,(#_riding_contact_qx)
-    sub e
-    ld (hl+),a
-    ld a,(#_riding_contact_qx+1)
-    sbc d
-    ld (hl+),a
-    ld a,(#_riding_contact_qy)
-    sub c
-    ld (hl+),a
-    ld a,(#_riding_contact_qy+1)
-    sbc b
-    ld (hl),a
-    ret
+    ld b,d
+    ld c,e
+    ld e,#28
+    ld hl,#_riding_contact_length_point
+    jp ___sdcc_bcall_ehl
     __endasm;
 }
 #else
