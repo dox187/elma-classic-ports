@@ -13,7 +13,20 @@ normal_cache_value: .ds 6
  .globl normal_cache_key,normal_cache_value,normal_cache_valid
  .endif
 .area _CODE_9
+ .ifdef RIDING_NORMAL_ATLAS
+.area _DATA
+normal_physical: .ds 1      ; the caller formed d2 from these exact coordinates
+.area _CODE_9
+_riding_normal_physical::
+ ld a,#1
+ jr normal_source
 _riding_normal_fast::
+ xor a
+normal_source:
+ ld (#normal_physical),a
+ .else
+_riding_normal_fast::
+ .endif
  ld a,(#normal_cache_valid)
  or a
  jr z,normal_cache_miss
@@ -101,11 +114,11 @@ normal_index_ready:
  inc hl
  ld d,(hl)
  .ifdef RIDING_NORMAL_ATLAS
- call _riding_projection_signed16
+ call normal_scaled_axis
  .else
  call _riding_mul16_regs
- .endif
  call normal_scale4
+ .endif
  ldhl sp,#12
  ld a,(hl+)
  ld h,(hl)
@@ -122,11 +135,11 @@ normal_index_ready:
  inc hl
  ld d,(hl)
  .ifdef RIDING_NORMAL_ATLAS
- call _riding_projection_signed16
+ call normal_scaled_axis
  .else
  call _riding_mul16_regs
- .endif
  call normal_scale4
+ .endif
  ldhl sp,#12
  ld a,(hl+)
  ld h,(hl)
@@ -136,6 +149,14 @@ normal_index_ready:
  ld (hl),e
  inc hl
  ld (hl),d
+ .ifdef RIDING_NORMAL_ATLAS
+ ld a,(#normal_physical)
+ or a
+ jr z,normal_dot_length
+ call normal_physical_length
+ jr c,normal_have_length
+normal_dot_length:
+ .endif
  ; Place the small wheel offsets in the multiplier's coordinate registers.
  ; Stack coefficients are callee-cleaned. The sum is rounded once as before.
  ldhl sp,#12
@@ -160,6 +181,7 @@ normal_index_ready:
  inc hl
  ld b,(hl)
  call _dotq14
+normal_have_length:
  ldhl sp,#12
  ld a,(hl+)
  ld h,(hl)
@@ -173,6 +195,54 @@ normal_index_ready:
  ld (hl),b
  add sp,#2
  jp normal_cache_store_result
+
+ .ifdef RIDING_NORMAL_ATLAS
+; A wheel offset in [-512,511] is its low byte plus -2,-1,0 or 1
+; times 256. The reciprocal is positive. Keep the full product until
+; the ordinary signed saturation, including for arbitrary d2 inputs.
+normal_scaled_axis:
+ ld a,d
+ add #2
+ cp #4
+ jr nc,normal_wide_axis
+ push af
+ ld a,e
+ ld d,b
+ ld e,c
+ ld c,a
+ push de
+ call _riding_unsigned_byte_product
+ pop bc
+ pop af
+ cp #2
+ jr z,normal_scale4
+ jr nc,normal_plus_high
+ or a
+ jr nz,normal_minus_high
+ sla c
+ rl b
+normal_minus_high:
+ ld a,d
+ sub c
+ ld d,a
+ ld a,l
+ sbc b
+ ld l,a
+ sbc a
+ ld h,a
+ jr normal_scale4
+normal_plus_high:
+ ld a,d
+ add c
+ ld d,a
+ ld a,l
+ adc b
+ ld l,a
+ jr normal_scale4
+normal_wide_axis:
+ call _riding_projection_signed16
+ jr normal_scale4
+ .endif
 
 ; sat16(signed32 HLDE>>4). Fits exactly iff signed highword is[-8,7].
 normal_scale4:
@@ -252,3 +322,43 @@ normal_cache_store_result:
  ld a,#1
  ld (#normal_cache_valid),a
  ret
+
+ .ifdef RIDING_NORMAL_ATLAS
+.area _CODE_9
+; Only true squared lengths in [65536,168447] index these two tables.
+; A zero return requests the full normalized-vector dot. The two-byte
+; row decodes in its own bank, preserving the original reciprocal.
+normal_physical_length:
+ ld a,(#normal_cache_key+7)
+ or a
+ ret nz
+ ld a,(#normal_cache_key+6)
+ dec a
+ jr z,normal_low_range
+ dec a
+ jr nz,normal_length_miss
+ ld a,(#normal_cache_key+5)
+ cp #146                 ; 73 reciprocal bins above 131072
+ jr nc,normal_length_miss
+ ld hl,#normal_read_upper
+ ld e,#93
+ jr normal_read
+normal_low_range:
+ ld hl,#normal_read_lower
+ ld e,#5
+normal_read:
+ call ___sdcc_bcall_ehl
+ ld a,c
+ or a
+ ret z
+ add #250
+ ld c,a
+ ld a,#0
+ adc #0
+ ld b,a
+ scf
+ ret
+normal_length_miss:
+ or a
+ ret
+ .endif

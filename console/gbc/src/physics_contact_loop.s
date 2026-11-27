@@ -484,7 +484,11 @@ contact_loop_normalize:
  call contact_loop_xy
  push bc
  push de
+ .ifdef RIDING_NORMAL_ATLAS
+ call _riding_normal_physical
+ .else
  call _riding_normal_fast
+ .endif
  add sp,#10
  .ifdef RIDING_NORMAL_ATLAS
  jp contact_mark_radial

@@ -31,7 +31,7 @@ class Cartridge:
 
     def call(self, name, x, y, dest, d2=0, irq=False):
         addr = self.sym[name]
-        if name=='_riding_normal_fast':
+        if name in ('_riding_normal_fast', '_riding_normal_physical'):
             args = struct.pack('<hhiH',x,y,d2,dest)
         else:
             args = bytes(range(10))
@@ -114,6 +114,53 @@ def check_endpoint_roundtrips(target, reference, totals):
         assert totals['arithmetic endpoint fallbacks'] and 64 in verdicts.values()
     finally:
         target.m[0x2000] = target.m[current_bank] = 9
+
+
+def check_physical_lengths(target, oracle, totals):
+    def rom_offset(symbol):
+        address = target.sym[symbol]
+        return (address >> 16)*16384 + (address & 16383)
+
+    roots = struct.unpack_from('<297H', target.image, rom_offset('_riding_normal_rsqrt'))
+    tables = [rom_offset('normal_length_'+name) for name in ('lower', 'upper')]
+    representatives = {}
+    for x in range(-410, 411):
+        for y in range(-410, 411):
+            squared = x*x + y*y
+            if not 65536 <= squared < 168448:
+                continue
+            offset = tables[(squared >> 16)-1] + ((squared >> 8) & 254)
+            base, cuts = target.image[offset:offset+2]
+            first, second = cuts & 15, cuts >> 4
+            slot = (squared >> 5) & 15
+            representatives.setdefault(squared >> 5, (x, y, squared))
+            if slot in (0, 15, first, first+1, second, second+1):
+                totals['full dot fallbacks'] += 1
+                continue
+            reciprocal = roots[(squared-16384) >> 9]
+            nx, ny = x*reciprocal >> 4, y*reciprocal >> 4
+            expected = (x*nx + y*ny + 8192) >> 14
+            assert base+250+(slot > first)+(slot > second) == expected, (x, y, squared)
+            totals['certified physical lengths'] += 1
+
+    # Invoke every populated slot and compare all six output bytes with
+    # the preceding cartridge, including opposite signs in every fifth slot.
+    for slot, (x, y, squared) in representatives.items():
+        for sign in ((1, -1) if slot%5 == 0 else (1,)):
+            _, got, _ = target.call('_riding_normal_physical', sign*x, sign*y, 0xa201, squared)
+            _, want, _ = oracle.call('_riding_normal_fast', sign*x, sign*y, 0xa201, squared)
+            assert got == want, (x, y, squared, sign)
+            totals['linked physical lengths'] += 1
+    # Public callers can supply an unrelated squared length to the same kernel.
+    for squared in (16384, 65536, 65537, 71680, 98304, 131071, 131072, 168099,
+                    168447, 168448, 33570817, 2147483647):
+        for x in (-32768, -513, -512, -511, -410, -257, -256, -255, -1, 0,
+                  1, 255, 256, 257, 410, 511, 512, 32767):
+            for y in (x, min(-x, 32767)):
+                _, got, _ = target.call('_riding_normal_fast', x, y, 0xa201, squared)
+                _, want, _ = oracle.call('_riding_normal_fast', x, y, 0xa201, squared)
+                assert got == want, (x, y, squared)
+                totals['arbitrary squared lengths'] += 1
 
 
 def check(rom, reference):
@@ -253,6 +300,8 @@ def check(rom, reference):
                 totals['public edge cases'] += 1
         if 'contact_root_certificate' in sym:
             check_endpoint_roundtrips(target, old, totals)
+        if '_riding_normal_physical' in sym:
+            check_physical_lengths(target, old, totals)
         print(dict(totals))
     finally:
         target.p.stop(save=False)

@@ -1662,6 +1662,7 @@ math32_projection_byte:
  ld c,a
  bit 7,d
  jr nz,math32_projection_negative
+_riding_unsigned_byte_product::
 math32_projection_positive:
  call _riding_mul16u8_unsigned
  ld bc,#0

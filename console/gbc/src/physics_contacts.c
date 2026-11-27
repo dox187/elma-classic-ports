@@ -46,7 +46,12 @@ void riding_normalize_deep(int16_t dx,int16_t dy,int32_t d2,contact_t *c) __sdcc
  c->l=l;
 }
 void riding_normal_fast(int16_t,int16_t,int32_t,contact_t*) __sdcccall(0);
+#ifdef RIDING_NORMAL_ATLAS
+void riding_normal_physical(int16_t,int16_t,int32_t,contact_t*) __sdcccall(0);
+#define normalize riding_normal_physical
+#else
 #define normalize riding_normal_fast
+#endif
 #else
 static void normalize( int16_t dx, int16_t dy, int32_t d2, contact_t* c ) {
 	if( d2 < 16384 ) {
