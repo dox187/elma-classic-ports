@@ -371,6 +371,36 @@ _riding_step_head::
  ld a,(#_riding_head_clear_mask)
  or a
  jr z,step_head_terrain
+ .ifdef RIDING_CORNER_CELLS
+ ; Mask 1 carries an eight-unit proof. Match bits 3..7 of both endpoints
+ ; before the shared comparison of the two upper Q10 bytes.
+ cp #1
+ jr nz,step_head_mask
+ ld a,(#_riding_head_near_xlow)
+ ld e,a
+ ldhl sp,#0
+ ld a,(hl)
+ xor e
+ and #0xf8
+ jr nz,step_head_terrain
+ ld a,(#_Bike+89)
+ xor e
+ and #0xf8
+ jr nz,step_head_terrain
+ ld a,(#_riding_head_near_ylow)
+ ld e,a
+ ldhl sp,#4
+ ld a,(hl)
+ xor e
+ and #0xf8
+ jr nz,step_head_terrain
+ ld a,(#_Bike+93)
+ xor e
+ and #0xf8
+ jr nz,step_head_terrain
+ ld a,#255
+step_head_mask:
+ .endif
  ld c,a
  step_head_region _Bike+90,1,_riding_head_clear_x
  step_head_region _Bike+94,5,_riding_head_clear_y

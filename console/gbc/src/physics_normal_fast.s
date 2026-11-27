@@ -9,6 +9,9 @@
 normal_cache_valid: .ds 1
 normal_cache_key: .ds 8
 normal_cache_value: .ds 6
+ .ifdef RIDING_NORMAL_ATLAS
+ .globl normal_cache_key,normal_cache_value,normal_cache_valid
+ .endif
 .area _CODE_9
 _riding_normal_fast::
  ld a,(#normal_cache_valid)
@@ -23,6 +26,7 @@ _riding_normal_fast::
  inc de
  inc hl
  .endm
+normal_cached_destination:
  ldhl sp,#10
  ld a,(hl+)
  ld d,(hl)
@@ -96,7 +100,11 @@ normal_index_ready:
  ld e,(hl)
  inc hl
  ld d,(hl)
+ .ifdef RIDING_NORMAL_ATLAS
+ call _riding_projection_signed16
+ .else
  call _riding_mul16_regs
+ .endif
  call normal_scale4
  ldhl sp,#12
  ld a,(hl+)
@@ -113,7 +121,11 @@ normal_index_ready:
  ld e,(hl)
  inc hl
  ld d,(hl)
+ .ifdef RIDING_NORMAL_ATLAS
+ call _riding_projection_signed16
+ .else
  call _riding_mul16_regs
+ .endif
  call normal_scale4
  ldhl sp,#12
  ld a,(hl+)
@@ -124,21 +136,22 @@ normal_index_ready:
  ld (hl),e
  inc hl
  ld (hl),d
- ; ABI1 dot(nx,ny,dx,dy): c/d stack arguments are callee-cleaned.
- ldhl sp,#6
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- ldhl sp,#6
- ld c,(hl)
- inc hl
- ld b,(hl)
- push bc
- ldhl sp,#16
+ ; Place the small wheel offsets in the multiplier's coordinate registers.
+ ; Stack coefficients are callee-cleaned. The sum is rounded once as before.
+ ldhl sp,#12
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ inc hl
+ ld c,(hl)
+ inc hl
+ ld b,(hl)
+ push bc
+ push de
+ ldhl sp,#8
  ld e,(hl)
  inc hl
  ld d,(hl)
@@ -172,18 +185,20 @@ normal_scale4:
  ld a,b
  cp #16
  jr nc,normal_saturated
- srl l
- rr d
- rr e
- srl l
- rr d
- rr e
- srl l
- rr d
- rr e
- srl l
- rr d
- rr e
+ ; Join adjacent nibbles before swapping: E receives bits 4..11,
+ ; D bits 12..19. The range check above already handled saturation.
+ ld a,e
+ xor d
+ and #0xf0
+ xor d
+ swap a
+ ld e,a
+ ld a,d
+ xor l
+ and #0xf0
+ xor l
+ swap a
+ ld d,a
  ret
 normal_saturated:
  bit 7,h
@@ -195,6 +210,23 @@ normal_negative:
  ret
 
 normal_cache_deep:
+ .ifdef RIDING_NORMAL_ATLAS
+ ld e,#33
+ ld hl,#normal_fraction
+ call ___sdcc_bcall_ehl
+ or a
+ jp nz,normal_cached_destination
+ ; Only arbitrary inputs outside the narrow domain need the general divide.
+ ld c,#5
+normal_deep_argument:
+ ldhl sp,#10
+ ld e,(hl)
+ inc hl
+ ld d,(hl)
+ push de
+ dec c
+ jr nz,normal_deep_argument
+ .else
  ; Copy five words right-to-left, retaining the caller's ABI0 arguments.
  .rept 5
  ldhl sp,#10
@@ -203,6 +235,7 @@ normal_cache_deep:
  ld d,(hl)
  push de
  .endm
+ .endif
  call _riding_normalize_deep
  add sp,#10
 normal_cache_store_result:

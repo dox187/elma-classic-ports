@@ -4,6 +4,7 @@
 .module physics_ordered_pair
 .area _DATA
 pair_tangent: .ds 4
+_riding_pair_normal::
 pair_normal: .ds 2
 pair_nv: .ds 4
 
@@ -531,18 +532,10 @@ pair_impulse_y:
  or c
  jr z,pair_inward
 pair_impulse_dot:
- pop hl
- pop de
- call _riding_dotq14_regs
- bit 7,h
- jr nz,pair_supported
- ld a,h
- or l
- or d
- or e
- jr z,pair_supported
- xor a
- ret
+ add sp,#4
+ ld e,#93
+ ld hl,#_riding_pair_impulse_bound
+ jp ___sdcc_bcall_ehl
 pair_inward:
  add sp,#4
 pair_supported:

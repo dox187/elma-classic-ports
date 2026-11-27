@@ -285,6 +285,8 @@ def prepare(args, suite=None):
     if not settings['pc_schedule'] or not 29 < settings['rate'] < 31:
         raise ValueError('This test requires the approximately 30 Hz outer scheduled profile')
     names = json.loads(args.native_sources.read_text()) if args.native_sources else [*CORE, *NATIVE_EXTRA]
+    if not args.native_sources and (source / 'physics_pair_impulse.s').is_file():
+        names.append('physics_pair_impulse.s')
     native_sources = [source / name for name in names]
     brake = source / 'physics_brake_fast.s'
     if brake in native_sources and 'GENERATED BRAKE PAGES' in brake.read_text():

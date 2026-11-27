@@ -142,7 +142,7 @@ def check(rom, reference):
         # Observe work only to distinguish a cache hit from re-evaluation.
         # A public caller may present the same coordinates with another d2.
         counts = Counter()
-        mul = sym['_riding_mul16_regs']
+        mul = sym.get('_riding_projection_signed16', sym['_riding_mul16_regs'])
         target.p.hook_register(mul>>16,mul&65535,lambda _:counts.update(['multiply']),None)
         target.p.hook_register(0,reader,lambda _:counts.update(['mapped']),None)
         x,y = -93,393
@@ -158,6 +158,22 @@ def check(rom, reference):
             totals['observed cache hits and replacements'] += 1
         target.p.hook_deregister(mul>>16,mul&65535)
         target.p.hook_deregister(0,reader)
+        if 'normal_fraction' in sym:
+            for x in range(-127,128):
+                for y in range(-127,128):
+                    d2 = x*x + y*y
+                    if d2 >= 16384:
+                        continue
+                    length = math.isqrt(d2)
+                    if length:
+                        nx = (abs(x) << 14) // length
+                        ny = (abs(y) << 14) // length
+                        vector = (-nx if x < 0 else nx, -ny if y < 0 else ny, length)
+                    else:
+                        vector = (0, 16384, 0)
+                    _,got,_ = target.call('_riding_normal_fast',x,y,contacts[0],d2)
+                    assert got == struct.pack('<hhh', *vector), (x,y,got,vector)
+                    totals['deep physical vectors'] += 1
         for x,y in ((289,289),(398,0),(0,-405),(-128,382),(250,-314)):
             physical=x*x+y*y
             for d2 in (physical,physical,physical+1,physical^256,physical^65536,

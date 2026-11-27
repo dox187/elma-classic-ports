@@ -3,17 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test47 — 8 MiB](build/elma-gbc-v0.96-test47-8m.gbc)**.
-On the slow 46-update braking section of Gravity Ride, cadence rose from
-**19.91 to 27.75 updates/s**. The 216 catalog routes averaged 29.65 updates/s
-with 285 late updates. The 24 longer routes averaged 29.61 updates/s with 88
-late updates. All 76,568 captured physics substeps matched test46.
-
-A separate stress test placed the bike at multi-edge contacts across all 54
-courses. Physics alone exceeded the two-display-frame budget on 42 courses.
-The slowest placement was on Steep Corner at 75.32 ms.
-The build is playable for testing. Stable 30 FPS throughout a course remains
-an open goal. [Timing and verification](PERFORMANCE.md#096-test47--multi-edge-wheel-contacts)
+**[0.96 test48 — 8 MiB](build/elma-gbc-v0.96-test48-8m.gbc)**.
+The Steep Corner contact that took 75.32 ms on test47 now takes 63.87 ms.
+Across all 54 courses, 190 of 1,186 deliberately placed corner updates took
+more than 33.49 ms for physics alone, down from 210. The new worst case is a
+different contact on Steep Corner at 67.07 ms. Stable 30 FPS remains open.
+All 3,512 corner substeps and all 76,568 controller replay substeps matched
+test47 byte for byte. [Timing and verification](PERFORMANCE.md#096-test48--steep-corner-and-general-terrain-contacts)
 
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**

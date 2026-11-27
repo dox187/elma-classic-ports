@@ -358,6 +358,10 @@ next_cell:;
 extern uint8_t riding_head_clear_mask;
 uint16_t riding_head_clear_x,riding_head_clear_y;
 #ifdef RIDING_HEAD_TERRAIN
+#ifdef RIDING_HEAD_LANES
+extern uint8_t riding_head_near_xlow, riding_head_near_ylow;
+uint8_t riding_head_near_clear(int16_t px,int16_t py) PH_BANKED;
+#endif
 static uint8_t head_tiles[4];
 extern uint16_t riding_head_cell_mask(uint8_t cx,uint8_t cy);
 static const uint16_t head_bits[16]={
@@ -576,6 +580,38 @@ uint8_t riding_swept_head(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED
         ld a,(#_riding_head_clear_mask)
         or a,a
         jr z,head_uncached
+#ifdef RIDING_HEAD_LANES
+        ; The eight-unit certificate has the same upper-coordinate checks as
+        ; the quarter-metre cache. Additionally match bits 3..7 on both ends.
+        cp #1
+        jr nz,head_region_mask
+        ld a,(#_riding_head_near_xlow)
+        ld e,a
+        ldhl sp,#6
+        ld a,(hl)
+        xor e
+        and #0xf8
+        jr nz,head_uncached
+        ldhl sp,#14
+        ld a,(hl)
+        xor e
+        and #0xf8
+        jr nz,head_uncached
+        ld a,(#_riding_head_near_ylow)
+        ld e,a
+        ldhl sp,#10
+        ld a,(hl)
+        xor e
+        and #0xf8
+        jr nz,head_uncached
+        ldhl sp,#18
+        ld a,(hl)
+        xor e
+        and #0xf8
+        jr nz,head_uncached
+        ld a,#255
+head_region_mask:
+#endif
         ld c,a
         ld hl,#_riding_head_clear_x
         ld a,(hl+)
@@ -771,7 +807,17 @@ uint8_t HEAD_QUERY(int32_t px,int32_t py,int32_t qx,int32_t qy) PH_BANKED {
                 if(mask==0xf0||a==b)return 0;
             }
 #endif
-            if(Seg_subcell==255||a==b)return scan(x0,y0,x1,y1,R_HEAD);
+            if(Seg_subcell==255||a==b) {
+#ifdef RIDING_HEAD_LANES
+                if(((uint16_t)((x0^x1)|(y0^y1)))<8 && riding_head_near_clear(x0,y0)) {
+                    riding_head_clear_x=(uint16_t)((uint32_t)px>>8);
+                    riding_head_clear_y=(uint16_t)((uint32_t)py>>8);
+                    riding_head_clear_mask=1;
+                    return 0;
+                }
+#endif
+                return scan(x0,y0,x1,y1,R_HEAD);
+            }
         }
     }
     int32_t dx=qx-px,dy=qy-py,sx,sy,nx,ny;

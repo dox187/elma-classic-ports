@@ -603,6 +603,12 @@ def main():
                 corner_bank.after_numeric_prefix(table, original, bank, '_world_scenery_pins_end')
             sources[sources.index(original)] = table
 
+    if scheduled:
+        sources.extend((BASE/'src/normal_deep.s', BASE/'src/physics_pair_impulse.s',
+                        BASE/'src/terrain_region.s'))
+    if head_lanes:
+        sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/head_near.c')
+
     def coefficient_lookup(path):
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'

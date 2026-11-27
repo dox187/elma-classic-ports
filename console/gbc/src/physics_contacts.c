@@ -516,6 +516,107 @@ uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {
 #define FINE_CONTACT_RADIUS 104858L
 #define FINE_REJECT_PUSH (FINE_PUSH_TARGET - FINE_CONTACT_RADIUS)
 
+#if defined(__SDCC) && defined(RIDING_CORNER_CELLS) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
+typedef char push_position_layout[offsetof(circle_t,rx)==0 && offsetof(circle_t,ry)==4 ? 1 : -1];
+static void apply_push(circle_t *k, contact_t *c, contact_t *other, int32_t push) __naked {
+    k;c;other;push;
+    __asm
+    push de
+    push bc
+    ; Calculate Y first. Pushing the two HL:DE results leaves X,Y
+    ; consecutive on the stack, ready for the second contact projection.
+    ld h,b
+    ld l,c
+    inc hl
+    inc hl
+    ld a,(hl+)
+    ld b,(hl)
+    ld c,a
+    ldhl sp,#8
+    call _riding_mulq14_regs
+    push hl
+    push de
+    ldhl sp,#4
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    ld a,(hl+)
+    ld b,(hl)
+    ld c,a
+    ldhl sp,#12
+    call _riding_mulq14_regs
+    push hl
+    push de
+    ; Stack: X,Y,contact,wheel,return address,other,push.
+    ldhl sp,#0
+    ld d,h
+    ld e,l
+    ldhl sp,#10
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    .rept 2
+    xor a
+    .rept 4
+    ld a,(de)
+    adc (hl)
+    ld (hl+),a
+    inc de
+    .endm
+    .endm
+    ; DE now points at the saved contact. Add bytes 1 and 2 of push
+    ; with byte 0 bit 7 as carry, exactly (push + 128) >> 8 modulo 65536.
+    ld a,(de)
+    ld c,a
+    inc de
+    ld a,(de)
+    ld d,a
+    ld e,c
+    ldhl sp,#16
+    ld a,(hl+)
+    add a
+    ld c,(hl)
+    inc hl
+    ld b,(hl)
+    ld h,d
+    ld l,e
+    call wide_push_length
+    ldhl sp,#0
+    ld d,h
+    ld e,l
+    ldhl sp,#14
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    or h
+    jr z,wide_push_done
+    push hl
+    call _riding_dotq14_regs
+    ld b,l
+    ld c,d
+    ld a,e
+    add a
+    pop hl
+    call wide_push_length
+wide_push_done:
+    add sp,#12
+    pop hl
+    add sp,#6
+    jp (hl)
+wide_push_length:
+    .rept 4
+    inc hl
+    .endm
+    ld a,(hl)
+    adc c
+    ld (hl+),a
+    ld a,(hl)
+    adc b
+    ld (hl),a
+    ret
+    __endasm;
+}
+#else
 static void apply_push(circle_t *k, contact_t *c, contact_t *other, int32_t push) {
     int32_t px = riding_mulq32(push, c->nx, 14), py = riding_mulq32(push, c->ny, 14);
     k->rx += px;
@@ -524,6 +625,7 @@ static void apply_push(circle_t *k, contact_t *c, contact_t *other, int32_t push
     if (other)
         other->l += (riding_dotq32(px, py, other->nx, other->ny, 14) + 128) >> 8;
 }
+#endif
 
 #if defined(__SDCC) && !defined(PHYSICS_WHEEL_C) && !defined(PHYSICS_CONTACT_LOOP_C) && !defined(PHYSICS_SEGMENT_SCAN_C)
 #define NATIVE_FINE_CONTACTS

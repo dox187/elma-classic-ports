@@ -20,6 +20,7 @@ class HeadProbe:
     def __init__(self, rom):
         symbols = {k: int(v, 16) for k, v in re.findall(
             r'^DEF (\S+) 0x([0-9A-Fa-f]+)$', rom.with_suffix('.noi').read_text(), re.M)}
+        self.symbols = symbols
         self.start = symbols['_main']
         self.select = self.start + 3
         self.sweep = self.select + 5
@@ -86,6 +87,76 @@ def inputs(level, rng):
             yield 'boundary', (x, y, x+distance, y+distance//3)
 
 
+def check_small_head_cache(actual, ref):
+    mask = actual.symbols['_riding_head_clear_mask']
+    query = actual.symbols['_riding_head_terrain_query']
+    misses = []
+    actual.rom.hook_register(query >> 16, query & 65535, lambda _: misses.append(1), None)
+    comparisons = 0
+    level = 31
+    x, y = 24226, 40406
+    base = (x, y, x, y)
+
+    def select(course):
+        actual.select_level(course)
+        ref.select_level(course)
+        assert actual.rom.memory[mask] == 0, 'course selection kept an old head certificate'
+
+    def check(points):
+        nonlocal comparisons
+        value = actual.check(points)
+        assert value == ref.check(points), (points, value)
+        comparisons += 1
+        return value
+
+    def warm():
+        assert check(base) == 0
+        assert actual.rom.memory[mask] == 1, 'expected an eight-unit certificate'
+        misses.clear()
+
+    try:
+        select(level)
+        warm()
+        ox, oy = x & ~7, y & ~7
+        for dy in range(8):
+            for dx in range(8):
+                assert check((ox+dx, oy+dy, ox+7-dx, oy+7-dy)) == 0
+        assert not misses, 'both endpoints remained inside the certified region'
+        for offset in (-8, 8, -256, 256, -65536, 65536, 1 << 24, -(1 << 24)):
+            for component in range(4):
+                warm()
+                p = list(base)
+                p[component] += offset
+                # Keep very long aliases stationary to test all high bits
+                # without requesting thousands of 8 m DDA subdivisions.
+                if abs(offset) >= 65536:
+                    p[component ^ 2] += offset
+                check(tuple(p))
+                assert misses, (component, offset, 'unsafe cached hit')
+        # Walk through the clear/occupied boundary of the actual terrain.
+        for direction in (-1, 1):
+            for distance in range(1, 97):
+                p = y + direction * distance
+                if ref.check((x, p, x, p)):
+                    warm()
+                    assert check((x, y, x, p)) == 1
+                    assert check((x, p, x, y)) == 1
+                    break
+            else:
+                continue
+            break
+        else:
+            raise AssertionError('Steep Corner fixture did not reach terrain')
+        warm()
+        select(level)
+        warm()
+        select(2)
+        check(base)
+    finally:
+        actual.rom.hook_deregister(query >> 16, query & 65535)
+    return comparisons
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('rom', 'reference', 'res', 'out'):
@@ -96,6 +167,8 @@ def main():
     unique_levels = internal_levels(Resource(args.res))
     ref, actual = HeadProbe(args.reference), HeadProbe(args.rom)
     try:
+        if '_riding_head_near_clear' in actual.symbols:
+            counts['small_cache'] = check_small_head_cache(actual, ref)
         for i, level in enumerate(unique_levels):
             ref.select_level(i)
             actual.select_level(i)

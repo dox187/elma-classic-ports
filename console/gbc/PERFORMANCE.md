@@ -3733,3 +3733,71 @@ Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out buil
 Run `test/check_corner_results.py` with this ROM, the test46 reference
 and `--manifest build/gen-v096-test36-8m/corner_cells.json` to reproduce
 the placement tests. All reported timings are from emulation.
+
+## 0.96 test48 — Steep Corner and general terrain contacts
+
+On test47 the slowest placement put the left wheel at (23,448, 38,696) on
+Steep Corner and applied gas. One scheduled update took 631,864 double-speed
+SM83 T-cycles in PyBoy, or 75.32 ms. The three pairs of wheel solves took
+54.30 ms, head collision took 9.43 ms, suspension took 7.74 ms and the rest
+of the scheduler took 3.86 ms. This interval excludes display, sound playback
+and waiting. The 30 FPS target allows 280,896 T (33.49 ms) for the whole update.
+
+The wheels examined terrain lists containing 17 and 11 records. Repeated
+queries across three substeps needed 27 normal and 18 tangent projections,
+five wide pushes and three ordered two-contact resolutions. A deeply embedded
+endpoint at offset (50, −107) triggered two wide integer divisions. The rider's
+head moved just two solver units, yet each substep searched the same terrain.
+
+Test48 computes both axes of a short terrain projection using a shared table
+lookup for the low digits and signed additions for the high digits. It rounds
+once, after summing the products. Deep endpoint normals use exact integer
+fractional division. Wide contact pushes pass their results directly to the
+second contact. The two-support solver skips a full dot product when integer
+bounds prove which side of its rounding threshold the impulse lies on.
+The head can reuse a proven clear 8-by-8 square while both sweep endpoints
+stay inside it. These paths apply to terrain geometry on any course.
+
+| Same Steep Corner update | test47 | test48 |
+| --- | ---: | ---: |
+| Two wheels, three substeps | 455,472 T | 400,124 T |
+| Head sweep, three substeps | 79,104 T | 38,328 T |
+| Suspension | 64,936 T | 64,936 T |
+| Other scheduled physics | 32,352 T | 32,352 T |
+| **Total** | **631,864 T (75.32 ms)** | **535,740 T (63.87 ms)** |
+
+The corner suite starts the bike at 313 placements, including 216 two-edge
+positions outside the precomputed corner tables. Across 1,186 updates the
+physics-only deadline misses fell from 210 to 190, spanning 41 courses versus
+42 previously. Aggregate physics time improved on 52 of 54 courses. Across
+their placements Flat Track took 700 T more and Turnaround took 1,016 T more.
+The new maximum is 562,620 T (67.07 ms) at (27,480, 39,592) on Steep Corner
+under braking. Wheel solves still take 407,724 T (48.60 ms) at that placement
+and suspension takes 105,184 T (12.54 ms).
+
+| Controller replays | Updates | Cadence (updates/s) | Late updates, test47 → test48 |
+| --- | ---: | ---: | ---: |
+| All 54 courses, four inputs per course | 19,885 | 29.649 | 285 → 284 |
+| Eight courses, three longer inputs each | 5,227 | 29.633 | 88 → 81 |
+| Full Freefall descent | 439 | 29.864 | 0 → 0 |
+
+The replay deadline covers the whole active update and the estimated GDMA
+stall. All 25,551 replay updates and 76,568 physics substeps matched test47,
+as did all 3,512 corner substeps. The visual comparison matched 1,216
+presentations and 61,845 visible background cells. The head sweep comparison
+matched 48,951 queries across 54 courses, including exits from a cached
+square. All 3,984 signed projections matched the independent integer oracle.
+All 54 courses opened in the entry sweep. That sweep missed one display
+deadline, as on test47. The separate Freefall check passed.
+
+A wider short-product range increased the corner suite's deadline misses.
+Two FIFO invalidation variants reduced them to 188 but raised the catalog
+count to 292 and the longer replay count to 88. The playable build uses the
+variant with the fewest missed deadlines in the controller replays.
+
+Build with `tools/build.py --gen build/gen-v096-test36-8m --rom-mib 8 --out build/elma-gbc-v0.96-test48-8m.gbc`.
+Run `test/check_corner_results.py` with `--rom build/elma-gbc-v0.96-test48-8m.gbc --reference build/elma-gbc-v0.96-test47-8m.gbc --manifest build/gen-v096-test36-8m/corner_cells.json --profile 32 23448 38696 1`
+to repeat the profile and comparisons. Use `--profile 32 27480 39592 2` for
+the new maximum. Timings are from CGB emulation.
+
+SHA-256 `cf03d64322717257ea13226e5b90a6f73073bd6ce97861a91bc9858421e5d6f4`.

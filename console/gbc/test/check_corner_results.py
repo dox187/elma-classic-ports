@@ -21,6 +21,56 @@ class WheelQueries(Cartridge):
         self.m[0, main:main+6] = struct.pack('<BHBH', 0xcd, addr, 0xc3, self.code+3)
         self.p.hook_register(0, main+3, self.end_schedule, None)
 
+    def observe_substeps(self, fields, profile=False):
+        # There is one near CALL to ph_step inside the scheduler's shared interval.
+        begin = self.sym['_riding_scheduled_frame']
+        bank, address = begin >> 16, begin & 65535
+        offset = bank*16384 + (address & 16383)
+        block = self.image[offset:offset+144]
+        call = struct.pack('<BH', 0xcd, self.sym['_ph_step'] & 65535)
+        assert block.count(call) == 1
+        self.substeps = []
+        ranges = [(self.sym[field], self.sym[field]+size) for field, size in fields]
+        def returned(_):
+            if profile and self.profiling:
+                self.profile_return('head')
+            state = b''.join(bytes(self.m[lo:hi]) for lo, hi in ranges)
+            self.substeps.append((self.reg.A, state))
+        self.p.hook_register(bank, address+block.index(call)+3, returned, None)
+        if profile:
+            self.install_profile()
+
+    def install_profile(self):
+        self.profiling = False
+        self.started, self.elapsed, self.calls = {}, Counter(), Counter()
+        step = self.sym['_ph_step']
+        # The head routine is a tail call from ph_step. Its return is
+        # already observed by the scheduler hook above.
+        lo = (step >> 16)*16384 + (step & 16383)
+        block = self.image[lo:lo+256]
+        tail = struct.pack('<BH', 0xc3, self.sym['_riding_step_head'] & 65535)
+        block = block[:block.index(tail)]
+        for name, label in (('_riding_suspension_scheduled', 'suspension'),
+                            ('_riding_step_wheels', 'wheels'), ('_riding_step_head', 'head')):
+            addr = self.sym[name]
+            self.p.hook_register(addr >> 16, addr & 65535, self.profile_entry, label)
+            if label == 'head':
+                continue
+            call = struct.pack('<BH', 0xcd, addr & 65535)
+            assert block.count(call) == 1
+            self.p.hook_register(step >> 16, (step & 65535)+block.index(call)+3,
+                                 self.profile_return, label)
+
+    def profile_entry(self, label):
+        if self.profiling:
+            assert label not in self.started
+            self.started[label] = self.p._cycles()
+            self.calls[label] += 1
+
+    def profile_return(self, label):
+        if self.profiling and label in self.started:
+            self.elapsed[label] += self.p._cycles() - self.started.pop(label)
+
     def end_schedule(self, _):
         self.solver_cycles = self.p._cycles() - self.schedule_start - 24  # CALL
 
@@ -87,6 +137,39 @@ class WheelQueries(Cartridge):
         if count == 0:
             return 0, b''
         return count, self.read('_Ct', 6 if count == 1 else 20)
+
+
+def check_terrain_dots(cart):
+    """Exercise the linked signed products, including overflow before Q14 rounding."""
+    rng = random.Random(0xD047)
+    limits = (-32768, -16384, -513, -256, -1, 0, 1, 255, 512, 16384, 32767)
+    cases = [(x, y, a, b) for x in limits for y in limits
+             for a, b in ((32767, -32768), (-32768, -32768), (16383, 1), (-1, 16384))]
+    cases += [tuple(rng.randrange(-32768, 32768) for _ in range(4)) for _ in range(2048)]
+    # Exercise every signed high-digit pair supported by the short path and
+    # the adjacent values that dispatch back to the general product kernel.
+    for hx in range(-5, 6):
+        for hy in range(-5, 6):
+            for lx, ly in ((0, 255), (255, 0), (128, 127), (37, 209)):
+                for a, b in ((-32768, 32767), (32767, -32767), (-1, 1)):
+                    cases.append((256*hx+lx, 256*hy+ly, a, b))
+    addr = cart.sym['terrain_record_dot']
+    bank = addr >> 16
+    cart.m[0x2000] = cart.m[cart.sym['__current_bank']] = bank
+    cart.m[cart.code:cart.code+5] = struct.pack('<BHBB', 0xcd, addr & 65535, 0x18, 0xfe)
+    for x, y, a, b in cases:
+        cart.reg.PC, cart.reg.SP = cart.code, cart.stack
+        cart.reg.D, cart.reg.E = (x >> 8) & 255, x & 255
+        cart.reg.B, cart.reg.C = (y >> 8) & 255, y & 255
+        cart.m[cart.stack:cart.stack+4] = struct.pack('<hh', a, b)
+        cart.p.tick(1, False)
+        raw = ((x*a + y*b + 8192 + (1 << 31)) % (1 << 32)) - (1 << 31)
+        want = max(-32768, min(32767, raw >> 14)) & 65535
+        assert (cart.reg.B << 8 | cart.reg.C) == want, (x, y, a, b, want)
+        assert (cart.reg.PC, cart.reg.SP) == (cart.code+3, cart.stack+4)
+        assert bytes(cart.m[0x4000:0x4010]) == cart.image[bank*16384:bank*16384+16]
+    cart.m[0x2000] = cart.m[cart.sym['__current_bank']] = 9
+    print(f'{len(cases)} signed terrain projections matched the integer reference.')
 
 
 def check_dispatch(target, cells):
@@ -165,7 +248,7 @@ def unlisted_corners(gen, cells):
     return points
 
 
-def exercise_corners(target, oracle, points):
+def exercise_corners(target, oracle, points, profile=None):
     # Relocate a freshly initialized bike as a unit. Run the regular three-
     # substep scheduler with contact, motion, rider, head and audio enabled.
     fields = (('_Bike', 119), ('_gbc_bike', 51), ('_angular_residual', 4),
@@ -173,11 +256,14 @@ def exercise_corners(target, oracle, points):
               ('_riding_landing_contact', 2), ('_riding_landing_nx', 4),
               ('_riding_landing_ny', 4), ('_riding_audio_impact', 2),
               ('_riding_audio_contact', 2))
-    updates = 0
+    updates = substeps = 0
+    course_time = [Counter(), Counter()]
+    measurements = []
     late = [Counter(), Counter()]
     peak = [(0,), (0,)]
     for cart in (target, oracle):
         cart.time_scheduled_frames()
+        cart.observe_substeps(fields + (('_riding_subphase', 1),), profile is not None)
     for i, (level, x, y) in enumerate(sorted(points)):
         wheel = 24 if i % 2 == 0 else 48
         for cart in (target, oracle):
@@ -193,31 +279,56 @@ def exercise_corners(target, oracle, points):
                 cart.m[bike+offset:bike+offset+8] = struct.pack('<ii', px+dx, py+dy)
         for buttons in (1, 2, 4, 9):
             for j, cart in enumerate((target, oracle)):
+                cart.substeps.clear()
+                cart.profiling = profile == (level+1, x, y, buttons)
                 cart.invoke('_riding_scheduled_frame', a=buttons)
+                if cart.profiling:
+                    assert not cart.started
+                    parts = ', '.join(f'{label} {ticks} T ({cart.calls[label]} calls)'
+                                      for label, ticks in cart.elapsed.items())
+                    rest = cart.solver_cycles - sum(cart.elapsed.values())
+                    print(f'{("ROM", "reference")[j]} profile: {parts}, other {rest} T.')
+                course_time[j][level+1] += cart.solver_cycles
                 assert cart.solver_cycles > 0
                 peak[j] = max(peak[j], (cart.solver_cycles, level+1, x, y, buttons))
                 if cart.solver_cycles > 280896:
                     late[j][level+1] += 1
+            assert target.substeps and target.substeps == oracle.substeps, (
+                'corner substep', level, x, y, buttons)
+            substeps += len(target.substeps)
+            measurements.append((oracle.solver_cycles, target.solver_cycles, level+1, x, y, buttons))
             for field, length in fields:
                 assert target.read(field, length) == oracle.read(field, length), (
                     'scheduled corner state', level, x, y, buttons, field)
             updates += 1
             if not target.read('_gbc_bike', 51)[50]:
                 break
-    print(f'{updates} scheduled updates matched from {len(points)} corner placements.')
+    print(f'{updates} updates and {substeps} substeps matched from {len(points)} corner placements.')
+    old, new, course, x, y, control = max(measurements)
+    if profile:
+        assert any(row[2:] == profile for row in measurements), ('unvisited placement', profile)
+    print(f'Slowest reference update: course {course} at ({x}, {y}), input {control}, {old} -> {new} T.')
+    faster = sum(course_time[0][course] < total for course, total in course_time[1].items())
+    print(f'Corner placements faster in aggregate on {faster}/{len(course_time[1])} courses, '
+          f'{sum(course_time[1].values())} -> {sum(course_time[0].values())} T.')
+    for course, old in sorted(course_time[1].items()):
+        if course_time[0][course] >= old:
+            print(f'Course {course}: {old} -> {course_time[0][course]} T over its placements.')
     for name, courses, worst in zip(('ROM', 'reference'), late, peak):
         print(f'{name} physics alone exceeded 280896 T on {sum(courses.values())} updates '
               f'across {len(courses)} courses, worst {worst[0]} T on course {worst[1]} '
               f'from ({worst[2]}, {worst[3]}) with input {worst[4]}.')
 
 
-def check(rom, reference, cells, holdout):
+def check(rom, reference, cells, holdout, profile=None):
     assert cells and all(x % 16 == y % 16 == 0 for _, x, y in cells), cells
     target, oracle = WheelQueries(rom), WheelQueries(reference)
     stats = Counter()
     rng = random.Random(0xC047)
     last_level = None
     try:
+        if 'terrain_record_dot' in target.sym:
+            check_terrain_dots(target)
         check_dispatch(target, cells)
         for level, x, y in sorted(set(query_points(cells)) | holdout):
             if level != last_level:
@@ -259,7 +370,7 @@ def check(rom, reference, cells, holdout):
                     stats['selected positions', slot] += 1
         assert all(stats['selected positions', slot] == len(cells)*256 for slot in range(2))
         assert stats['outside fallback'] and stats['corner', 1], stats
-        exercise_corners(target, oracle, holdout | {(level, x+8, y+8) for level, x, y in cells})
+        exercise_corners(target, oracle, holdout | {(level, x+8, y+8) for level, x, y in cells}, profile)
         print(f'{len(holdout)} unlisted two-edge points on 54 courses, both wheels: '
               f"{stats['unlisted', 1]} merged and {stats['unlisted', 2]} distinct pairs.")
         assert sum(stats['unlisted', i] for i in (1, 2)) == len(holdout)*2
@@ -277,8 +388,11 @@ if __name__ == '__main__':
     parser.add_argument('--rom', type=Path, required=True)
     parser.add_argument('--reference', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, required=True)
+    parser.add_argument('--profile', type=int, nargs=4, metavar=('COURSE', 'X', 'Y', 'BUTTONS'),
+                        help='break down one scheduled update in both cartridges')
     args = parser.parse_args()
     data = json.loads(args.manifest.read_text())
     cells = {tuple(row) for row in data['cells']}
     assert len(cells) == len(data['cells']), 'duplicate manifest cells'
-    check(args.rom, args.reference, cells, unlisted_corners(args.manifest.parent, cells))
+    check(args.rom, args.reference, cells, unlisted_corners(args.manifest.parent, cells),
+          tuple(args.profile) if args.profile else None)
