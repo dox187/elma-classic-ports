@@ -1453,3 +1453,80 @@ returns to the start. Its static `VIEW` scene is separate from the playable ROM.
 Toolchain references are the
 [GBDK coding guidelines](https://gbdk.org/docs/api/docs_coding_guidelines.html)
 and [Pan Docs](https://gbdev.io/pandocs/).
+
+## Development history
+
+| Version | Main change |
+| --- | --- |
+| First playable / 0.3 | Fixed-point bike physics, original artwork, all 54 courses |
+| 0.4 | Title screen, menus, 3×5 font, native audio |
+| 0.5 | Compressed scenery for a 4 MiB ROM |
+| 0.6 | Player names, saved records, race feedback |
+| 0.7 | 4 and 8 MiB builds, 32 KiB SRAM, bank diagnostics |
+| 0.72 | Steady idle sound and held volt controls |
+| 0.73 | Per-frame timer and finish results |
+| 0.74 | Readable splash credits |
+| 0.80 | Native sounds derived from original samples |
+| 0.81 | Original engine pitch and load-dependent tone |
+| 0.82 | Louder engine and effects |
+| 0.83 | Second engine sound channel |
+| 0.84 | Half-volume CH1 exhaust |
+| 0.90 | PC physics comparisons, rider fixes, brighter scenery |
+| 0.91 / test1 | Faster suspension, contact checks and scenery streaming |
+| 0.92 | Variable idle, wheel-impact creaks, volt sound |
+| 0.93 | PC-timed physics substeps, corrected rebound and braking |
+| 0.94 | High-speed physics audit and drive cutoff correction |
+| 0.95 | Speed work folded into 0.96 |
+
+### 0.96 test builds
+
+| Build | Main change |
+| --- | --- |
+| test1 | Faster suspension forces and wide dot products |
+| test2 | 32-bit angular velocity and brake torque |
+| test3 | Greater airborne wheel travel |
+| test4 | More precise airborne damping and course exits |
+| test5 | Full-precision wheel damping and fractional body rotation |
+| test6 | Faster rider-limit checks and scheduled physics |
+| test7 | Cached terrain clearance and faster damping torque |
+| test8 | Faster grounded contacts and head sweeps |
+| test9 | Skipped redundant single-contact velocity projections |
+| test10 | Reused both contacts at unchanged wheel positions |
+| test11 | Precomputed wheel clearance across all courses |
+| test12 | Combined spring and damping products |
+| test13 | Paired wheel updates and narrower terrain searches |
+| test14 | Prepared suspension during spare display time |
+| test15 | Looked up contact normals at terrain vertices |
+| test16 | Shorter damping products and cheaper scenery uploads |
+| test17 | Fused fractional movement and synchronized HUD time |
+| test18 | Looked up stationary two-contact wheel responses |
+| test19 | Shared angular updates for free and rolling wheels |
+| test20 | Combined opposing spring moments |
+| test21 | Prepared suspension one wheel at a time |
+| test22 | Kept wheel animation tiles in VRAM |
+| test23 | Batched changed bike tiles into DMA transfers |
+| test24 | Reused terrain classifications and signed products |
+| test25 | Looked up partial movement and shallow slopes |
+| test26 | Skipped irrelevant edges and exterior endpoints |
+| test27 | Tabulated slope and compressed-suspension products |
+| test28 | Reused terrain spans and partially prepared columns |
+| test29 | Batched suspension forces and shortened signed projections |
+| test30 | Narrowed dense-terrain searches and reused rolling projections |
+| test31 | Packed scenery indices to fit suspension tables |
+| test32 | Reused rider displacement in spring and spin calculations |
+| test33 | Shared projected points between equal wheel contacts |
+| test34 | Reused terrain spans across both wheels |
+| test35 | Extended rolling tables and skipped unnecessary pushouts |
+| test36 | Tabulated 172 rolling directions and shared vertex normals |
+| test37 | Shared rolling lookups and batched background transfers |
+| test38 | Combined torque products before rounding |
+| test39 | Paired body and wheel position updates with residuals |
+| test40 | Faster rolling impulses and head clearance checks |
+| test41 | Reduced wheel-contact and scenery update costs |
+| test42 | Faster course bounds and swept-head checks |
+| test43 | Ran force calculations from work RAM |
+| test44 | Shortened rolling calculations on flats and slopes |
+| test45 | Tabulated wheel reactions for 16-bit inputs |
+| test46 | Reused wheel coordinates and background strip bounds |
+| test47 | Shared vertex contacts at multi-edge corners |
+| test48 | Faster deep wheel contacts and repeated head sweeps |
