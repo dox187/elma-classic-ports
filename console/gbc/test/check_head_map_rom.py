@@ -87,14 +87,12 @@ def inputs(level, rng):
             yield 'boundary', (x, y, x+distance, y+distance//3)
 
 
-def check_small_head_cache(actual, ref):
+def check_small_head_cache(actual, ref, level, x, y):
     mask = actual.symbols['_riding_head_clear_mask']
     query = actual.symbols['_riding_head_terrain_query']
     misses = []
     actual.rom.hook_register(query >> 16, query & 65535, lambda _: misses.append(1), None)
     comparisons = 0
-    level = 31
-    x, y = 24226, 40406
     base = (x, y, x, y)
 
     def select(course):
@@ -146,7 +144,7 @@ def check_small_head_cache(actual, ref):
                 continue
             break
         else:
-            raise AssertionError('Steep Corner fixture did not reach terrain')
+            raise AssertionError(f'Course {level+1} fixture did not reach terrain')
         warm()
         select(level)
         warm()
@@ -168,7 +166,8 @@ def main():
     ref, actual = HeadProbe(args.reference), HeadProbe(args.rom)
     try:
         if '_riding_head_near_clear' in actual.symbols:
-            counts['small_cache'] = check_small_head_cache(actual, ref)
+            for level, x, y in ((31, 24226, 40406), (47, 72982, 5526)):
+                counts['small_cache'] += check_small_head_cache(actual, ref, level, x, y)
         for i, level in enumerate(unique_levels):
             ref.select_level(i)
             actual.select_level(i)
