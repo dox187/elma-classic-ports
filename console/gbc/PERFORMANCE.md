@@ -3916,3 +3916,58 @@ cells. The strict course-entry sweep opened all 54 courses and recorded one
 missed display deadline, as in test49. The separate Freefall test passed.
 
 SHA-256 `aaf3f20d69a5112258a2e7f383cd6e4585cd6775a0555dacd986f493c02e9ce2`.
+
+## 0.96 test51 — Rolling contacts and suspension
+
+PyBoy at CGB double speed took 50,918 display refreshes for the same
+25,310 controller intervals that took 50,959 in test50. The average below
+divides the total intervals by total emulated time. The two-refresh target
+on this display is 29.864 updates/s.
+
+| Identical input replays | test50 | test51 |
+| --- | ---: | ---: |
+| All controller intervals, weighted updates/s | 29.665 | 29.689 |
+| Intervals spanning three display refreshes | 339 | 298 |
+| 54-course catalog, 216 replays, updates/s | 29.664 | 29.687 |
+| Longer runs, 24 replays, updates/s | 29.653 | 29.681 |
+| Complete neutral Freefall descent, updates/s | 29.864 | 29.864 |
+| Double Trouble braking, slowest route average | 25.38 | 25.71 |
+| Updates over budget including estimated GDMA cost, out of 25,551 | 340 | 298 |
+| Physics over 33.49 ms across 1,194 corner updates | 185 | 179 |
+| Steep Corner throttle at (23,448, 38,696), physics only | 63.25 ms | 62.95 ms |
+| Steep Corner braking at (27,480, 39,592), physics only | 62.89 ms | 62.59 ms |
+
+Across the catalog and longer runs, 33 replays had fewer three-refresh
+intervals and eight had one extra. Gravity Ride braking gained six on the
+short replay and three on the long replay. Framework braking rose from 18
+to 19 out of 99. Bumpy Journey braking illustrates the available margin:
+the short replay's peak went from 232,380 to 236,084 T including the DMA
+estimate, and every interval on that replay still took two refreshes.
+
+The solver skips synthetic segment ends outside the reachable region and
+passes an already verified normal to the next matching wheel contact.
+Rolling keeps the two tangent coefficients and partial products in registers
+through the final Q14 rounding. The suspension loads each coefficient input
+in a descending pass. Object bounds use the fixed pose addresses, and empty
+sprite lists and idle engine pitch skip unnecessary work.
+
+After an overrun with the camera still in the same tile, suspension gets the
+remaining wait first. Scenery lookahead can then use the existing scanline
+window. With scenery first throughout, the same build had 302 three-refresh
+intervals, including 36 on Double Trouble braking. Omitting lookahead
+entirely after these overruns produced 306. Keeping it available cut the
+total to 298 and Double Trouble braking to 32. Rechecking the scanline
+before starting lookahead preserved those counts.
+
+All 76,568 controller replay substeps and 3,536 substeps from 315 corner
+starts matched test50 byte for byte. The summed corner physics cost fell
+on all 54 courses. Wheels still took 393,524 of 528,052 T at the worst
+placement. Seven visual replays matched on 1,216 presentations and 61,845
+background cells. The speed-limit suite also matched all 3,170 native
+states across 122 cases. The course-entry test now checks the scroll registers
+and tilemap after publication. A host display boundary on course 34 had
+sampled a one-pixel camera move while `world_scroll` was still executing.
+All 54 courses passed the functional checks. The strict entry sweep still
+recorded one late update, as on test50. Timing is from the emulator.
+
+SHA-256 `abaa071d3527c80b532d1ee6a31f6877a7c929d31731967479a9e5af5ef813d9`.

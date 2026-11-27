@@ -50,6 +50,15 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test51 — Rolling contacts and suspension
+
+The wheels reuse verified endpoint normals and keep rolling products in
+registers. After a late update the game can prepare suspension before loading
+scenery for a predicted camera move. Double Trouble braking rose from
+25.38 to 25.71 updates/s. Across all controller replays, intervals requiring
+an extra display refresh fell by 12.1%. The worst Steep Corner physics
+update still takes 62.95 ms. [Timing and validation](PERFORMANCE.md#096-test51--rolling-contacts-and-suspension)
+
 ## 0.96 test50 — Contact point reuse and terrain edge rejection
 
 When two edges share a wheel contact, the next edge can reuse the exact
