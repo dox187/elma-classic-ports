@@ -282,6 +282,8 @@ def generate(gen, dest=None):
         out.extend(data_lines(pattern))
     out += ['_wheel_quarter_patterns_end::']
     out += refinement_tables(levels, banks, rows, codes, patterns)
+    from wheel_candidates import tables as candidate_tables
+    out += candidate_tables(levels, banks)
     path = dest/'wheel_terrain_rows.s'
     write_if_changed(path,'\n'.join(out)+'\n')
     return path
@@ -293,6 +295,11 @@ def validate_layout(symbols):
             or symbols.get('_riding_wheel_cached_window', 0) >> 16 != 9
             or symbols.get('_riding_wheel_read_map', 65535) >= 0x4000):
         raise ValueError('Wheel terrain requires its caller in bank 9 and a fixed-ROM reader')
+    if '_riding_candidate_gate' in symbols and (
+            symbols['_riding_candidate_gate'] >> 16 != 9 or symbols['_riding_candidate_solve'] >> 16 != 9 or
+            symbols['_riding_candidate_select'] >> 16 != 5 or symbols['_riding_candidate_leaves'] >> 16 != 5 or
+            symbols['_riding_candidate_programs'] >> 16 != 7 or symbols['_candidate_slots'] >= 0x4000):
+        raise ValueError('Ordered wheel candidate lookup requires its linked FIFO pointers in fixed ROM')
     if '_riding_leaf_dispatch' in symbols and (symbols['_riding_leaf_dispatch'] >= 0x4000 or
             symbols['_riding_leaf_classify'] >> 16 != 31 or symbols['_riding_leaf_general'] >> 16 != 9):
         raise ValueError('Wheel neighborhood queries require a fixed reader and classifiers in banks 31 and 9')

@@ -472,7 +472,8 @@ def main():
             game_source = a.gen/(name+'_game.s')
             text = 'RIDING_NORMAL_ATLAS = 1\n'+source.read_text()
             if name == 'physics_contact_loop':
-                text = 'RIDING_LEAF_REGION = 1\n' + text + '\n' + (BASE/'src/corner_pair.inc').read_text()
+                text = ('RIDING_LEAF_REGION = 1\n' + text + '\n' + (BASE/'src/corner_pair.inc').read_text()
+                        + '\n' + (BASE/'src/wheel_candidates.inc').read_text())
             if name == 'physics_normal_fast':
                 text += '\n'+(BASE/'src/physics_normal_atlas.s').read_text()
             head_clearance.write_if_changed(game_source,text)

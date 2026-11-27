@@ -123,6 +123,12 @@ typedef char cache_query_layout[offsetof(physics_level_desc_t,width)==22 &&
 void seg_query(uint8_t cx,uint8_t cy,uint8_t subcell) __naked {
     cx;cy;subcell;
     __asm
+#ifdef RIDING_PC_SCHEDULE
+    .globl _candidate_slots, _candidate_cell_ids, _candidate_subcells
+    _candidate_slots = _cell_records
+    _candidate_cell_ids = _cell_ids
+    _candidate_subcells = _cell_subcells
+#endif
     ; ABI1 A=cx, E=cy, SP+2=subcell. FFFF never names an in-range cell.
     ld d,a
     ld hl,#(_riding_level+22)

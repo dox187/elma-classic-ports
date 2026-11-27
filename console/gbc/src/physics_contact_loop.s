@@ -63,7 +63,7 @@ _riding_contacts_loop::
  add #128
  ld (#contact_loop_box+1),a
  .ifdef RIDING_LEAF_REGION
- jp _riding_leaf_dispatch
+ jp _riding_candidate_gate
 _riding_leaf_general::
  xor a
  ld (#_riding_program_mode),a
