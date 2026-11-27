@@ -1817,6 +1817,7 @@ const int32_t *riding_pair_vector, *riding_pair_moment;
 uint8_t riding_pair_shift, riding_pair_coefficient, riding_pair_stopped;
 uint8_t riding_pair_moment_side;
 uint8_t riding_pair_fast_side(const int32_t *velocity);
+uint8_t riding_pair_speed_class(const int32_t *velocity);
 uint8_t riding_pair_sure(const contact_t *pivot,uint8_t *separation);
 uint8_t riding_pair_supports(const contact_t *contact);
 
@@ -1829,8 +1830,14 @@ static uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
     riding_pair_velocity=&k->vx;
     riding_pair_impulse=&input->dvx;
     riding_pair_moment_side=0;
+#if VEL_1MS == 23069
+    uint8_t speed = riding_pair_speed_class(riding_pair_velocity);
+    riding_pair_stopped = speed == 0;
+    if(speed == 2 || (speed == 3 && faster_1ms(k))) {
+#else
     riding_pair_stopped=!(k->vx || k->vy);
     if(!riding_pair_stopped && faster_1ms(k)) {
+#endif
         riding_pair_vector=riding_pair_velocity;
         riding_pair_moment=&k->omega;
         riding_pair_shift=10;

@@ -2,6 +2,7 @@
 import argparse
 from collections import Counter
 from io import BytesIO
+from math import isqrt
 from pathlib import Path
 import random
 import re
@@ -114,6 +115,30 @@ def check_moving_pivots(reference, target, rng):
     return checked
 
 
+def check_speed_class(cart):
+    velocity = cart.symbols['_Bike'] + 32
+    limit = 23069
+    pairs = set()
+    for x in (0, 1, 255, 256, 8191, 16128, 16384, 22528, limit-1, limit):
+        edge = isqrt(limit*limit - x*x)
+        for y in (0, 1, edge-1, edge, edge+1, 23295, 23296, 32768, 65536):
+            for sx in (-1, 1):
+                for sy in (-1, 1):
+                    pairs.add((sx*x, sy*y))
+                    pairs.add((sy*y, sx*x))
+    pairs.update(((1 << 30, 0), (0, -1 << 31), (-65536, 65535)))
+    seen = set()
+    for vx, vy in pairs:
+        cart.mem[velocity:velocity+8] = struct.pack('<ii', vx, vy)
+        answer = cart.call('_riding_pair_speed_class', velocity, 0)
+        fast = max(abs(vx), abs(vy)) >= limit or vx*vx+vy*vy > limit*limit
+        expected = 2 if fast else int(bool(vx or vy))
+        assert answer in (expected, 3), (vx, vy, answer, expected)
+        seen.add(answer)
+    assert seen == {0, 1, 2, 3}, seen
+    return len(pairs)
+
+
 def check_length_scaling(cart):
     regs = cart.emu.register_file
     cases = 0
@@ -211,6 +236,8 @@ def main():
             results[(cached, actual['_riding_landing_contact'][slot],
                      actual['_riding_audio_impact'][slot])] += 1
         moving = check_moving_pivots(reference, target, rng)
+        if '_riding_pair_speed_class' in target.symbols:
+            print(f'{check_speed_class(target)} velocity boundaries passed.')
         if 'pair_length_scale' in target.symbols:
             print(f'{check_length_scaling(target)} tangent and contact-length boundary cases passed.')
     finally:

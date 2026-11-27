@@ -291,6 +291,56 @@ pair_bound_unknown:
  xor a
  ret
 
+; Classify the 1 m/s pivot switch (23069 velocity units). Return zero
+; for rest, one below the radius, two above it, or three for the strip
+; requiring the existing exact squared-speed comparison.
+.area _CODE_9
+_riding_pair_speed_class::
+ ld h,d
+ ld l,e
+ ld c,#0
+ call pair_speed_axis
+ ld b,a
+ call pair_speed_axis
+ add b
+ cp #89                        ; |vx|+|vy| <= (88+2)*256 < 23069
+ jr c,pair_speed_slow
+ ld a,#3
+ ret
+pair_speed_slow:
+ ld a,c
+ or a
+ ret z
+ ld a,#1
+ ret
+.area _CODE
+pair_speed_axis:
+ ld a,(hl+)
+ or c
+ ld c,a
+ ld a,(hl+)
+ ld e,a
+ or c
+ ld c,a                         ; zero only when all lower words are zero
+ ld a,e
+ add a
+ sbc a
+ ld d,a
+ ld a,(hl+)
+ xor d
+ jr nz,pair_speed_fast
+ ld a,(hl+)
+ xor d
+ jr nz,pair_speed_fast
+ ld a,e
+ xor d                         ; high byte of v (positive) or ~v (negative)
+ cp #91
+ ret c
+pair_speed_fast:
+ add sp,#2                      ; bypass the other axis and return to the solver
+ ld a,#2
+ ret
+
 ; A signed 18-bit tangent times 256+k fits signed32. Look up low16*k once,
 ; then add low16<<8 and the signed high word times the contact length.
 .area _CODE_9
