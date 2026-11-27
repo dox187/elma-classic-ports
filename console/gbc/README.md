@@ -3,12 +3,12 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test54 — 8 MiB](build/elma-gbc-v0.96-test54-8m.gbc)**.
-Across 25,310 controller intervals the weighted average reached 29.740 updates/s.
-Intervals taking an extra display refresh fell from 258 to 211. Both Gravity
-Ride replays held the target cadence throughout braking. The slow Curvaceous
-corner update fell from 67.98 to 49.90 ms. All measured physics substeps
-matched test53 byte for byte. [Timing and verification](PERFORMANCE.md#096-test54--curvaceous-contacts-and-gravity-ride-braking)
+**[0.96 test55 — 8 MiB](build/elma-gbc-v0.96-test55-8m.gbc)**.
+The controller replays averaged 29.749 updates/s over 25,310 intervals.
+196 intervals took three display refreshes, down from 211 in test54.
+Bowling and Framework braking improved. On a separate 25-point Steep Corner
+stress test, the longest physics update fell from 80.66 to 70.86 ms. The
+whole-game budget is 33.49 ms. [Timings and remaining slowdowns](PERFORMANCE.md#096-test55--wheel-contacts-on-steep-corner-framework-and-bowling)
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
@@ -416,3 +416,4 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | test52 | Shared wide rolling products and packed ordered two-edge contacts |
 | test53 | Shortened wheel edge lists, shared vertex projections and head checks |
 | test54 | Shortened Curvaceous contact searches and Gravity Ride braking updates |
+| test55 | Reused wheel projections and terrain results on corners and braking routes |

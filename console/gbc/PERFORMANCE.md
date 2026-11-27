@@ -4151,3 +4151,81 @@ presentations and 61,845 background cells. All 54 courses started, with one
 late update in the entry sweep. Timing was measured in PyBoy.
 
 SHA-256 `9cce919d947410ba8d95a84a4c7875ce6cd1ee7a1dbab481fc91f4377c1fd33f`.
+
+## 0.96 test55 — Wheel contacts on Steep Corner, Framework and Bowling
+
+In the slow test54 Steep Corner update, three suspension calls took 84,488 T
+and the two wheels took 388,312 T over three substeps. Four wheel queries
+walked the terrain edges. Test55 keeps the original edge order and shares
+the shortest applicable candidate list across neighboring wheel positions.
+The generator removes redundant overlapping regions that give the same
+list. At the same position, with the same input and wheel, the wheel work
+fell to 310,992 T and the whole physics update to 453,220 T.
+
+Two changes apply on every course. When the first contact pushes a wheel and
+the second contact's integer distance is at most 405, even the maximum
+fractional projection lies inside the acceptance radius. The solver can
+compute the second push once at the moved center. For bounded pushes it uses
+signed-word axes and combines the Q14 and whole-distance rounding biases.
+Full-width inputs retain their original arithmetic. A sparse pair tile also
+supplies fresh geometry when the wheel's X fraction changes. Returning to its
+exact cached center restores both prepared contacts and their support signs.
+
+On Bowling, the builder verifies 388,766 integer wheel centers against the
+ordered terrain before enabling a shortcut for empty space, a near-flat
+surface and a slope. The reader fits in the unused tail of terrain bank 86.
+The 100-update braking replay's peak active update fell from 404,536 to
+379,704 T. On Framework braking the peak fell from 396,164 to 323,436 T.
+
+| PyBoy measurement | test54 | test55 |
+| --- | ---: | ---: |
+| Weighted updates/s over 25,310 controller intervals | 29.740 | 29.749 |
+| Three-refresh intervals, short suite / long suite / complete Freefall | 173 / 38 / 0 | 158 / 38 / 0 |
+| Independent seed 905202, three-refresh intervals out of 5,302 | 66 | 67 |
+| Bowling, three-refresh intervals over the 99-interval brake replay | 17 | 11 |
+| Framework, same replay | 17 | 13 |
+| Slowest regular replay average, updates/s | 27.50 | 27.63 |
+| Steep Corner (25,224, 39,416), input 4, wheel 2, physics only | 63.25 ms | 54.03 ms |
+| Peak over the historical 642 wheel placements, physics only | 63.25 ms | 62.61 ms |
+| Updates over the 33.49 ms physics budget in those 2,432 updates | 347 | 345 |
+| Peak over the separate 25-point Steep Corner grid, physics only | 80.66 ms | 70.86 ms |
+
+The slowest regular replay is now Hang Tight braking, with 16 long intervals
+out of 99. The slowest observed controller interval lasted three display
+refreshes, equivalent to 19.91 updates/s over that interval. Both Gravity
+Ride replays maintained two refreshes per update while B was held. The extra
+late interval in the independent seed occurred on Bowling. On the short
+Bowling replays, throttle and mixed input also had more long intervals. The
+braking improvement outweighed these changes in the full short suite.
+
+The historical placement peak is now input 9 on the left wheel at the same
+Steep Corner coordinates. The neighborhood grid starts the bike at each of
+25 positions with offsets of −48, −24, 0, 24 and 48 on each axis. It runs
+four consecutive inputs from each wheel placement. Total physics time there
+fell from 111,115,492 to 99,711,988 T. The slowest remaining grid update is
+at (25,176, 39,464), input 9, right wheel. To reproduce the grid, run
+`test/check_corner_results.py` with the test55 ROM, the test54 reference,
+the generated `corner_cells.json` manifest and
+`--both-wheels --neighborhood 32 25224 39416`.
+
+The 76,568 primary controller substeps, 16,015 independent-seed substeps,
+7,199 historical placement substeps and 600 neighborhood substeps matched
+test54 byte for byte. The two-contact tests include 1,800 push boundaries,
+5,600 ordered pairs and 2,368 moving pivots. The linked Bowling reader
+passed 4,532 calls covering both wheel slots, rectangle and slope edges,
+coordinate aliases and course changes. All 298,416 ordered queries in the
+28 candidate regions and their boundary probes matched the preceding ROM,
+including both contact records and the terrain cursor. All 84 partial lists
+took the ordinary iterator. The speed-limit fixture matched
+3,170 native states across 122 cases. Seven visual replays matched on
+1,216 presentations and 61,845 background cells. All 54 courses started.
+The entry sweep recorded one late update, as in test54.
+
+Three alternatives were discarded. Reindexing the Bowling terrain cache
+did not reliably improve average update time. A wider signed-digit
+projection slowed the Steep Corner grid relative to using the new regions
+alone. Skipping the shallow-plane check after a normal-bound rejection
+shortened forced contacts but produced 197 primary and 70 independent
+three-refresh intervals, against 196 and 67 with the retained dispatch.
+
+SHA-256 `1672ae725b065a638e84039bf5f2fa0455a6739344df979f336e4aca35949637`.

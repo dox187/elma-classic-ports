@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test55 — Wheel contacts on Steep Corner, Framework and Bowling
+
+On the short braking replays, Bowling had 11 late intervals out of 99
+and Framework had 13, down from 17 on each course. The wheel solver skips
+a duplicate projection during two-contact pushout and reuses ordered terrain
+data as a wheel moves across a corner. At the original Steep Corner peak,
+physics took 54.03 ms, down from 63.25 ms. The worst update on a new grid of
+25 neighboring positions took 70.86 ms. The physics substeps matched test54
+throughout both the controller and placement tests. [Playable 8 MiB ROM](build/elma-gbc-v0.96-test55-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test55--wheel-contacts-on-steep-corner-framework-and-bowling)
+
 ## 0.96 test54 — Curvaceous contacts and Gravity Ride braking
 
 The two Gravity Ride replays sustained one game update every two display
