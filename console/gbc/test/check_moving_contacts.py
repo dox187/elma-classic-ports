@@ -17,6 +17,38 @@ def segment(x, y, dx, dy, flags=0, visible=True):
     return struct.pack('<6hH4B', x, y, dx, dy, ex, ey, round(length) | flags, *box)
 
 
+def check_first_projection(target, oracle):
+    # A duplicate endpoint publishes the first point. A nearby third edge
+    # changes the merged normal before the more distant fourth edge arrives.
+    edge = segment(987, 2369, 281, -386)
+    last = segment(970, 3051, -333, -105)
+    ready = target.sym['_riding_first_point_ready']
+    merge = target.sym['_riding_contact_merge_kind']
+    observed = []
+    target.p.hook_register(merge >> 16, merge & 65535,
+                           lambda _: observed.append(target.m[ready] == 2), None)
+    try:
+        for shift in (0, 10):
+            records = edge + edge + segment(987 + shift, 2369, 281, -386) + last
+            for visit, (x, y) in enumerate(((712, 2551), (675, 2541), (644, 2556))):
+                seed = bytes((x + i) & 255 for i in range(20))
+                observed.clear()
+                target.m[ready] = 2  # stale point from an earlier wheel query
+                expected = read_contacts(oracle, records, x, y, seed, True)
+                assert read_contacts(target, records, x, y, seed, visit == 0) == expected
+                assert observed == [False, True, shift == 0], (shift, x, y, observed)
+        # A public merge accepts caller-supplied normals and a new center.
+        # Its initial point bytes are deliberately unrelated to this contact.
+        first = struct.pack('<hhh', 16384, 0, 400)
+        second = struct.pack('<hhh', 0, 16384, 400)
+        target.m[ready] = 2
+        code, state = target.merge(first, second, 2000, 800)
+        assert code == 2 and state[6:10] == struct.pack('<hh', 1600, 800)
+        assert state[16:20] == struct.pack('<hh', 2000, 400)
+    finally:
+        target.p.hook_deregister(merge >> 16, merge & 65535)
+
+
 def check(rom, reference):
     target, oracle = Cartridge(rom), Cartridge(reference)
     rng = random.Random(0xC037)
@@ -25,6 +57,8 @@ def check(rom, reference):
     guard = segment(0, 0, 1024, 0, visible=False)
     directions = ((1024, 0), (0, -1024), (-169, 181), (-248, -224),
                   (2, 1619), (-1500, 40), (33, -129), (-3, -1))
+    if '_riding_first_point_ready' in target.sym:
+        check_first_projection(target, oracle)
     def merge(_):
         ct = target.sym['_Ct']
         kind = 'equal' if bytes(target.m[ct:ct+6]) == bytes(target.m[ct+10:ct+16]) else 'mixed'

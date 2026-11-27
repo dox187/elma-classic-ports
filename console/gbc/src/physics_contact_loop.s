@@ -8,9 +8,13 @@ contact_loop_box:: .ds 2
 _riding_record_program:: .ds 2
 _riding_program_mode:: .ds 1
  .endif
+; The initializer clears the count and reuse flag before publishing Ct[0].
 contact_loop_found: .ds 1
-contact_loop_seg:: .ds 2
+ .ifdef RIDING_NORMAL_ATLAS
+_riding_first_point_ready:: .ds 1
+ .endif
 contact_loop_k: .ds 2
+contact_loop_seg:: .ds 2
 contact_loop_x:: .ds 2
 contact_loop_y: .ds 2
 contact_loop_d:: .ds 2
@@ -66,11 +70,14 @@ _riding_leaf_general::
  call contact_loop_init
  jr contact_loop_next
 contact_loop_init:
- xor a,a
- ld (#contact_loop_found),a
- ld hl,#contact_loop_k
- ld (hl),#<_Ct
- inc hl
+ ld hl,#contact_loop_found
+ xor a
+ ld (hl+),a
+ .ifdef RIDING_NORMAL_ATLAS
+ ld (hl+),a
+ .endif
+ ld a,#<_Ct
+ ld (hl+),a
  ld (hl),#>_Ct
  ret
 contact_loop_next:

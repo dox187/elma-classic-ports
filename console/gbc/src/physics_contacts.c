@@ -129,7 +129,9 @@ static void merge_normal_slow(int16_t x,int16_t y) {
 
 uint8_t riding_contact_merge(void) __naked {
     __asm
-    ld b,#0
+    xor a
+    ld (#_riding_first_point_ready),a
+    ld b,a
 _riding_contact_merge_kind::
     ; B is one when the iterator has the physical endpoint normal for
     ; Ct[1] cached. The six-byte equality check also proves Ct[0].
@@ -151,10 +153,11 @@ _riding_contact_merge_equal_known::
 merge_equal_unverified:
     call _riding_ring_equal_points
 merge_equal_result:
+    ; Only the unchanged-normal result (2) makes Ct[0].tx/ty reusable.
+    ld (#_riding_first_point_ready),a
     or a
     jp nz,merge_complete
-    ld de,#_Ct
-    call merge_project
+    call merge_project_first
     ld hl,#(_Ct+6)
     ld de,#(_Ct+16)
     .rept 4
@@ -175,10 +178,17 @@ merge_different:
     jr nz,merge_first
     ld de,#(_Ct+10)
 merge_second:
-    call merge_project
+    call _riding_contact_point_lookup
+    or a
+    jr nz,merge_first
+    ld de,#(_Ct+10)
+    call merge_calculate
 merge_first:
-    ld de,#_Ct
-    call merge_project
+    ld a,(#_riding_first_point_ready)
+    cp #2
+    jr z,merge_separation
+    call merge_project_first
+merge_separation:
     ld hl,#(_Ct+6)
     ld a,(#_Ct+16)
     sub (hl)
@@ -209,6 +219,9 @@ merge_first:
     sra b
     rr c
 merge_average:
+    ; Normalization below can replace the first vector in the same query.
+    xor a
+    ld (#_riding_first_point_ready),a
     ; Subtract the midpoint in the same 16-bit coordinate domain as the solver.
     ld hl,#(_Ct+6)
     ld a,(hl+)
@@ -246,36 +259,36 @@ merge_average:
 merge_complete:
     xor a
     ret
-merge_project:
-    push de
+merge_project_first:
+    ld de,#_Ct
     call _riding_contact_point_lookup
-    pop de
     or a
     ret nz
-    ; Project both normal components with the same signed length.
+    ld de,#_Ct
+merge_calculate:
+    ; Use each normal component as the table coefficient. Both axes share
+    ; the signed length and retain their independent saturated Q14 rounding.
+    push de
     ld hl,#4
     add hl,de
     ld a,(hl+)
-    ld c,a
-    ld b,(hl)
-    push bc
-    ld h,d
-    ld l,e
-    ld a,(hl+)
+    ld d,(hl)
     ld e,a
+    pop hl
+    push de
     ld a,(hl+)
-    ld d,a
+    ld c,a
+    ld a,(hl+)
+    ld b,a
     push hl
     call _mulq14
     pop hl
-    ld d,b
-    ld e,c
-    pop bc
-    push de
+    pop de
+    push bc
     ld a,(hl+)
-    ld e,a
+    ld c,a
     ld a,(hl+)
-    ld d,a
+    ld b,a
     inc hl
     inc hl
     push hl

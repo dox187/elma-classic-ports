@@ -414,9 +414,10 @@ ring_equal_result:
  ld (#_Ct+18+digit),a
  .endm
  pop af
- cp #1
- ret z                            ; same vector, same normalization
- jp _riding_normal_merge_ring     ; publishes normal or defers to caller
+ dec a
+ jp nz,_riding_normal_merge_ring    ; returns 1 on renormalization, 0 on miss
+ ld a,#2                          ; the original normal and its point both survived
+ ret
 
 _riding_ring_point_known::
  push de
