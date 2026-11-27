@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test50 — Contact point reuse and terrain edge rejection
+
+When two edges share a wheel contact, the next edge can reuse the exact
+projected point. Terrain bounds rule out more edges before the wheel solver
+runs. Sharing identical table rows also covers 512 additional wheel positions
+on Gravity Ride. Braking at the Steep Corner stress placement improved from
+63.84 to 62.89 ms. On the short Double Trouble braking replay, slow input
+intervals rose from 33 to 35 out of 99. All 76,568 controller replay substeps
+matched test49. [Timing and validation](PERFORMANCE.md#096-test50--contact-point-reuse-and-terrain-edge-rejection)
+
 ## 0.96 test49 — Wheel contacts, suspension and camera
 
 The wheel solver reuses exact endpoint projections, and suspension reads each

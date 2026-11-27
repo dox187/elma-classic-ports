@@ -3,12 +3,12 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test49 — 8 MiB](build/elma-gbc-v0.96-test49-8m.gbc)**.
-The 54-course controller replay averages 29.66 updates/s. Its late updates
-fell from 284 to 265. The slowest corner physics update, braking on Steep
-Corner, fell from 67.07 to 63.84 ms against a 33.49 ms target.
-All 3,512 corner substeps and 76,568 controller replay substeps matched test48
-byte for byte. [Timing and verification](PERFORMANCE.md#096-test49--wheel-contacts-suspension-and-camera)
+**[0.96 test50 — 8 MiB](build/elma-gbc-v0.96-test50-8m.gbc)**.
+The 54-course controller replay averages 29.66 updates/s. On the same 313
+corner starts, physics exceeded the 33.49 ms budget on 176 updates, down
+from 183. The worst update took 63.25 ms on Steep Corner. All 3,512 corner
+substeps and 76,568 controller replay substeps matched test49 byte for byte.
+[Timing and verification](PERFORMANCE.md#096-test50--contact-point-reuse-and-terrain-edge-rejection)
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
@@ -411,3 +411,4 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | test47 | Shared vertex contacts at multi-edge corners |
 | test48 | Faster deep wheel contacts and repeated head sweeps |
 | test49 | Reused wheel projections, suspension coordinates and camera crossing ranks |
+| test50 | Reused contact points and skipped unreachable terrain edges |

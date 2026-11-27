@@ -3853,3 +3853,66 @@ sweep still recorded one missed display deadline, as on test48. Freefall
 passed separately. Timings are from PyBoy at CGB double speed.
 
 SHA-256 `4b7fa263ee46e16a8258cae9524c43a2c679746932582aae0b54e2e332c80dab`.
+
+## 0.96 test50 — Contact point reuse and terrain edge rejection
+
+On Steep Corner an equal endpoint pair had already produced the first
+contact point when the next edge requested it again. Keeping that point
+for the current query removes six multiplications per braking update at
+(27,480, 39,592). A fresh query, a public merge or midpoint normalization
+invalidates it. The wheel solver keeps contact order and Q14 rounding.
+
+In a 64-unit square sufficiently far along the tangent beyond a segment
+end, the strict endpoint disk already bounds the perpendicular distance.
+The proof covers all 8,966 distinct packed direction and length combinations.
+At build time, intersecting the finite strip's coordinate bounds with each
+search rectangle also excludes edges the wheel cannot reach. An independent
+integer scan checked the resulting map over 6,735,104 quarter-cells.
+Identical lookup-table rows share storage in dense corner tiles. The two
+Gravity Ride banks use 306 fewer bytes while covering 46 tiles, up from 44.
+The other 53 courses retain their geometry-selected tiles.
+
+| PyBoy at CGB double speed | test49 | test50 |
+| --- | ---: | ---: |
+| 54 courses, 216 controller replays, mean updates/s | 29.664 | 29.664 |
+| Same 19,885 updates, over budget including GDMA | 265 | 265 |
+| 24 longer controller replays, mean updates/s | 29.639 | 29.653 |
+| Same 5,227 updates, over budget including GDMA | 79 | 75 |
+| Freefall neutral descent, mean updates/s (late updates) | 29.864 (0) | 29.864 (0) |
+| Original 313 corner starts, physics over budget in 1,186 updates | 183 | 176 |
+| Steep Corner, braking at (27,480, 39,592) | 535,500 T (63.84 ms) | 527,528 T (62.89 ms) |
+| Steep Corner, throttle at (23,448, 38,696) | 532,660 T (63.50 ms) | 530,588 T (63.25 ms) |
+
+The throttle placement is the new maximum. At the braking placement the
+wheels alone still take 44.53 ms against the whole update's 33.49 ms budget.
+Aggregate corner physics time improved on 51 of 54 courses. Curvaceous,
+Freefall and What the Heck took longer across their artificial placements.
+The fixed 313 starts reproduced every one of test49's 3,512 substeps.
+With both additional tiles, the expanded 315 starts produced 3,536 matching
+substeps and 185 late updates, compared with 192 on the same starts in test49.
+For a historical comparison, pass the previous build's `corner_cells.json`
+as `--placement-manifest` to `test/check_corner_results.py`. Keep `--manifest`
+pointing to the current build to verify every current tile.
+
+Gravity Ride braking produced 24 three-refresh input intervals out of 649 on
+the long replay, down from 28. Its short replay rose from 21 to 24 out of
+99. Double Trouble braking also rose from 33 to 35 out of 99, lowering its
+route average from 25.60 to 25.38 updates/s. On the longer replays the
+observed three-refresh intervals fell from 79 to 74. The GDMA budget estimate
+and the observed input interval measure different parts of frame timing.
+
+The regenerated map accelerated 1,730 previously general quarter-cells and
+sent 1,254 formerly accelerated ones through the exact general solver. The
+optional per-cell coverage comparison with test49 therefore fails its
+no-regressions check. Preserving every previous cell's lookup passed that
+check but raised standard budget misses from 264 to 267 in the paired trial.
+Two alternative bounding-box scan loops passed the functional checks but
+raised standard misses from 265 to 269 or 275 in isolation. The build uses
+the test49 scan loop.
+
+All 25,551 controller updates and their 76,568 substeps matched test49.
+Seven visual replays matched 1,216 presentations and 61,845 background
+cells. The strict course-entry sweep opened all 54 courses and recorded one
+missed display deadline, as in test49. The separate Freefall test passed.
+
+SHA-256 `aaf3f20d69a5112258a2e7f383cd6e4585cd6775a0555dacd986f493c02e9ce2`.
