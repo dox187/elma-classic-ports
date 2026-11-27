@@ -521,9 +521,7 @@ static uint8_t prediction_rank(uint16_t from,uint16_t to,uint16_t limit) {
 /* Prepare hidden cells while keeping the published camera at the current
  * frame. A partial-tile move predicts the same first crossing as the rider. */
 static void prepare_scenery_view(uint16_t start) {
-    uint16_t x,y;
-    project_camera(0);camera_prepared=1;
-    x=next_camera_x;y=next_camera_y;
+    uint16_t x=next_camera_x,y=next_camera_y;
     if(((x^game_camera_x)|(y^game_camera_y))<8U) {
         uint8_t tx=prediction_rank(game_camera_x,x,WORLD_WIDTH-160);
         uint8_t ty=prediction_rank(game_camera_y,y,WORLD_HEIGHT-144);
@@ -534,10 +532,24 @@ static void prepare_scenery_view(uint16_t start) {
     world_prepare(game_camera_x,game_camera_y,x,y,start);
 }
 
-static void prepare_next_view(uint16_t start) {
+static void prepare_next_view(uint16_t start,uint8_t late) {
+    project_camera(0);camera_prepared=1;
+#if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
+    /* When recovering from a long update, no scenery is due while the
+     * camera stays in this tile. Prepare next-step forces before lookahead. */
+    if(late && ((next_camera_x^game_camera_x)|(next_camera_y^game_camera_y))<8U) {
+        uint8_t line;
+        physics_prepare_spring(start);
+        line=LY_REG;
+        if(line<108 || line>=144)prepare_scenery_view(start);
+        return;
+    }
+#else
+    (void)late;
+#endif
     prepare_scenery_view(start);
 #if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
-    /* Scenery has first claim on the existing wait. Its 3K caller margin
+    /* On time, or at a tile crossing, scenery has first claim. Its 3K caller margin
      * covers a declined spring guard. Accepted blocks reserve their own
      * return margin and recheck the same deadline between stages. */
     physics_prepare_spring(start);
@@ -646,13 +658,12 @@ static void game_loop(void) BANKED {
         if(game_state==RIDING) {
             __critical {now=sys_time;line=LY_REG;if(IF_REG&VBL_IFLAG)++now;}
             if(now==start || ((uint16_t)(now-start)==1 && (line<108 || line>=144)))
-                prepare_next_view(start);
-            /* An overrun already waits for the next VBlank before input.
-             * Use that existing tail for hidden scenery work, with its same
-             * deadline; retain start for strict update/overrun accounting.
-             * The first condition excluded elapsed zero and one here. */
+                prepare_next_view(start,0);
+            /* An overrun still waits for VBlank before sampling input.
+             * Use that time with a new preparation deadline and keep the
+             * original start for update timing. */
             else if(line<108 || line>=144)
-                prepare_next_view(now-1);
+                prepare_next_view(now-1,1);
 #if defined(RIDING_PC_SCHEDULE) && GAME_FRAME_INTERVAL == 2
             /* A short tail can still fit the guarded geometry stage after
              * the last safe starting line for scenery. */
