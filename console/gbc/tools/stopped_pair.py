@@ -67,7 +67,11 @@ def generate(gen, reader):
     scales = tuple(map(int, re.search(r'q24_C_OLD\[2\]=\{(-?\d+),(-?\d+)\}', constants).groups()))
     new_scales = tuple(map(int, re.search(r'q24_C_NEW\[2\]=\{(-?\d+),(-?\d+)\}', constants).groups()))
     bound_enabled = all(0 <= value <= 250000 for value in new_scales)
-    output = [f'PAIR_FAST_BOUND = {int(bound_enabled)}', reader.read_text(), 'stopped_match:']
+    # Velocity magnitudes are bounded in units of 65536. Round the Q24
+    # coefficient upward so the moment bound is expressed in units of 256.
+    bins = 3 if max(new_scales) <= 3 * 65536 else 4
+    output = [f'PAIR_FAST_BOUND = {int(bound_enabled)}', f'PAIR_MOMENT_BINS = {bins}',
+              reader.read_text(), 'stopped_match:']
     for i, normal in enumerate(NORMALS):
         bands = NORMAL_BANDS.get(normal)
         if bands is None:

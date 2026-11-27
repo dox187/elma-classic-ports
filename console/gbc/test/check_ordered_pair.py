@@ -79,16 +79,28 @@ def check_moving_pivots(reference, target, rng):
     # normal impulse and velocity can leave the wheel airborne, including
     # the full-substep zero torque case that preserves the last Q24 result.
     checked = 0
-    for vx in (-1048576, -65537, -65536, -32769, 32768, 65535, 65536, 1048575):
-        magnitude_bin = (vx if vx >= 0 else ~vx) >> 16
-        limit = 2048 * (magnitude_bin + 1)
-        for omega in (limit-1, limit, limit+1, -limit+1, -limit, -limit-1, 32768, -32769):
+    speeds = [(vx, 1600) for vx in (-1048576, -65537, -65536, -32769,
+                                      32768, 65535, 65536, 1048575)]
+    speeds.extend(((101917, 18392), (154505, 3754), (-131073, 65536),
+                   (0x140000, 0x13ffff), (-0x150001, 0x140000),
+                   (0xff0000, 0x20000), (-0x1000001, 65535)))
+    for vx, vy in speeds:
+        x_bin = (vx if vx >= 0 else ~vx) >> 16
+        old_limit = 2048 * (x_bin + 1)
+        # Test the high-byte threshold from both sides, including signed16
+        # overflow, unsigned bin-sum overflow and full-phase zero torque.
+        sum_limit = 768 * (x_bin + (vy >> 16) + 2)
+        moments = {32768, -32769}
+        for limit in (old_limit, sum_limit, sum_limit + 256):
+            for delta in (-1, 0, 1):
+                moments.update((limit + delta, -limit + delta))
+        for omega in sorted(moments):
             for phase in (0, 1):
                 for torque in (0, 1234):
                     for direction in (-1, 1):
                         fields = {key: rng.randbytes(size) for key, size in FIELDS.items()}
                         bike = bytearray(fields['_Bike'])
-                        struct.pack_into('<ii', bike, 32, vx, 1600*direction)
+                        struct.pack_into('<ii', bike, 32, vx, vy*direction)
                         struct.pack_into('<i', bike, 44, omega)
                         fields['_Bike'] = bike
                         fields['_Ct'] = struct.pack('<10h', 0,16384,404,110,80,

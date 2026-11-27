@@ -181,12 +181,12 @@ stopped_invalid:
  ret
 
 .area _CODE
-; For M=65536*(1+max(U(vx)>>16,U(vy)>>16)), |vx| and |vy| <= M.
- ; Any signed16 tangent therefore gives |round(dot/2^14)|<=4*M.
- ; Lengths in [0,511] give |floor(dot*length/1024)|<=2*M. For a
- ; nonnegative Q24 coefficient <=250000 and M>=65536, the rounded
- ; magnitude is strictly less than M/32. A signed16 angular velocity
- ; with magnitude >=M/32 fixes the moment sign without signed32 wrap.
+; Let S bound |vx|+|vy|, using the next multiple of 65536 for each
+; component. Signed16 tangent coefficients give |dotQ14| <= 2*S.
+; For lengths 0..511 the shifted magnitude is <= S, including flooring.
+; With a Q24 coefficient <= PAIR_MOMENT_BINS*65536 the rounded moment
+; change is <= (S/65536)*PAIR_MOMENT_BINS*256. A larger signed16
+; angular velocity fixes the sign and its sum cannot wrap signed32.
 _riding_pair_fast_side::
  .if PAIR_FAST_BOUND
  ld hl,#2
@@ -210,10 +210,20 @@ _riding_pair_fast_side::
  jr nc,pair_side_unknown
  dec a
  xor c
- cp b
- jr c,pair_side_max
+ add b
+ jr c,pair_side_unknown
+ ; With >= 128 units of 256, no signed16 angular speed can qualify.
+ cp #41
+ jr nc,pair_side_unknown
+ add #2
  ld b,a
-pair_side_max:
+ add a
+ .if PAIR_MOMENT_BINS-3
+ add a
+ .else
+ add b
+ .endif
+ ld b,a
  ld de,#5
  add hl,de
  ld a,(hl+)
@@ -226,10 +236,6 @@ pair_side_max:
  cp (hl)
  jr nz,pair_side_unknown
  xor c
- rrca
- rrca
- rrca
- and #31
  cp b
  jr c,pair_side_unknown
  jr z,pair_side_unknown
