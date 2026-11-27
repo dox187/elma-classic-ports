@@ -4034,3 +4034,56 @@ suite matched 3,170 native states. All 54 courses started, with one display
 deadline miss on the entry sweep. Original cartridge timing remains unverified.
 
 SHA-256 `67839a7b5826196f6630595b02f8f88b88cc07afd3a48a2a575cd0ac620d72f1`.
+
+## 0.96 test53 — Wheel contacts and head clearance
+
+PyBoy replayed identical controller inputs on the two 8 MiB ROMs. The first
+four rows below include rendering, audio and input. The last four measure
+just the physics at forced starting positions. The two-refresh budget is
+33.49 ms, or 29.864 updates/s.
+
+| Measurement | test52 | test53 |
+| --- | ---: | ---: |
+| Weighted updates/s across 25,310 controller intervals | 29.695 | 29.712 |
+| Three-refresh intervals, short / long / complete Freefall | 224 / 64 / 0 | 198 / 60 / 0 |
+| Independent 54-course seed 905202, three-refresh intervals out of 5,302 | 67 | 68 |
+| Double Trouble braking, updates/s (three-refresh intervals out of 99) | 25.71 (32) | 28.70 (8) |
+| Steep Corner at (25,224, 39,416), input 9, wheel 1 | 75.56 ms | 63.49 ms |
+| Downhill at (73,944, 3,816), throttle, wheel 2 | 69.17 ms | 51.51 ms |
+| Worst of 315 historical placements | 59.85 ms | 59.69 ms |
+| Worst of 642 placements across both wheels | 75.56 ms | 67.98 ms |
+
+The slowest controller replay is now Gravity Ride braking at 27.38 updates/s.
+It had 18 three-refresh intervals out of 99, up from 17. The peak in the
+642-placement test moved to Curvaceous at (65,288, 19,432), input 9, wheel 2
+(570,220 T). Both ROMs exceeded the physics budget on 345 of 2,432 forced
+updates. Total physics time across these placements fell from 580,485,924
+to 579,511,836 T. Eleven of the 54 courses got faster in aggregate on this
+sweep. Gains are concentrated in the dense corners.
+
+The builder checks all 256 integer wheel centers in a tile before removing
+an edge or specializing an endpoint. Thirteen measured regions on Double
+Trouble and Steep Corner use ordered lists. At the old Steep Corner peak
+the wheels went from 459,036 to 357,804 T. Two extra regions cover the
+opposite wheel positions reached from the same start with a different input.
+The exhaustive ROM comparison matched 58,580 queries, including the contact
+records and the iterator position, and 39 partial-leaf cases.
+
+For shared vertices the solver can reconstruct the rounded point once.
+For moving two-contact pivots, signed 18-bit tangents and contact lengths
+from 256 to 511 use one table product plus high-word corrections. Wider inputs
+use the existing wide arithmetic. The native tests covered 5,600 ordered
+pairs, 512 moving pivots and 432 tangent/length boundary combinations. On
+Downhill the finite-edge clearance check reduced three head tests in the
+same update from 204,124 to 55,580 T. Head results matched on 49,086 cases.
+A separate trial duplicating the single-contact reporting code increased
+the independent seed's late intervals from 68 to 73 and was discarded.
+
+All 76,568 controller substeps, 16,015 independent-seed substeps and
+7,199 corner-placement substeps matched test52 byte for byte. Seven visual
+replays matched on 1,216 presentations and 61,845 background cells. The
+speed-limit fixture matched all 3,170 native states across 122 cases. All
+54 courses started, with one deadline miss in the entry sweep. Timing was
+measured in the emulator.
+
+SHA-256 `f3e4baeba2e498311c55ed390ac1ec882aca21a664a426aab8387fa52c6acbcf`.

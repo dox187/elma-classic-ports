@@ -3,11 +3,12 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test52 — 8 MiB](build/elma-gbc-v0.96-test52-8m.gbc)**.
-Across 25,310 controller intervals the weighted average reached 29.695 updates/s.
-Intervals taking an extra display refresh fell from 298 to 288. Double Trouble
-braking still averages 25.71 updates/s. The measured physics states matched
-test51 byte for byte. [Timing and verification](PERFORMANCE.md#096-test52--rolling-projections-and-ordered-wheel-contacts)
+**[0.96 test53 — 8 MiB](build/elma-gbc-v0.96-test53-8m.gbc)**.
+Across 25,310 controller intervals the weighted average reached 29.712 updates/s.
+Intervals taking an extra display refresh fell from 288 to 258. Double Trouble
+braking improved from 25.71 to 28.70 updates/s. Gravity Ride braking is now
+the slowest measured route at 27.38 updates/s. The measured physics states
+matched test52 byte for byte. [Timing and verification](PERFORMANCE.md#096-test53--wheel-contacts-and-head-clearance)
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
@@ -413,3 +414,4 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | test50 | Reused contact points and skipped unreachable terrain edges |
 | test51 | Reused wheel normals and shortened rolling and suspension calculations |
 | test52 | Shared wide rolling products and packed ordered two-edge contacts |
+| test53 | Shortened wheel edge lists, shared vertex projections and head checks |

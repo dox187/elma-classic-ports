@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test53 — Wheel contacts and head clearance
+
+Double Trouble braking now takes an extra display refresh on 8 of 99 updates,
+down from 32. Dense terrain searches skip edges that the wheel cannot reach.
+The solver also reuses the rounded contact point at shared vertices and takes
+a shorter path for two simultaneous contacts. On Downhill, the head check can
+rule out contact beyond the end of a slope sooner. The worst forced corner
+update across both wheels fell from 75.56 to 67.98 ms. Stable 30 FPS is still
+open. [Playable 8 MiB ROM](build/elma-gbc-v0.96-test53-8m.gbc) · [Measurements and remaining slowdowns](PERFORMANCE.md#096-test53--wheel-contacts-and-head-clearance)
+
 ## 0.96 test52 — Rolling projections and ordered wheel contacts
 
 The wheel solver shares multiplications across two rolling projections.
