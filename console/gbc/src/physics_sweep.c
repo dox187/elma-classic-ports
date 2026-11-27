@@ -306,6 +306,81 @@ static uint8_t capsule(int16_t px,int16_t py,int16_t qx,int16_t qy,
     return capsule_ends(px,py,qx,qy,s,radius,c0,c1);
 }
 
+#ifdef __SDCC
+/* ABI1 supplies min/max X in E/D and min/max Y in C/B, returning the
+ * accepted record in BC. Every consumed record advances the shared cursor
+ * by sizeof(seg_t), matching seg_next on both rejection and early hit. */
+static const seg_t *next_head_box(uint16_t xs, uint16_t ys) __naked {
+    xs;ys;
+    __asm
+        ld a,(#_Seg_left)
+        or a
+        jr z,head_box_empty$
+        push af
+        ld hl,#_Seg_cur
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+head_box_record$:
+        ld a,l
+        add #14
+        ld l,a
+        jr nc,head_box_bounds$
+        inc h
+head_box_bounds$:
+        ld a,d
+        cp (hl)
+        inc hl
+        jr c,head_box_xlow$
+        ld a,(hl+)
+        cp e
+        jr c,head_box_xhigh$
+        ld a,b
+        cp (hl)
+        inc hl
+        jr c,head_box_ylow$
+        ld a,(hl+)
+        cp c
+        jr nc,head_box_hit$
+        jr head_box_next$
+head_box_xlow$:
+        inc hl
+head_box_xhigh$:
+        inc hl
+head_box_ylow$:
+        inc hl
+head_box_next$:
+        pop af
+        dec a
+        jr z,head_box_end$
+        push af
+        jr head_box_record$
+head_box_hit$:
+        pop af
+        dec a
+        ld bc,#-18
+        push hl
+        add hl,bc
+        ld b,h
+        ld c,l
+        pop hl
+        jr head_box_save$
+head_box_end$:
+        ld bc,#0
+head_box_save$:
+        ld (#_Seg_left),a
+        ld a,l
+        ld (#_Seg_cur),a
+        ld a,h
+        ld (#_Seg_cur+1),a
+        ret
+head_box_empty$:
+        ld bc,#0
+        ret
+    __endasm;
+}
+#endif
+
 /* The cached box spans [edge_min-R_WHEEL, edge_max+R_WHEEL] on each
  * axis. An integer point strictly inside the head radius can extend at
  * most radius-1 units past the edge. Shift each query extreme by the
@@ -322,8 +397,13 @@ static uint8_t scan(int16_t px,int16_t py,int16_t qx,int16_t qy,uint16_t radius)
      * line farther than that plus the radius cannot meet the capsule.
      * Compute the common radius once for all edges in this leaf. */
     int16_t outer=radius+absolute(qx-px)+absolute(qy-py);
+#ifdef __SDCC
+    uint16_t xs=((uint16_t)x1<<8)|x0, ys=((uint16_t)y1<<8)|y0;
+    while((s=next_head_box(xs,ys))){
+#else
     while((s=seg_next())){
         if(x1<s->x0||x0>s->x1||y1<s->y0||y0>s->y1)continue;
+#endif
         int32_t c=cross(px-s->px,py-s->py,s->dx,s->dy);
         int32_t limit=mul16(outer,SEG_LENGTH(s)+1);
         if(c>=limit || c<=-limit)continue;
