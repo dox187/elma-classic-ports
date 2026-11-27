@@ -1054,8 +1054,8 @@ batch_maybe_legacy:
  ldhl sp,#0
  jp rom_slope_legacy_inputs
 slope_word_inputs:
- ; Handle the X pair first. A later Y width miss drops the two
- ; temporary products before resuming the original full-width dot.
+ ; Handle the X pair first. A later Y width miss keeps both X
+ ; products for the extended reader.
  ld a,(#batch_installed)
  or a
  jr nz,batch_ready
@@ -1084,12 +1084,12 @@ batch_ready:
  ld l,a
  ld de,#8
  add hl,de
- batch_word e,d,slope_fallback_dots
+ batch_word e,d,batch_extended_installed
  ldhl sp,#4
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- batch_word c,b,slope_fallback_dots
+ batch_word c,b,batch_extended_installed
  ldhl sp,#0
  add sp,#-4
  call batch_code
@@ -1129,11 +1129,15 @@ batch_ready:
  jp ground_resume_deltas
 
 batch_wide_y:
- add sp,#8
- jp slope_fallback_dots
+ ; Both X lanes are already exact words on the stack.
+ xor a
+ ld (#batch_ext_vx),a
+ ld (#batch_ext_dx),a
+ ld hl,#batch_extended_x_ready
+ jp batch_extended_map
 
 ; Add BC:DE to the signed product at HL and round the 33-bit sum once.
-batch_sum:
+ .macro batch_sum_digits
  ld a,(hl+)
  add e
  ld a,(hl+)
@@ -1156,6 +1160,9 @@ batch_sum:
  ld b,a
  ld l,c
  ld d,e
+ .endm
+batch_sum:
+ batch_sum_digits
  jp slope_round
 
 batch_install:
@@ -1510,10 +1517,191 @@ lval:
  pop hl
  pop de
  batch_low_lane 3,batch_pos2,batch_val2
+batch_return_bank:
  ld a,#35
  ld (#0x2000),a
  ret
 batch_end:
+
+; For x = sign16(low) + 65536*k, the paired reader can use the low
+; word directly when k is in [-8,8], covering [-557056,557055].
+; After adding the raw signed-word products, add k*tangent to bits
+; 16 and above. Each vector retains every product bit for its own round.
+.area _DATA
+batch_ext_x: .ds 2
+batch_ext_vx: .ds 1
+batch_ext_dx: .ds 1
+batch_ext_vy: .ds 1
+batch_ext_dy: .ds 1
+.area _CODE_35
+batch_extended_inputs::
+ ld a,(#batch_installed)
+ or a
+ call z,batch_install
+batch_extended_installed:
+ ld hl,#batch_extended_pair
+batch_extended_map:
+ ; The shared WRAM reader restores the bank containing its caller.
+ ld a,#6
+ ld (#batch_code+(batch_return_bank-batch_start)+1),a
+ jp rom_slope_map
+
+.area _CODE_6
+ .macro batch_winding lo,hi,tag,miss
+ ld a,(hl+)
+ ld lo,a
+ ld a,(hl+)
+ ld hi,a
+ add a
+ call batch_winding_digit
+ jp c,miss
+ ld (#tag),a
+ .endm
+batch_winding_digit:
+ ; The biased high word plus the sign of the low word fits 0..16.
+ ld a,(hl+)
+ adc #8
+ push af
+ ld a,(hl)
+ adc #0
+ jr nz,batch_winding_wide
+ pop af
+ cp #17
+ jr nc,batch_winding_miss
+ sub #8
+ and a
+ ret
+batch_winding_wide:
+ pop af
+batch_winding_miss:
+ scf
+ ret
+
+batch_extended_pair:
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ batch_winding e,d,batch_ext_vx,batch_extended_miss
+ ldhl sp,#4
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ batch_winding c,b,batch_ext_dx,batch_extended_miss
+ ldhl sp,#0
+ add sp,#-4
+ call batch_code
+ push hl
+ push de
+batch_extended_x_ready:
+ ldh a,(#batch_scalar)
+ ld (#batch_ext_x),a
+ ldh a,(#batch_scalar+1)
+ ld (#batch_ext_x+1),a
+ ldhl sp,#12
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#4
+ add hl,de
+ batch_winding e,d,batch_ext_dy,batch_extended_y_miss
+ ldhl sp,#14
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld bc,#12
+ add hl,bc
+ batch_winding c,b,batch_ext_vy,batch_extended_y_miss
+ ldhl sp,#10
+ add sp,#-4
+ call batch_code
+ ld b,h
+ ld c,l
+ ldhl sp,#8
+ .macro batch_extended_sum x,y
+ batch_sum_digits
+ ld a,(#batch_ext_x)
+ ld c,a
+ ld a,(#batch_ext_x+1)
+ ld e,a
+ ld a,(#x)
+ call batch_add_winding
+ ldh a,(#batch_scalar)
+ ld c,a
+ ldh a,(#batch_scalar+1)
+ ld e,a
+ ld a,(#y)
+ call batch_add_winding
+ call slope_round
+ .endm
+ batch_extended_sum batch_ext_vx,batch_ext_vy
+ ldhl sp,#8
+ call slope_store
+ pop de
+ pop bc
+ ldhl sp,#0
+ batch_extended_sum batch_ext_dx,batch_ext_dy
+ add sp,#4
+batch_extended_deltas::
+ ld a,#35
+ ld (#batch_code+(batch_return_bank-batch_start)+1),a
+ jp ground_resume_deltas
+
+batch_extended_y_miss:
+ add sp,#8
+batch_extended_miss:
+ ld a,#35
+ ld (#batch_code+(batch_return_bank-batch_start)+1),a
+ ld hl,#roll_exact_dots
+ ld a,(#__current_bank)
+ jp rom_slope_map
+
+; Add k times the signed coefficient EC to B:HL. D keeps the round byte.
+batch_add_winding:
+ or a
+ ret z
+ push de
+ ld d,a
+ bit 7,d
+ jr nz,batch_sub_winding
+batch_add_again:
+ ld a,l
+ add c
+ ld l,a
+ ld a,h
+ adc e
+ ld h,a
+ bit 7,e
+ jr z,batch_add_extend
+ dec b
+batch_add_extend:
+ ld a,#0
+ adc b
+ ld b,a
+ dec d
+ jr nz,batch_add_again
+ pop de
+ ret
+batch_sub_winding:
+ ld a,l
+ sub c
+ ld l,a
+ ld a,h
+ sbc e
+ ld h,a
+ bit 7,e
+ jr z,batch_sub_extend
+ inc b
+batch_sub_extend:
+ ld a,b
+ sbc #0
+ ld b,a
+ inc d
+ jr nz,batch_sub_winding
+ pop de
+ ret
 
 .area _CODE
 .globl ground_projection_bank

@@ -285,6 +285,12 @@ roll_live_slope:
 roll_generic_dots:
  jp slope_begin_dots
 roll_default_dots:
+ .ifdef ROLL_DIRECTORY_BANK
+ ld hl,#batch_extended_inputs
+ ld a,#35
+ jp rom_slope_map
+roll_exact_dots:
+ .endif
  .endif
  ldhl sp,#6
  ld a,(hl+)
