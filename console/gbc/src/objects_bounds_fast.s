@@ -3,25 +3,10 @@
 ; Bounds helper: near bank5, ABI0 destination@SP+2; no bank/IRQ changes.
 .module objects_bounds_fast
 .area _CODE_5
-_gbc_objects_bounds::
- ldhl sp,#2
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- push hl
- ld hl,#_gbc_bike+12
- call bounds_axis
- pop hl
- call bounds_store
- push hl
- ld hl,#_gbc_bike+16
- call bounds_axis
- pop hl
- jr bounds_store
-
-; Gather one axis in registers. The integer parts of wheel 1 and the
-; head are respectively 10 and 30 bytes after wheel 0's integer part.
-bounds_axis:
+; The wheel and head coordinates always occupy these three pose slots.
+; Use their link-time addresses on each axis and keep the output on stack.
+.macro gather_axis offset
+ ld hl,#(_gbc_bike+12+offset)
  ld a,(hl+)
  ld c,a
  ld e,a
@@ -29,14 +14,25 @@ bounds_axis:
  xor a,#0x80
  ld b,a
  ld d,a
- push hl
- ld a,#9
- call bounds_advance
+ ld hl,#(_gbc_bike+22+offset)
  call bounds_consider
+ ld hl,#(_gbc_bike+42+offset)
+ call bounds_consider
+.endm
+_gbc_objects_bounds::
+ ldhl sp,#2
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ push hl
+ gather_axis 0
  pop hl
- ld a,#29
- call bounds_advance
- ; Fall through for the head.
+ call bounds_store
+ push hl
+ gather_axis 4
+ pop hl
+ jr bounds_store
+
 bounds_consider:
  ld a,(hl+)
  ld h,(hl)
@@ -60,13 +56,6 @@ bounds_check_max:
  ret nc
  ld d,h
  ld e,l
- ret
-
-bounds_advance:
- add a,l
- ld l,a
- ret nc
- inc h
  ret
 
 ; Expand at full precision, saturate at the two ends and write once.

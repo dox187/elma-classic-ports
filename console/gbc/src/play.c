@@ -189,12 +189,17 @@ static void draw_objects(void) {
         visible_count=gbc_objects_visible(visible_objects);
 #endif
     }
-    n=visible_count>13?13:visible_count;
-    if(object_phase>=visible_count)object_phase=0;
-    sprite=gbc_objects_draw(visible_objects,visible_count,object_phase,n,game_frames&1);
-    if(visible_count>1) {
-        object_phase+=visible_count>n?n:1;
-        if(object_phase>=visible_count)object_phase-=visible_count;
+    sprite=BIKE_OBJECT_OAM_BASE;
+    if(visible_count) {
+        n=visible_count>13?13:visible_count;
+        if(object_phase>=visible_count)object_phase=0;
+        sprite=gbc_objects_draw(visible_objects,visible_count,object_phase,n,game_frames&1);
+        if(visible_count>1) {
+            object_phase+=visible_count>n?n:1;
+            if(object_phase>=visible_count)object_phase-=visible_count;
+        }
+    } else {
+        object_phase=0;
     }
     for(i=sprite;i<objects_used;++i)move_sprite(i,0,0);
     objects_used=sprite;
@@ -564,17 +569,21 @@ void main(void) NONBANKED {
 static void game_loop(void) BANKED {
     uint8_t keys,pressed,input,substep,action,line;
     uint16_t start,now;
-    int32_t wheel_speed;
+    uint16_t speed;
     DISPLAY_OFF;cpu_fast();game_state=MENU;game_level_index=0;
     save_init();audio_init();splash_show();
     menu_open(0,0);previous=joypad();game_ready=1;
     while(1) {
         vsync();__critical {start=sys_time;}
         keys=joypad();pressed=keys&~previous;previous=keys;
-        wheel_speed=Bike.wheel[Bike.turned?0:1].omega;
-        if(wheel_speed>32768L || wheel_speed< -32768L)wheel_speed=32768L;
-        audio_update(game_state==RIDING,keys&J_A,keys&J_B,
-                     wheel_speed<0?(uint16_t)-wheel_speed:(uint16_t)wheel_speed);
+        speed=0;
+        if((keys&J_A) && game_state==RIDING) {
+            int32_t omega=Bike.turned?Bike.wheel[0].omega:Bike.wheel[1].omega;
+            if(omega>32767L || omega< -32767L)speed=32768U;
+            else if(omega<0)speed=0U-(uint16_t)omega;
+            else speed=(uint16_t)omega;
+        }
+        audio_update(game_state==RIDING,keys&J_A,keys&J_B,speed);
         if(game_state==MENU || game_state==PAUSED) {
             if(pressed)audio_effect(FX_MENU);
             if(game_state==PAUSED && (pressed&J_SELECT))action=MENU_RESUME;
