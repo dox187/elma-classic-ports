@@ -467,6 +467,10 @@ def main():
         sources[sources.index(roll_source)] = rolling_tables.generate(a.gen, roll_source)
         # Both scalar banks start with low-byte-indexed quotient pages.
         sources.insert(0, a.gen/'physics_roll_scalar.s')
+        pair_source = BASE/'src/physics_ordered_pair.s'
+        pair_game = a.gen/'physics_ordered_pair_game.s'
+        head_clearance.write_if_changed(pair_game, 'RIDING_LEAF_REGION = 1\n'+pair_source.read_text())
+        sources[sources.index(pair_source)] = pair_game
         for name in ('physics_contact_loop', 'physics_normal_fast'):
             source = BASE/'src'/(name+'.s')
             game_source = a.gen/(name+'_game.s')

@@ -91,7 +91,11 @@ pair_other_point:
  ld h,(hl)
  ld l,a
  push hl
+.ifdef RIDING_LEAF_REGION
  jp pair_geometry_dot
+.else
+ call _dotq14
+.endif
 pair_geometry_sign:
  bit 7,b
  ld a,#128
@@ -560,6 +564,7 @@ pair_supported:
  ld a,#1
  ret
 
+.ifdef RIDING_LEAF_REGION
 .area _CODE
 ; The ordered terrain dot takes and removes both tangent words on the
 ; stack. Return through fixed ROM before continuing in the wheel bank.
@@ -572,3 +577,4 @@ pair_geometry_dot:
  ld (#__current_bank),a
  ld (#0x2000),a
  jp pair_geometry_sign
+.endif
