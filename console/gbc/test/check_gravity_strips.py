@@ -25,9 +25,9 @@ def main():
         start = bank * 16384
         assert target.image[start:start+prefix] == oracle.image[start:start+prefix]
         assert target.sym[f'_riding_gravity_end_{bank}'] <= (bank << 16) + 0x8000
-        for x, y, height in strips:
-            regions.update((x+dx, y+dy) for dx in range(8) for dy in range(height))
-            probes.update((x+dx, y+dy) for dx in range(-1, 9) for dy in range(-1, height+1))
+        for x, y, mask in strips:
+            regions.update((x+dx, y+dy) for dx in range(8) for dy in range(8) if mask & (1 << dy))
+            probes.update((x+dx, y+dy) for dx in range(-1, 9) for dy in range(-1, 9))
             for alias in (-65536, 65536):
                 probes.update(((x+alias, y), (x, y+alias)))
         probes.update((x, y) for x in range(page*256, (page+pages)*256, 8)

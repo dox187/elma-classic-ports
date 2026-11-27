@@ -1,33 +1,45 @@
-"""Exact wheel contacts in eight-by-four strips on Gravity Ride's braking slope."""
+"""Exact wheel contacts in eight-unit-wide strips on Gravity Ride's braking slope."""
 from corner_samples import POINTER, cell_records, contacts
 from head_clearance import write_if_changed
 from projection_tables import byte_lines
 from wheel_terrain import RECORD
 
 # The position selects only the strip. Every result is rebuilt independently
-# from all packed edges in their original order. Positions use solver units.
+# from all packed edges in their original order. Each (x, y, mask) covers
+# eight X units on the selected rows within the next eight Y units.
 STRIPS = {
     59: (169, 2, (
-        (43296, 31597, 8), (43304, 31597, 8), (43312, 31596, 8),
-        (43320, 31596, 8), (43328, 31596, 8), (43336, 31596, 8),
-        (43344, 31596, 8), (43352, 31595, 8), (43360, 31595, 8),
-        (43368, 31595, 8), (43376, 31595, 8), (43384, 31594, 8),
-        (43392, 31594, 8), (43400, 31594, 8), (43408, 31594, 8),
-        (43416, 31594, 8), (43424, 31594, 8), (43432, 31594, 8),
-        (43440, 31594, 8), (43448, 31594, 8), (43456, 31593, 8),
-        (43464, 31593, 8), (43472, 31592, 8), (43480, 31591, 8),
-        (43488, 31592, 8), (43496, 31589, 8), (43528, 31580, 4),
-        (43536, 31578, 4), (43616, 31549, 4), (43624, 31545, 4),
-        (43672, 31519, 4), (43728, 31472, 4), (43768, 31418, 4))),
+        (43296, 31597, 0xfd), (43304, 31597, 0xfd), (43312, 31596, 0xf9),
+        (43320, 31596, 0xfd), (43328, 31596, 0xfd), (43336, 31596, 0xfd),
+        (43344, 31595, 0xf9), (43352, 31595, 0xfd), (43360, 31595, 0xfd),
+        (43368, 31595, 0xfd), (43376, 31595, 0xfd), (43384, 31594, 0xf9),
+        (43392, 31594, 0xfd), (43400, 31594, 0xfd), (43408, 31594, 0xfd),
+        (43416, 31594, 0xfd), (43424, 31594, 0xfd), (43432, 31594, 0xff),
+        (43440, 31594, 0xff), (43448, 31594, 0xff), (43456, 31589, 0xd1),
+        (43464, 31589, 0xd1), (43472, 31589, 0xf9), (43480, 31588, 0xd9),
+        (43488, 31587, 0xf9), (43496, 31589, 0xf9), (43528, 31579, 0x93),
+        (43536, 31578, 0xcf), (43544, 31578, 0xf1), (43560, 31609, 0xff),
+        (43584, 31609, 0xff), (43600, 31608, 0xff), (43616, 31549, 0x83),
+        (43624, 31545, 0x85), (43632, 31568, 0xff), (43640, 31608, 0xff),
+        (43648, 31575, 0xff), (43656, 31608, 0xff), (43664, 31581, 0xff),
+        (43672, 31519, 0xe1), (43688, 31590, 0xff), (43696, 31608, 0xff),
+        (43704, 31608, 0xff), (43712, 31597, 0xff), (43728, 31472, 0xe1),
+        (43736, 31600, 0xff), (43744, 31608, 0xff), (43752, 31603, 0xff),
+        (43760, 31604, 0xff), (43768, 31417, 0x1d))),
     76: (174, 1, (
-        (44560, 31593, 8), (44568, 31597, 8), (44584, 31597, 8),
-        (44592, 31597, 8), (44624, 31596, 4), (44632, 31596, 4),
-        (44656, 31599, 4), (44664, 31599, 4), (44688, 31597, 4),
-        (44696, 31598, 4))),
+        (44544, 31589, 0xff), (44552, 31597, 0xff), (44560, 31593, 0xff),
+        (44568, 31597, 0xff), (44576, 31597, 0xff), (44584, 31597, 0xfd),
+        (44592, 31597, 0xf9), (44600, 31597, 0xf1), (44608, 31597, 0xe1),
+        (44616, 31598, 0xe5), (44624, 31598, 0xc1), (44632, 31599, 0xe5),
+        (44640, 31599, 0xe1), (44648, 31599, 0xe1), (44656, 31599, 0xe5),
+        (44664, 31599, 0xe1), (44672, 31599, 0xe1), (44680, 31598, 0xc7),
+        (44688, 31598, 0xc1), (44696, 31598, 0xc3), (44792, 31599, 0xe1))),
     80: (171, 1, (
-        (43816, 31367, 8), (43824, 31360, 4), (43840, 31336, 4),
-        (43856, 31325, 4), (43864, 31315, 4), (43872, 31303, 4),
-        (43888, 31295, 4), (43896, 31289, 4), (43904, 31280, 4))),
+        (43816, 31367, 0x41), (43824, 31360, 0x01), (43832, 31348, 0x01),
+        (43840, 31336, 0x01), (43856, 31325, 0x01), (43864, 31317, 0x01),
+        (43872, 31306, 0x01), (43888, 31295, 0x01), (43896, 31289, 0x01),
+        (43904, 31273, 0x81), (43920, 31282, 0xff), (43944, 31295, 0xff),
+        (43976, 31308, 0xff), (43992, 31316, 0xff), (44016, 31329, 0xff))),
 }
 
 
@@ -74,14 +86,18 @@ def generate(gen, template, levels, banks):
         columns = [' .dw 65535,0'] * (pages * 32)
         indices = bytearray()
         rows, dictionary, palette = {}, {}, {}
-        for x, y, height in regions:
+        for x, y, mask in regions:
             index = (x - page * 256) // 8
             if x % 8 or not 0 <= index < len(columns) or columns[index] != ' .dw 65535,0':
                 raise ValueError(f'Invalid or duplicate strip at {x}, {y}')
-            if height not in (4, 8):
-                raise ValueError(f'Invalid strip height at {x}, {y}')
+            if not 0 < mask <= 255:
+                raise ValueError(f'Invalid strip row mask at {x}, {y}')
             columns[index] = f' .dw {y},gravity_entries+{len(indices)}'
-            for yy in range(y, y + height):
+            for dy in range(8):
+                if not mask & (1 << dy):
+                    indices.append(255)
+                    continue
+                yy = y + dy
                 row = bytearray()
                 for xx in range(x, x + 8):
                     edges = cell_records(levels[10], banks, xx, yy)
@@ -92,7 +108,6 @@ def generate(gen, template, levels, banks):
                         code = 255 if hit else 0
                     row.append(code)
                 indices.append(rows.setdefault(bytes(row), len(rows)))
-            indices.extend([255] * (8 - height))
         if len(dictionary) >= 255 or len(rows) >= 255:
             raise ValueError(f'Strip index exceeds one byte in bank {bank}')
         values = bytearray()
