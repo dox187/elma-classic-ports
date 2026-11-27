@@ -108,6 +108,7 @@ static void build_visibility_regions(void) {
 
 static bike_screen_t screen;
 static int16_t body_world[2],next_camera_x,next_camera_y;
+static uint16_t camera_limit_x,camera_limit_y;
 enum { CAMERA_UNPREPARED, CAMERA_PROJECTED, CAMERA_SAME_TILE };
 static uint8_t camera_prepared;
 #define body_world_x body_world[0]
@@ -130,8 +131,8 @@ static void project_camera(uint8_t jump) {
     x=body_world_x-80;y=body_world_y-68;
     if(x<0)x=0;
     if(y<0)y=0;
-    if(x>WORLD_WIDTH-160)x=WORLD_WIDTH-160;
-    if(y>WORLD_HEIGHT-144)y=WORLD_HEIGHT-144;
+    if(x>camera_limit_x)x=camera_limit_x;
+    if(y>camera_limit_y)y=camera_limit_y;
     if(!jump) {
         if(x>(int16_t)game_camera_x+8)x=game_camera_x+8;
         if(x<(int16_t)game_camera_x-8)x=game_camera_x-8;
@@ -464,7 +465,9 @@ static void start_game(void) {
     uint8_t i;
     audio_init();
     game_ready=0;DISPLAY_OFF;
-    world_select(game_level_index);physics_select_level(game_level_index);physics_reset_current();
+    world_select(game_level_index);
+    camera_limit_x=WORLD_WIDTH-160;camera_limit_y=WORLD_HEIGHT-144;
+    physics_select_level(game_level_index);physics_reset_current();
     build_visibility_regions();
     objects_empty_valid=0;
     game_state=RIDING;game_apples_left=0;game_time_frames=0;clock_fraction=0;volt_wait=0;
@@ -541,8 +544,8 @@ static void prepare_next_view(uint16_t start,uint8_t late) {
     same_tile=changed<8U;
     camera_prepared=same_tile?CAMERA_SAME_TILE:CAMERA_PROJECTED;
     if(changed && same_tile) {
-        uint8_t tx=prediction_rank(game_camera_x,x,WORLD_WIDTH-160);
-        uint8_t ty=prediction_rank(game_camera_y,y,WORLD_HEIGHT-144);
+        uint8_t tx=prediction_rank(game_camera_x,x,camera_limit_x);
+        uint8_t ty=prediction_rank(game_camera_y,y,camera_limit_y);
         if(tx==255 && ty==255)changed=0;
         else {
             if(tx<=ty)x=x>game_camera_x?(game_camera_x|7U)+1:(game_camera_x&~7U)-1;
