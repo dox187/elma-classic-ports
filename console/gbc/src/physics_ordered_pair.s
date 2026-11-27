@@ -91,7 +91,8 @@ pair_other_point:
  ld h,(hl)
  ld l,a
  push hl
- call _dotq14
+ jp pair_geometry_dot
+pair_geometry_sign:
  bit 7,b
  ld a,#128
  jr nz,pair_store_sign
@@ -286,21 +287,27 @@ pair_bound_unknown:
  xor a
  ret
 
-; HL:DE is the rounded tangent and BC is the signed contact length.
-; For a length 256+k and a tangent in [-65536,65535], its exact
-; product is (low16*k) + (low16<<8) - (negative ? length<<16 : 0).
-; This needs one existing scale-table row and the product fits signed32.
-pair_length_scale:
+; A signed 18-bit tangent times 256+k fits signed32. Look up low16*k once,
+; then add low16<<8 and the signed high word times the contact length.
+.area _CODE_9
+pair_length_scale::
  ld a,b
  dec a
  jr nz,pair_length_general
  ld a,h
- cp l
- jr nz,pair_length_general
  inc a
  cp #2
  jr nc,pair_length_general
- push hl
+ ld a,h
+ xor l
+ cp #2
+ jr nc,pair_length_general
+ ld a,l
+ jp pair_length_product
+
+.area _CODE
+pair_length_product:
+ push af
  push bc
  push de
  call _riding_mul16u8_unsigned
@@ -319,14 +326,25 @@ pair_length_scale:
  pop bc
  pop af
  or a
- jr z,pair_length_shift
+ jp z,pair_length_shift
+ bit 7,a
+ jr z,pair_add_length
+ inc a
+ jr z,pair_sub_length
+ sla c
+ rl b
+pair_sub_length:
  ld a,l
  sub c
  ld l,a
  ld a,h
  sbc b
  ld h,a
- jr pair_length_shift
+ jp pair_length_shift
+pair_add_length:
+ add hl,bc
+ jp pair_length_shift
+.area _CODE_9
 pair_length_general:
  ld a,d
  add a
@@ -474,7 +492,7 @@ pair_remove:
  ld c,l
  pop hl
  call pair_subtract
- jr pair_true
+ jp pair_true
 pair_subtract:
  ld a,(hl)
  sub e
@@ -541,3 +559,16 @@ pair_inward:
 pair_supported:
  ld a,#1
  ret
+
+.area _CODE
+; The ordered terrain dot takes and removes both tangent words on the
+; stack. Return through fixed ROM before continuing in the wheel bank.
+pair_geometry_dot:
+ ld a,#93
+ ld (#__current_bank),a
+ ld (#0x2000),a
+ call terrain_record_dot
+ ld a,#9
+ ld (#__current_bank),a
+ ld (#0x2000),a
+ jp pair_geometry_sign

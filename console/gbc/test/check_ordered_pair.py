@@ -102,6 +102,25 @@ def check_moving_pivots(reference, target, rng):
     return checked
 
 
+def check_length_scaling(cart):
+    regs = cart.emu.register_file
+    cases = 0
+    for tangent in (-2147483648, -131073, -131072, -131071, -65537, -65536,
+                    -32769, -32768, -1, 0, 1, 32767, 65535, 65536,
+                    131070, 131071, 131072, 2147483647):
+        for length in (-32768, -1, 0, 1, 255, 256, 257, 404, 510, 511, 512, 32767):
+            for shift in (6, 10):
+                cart.mem[cart.symbols['_riding_pair_shift']] = shift
+                regs.HL = (tangent >> 16) & 65535
+                regs.B, regs.C = (length >> 8) & 255, length & 255
+                cart.call('pair_length_scale', tangent & 65535, 0)
+                got = int.from_bytes(bytes((regs.C, regs.B, regs.E, regs.D)), 'little', signed=True)
+                expect = min(2147483647, max(-2147483648, tangent * length >> shift))
+                assert got == expect, (tangent, length, shift, got, expect)
+                cases += 1
+    return cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, required=True)
@@ -180,6 +199,8 @@ def main():
             results[(cached, actual['_riding_landing_contact'][slot],
                      actual['_riding_audio_impact'][slot])] += 1
         moving = check_moving_pivots(reference, target, rng)
+        if 'pair_length_scale' in target.symbols:
+            print(f'{check_length_scaling(target)} tangent and contact-length boundary cases passed.')
     finally:
         reference.emu.stop(save=False)
         target.emu.stop(save=False)
