@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test57 — Wheel response and suspension preparation
+
+The short Framework braking replay improved from 11 late intervals to 6 out
+of 99. Bowling improved from 11 to 10, and Hang Tight went from 5 to 6.
+The wheel solver now sends each contact outcome directly to the corresponding
+motion and impact code. Suspension can prepare the wheel offsets in a short
+wait before sampling the next input. Across the main replays, 130 intervals
+needed three refreshes. The independent replay seed improved from 68 to 62.
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test57-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test57--wheel-response-and-suspension-preparation)
+
 ## 0.96 test56 — Hang Tight braking and ordered wheel contacts
 
 Hang Tight braking used a third display refresh on 5 of 99 intervals, down

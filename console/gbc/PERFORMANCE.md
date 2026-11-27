@@ -4283,3 +4283,60 @@ presentations and 61,845 background cells. All 54 courses started, with one
 late update in the entry sweep. Timing was measured in PyBoy.
 
 SHA-256 `2e3ae5ce3510978dca935c325e83cd0e58be0cb37fe00082008131f727c4daf3`.
+
+## 0.96 test57 — Wheel response and suspension preparation
+
+On each wheel the native ordered solver branches directly to free motion,
+single-contact rolling or the two-support lock. In the last case it reads
+both impact normals as needed before zeroing velocity and preserves the
+original landing normal priority. The smaller solver also frees room in bank
+9 to copy a shared cap's six contact bytes without looping. The suspension
+keeps coarse wheel offsets and ordinary braking torques in registers through
+the reciprocal lookup. Close separations and wide torques follow the same
+full-width arithmetic as before.
+
+The preparation guard accepts an advance of one visible LCD line within the
+same VBlank epoch and checks time remaining from the later sample. Pending
+VBlank interrupts, entry into VBlank and frame wrap still decline work on a
+changed sample. Wheel offsets and angular geometry now have separate budgets.
+The linked worst-case paths cost 2,888 and 6,016 T respectively. Each guard
+reserves two additional scanlines. A short wait can finish the offsets and
+let the next physics update resume with angular geometry. Input is sampled
+at the original point.
+
+| PyBoy measurement | test56 | test57 |
+| --- | ---: | ---: |
+| Weighted updates/s over 25,310 controller intervals | 29.763 | 29.787 |
+| Three-refresh intervals, short / extended / complete Freefall | 135 / 37 / 0 | 98 / 32 / 0 |
+| Independent seed, three-refresh intervals out of 5,302 | 68 | 62 |
+| Slowest regular replay average, updates/s | 28.29 | 28.43 |
+| Framework / Bowling / Hang Tight braking, late intervals out of 99 each | 11 / 11 / 5 | 6 / 10 / 6 |
+| Peak over 642 historical wheel placements, physics only | 62.41 ms | 61.63 ms |
+| Over-budget physics updates on those placements, out of 2,432 | 340 | 330 |
+| Peak over the 25-point Steep Corner grid, physics only | 68.67 ms | 67.59 ms |
+
+The slowest observed controller interval was three display refreshes, or
+19.91 updates/s for that interval. The complete Freefall replay stayed at
+two refreshes. The active portion of a primary update averaged 212,956 T,
+up from 211,667 T with more work done before the wait. The measured time
+between input samples fell. Bowling braking had the lowest regular average.
+
+At the slowest grid point, Steep Corner (25,176, 39,464), input 9 on the
+right wheel, wheel work fell from 418,656 to 409,952 T. Suspension used
+94,596 T, head contact 9,240 T and other physics 53,188 T. All 200 grid
+updates still exceeded the 280,896 T budget. Total physics time over the
+grid fell from 96,953,432 to 95,324,656 T. On the historical placements
+total physics time improved on all 54 courses, from 575,827,232 to
+573,155,300 T overall.
+
+The 76,568 primary, 16,015 independent and 7,799 forced-placement substeps
+matched test56 byte for byte. The linked deadline guard passed 88,704 cases.
+Every prepared stage matched on-demand physics, including turn and reset.
+The wheel-reaction oracle covered all 256 reciprocal indices across 6,944
+torque, separation and phase combinations. The ordered solver matched across
+5,600 pair cases and 2,368 moving-pivot cases. The 122-case speed-limit
+fixture matched 3,170 states. Seven visual routes matched all 1,216
+presentations and 61,845 background cells. All 54 courses started, with one
+late update in the entry sweep. Measurements are from PyBoy.
+
+SHA-256 `a913b4108c48641077eaca46d8ec9fecdd41bb07d6d2b16d907e1bca1121129f`.
