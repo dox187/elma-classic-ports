@@ -187,11 +187,13 @@ def check_dispatch(target, cells):
             return [int.from_bytes(bytes(target.m[thunk+k:thunk+k+2]), 'little') for k in (4, 10)]
         course_reader = None
         if level == 10:
-            course_reader = '_riding_corner_wheel_inputs'
+            course_reader = target.sym['_riding_corner_wheel_inputs']
         elif level == 37 and '_riding_patch_wheel_inputs' in target.sym:
-            course_reader = '_riding_patch_wheel_inputs'
+            course_reader = target.sym['_riding_patch_wheel_inputs']
+        elif level == 45 and '_bowling_flat' in target.sym:
+            course_reader = target.sym['_riding_sparse_bind'] + 1
         if course_reader:
-            expected = [target.sym[course_reader] & 65535] * 2
+            expected = [course_reader & 65535] * 2
             assert readers() == expected, (level, readers(), expected)
             for wheel, xpos in ((0, x), (1, x+256)):
                 addr = target.prepare(wheel, struct.pack('<ii', xpos*256, y*256), bytes(20))

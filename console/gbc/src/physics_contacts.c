@@ -1062,8 +1062,8 @@ remember_copy:
 void riding_surface_reset(void) __nonbanked {
 #ifdef RIDING_CORNER_CELLS
     __asm
-    ld e,#32
-    ld hl,#_riding_corner_select
+    ld e,#86
+    ld hl,#_bowling_wheel_select
     call ___sdcc_bcall_ehl
     __endasm;
 #endif

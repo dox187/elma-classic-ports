@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 import bike_frames16
+import bowling_planes
 import brake_dispatch
 import corner_bank
 import corner_cells
@@ -81,6 +82,13 @@ def validate_linked_layout(symbol_path,rom_mib):
                 symbols.get('_riding_reaction_words') != start or
                 symbols.get('_riding_reaction_words_end') != start + 14 * 256):
             raise ValueError('Reaction reader requires fixed ROM and two aligned signed16 tables')
+    if '_bowling_wheel_select' in symbols:
+        if (symbols['_physics_bank_86'] != 0x564000 or symbols['_bowling_wheel_select'] >> 16 != 86 or
+                symbols['_bowling_terrain_end'] > 0x568000):
+            raise ValueError('Bowling reader must follow packed terrain in bank 86')
+        if 'bowling_stub_bytes' in symbols and (
+                symbols['_riding_sparse_bind']+1+symbols['bowling_stub_bytes'] > symbols['_riding_sparse_lookup']):
+            raise ValueError('Bowling dispatch overlaps the sparse terrain reader')
     if '_riding_corner_lookup' in symbols:
         if symbols['_riding_corner_lookup'] >= 0x4000:
             raise ValueError('Corner bank switch must execute in fixed ROM')
@@ -573,6 +581,8 @@ def main():
     head_lanes = scheduled and rom_mib == 8 and graphics['map_codec'] == rolling_map_banks.CODEC
     if head_lanes:
         levels, terrain_banks, _ = head_clearance.packed_inputs(a.gen)
+        bowling = bowling_planes.generate(a.gen, BASE/'src/bowling_planes.inc', levels, terrain_banks)
+        sources[sources.index(a.gen/'physics_bank_86.c')] = bowling
         for bank, path in gravity_strips.generate(a.gen, BASE/'src/gravity_strip.inc', levels, terrain_banks).items():
             sources[sources.index(a.gen/f'physics_bank_{bank}.c')] = path
         patch_source = pair_patches.generate(a.gen, BASE/'src/pair_patches.inc', levels, terrain_banks)
