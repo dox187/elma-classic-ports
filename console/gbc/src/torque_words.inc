@@ -4,6 +4,8 @@
 ; linear suspension solve before this angular stage begins.
 .area _CODE
 ss_word_torque::
+ ld b,#0
+ss_extended_torque:
  ld a,#1
  ld (#0x2000),a
  call ss_word_torque_pair
@@ -12,16 +14,11 @@ ss_word_torque::
  ret
 
 .area _CODE_1
+ss_torque_spring = ss_force_products+7
 ; Add an unsigned low-digit product to a signed high-digit product shifted
-; by one byte. The damping product fits signed 32 bits, the spring signed 40.
-.macro torque_raw name,source,dest,width,?selected
- ld a,(#_riding_subphase)
- or a
- ld a,#>_torque_'name'_0
- jr z,selected
- ld a,#>_torque_'name'_1
-selected:
- ld h,a
+; by one byte. The low damping word fits signed32 and the spring fits signed40.
+.macro torque_raw source,dest,width
+ ld a,h
  add #width
  ld d,a
  ld a,(#source)
@@ -29,7 +26,7 @@ selected:
  ld a,(#source+1)
  ld e,a
  ld a,(hl)
- ld (#dest),a
+ ldh (#dest),a
  .irp digit,1,2
  inc h
  ld a,(de)
@@ -38,39 +35,60 @@ selected:
  .else
  adc (hl)
  .endif
- ld (#dest+digit),a
+ ldh (#dest+digit),a
  inc d
  .endm
  .ifeq width-4
  inc h
  ld a,(de)
  adc (hl)
- ld (#dest+3),a
+ ldh (#dest+3),a
  inc d
  .endif
  ld a,(de)
  adc #0
- ld (#dest+width),a
+ ldh (#dest+width),a
 .endm
 
 ss_word_torque_pair:
- torque_raw C_SPRING_T,ss_coarse,ss_moment,4
- torque_raw C_FRIC_T,ss_tr,ss_force_products,3
- ; Leave the same public Q24 fraction and saturation flag as the final
- ; damping multiplication. Raw and centered fractions share their low 24 bits.
- ldh a,(ss_force_products)
- ldh (#_q24_fraction),a
- ldh a,(ss_force_products+1)
- ldh (#_q24_fraction+1),a
- ldh a,(ss_force_products+2)
- ldh (#_q24_fraction+2),a
+ ld h,#>_torque_C_SPRING_T_0
+ ld c,#>_torque_C_FRIC_T_0
+ ld a,(#_riding_subphase)
+ or a
+ jr z,ss_torque_pages
+ ld h,#>_torque_C_SPRING_T_1
+ ld c,#>_torque_C_FRIC_T_1
+ss_torque_pages:
+ torque_raw ss_coarse,ss_torque_spring,4
+ ld h,c
+ torque_raw ss_tr,_q24_fraction,3
+ ; K times the coefficient enters at bit 16 of the signed low-word product.
+ ; DE still addresses its last signed damping plane.
+ ld c,b
  add a
- sbc a,a
- ldh (#_q24_fraction+3),a
- xor a
- ldh (#_q24_saturated),a
+ sbc a
+ ld b,a
+ ld a,c
+ or a
+ jr z,ss_damping_extended
+ ld l,c
+ ld h,d
+ dec h
+ dec h
+ ldh a,(_q24_fraction+2)
+ add (hl)
+ ldh (_q24_fraction+2),a
+ inc h
+ ldh a,(_q24_fraction+3)
+ adc (hl)
+ ldh (_q24_fraction+3),a
+ inc h
+ ld a,b
+ adc (hl)
+ ld b,a
+ss_damping_extended:
  ; Residual - spring, five little-endian bytes in place.
- ld hl,#ss_moment
+ ld hl,#ss_torque_spring
  .irp digit,0,1,2,3,4
  .ifeq digit-4
  ld a,(#_angular_residual+3)
@@ -86,13 +104,9 @@ ss_word_torque_pair:
  .endm
  ; Subtract damping, retain the signed low 24 bits as next residual
  ; and sign-extend the rounded integer impulse.
- ldh a,(ss_force_products+3)
- add a
- sbc a,a
- ld b,a
- ld hl,#ss_force_products
+ ld hl,#_q24_fraction
  .irp digit,0,1,2
- ld a,(#ss_moment+digit)
+ ldh a,(#ss_torque_spring+digit)
  .ifeq digit
  sub (hl)
  .else
@@ -102,10 +116,10 @@ ss_word_torque_pair:
  inc hl
  .endm
  ld c,a
- ld a,(#ss_moment+3)
+ ldh a,(#ss_torque_spring+3)
  sbc (hl)
  ld e,a
- ld a,(#ss_moment+4)
+ ldh a,(#ss_torque_spring+4)
  sbc b
  ld d,a
  ld a,c
@@ -124,4 +138,11 @@ ss_word_torque_pair:
  sbc a,a
  ld (hl+),a
  ld (hl),a
+ ; Publish the centered damping fraction after consuming its fourth raw byte.
+ ldh a,(#_q24_fraction+2)
+ add a
+ sbc a
+ ldh (#_q24_fraction+3),a
+ xor a
+ ldh (#_q24_saturated),a
  ret

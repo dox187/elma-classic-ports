@@ -1370,13 +1370,7 @@ ss_check_torques:
  ld b,h
  ld c,l
  ss_store ss_tr
- ld a,d
- add a
- sbc a,a
- cp c
- jp nz,ss_wide_torque
- cp b
- jp nz,ss_wide_torque
+ss_classify_torques::
  ld hl,#ss_coarse+1
  ld a,(hl+)
  add a
@@ -1385,8 +1379,21 @@ ss_check_torques:
  jp nz,ss_wide_torque
  inc hl
  cp (hl)
- jp z,ss_word_torque
- jp ss_wide_torque
+ jp nz,ss_wide_torque
+ ; Damping = signed16(low) + 65536 * K. The existing signed-digit
+ ; table supplies K's full product when K itself fits a signed byte.
+ ld a,d
+ add a
+ ld a,c
+ adc #128
+ ld e,a
+ ld a,b
+ adc #0
+ jp nz,ss_wide_torque
+ ld a,e
+ xor #128
+ ld b,a
+ jp ss_extended_torque
 .area _CODE_8
 ss_wide_torque:
  ss_read ss_coarse

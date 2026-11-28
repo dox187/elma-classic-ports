@@ -29,7 +29,7 @@ def main():
     assert symbols['s__HEAP']+128 < stack
     mem[0xffff] = mem[0xff0f] = mem[0x3000] = 0
     mem[0x2000] = mem[symbols['__current_bank']] = 8
-    entry = symbols['ss_word_torque']
+    entry = symbols['ss_classify_torques']
     mem[code:code+5] = [0xcd, entry & 255, entry >> 8, 0x18, 0xfe]
     q = 1 << 24
     edges = (-32768, -32767, -2048, -257, -256, -255, -1, 0, 1, 127, 128,
@@ -37,6 +37,14 @@ def main():
     rng = random.Random(0x9638)
     pairs = [(s, d) for s in edges for d in edges]
     pairs.extend((rng.randrange(-32768, 32768), rng.randrange(-32768, 32768)) for _ in range(1200))
+    # Exercise the signed high-digit correction, its two boundaries, and
+    # both scalar fallbacks. Include all carries from the signed low word.
+    for high in (-129, -128, -127, -2, -1, 0, 1, 2, 126, 127, 128):
+        for low in (-32768, -32767, -1, 0, 1, 32766, 32767):
+            for spring in (-32769, -32768, -1, 0, 1, 32767, 32768):
+                pairs.append((spring, high * 65536 + low))
+    pairs.extend((rng.randrange(-32768, 32768), rng.randrange(-(1 << 31), 1 << 31))
+                 for _ in range(600))
     state, fraction = symbols['_riding_suspension_state']+44, symbols['_q24_fraction']
     count = 0
     try:
@@ -50,6 +58,9 @@ def main():
                                         ('_angular_residual', previous)):
                         addr = symbols[name]
                         mem[addr:addr+4] = struct.pack('<i', value)
+                    # The production entry already has the damping value in BC:DE.
+                    regs.B, regs.C = (damping >> 24) & 255, (damping >> 16) & 255
+                    regs.D, regs.E = (damping >> 8) & 255, damping & 255
                     regs.SP, regs.PC = stack, code
                     gb.tick(1, False)
                     impulse = (previous-raw+q//2)//q
