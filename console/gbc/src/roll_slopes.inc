@@ -72,6 +72,7 @@ slope_read_product:
  rlca
  ld (#0x3000),a
  ld h,c
+_riding_projection_saved24::
  ld l,e
  ld c,(hl)
  inc h

@@ -76,96 +76,64 @@ _riding_projection_fetch_wide::
  push bc
  ld h,a
 projection_read_wide:
- push hl
- call projection_read_unsigned
+ ; Upper word pointer is above the return address. For a signed24 input,
+ ; share the rolling reader's three-digit multiply in the already mapped bank.
  pop bc
- push de
- push hl
- ldhl sp,#4
- ld a,(hl+)
- ld h,(hl)
+ ld a,(bc)
  ld l,a
- ld a,(hl+)
- ld c,(hl)
- ld h,b
- ld l,a
- or c
- jr z,projection_high_zero
- ld a,c
- or a
- jr nz,projection_upper_negative
- ; A high word in 1..255 uses one unsigned product. Its high byte
- ; carries the unsigned table's 0x800000 bias.
- ld d,(hl)
- inc h
- ld a,(hl)
- xor #128
- inc h
- ld e,(hl)
- jr projection_upper_extend
-projection_upper_negative:
- inc a
- jr nz,projection_upper_word
- bit 7,l
- jr z,projection_upper_word
- ; Signed byte times y. The signed planes store the product minus
- ; 0x8000, sharing the low byte with the unsigned table.
- inc h
- inc h
- ld e,(hl)
- inc h
- ld a,(hl)
- add #128
- ld d,a
- inc h
- ld a,(hl)
- adc #0
-projection_upper_extend:
- ld l,a
+ inc bc
+ ld a,(bc)
+ ld b,a
+ ld a,l
  add a
  sbc a
- ld h,a
- jr projection_add_upper
-projection_upper_word:
- ld e,l
- ld d,c
- call _riding_projection_read_signed
-projection_add_upper:
- pop bc
- ld a,b
- add a,a
- sbc a,a
- push hl
- ld h,a
- ld l,a
- ld a,e
- add a,c
- ld e,a
- ld a,d
- adc a,b
- ld d,a
- pop bc
+ cp b
+ jr nz,projection_upper_word
+ ld bc,#projection_extend_wide
+ push bc
  ld a,l
- adc a,c
- ld c,a
- ld a,h
- adc a,b
+ push af
+ jp _riding_projection_saved24
+projection_extend_wide:
+ ld c,b
+ ld a,b
+ add a
+ sbc a
  ld b,a
- ld h,d
- ld l,e
- pop de
- add sp,#2
  jp _riding_projection_hit
 
-projection_high_zero:
+projection_upper_word:
+ ; X = unsigned(low word) + (signed(high word) << 16).
+ ; Add the two overlapping words, extending the low product's sign.
+ push de
+ push hl
+ ld e,l
+ ld d,b
+ call _riding_projection_read_signed
+ ld b,h
+ ld c,l
  pop hl
+ ld a,h
+ pop hl
+ push bc
+ push de
+ ld d,h
+ ld e,l
+ ld h,a
+ call projection_read_unsigned
  ld a,h
  add a
  sbc a
- ld b,a
- ld c,a
- pop de
- add sp,#2
+ pop bc
+ add hl,bc
+ pop bc
+ bit 7,a
+ jr z,projection_upper_carry
+ dec bc
+projection_upper_carry:
+ jr nc,projection_upper_done
+ inc bc
+projection_upper_done:
  jp _riding_projection_hit
 
 _riding_projection_read_signed::
