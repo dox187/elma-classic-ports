@@ -577,7 +577,8 @@ def main():
         wheel_rows = wheel_terrain.generate(a.gen)
         sources += [BASE/'src/physics_leaf_region.c', BASE/'src/wheel_terrain.s',
                     BASE/'src/physics_leaf_region.s', wheel_rows, head_refinement.generate(a.gen),
-                    normal_atlas.generate(a.gen, BASE.parent/'nes/src/rsqrt.inc', wheel_rows)]
+                    normal_atlas.generate(a.gen, BASE.parent/'nes/src/rsqrt.inc', wheel_rows,
+                                          extend_rows=signed_bg)]
         sources.append(brake_game)
     if scheduled:
         # Append the divider after the aligned bank-35 numeric tables.

@@ -1,4 +1,5 @@
 """Pack exact terrain-vertex normals into spare MBC5 graphics tails."""
+import heapq
 import json
 from math import isqrt
 import re
@@ -49,7 +50,7 @@ def encode(x, y, roots):
     return RECORD.pack(nx, ny, base_byte, flags, d2 & 65535)
 
 
-def generate(gen, roots_path, wheel_rows, dest=None):
+def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False):
     roots = [int(x) for x in re.findall(r'\d+', roots_path.read_text().split('\n',1)[1])]
     groups = []
     for group in range(GROUPS):
@@ -79,12 +80,35 @@ def generate(gen, roots_path, wheel_rows, dest=None):
         bank = min(fits,key=lambda b:(room[b],b))
         placement[i] = bank
         room[bank] -= sizes[i]
+    # After packing complete groups, spend the bank's remaining bytes on
+    # deeper offsets. Keep bank 476's tail available to the pivot solver.
+    # Extend the closest missing radius first, independently in each bank.
+    if extend_rows:
+        for bank in set(placement.values()) - {476}:
+            pending = []
+            def offer(small, big):
+                squared = small*small + big*big
+                if big >= max(small, 256) and squared >= 386**2:
+                    heapq.heappush(pending, (-squared, small, big))
+            for group, owner in placement.items():
+                if owner == bank:
+                    for j, (start, _) in enumerate(groups[group]):
+                        offer(2*group+j, 255+start)
+            while pending and room[bank] >= RECORD.size:
+                _, small, big = heapq.heappop(pending)
+                row = groups[small//2]
+                _, payload = row[small%2]
+                row[small%2] = big-256, encode(small, big, roots)+payload
+                room[bank] -= RECORD.size
+                offer(small, big-1)
     # The two rows share their outer bound. An offset below both row
     # starts can skip the banked annulus lookup entirely.
-    miss_span = 1 + max(isqrt(OUTER**2-1-(2*g)**2) - max(s, isqrt(INNER**2-1-s*s)+1)
-                        for g in range(GROUPS) for s in (2*g, 2*g+1))
+    miss_span = 1 + max(isqrt(OUTER**2-1-(2*g)**2) - (256+start)
+                        for g, rows in enumerate(groups) for start, _ in rows)
     out = ['.module normal_atlas_data', '.globl normal_ring_miss_span',
            f'normal_ring_miss_span = {miss_span}', '.area _CODE_9', '_riding_normal_groups::']
+    if extend_rows:
+        out += ['.globl normal_extended_inner_radius', 'normal_extended_inner_radius = 386']
     for i in range(GROUPS):
         # Both sorted rows lie below the outer limit of the even row.
         out.append(f' .db {isqrt(OUTER*OUTER - 1 - (2*i)**2)-256}')

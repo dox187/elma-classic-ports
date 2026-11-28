@@ -198,7 +198,11 @@ def check(rom, reference):
             header = bank*16384+(group&16383)+4*(small&1)
             first,count,ptr = struct.unpack_from('<BBH',image,header)
             bigs = [b for b in range(small,410) if 396**2<=small**2+b*b<410**2]
-            assert bigs==list(range(256+first,256+first+count))
+            decoded = list(range(256+first,256+first+count))
+            assert decoded[-len(bigs):] == bigs
+            minimum = sym.get('normal_extended_inner_radius',396)
+            assert decoded[0]>=small and small**2+decoded[0]**2>=minimum**2
+            bigs = decoded
             assert 0x4000<=ptr<=0x8000-8*count
             representatives[bank] = small,bigs[-1]
             totals['rows'] += 1
@@ -223,7 +227,7 @@ def check(rom, reference):
                                 other = struct.pack('<hhh', 0, 16384, 395 + large % 15)
                                 assert target.merge(other, got, qx, qy) == old.merge(other, want, qx, qy)
                                 totals['mixed contact pairs'] += 1
-        assert totals['entries']==4440 and totals['rows']==290
+        assert totals['entries']>=4440 and totals['rows']==290
         # Every bank must survive an IRQ taken immediately after the mapper
         # changes both registers, including the exact public/physical cache key.
         for bank,(x,y) in representatives.items():
