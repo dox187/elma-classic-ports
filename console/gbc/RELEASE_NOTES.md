@@ -50,6 +50,15 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test63 — Wheel projections and resident motorcycle poses
+
+The wheel solver reuses exact products across contacts. Eleven common
+motorcycle poses stay in sprite memory. The independent replay set fell
+from 33 to 29 late intervals, including three fewer on Haircut. The forced
+Steep Corner peak fell from 63.38 to 62.01 ms. All 100,382 recorded
+physics substeps matched test62.
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test63-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test63--wheel-projections-and-resident-motorcycle-poses)
+
 ## 0.96 test62 — Bumpy Journey braking and moving wheel contacts
 
 On Bumpy Journey, the long braking replay improved from 11 to 7 late

@@ -299,7 +299,8 @@ def native(image, sy, samples, interrupts):
         code = [0xfb if irq else 0xf3,0,0xcd,addr&255,(addr>>8)&255,0xf3,0x18,0xfe]
         mr[pc:pc+len(code)] = code
         reg.PC,reg.SP,reg.D,reg.E,reg.B,reg.C,reg.A = pc,sp,de>>8,de&255,bc>>8,bc&255,a
-        for _ in range(10):
+        limit = 32 if name == '_physics_collision_select' else 10
+        for _ in range(limit):
             p.tick(1,False)
             if reg.PC == pc+6: break
         assert reg.PC == pc+6 and reg.SP == sp, (name,hex(reg.PC),hex(reg.SP))

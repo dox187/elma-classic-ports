@@ -97,7 +97,10 @@ class WheelQueries(Cartridge):
             self.reg.PC = self.sym['_main']
             self.schedule_start = self.p._cycles()
             self.solver_cycles = 0
-        for _ in range(12):
+        # At normal CPU speed the first course selection also constructs the
+        # cartridge RAM product rows. Scheduled-frame timing starts separately.
+        limit = 32 if name == '_physics_collision_select' else 12
+        for _ in range(limit):
             self.p.tick(1, False)
             if self.reg.PC == self.code+3:
                 break

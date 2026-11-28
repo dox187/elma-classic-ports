@@ -3,12 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test62 — 8 MiB](build/elma-gbc-v0.96-test62-8m.gbc)**.
-The primary controller replays averaged 29.815 updates/s. Out of 25,310
-intervals, 82 took three refreshes, down from 97 in test61. Extended Bumpy
-Journey braking improved from 28.85 to 29.21 updates/s. Independent Haircut
-reached 28.66. The forced Steep Corner peak took 63.38 ms for physics alone,
-against a 33.49 ms whole-game budget. [Measurements and verification](PERFORMANCE.md#096-test62--bumpy-journey-braking-and-moving-wheel-contacts)
+**[0.96 test63 — 8 MiB](build/elma-gbc-v0.96-test63-8m.gbc)**.
+The primary controller replays averaged 29.816 updates/s. Out of 25,310
+intervals, 81 took three refreshes. Independent Haircut improved from 19
+to 16 late intervals in 226. The forced Steep Corner peak took 62.01 ms
+for physics alone against the 33.49 ms whole-game budget. [Measurements and verification](PERFORMANCE.md#096-test63--wheel-projections-and-resident-motorcycle-poses)
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
@@ -424,3 +423,4 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | test60 | Shortened wheel pivots, head sweeps and object checks |
 | test61 | Reused Bowling vertex contacts and shortened throttle, body and head updates |
 | test62 | Shortened Bumpy Journey braking, moving contacts, suspension and sprite transfers |
+| test63 | Cached wheel projections and eleven motorcycle poses |

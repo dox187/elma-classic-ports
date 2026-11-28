@@ -4613,3 +4613,46 @@ cells. All 54 courses started, with one late entry update. Player profiles,
 records and battery reload passed.
 
 SHA-256 `fca2bf9610589ce788e4bde502234b8fe07353bc9b470144852a5628d33f3ab4`.
+
+## 0.96 test63 — Wheel projections and resident motorcycle poses
+
+On first course selection the cartridge builds exact radial normalization
+products in scratch SRAM banks 1–3. Their 297 pointers occupy A800–AA51
+in bank 0. The battery save slots begin at B800. Forty-six more terrain
+coefficients reuse existing rolling-product rows. Two additional Haircut
+regions use certified terrain responses. A bound on the second normal
+avoids repeating its fractional projection when contact is certain.
+
+Eleven common body poses occupy previously unused sprite pages. Changing
+between them updates the OAM tile numbers. Other poses still stream their
+changed tiles. The primary replays transferred 47,969 GDMA blocks for
+scenery and sprites combined, down from 62,601.
+
+| PyBoy measurement | test62 | test63 |
+| --- | ---: | ---: |
+| Weighted primary updates/s, 25,310 intervals | 29.815 | 29.816 |
+| Three-refresh intervals, catalog / extended / complete Freefall | 61 / 21 / 0 | 60 / 21 / 0 |
+| Three-refresh intervals, independent seed, 5,302 intervals | 33 | 29 |
+| Independent Haircut, late out of 226 | 19 | 16 |
+| Mean active primary update, T-cycles | 208,444 | 208,247 |
+| Historical placements above budget out of 2,432 | 310 | 307 |
+| Peak physics on the historical placements, T-cycles | 494,880 | 487,692 |
+| Forced Steep Corner peak physics, T-cycles | 531,640 | 520,140 |
+
+All 200 forced Steep Corner updates exceeded 280,896 T. At the maximum,
+the wheels took 367,048 T across three substeps. The 642-placement sweep
+improved in aggregate on all 54 courses. The slowest primary replays
+averaged 29.13 updates/s. Individual three-refresh intervals give 19.91
+updates/s for that interval. These timings were measured in emulation.
+
+All 100,382 raw physics substeps matched test62 across controller replays,
+the full descent and corner placements. Native checks covered 174,827 SRAM
+axis products, 1,188 linked normal vectors, interrupted access in all three
+scratch banks, 298,416 ordered terrain queries and 84 partial leaves.
+Seven controller routes matched 1,216 sprite presentations and 61,845
+background cells. The atlas check covered all 37,056 body transitions,
+all eleven resident pages and 256 heads. The speed checks matched 3,170
+states in 122 cases. All 54 courses started with one late entry update.
+Player records and battery reload passed.
+
+SHA-256 `673a5cf2d373f92dff1e52c064a09605c712a4ab6c54fbdc0a3384d118ad1fce`.
