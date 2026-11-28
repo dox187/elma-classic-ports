@@ -659,7 +659,12 @@ def main():
         bounds_game = a.gen/'physics_level_bounds_sram.s'
         bounds_flags = 'RIDING_NORMAL_SRAM = 1\n'
         if signed_bg:
-            bounds_flags += 'RIDING_REACTION_PAIR = 1\n'
+            bounds_flags += 'RIDING_REACTION_PAIR = 1\nRIDING_WHEEL_ROW_RAM = 1\n'
+            wheel = BASE/'src/wheel_terrain.s'
+            cached_wheel = a.gen/'wheel_terrain_sram.s'
+            head_clearance.write_if_changed(cached_wheel, 'RIDING_WHEEL_ROW_RAM = 1\n'+wheel.read_text())
+            sources[sources.index(wheel)] = cached_wheel
+            sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/wheel_course_rows.c')
         head_clearance.write_if_changed(bounds_game, bounds_flags+bounds.read_text())
         sources[sources.index(bounds)] = bounds_game
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/normal_sram.s')

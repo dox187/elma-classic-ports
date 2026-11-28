@@ -46,8 +46,36 @@ _riding_wheel_lookup::
 wheel_unknown:
  ld a,#255
  ret
+.ifdef RIDING_WHEEL_ROW_RAM
+; Three pages give the tagged row pointer and ROM bank at the raw Y index.
+; Only selected course rows are copied. Zero width before selection makes
+; every request take the ordinary outside path.
+.area _DATA
+_wheel_course_size:: .ds 2
+.area _CODE_9
+.endif
 wheel_base_cell:
  push bc
+ .ifdef RIDING_WHEEL_ROW_RAM
+ ld hl,#_wheel_course_size
+ ld a,d
+ cp (hl)
+ jr nc,wheel_outside
+ ld b,(hl)
+ inc hl
+ ld a,e
+ cp (hl)
+ jr nc,wheel_outside
+ ld l,e
+ ld h,#0xad
+ ld e,d
+ ld d,b
+ ld a,(hl)
+ inc h
+ ld b,(hl)
+ inc h
+ ld c,(hl)
+ .else
  ld a,(#_physics_level_index)
  cp #_wheel_terrain_levels
  jr nc,wheel_outside
@@ -80,6 +108,7 @@ wheel_base_cell:
  ld b,(hl)
  inc hl
  ld c,(hl)
+ .endif
  ld l,a
  ld h,b
  ld a,h

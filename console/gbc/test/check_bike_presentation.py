@@ -146,18 +146,20 @@ class PresentationDriver(Driver):
                 index = 4*i+2
                 assert oam[index] == page*16 + i*2 and oam[index+1] == bank*8
                 canonical[index:index+2] = bytes((64+i*2, 8))
+        # Compare both halves of the head even when its OAM Y is hidden.
+        head = oam[50]
         if signed_bg:
-            # Compare the published head pixels even when its OAM Y is hidden.
-            # Captured tile IDs can differ between the immutable and streaming slots.
-            head = oam[50]
             resident = '_bike_streamed_heads' in self.symbols
             assert head in (88,90) or (resident and 92<=head<116 and head%2==0)
-            assert oam[51] == 12
-            start = 0x8000 + 16*head
-            patterns.append(bytes(memory[1,start:start+32]))
             canonical[50] = 88
             for i in range(0,160,4):
                 if any(oam[i:i+3]):canonical[i+2]^=128
+        else:
+            assert head in (216,218)
+            canonical[50] = 216
+        assert oam[51] == 12
+        start = 0x8000 + 16*head
+        patterns.append(bytes(memory[1,start:start+32]))
         hud=0x8ec0 if signed_bg else 0x8dc0
         return {
             'steps': self.word('game_steps'),

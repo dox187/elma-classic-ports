@@ -45,6 +45,11 @@ bounds_inner:
 .globl b_riding_prepare_level_bounds
 b_riding_prepare_level_bounds = 14
 _riding_prepare_level_bounds::
+ .ifdef RIDING_WHEEL_ROW_RAM
+ ld e,#13
+ ld hl,#_wheel_prepare_rows
+ call ___sdcc_bcall_ehl
+ .endif
  .ifdef RIDING_REACTION_PAIR
  ld a,(#ss_pair_ready)
  or a

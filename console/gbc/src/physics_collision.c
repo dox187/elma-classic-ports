@@ -106,10 +106,10 @@ uint8_t physics_collision_select(uint8_t index) {
     physics_level_start_x=riding_level.start_x;
     physics_level_start_y=riding_level.start_y;
 #endif
+    physics_level_index=index;
 #if defined(__SDCC) && defined(RIDING_PC_SCHEDULE)
     riding_prepare_level_bounds();
 #endif
-    physics_level_index=index;
     physics_collision_reset();
     return 1;
 }
