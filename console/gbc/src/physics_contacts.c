@@ -658,16 +658,20 @@ wide_have_axes:
     or h
     jr z,wide_push_done
     push hl
-    ; A push below 63*256 gives signed-word axes even for -32768
-    ; normals. Both products plus the two rounding biases fit signed32.
+    ; Wider positive pushes up to 17 bits still give signed 19-bit axes.
+    ; Their two exact projections can share the byte-pair multiplier.
     ldhl sp,#21
     ld a,(hl-)
-    or (hl)
-    jr nz,wide_project_other
-    dec hl
+    or a
+    jp nz,wide_project_other
+    ld a,(hl-)
+    cp #2
+    jp nc,wide_project_other
+    or a
+    jp nz,wide_split_dot
     ld a,(hl)
     cp #63
-    jr nc,wide_project_other
+    jp nc,wide_split_dot
     pop hl
     push hl
     ld a,(hl+)
@@ -741,6 +745,150 @@ wide_push_done:
     pop hl
     add sp,#6
     jp (hl)
+wide_split_dot:
+    ; Split each position delta into lo + 256*hi + 65536*w, with both
+    ; bytes unsigned and w in [-4,3]. Retain both signed products through
+    ; the single final rounding, (P+0x202000)>>22.
+    ldhl sp,#2
+    ld c,(hl)
+    ldhl sp,#6
+    ld b,(hl)
+    ldhl sp,#0
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    call _riding_fraction_pair
+    ld a,d
+    add #32
+    ld d,a
+    ld a,c
+    adc #32
+    ld c,a
+    ld a,b
+    adc #0
+    ld b,a
+    push bc
+    push de
+    ldhl sp,#7
+    ld c,(hl)
+    ldhl sp,#11
+    ld b,(hl)
+    ldhl sp,#4
+    ld a,(hl+)
+    ld h,(hl)
+    ld l,a
+    call _riding_fraction_pair
+    ; Add floor((low-product + bias)/256) to the high-byte product.
+    ; The resulting top 24 bits are floor((P + bias)/65536) before w.
+    ldhl sp,#1
+    ld a,e
+    add (hl)
+    inc hl
+    ld a,d
+    adc (hl)
+    ld d,a
+    inc hl
+    ld a,c
+    adc (hl)
+    ld c,a
+    ld a,#0
+    bit 7,(hl)
+    jr z,wide_split_sign
+    dec a
+wide_split_sign:
+    adc b
+    ld b,a
+    add sp,#4
+    ldhl sp,#4
+    ld a,(hl)
+    or a
+    jr z,wide_split_y
+    ldhl sp,#0
+    ld e,(hl)
+    inc hl
+    ld h,(hl)
+    ld l,e
+    call wide_split_digit
+wide_split_y:
+    ldhl sp,#8
+    ld a,(hl)
+    or a
+    jr z,wide_split_reduce
+    ldhl sp,#0
+    ld e,(hl)
+    inc hl
+    ld h,(hl)
+    ld l,e
+    inc hl
+    inc hl
+    call wide_split_digit
+wide_split_reduce:
+    ld a,d
+    .rept 2
+    add a
+    rl c
+    rl b
+    .endm
+    or a
+    jp wide_add_other
+wide_split_digit:
+    ld e,(hl)
+    inc hl
+    ld h,(hl)
+    ld l,#0
+    bit 7,h
+    jr z,wide_split_directions
+    dec l
+wide_split_directions:
+    ; A nonzero upper digit is in [-4,3]. Handle +/-1 without a loop.
+    cp #255
+    jr z,wide_split_minus
+    cp #1
+    jr z,wide_split_plus
+    cp #3
+    jr z,wide_split_three
+    cp #253
+    jr nz,wide_split_shift
+    call wide_split_minus
+    ld a,#254
+    jr wide_split_shift
+wide_split_three:
+    call wide_split_plus
+    ld a,#2
+wide_split_shift:
+    sla e
+    rl h
+    rl l
+    bit 1,a
+    jr nz,wide_split_signed
+    sla e
+    rl h
+    rl l
+wide_split_signed:
+    bit 7,a
+    jr nz,wide_split_minus
+wide_split_plus:
+    ld a,d
+    add e
+    ld d,a
+    ld a,c
+    adc h
+    ld c,a
+    ld a,b
+    adc l
+    ld b,a
+    ret
+wide_split_minus:
+    ld a,d
+    sub e
+    ld d,a
+    ld a,c
+    sbc h
+    ld c,a
+    ld a,b
+    sbc l
+    ld b,a
+    ret
 wide_push_length:
     .rept 4
     inc hl

@@ -122,6 +122,21 @@ def check_first_push(reference, target):
                  for distance in (340, 341, 342, 403)
                  for nx, ny in normals
                  for fx in (0, 122, 123, 124, 255))
+    # Select exact pushes across byte/word projection boundaries.
+    for boundary in (32768, 65536, 98304, 131072):
+        for push in range(boundary-2, boundary+3):
+            length, fx = divmod(103547-push, 256)
+            for nx, ny in normals:
+                cases.append((16384, 0, length, nx, ny, 404, fx, 255-fx))
+    for length in (276, 148, 20, -108):
+        for a, b in normals:
+            for nx, ny in normals:
+                cases.append((a, b, length, nx, ny, 402, 111, 217))
+    rng = random.Random(41069)
+    for _ in range(1800):
+        axes = [rng.randint(-32768,32767) for _ in range(4)]
+        cases.append((*axes[:2],rng.randint(-150,403),*axes[2:],rng.randint(380,403),
+                      rng.randrange(256),rng.randrange(256)))
     for slot in (0, 1):
         for ax, ay, distance, nx, ny, length, fx, fy in cases:
             center = struct.pack('<II', 0x12340000 + fx, 0xfedc0000 + fy)
