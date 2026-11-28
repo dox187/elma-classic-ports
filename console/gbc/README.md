@@ -3,11 +3,13 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test69 — 8 MiB](build/elma-gbc-v0.96-test69-8m.gbc)**.
-The primary controller replays averaged 29.830 updates/s, with 58 late
-intervals out of 25,310. The independent replays had 22 late intervals out
-of 5,302. Forced Steep Corner peaked at 58.68 ms for physics alone against
-the 33.49 ms whole-game budget. [Measurements and verification](PERFORMANCE.md#096-test69--wheel-projections-and-terrain-records)
+**[0.96 test71 — 8 MiB, manual test build](build/elma-gbc-v0.96-test71-8m.gbc)**.
+On hardware, try sustained braking on Hangman, neutral riding on Curvaceous,
+and angled landings on Steep Corner. Automated runs are paused for this
+checkpoint. Test70 is the last full replay baseline: 57 late intervals in
+25,310 primary intervals, 22 in 5,302 independent intervals, and a 55.54 ms
+forced Steep Corner peak. The target is 33.49 ms per complete update.
+[Manual build and verification scope](PERFORMANCE.md#096-test71--manual-cartridge-checkpoint)
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
@@ -430,3 +432,5 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | test67 | Shared scenery slots, faster signed products and eight complete contact tiles |
 | test68 | Tabulated contact lengths, shorter wheel corrections and scenery preloads |
 | test69 | Reused terrain records and shortened flat and two-contact wheel projections |
+| test70 | Four contact banks, bounded pivot moments and shorter spring projections |
+| test71 | Denser contact tiles, shorter damping and pose export |

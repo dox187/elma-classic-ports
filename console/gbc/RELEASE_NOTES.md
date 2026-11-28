@@ -50,6 +50,25 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test71 — Manual cartridge checkpoint
+
+Eighteen more 8×8 wheel-contact tiles fit in the same four banks. The
+cartridge also uses the stopped-pivot shortcut, register-based damping
+correction and shorter pose export. Hangman braking and Curvaceous neutral
+riding are the clearest places to compare with test70 on hardware.
+
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test71-8m.gbc) · [Component measurements and build checks](PERFORMANCE.md#096-test71--manual-cartridge-checkpoint)
+
+## 0.96 test70 — Four wheel-contact banks
+
+The compact scenery layout leaves four complete banks for ordered wheel
+contacts. The solver uses exact sign intervals for more pivot cases and a
+shorter reciprocal projection for spring reaction. In the full replay,
+57 of 25,310 primary intervals exceeded two refreshes. All 100,382
+compared physics substeps matched test69.
+
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test70-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test70--four-wheel-contact-banks)
+
 ## 0.96 test69 — Wheel projections and terrain records
 
 Flat wheels resolve their tangent in the wheel bank. Other two-contact

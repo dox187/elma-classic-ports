@@ -4857,3 +4857,60 @@ layout check. All 162,161 stored tiles and 1,166,848 map cells matched. This
 playable checkpoint keeps the previous scenery layout.
 
 SHA-256 `cb8cb66f7316c881b4f0ee21f71cd6097ef0c9a654692ffbcba2e95ca5a64031`.
+
+## 0.96 test70 — Four wheel-contact banks
+
+| Emulator measurement | test69 | test70 |
+|---|---:|---:|
+| Late intervals, catalog / extended / complete Freefall | 39 / 19 / 0 | 41 / 16 / 0 |
+| Independent late intervals out of 5,302 | 22 | 22 |
+| Weighted primary updates/s, 25,310 intervals | 29.8296 | 29.8302 |
+| Mean active primary update, T-cycles | 205,019 | 205,119 |
+| Historical placements over budget out of 2,432 | 282 | 262 |
+| Historical peak physics, T-cycles | 468,604 | 472,456 |
+| Forced Steep Corner peak physics, T-cycles | 492,264 | 465,884 |
+
+Steep Corner physics on 200 forced updates dropped from 84,198,112 to
+79,350,312 T-cycles in total. All 200 still exceeded the 280,896 T whole-game
+budget. Across the other 642 historical placements the aggregate fell from
+552,456,872 to 547,140,660 T. The worst single update moved to course 48.
+The catalog added two late intervals while the extended routes removed three.
+
+All 100,382 checked physics substeps matched test69. The exact tile lookup
+matched 28,624 centers and neighboring misses. All 54 courses started with
+one late entry interval. Seven visual routes matched across 1,216
+presentations and 61,845 background cells. Haircut matched separately
+across 227 presentations and 7,581 cells.
+
+SHA-256 `15fd1a6fe51f75dfb78d2fa2a42d11b4c2431ee9db4210d5f4008b2b0e18abcd`.
+
+## 0.96 test71 — Manual cartridge checkpoint
+
+This build keeps the four-bank scenery layout from test70. A denser reader
+fits 18 additional complete 8×8 contact tiles. Stopped pairs that already
+proved the first pivot can go directly to the exact second pivot. The
+damping correction stays in registers across the remaining determinant
+calculation, with the correction routine linked in bank 5. Position and
+angle export carry the shifted bits directly into each output byte.
+
+Component comparisons completed before the manual-testing checkpoint:
+
+| Contact-reader replay, 160 updates | test70 | Updated reader |
+|---|---:|---:|
+| Hangman braking, worst active update in T-cycles | 335,288 | 315,096 |
+| Hangman braking, late intervals | 6 | 3 |
+| Curvaceous neutral, worst active update in T-cycles | 269,136 | 249,468 |
+
+The reader matched the reference across 30,344 geometry comparisons and
+35 native replay cases. The damping correction matched 12,196 boundary
+cases and 600 forced substeps before its bank-5 relocation. The independent
+pose export fixture passed all 1,024 vectors, including fractional origins
+and both angle shifts. The stopped-pivot change matched the four controller
+suites and both forced sweeps in its standalone comparison with test68.
+
+The combined 8 MiB image passed the linker's bank layout checks and both
+cartridge checksums. Full replay timing for this combined image and physical
+FlashMaster behavior are pending. Automated gameplay testing is paused for
+manual comparison with test70.
+
+SHA-256 `dbefca611236166d1b35af76bfea70642b5519bf48f1658369c22a385c02f1bf`.

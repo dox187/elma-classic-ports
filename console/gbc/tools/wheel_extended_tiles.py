@@ -66,14 +66,13 @@ def generate(gen, template, levels, terrain_banks):
             route = span, start, bank, f'direct_{name}_tiles'
             assert level not in routes and route[0] <= 255
             routes[level] = route
-            reader = dispatch(name, tiles, SIDE)
+            reader = dispatch(name, tiles, SIDE, compact=True)
             # The wheel's fraction-aware certificate already ran before
             # this fallback. Use the shared native decoder without querying it again.
-            lines.extend(line.replace('direct_miss', f'{prefix}_miss')
-                         .replace('direct_known', 'direct_read') for line in reader)
+            lines.extend(line.replace('direct_miss', f'{prefix}_miss') for line in reader)
             for i, (x, y) in enumerate(tiles):
                 lines.extend([f'direct_{name}_{i}:', *tile_reader(blob, cell_samples(
-                    levels[level], terrain_banks, x, y, SIDE), SIDE)])
+                    levels[level], terrain_banks, x, y, SIDE), SIDE, compact=True)])
         # The decoder, its unpackers and local miss live in the active data bank.
         lines = [line.replace('direct_read', f'{prefix}_read')
                  .replace('direct_decoded', f'{prefix}_decoded')

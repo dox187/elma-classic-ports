@@ -2928,18 +2928,29 @@ ss_damping_scheduled:
  ret
 ss_damp_corrected:
  ; Both wheel forces have consumed the original relative speeds.
- ld e,#1
+ ld e,#5
  ld hl,#ss_damp_integer_parts
  call ___sdcc_bcall_ehl
+ push bc
+ push de
  call ss_damp_cert_entry
- ld b,h
- ld c,l
- ss_add ss_prepared_damping
- ld h,b
- ld l,c
+ pop bc
+ ld a,e
+ add a,c
+ ld e,a
+ ld a,d
+ adc a,b
+ ld d,a
+ pop bc
+ ld a,l
+ adc a,c
+ ld l,a
+ ld a,h
+ adc a,b
+ ld h,a
  ret
 
-.area _CODE_1
+.area _CODE_5
 ; If v = 2^18*k + r, floor(sum(v*arm)/2^18) equals
 ; sum(k*arm) + floor(sum(r*arm)/2^18), also for negative cross terms.
 ; The force batches certify signed22 velocities and signed20 displacements.
@@ -2952,7 +2963,8 @@ ss_damp_integer_parts:
 .macro ss_damp_reduce_speed speed,arm,minus,?done
  ; Center the remainder in [-131072,131071]. Byte two alone determines
  ; k = floor((velocity + 131072) / 262144).
- ld a,(#ss_damping+speed+2)
+ ld hl,#ss_damping+speed+2
+ ld a,(hl)
  add a,#2
  cp #4
  jr c,done
@@ -2963,7 +2975,6 @@ ss_damp_integer_parts:
  inc a
  .endif
  push af
- ld hl,#ss_damping+speed+2
  ld a,(hl)
  and a,#3
  xor a,#2
@@ -2981,7 +2992,6 @@ done:
  ss_damp_reduce_speed 0,24,1
  ss_damp_reduce_speed 12,20,0
  ss_damp_reduce_speed 4,28,1
- ss_store ss_prepared_damping
  ret
 
 ; BC:DE holds the exact integer correction across the four signed lanes.
@@ -2990,10 +3000,7 @@ ss_damp_correct_arm:
  jr z,ss_damp_positive_arm
  cpl
  inc a
-.macro ss_damp_correct label,lo,hi
-label:
- push af
- push hl
+.macro ss_damp_accumulate lo,hi
  ld a,e
  lo a,(hl)
  inc hl
@@ -3009,10 +3016,23 @@ label:
  ld a,b
  hi a,(hl)
  ld b,a
+.endm
+.macro ss_damp_correct label,lo,hi,?single,?repeat
+label:
+ dec a
+ jr z,single
+ inc a
+repeat:
+ push af
+ push hl
+ ss_damp_accumulate lo,hi
  pop hl
  pop af
  dec a
- jr nz,label
+ jr nz,repeat
+ ret
+single:
+ ss_damp_accumulate lo,hi
  ret
 .endm
  ss_damp_correct ss_damp_negative_arm,sub,sbc

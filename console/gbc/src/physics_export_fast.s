@@ -17,16 +17,14 @@
  ld d,a
  ld a,(hl)
  rra
- ld e,a
  sra b
  rr c
  rr d
- rr e
+ rra
  ld hl,#(_gbc_bike+target)
- ld (hl),e
- inc hl
- ld (hl),d
- inc hl
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
  ld a,(#origin+2)
  add a,c
  ld (hl+),a
@@ -56,59 +54,34 @@ _physics_export_state_fast::
  ld a,(#_physics_export_angle_shift)
  cp a,#8
  jr z,export_angles8
- ld a,(#_Bike+17)
- add a,a
- ld c,a
- ld a,(#_Bike+18)
+ ; The top bit of byte 0 becomes bit 0 of the exported angle.
+ ; Loads and stores preserve carry between the two output bytes.
+.macro export_angle7 source,target
+ ld hl,#(_Bike+source)
+ ld a,(hl+)
  rla
- ld b,a
- ld a,(#_Bike+16)
- rlca
- and a,#1
- or a,c
- ld (#_gbc_bike+8),a
- ld a,b
- ld (#_gbc_bike+9),a
- ld a,(#_Bike+41)
- add a,a
- ld c,a
- ld a,(#_Bike+42)
+ ld a,(hl+)
  rla
- ld b,a
- ld a,(#_Bike+40)
- rlca
- and a,#1
- or a,c
- ld (#_gbc_bike+18),a
- ld a,b
- ld (#_gbc_bike+19),a
- ld a,(#_Bike+65)
- add a,a
- ld c,a
- ld a,(#_Bike+66)
+ ld (#(_gbc_bike+target)),a
+ ld a,(hl)
  rla
- ld b,a
- ld a,(#_Bike+64)
- rlca
- and a,#1
- or a,c
- ld (#_gbc_bike+28),a
- ld a,b
- ld (#_gbc_bike+29),a
+ ld (#(_gbc_bike+target+1)),a
+.endm
+ export_angle7 16,8
+ export_angle7 40,18
+ export_angle7 64,28
  jr export_finish
 export_angles8:
- ld a,(#_Bike+17)
- ld (#_gbc_bike+8),a
- ld a,(#_Bike+18)
- ld (#_gbc_bike+9),a
- ld a,(#_Bike+41)
- ld (#_gbc_bike+18),a
- ld a,(#_Bike+42)
- ld (#_gbc_bike+19),a
- ld a,(#_Bike+65)
- ld (#_gbc_bike+28),a
- ld a,(#_Bike+66)
- ld (#_gbc_bike+29),a
+.macro export_angle8 source,target
+ ld hl,#(_Bike+source+1)
+ ld a,(hl+)
+ ld (#(_gbc_bike+target)),a
+ ld a,(hl)
+ ld (#(_gbc_bike+target+1)),a
+.endm
+ export_angle8 16,8
+ export_angle8 40,18
+ export_angle8 64,28
 export_finish:
  ld a,(#_gbc_bike+8)
  ld (#_gbc_bike+38),a

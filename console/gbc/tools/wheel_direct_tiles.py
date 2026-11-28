@@ -16,21 +16,26 @@ TILES = {
 }
 
 
-def dispatch(name, tiles, side=16):
-    offsets = (3, 7, 2, 6, 1, 5)
+def dispatch(name, tiles, side=16, compact=False):
+    # Dense banks group the high coordinate bytes before the in-page offsets.
+    offsets = (3, 7, 6, 5, 2, 1) if compact else (3, 7, 2, 6, 1, 5)
+    accepted = 'direct_read' if compact else 'direct_known'
 
     def walk(items, depth):
         if depth == len(offsets):
             assert len(items) == 1
-            return [f' ld bc,#{items[0][1]}', ' jp direct_known']
+            return [f' ld bc,#{items[0][1]}', f' jp {accepted}']
         step = offsets[depth] - (offsets[depth-1] if depth else 0)
         result = [' inc hl' if step > 0 else ' dec hl'] * abs(step)
         result.append(' ld a,(hl)')
-        if depth >= 4:
+        if offsets[depth] in (1, 5):
             result.append(f' and #{256-side}')
         groups = defaultdict(list)
         for key, destination in items:
             groups[key[depth]].append((key, destination))
+        if compact and len(groups) == 1:
+            value, entries = next(iter(groups.items()))
+            return [*result, f' cp #{value}', ' jp nz,direct_miss', *walk(entries, depth+1)]
         for value, entries in groups.items():
             result.extend([f' cp #{value}', f' jp z,{entries[0][1]}_d{depth}'])
         result.append(' jp direct_miss')
@@ -41,8 +46,8 @@ def dispatch(name, tiles, side=16):
     items = []
     for i, (x, y) in enumerate(tiles):
         assert not (x & (side-1) or y & (side-1)) and 0 <= x < 1 << 23 and 0 <= y < 1 << 23
-        key = (x >> 16, y >> 16, x >> 8 & 255, y >> 8 & 255, x & (256-side), y & (256-side))
-        items.append((key, f'direct_{name}_{i}'))
+        coordinates = (*x.to_bytes(4, 'little'), *y.to_bytes(4, 'little'))
+        items.append((tuple(coordinates[offset-1] for offset in offsets), f'direct_{name}_{i}'))
     return [f'direct_{name}_tiles::', ' ld h,d', ' ld l,e', *walk(items, 0)]
 
 
@@ -97,7 +102,7 @@ def palette_index(blob, indices, colors, side):
     return packed_indices(blob, indices, bits)
 
 
-def tile_reader(blob, samples, side=16):
+def tile_reader(blob, samples, side=16, compact=False):
     # Nx, Ny, length are live for each returned contact. The ordinary
     # length projection rebuilds both points only when a pair is returned.
     records = [b''.join(struct.pack('<hhh', *contact) for contact in hit) for hit in samples]
@@ -106,7 +111,10 @@ def tile_reader(blob, samples, side=16):
         padding = next(row[index] for row in records if len(row) > index)
         offset = index if index < 6 else index+4
         fields[offset] = tuple(row[index] if len(row) > index else padding for row in records)
-    fields[None] = tuple(map(len, samples))
+    counts = tuple(map(len, samples))
+    constant_count = compact and len(set(counts)) == 1
+    if not constant_count:
+        fields[None] = counts
 
     families = defaultdict(list)
     for dest, field in fields.items():
@@ -114,6 +122,7 @@ def tile_reader(blob, samples, side=16):
         indices = tuple(colors.setdefault(v, len(colors)) for v in field)
         families[indices].append((dest, tuple(colors)))
     lines = []
+    constants = {}
     for indices, group in families.items():
         colors = len(group[0][1])
         shared = []
@@ -121,6 +130,9 @@ def tile_reader(blob, samples, side=16):
             shared = palette_index(blob, indices, colors, side) + [' ld e,a']
         lines += shared
         for dest, palette in group:
+            if compact and colors == 1 and dest is not None:
+                constants[dest] = palette[0]
+                continue
             if colors == 1:
                 lines.append(f' ld a,#{palette[0]}')
             elif shared:
@@ -128,7 +140,13 @@ def tile_reader(blob, samples, side=16):
             else:
                 lines.extend(direct_field(blob, fields[dest], side))
             lines.append(' push af' if dest is None else f' ld (#_Ct+{dest}),a')
-    return [*lines, ' pop af', ' jp direct_decoded']
+    previous = None
+    for dest, value in sorted(constants.items()):
+        lines.append(' inc hl' if previous is not None and dest == previous + 1 else f' ld hl,#(_Ct+{dest})')
+        lines.append(f' ld (hl),#{value}')
+        previous = dest
+    count = f' ld a,#{counts[0]}' if constant_count else ' pop af'
+    return [*lines, count, ' jp direct_decoded']
 
 
 def generate(template, levels, banks):

@@ -2421,6 +2421,10 @@ resolve_first:
     ld a,#2
     ret
 resolve_second_only:
+    ; The stopped-support proof already skipped the first pivot.
+    ; Publish the exact fraction for the second pivot.
+    xor a
+    ld (#_riding_pair_moment_side),a
     inc hl
     ld b,h
     ld c,l
@@ -2493,6 +2497,7 @@ uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
         if(proof && (signs[1] == 2 || signs[1] == 128)) {
             /* Both supports are inward at rest and remove exactly zero.
              * The second pivot still publishes its complete Q24 result. */
+            riding_pair_moment_side=0;
             return 1+riding_pair_sure(&Ct[0],signs+1);
         }
     }
