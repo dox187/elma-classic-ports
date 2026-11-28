@@ -532,6 +532,9 @@ static uint8_t contacts( int32_t cx, int32_t cy ) {
 
 #endif
 
+/* The scheduled game tests head motion with riding_swept_head. The
+ * point-radius query remains available to the standalone collision fixture. */
+#ifndef RIDING_SWEPT_HEAD_ONLY
 // Whether a circle at cx, cy (u) touches the ground:
 uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {
 	const seg_t* s;
@@ -557,6 +560,8 @@ uint8_t riding_touches( int32_t cx, int32_t cy, int16_t rad ) PH_BANKED {
 	}
 	return 0;
 }
+
+#endif
 
 // helyigazitas: does not let the wheel into the ground deeper than the band.
 // The other contact point gets farther by the push along its direction.
