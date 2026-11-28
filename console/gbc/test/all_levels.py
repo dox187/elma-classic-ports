@@ -66,7 +66,8 @@ class HeadVerifier:
         if d.rom_constant('world_lookup_format',0)==3:
             self.tiles=tuple(tile-128 for tile in self.tiles)
         address=d.symbols['_riding_heads'];bank,offset=address>>16,address&65535
-        self.frames=[d.rom_far((bank,offset+i*self.frame_bytes),self.frame_bytes)for i in range(256)]
+        stride = 16 if '_bike_body_upload' in d.symbols else self.frame_bytes
+        self.frames=[d.rom_far((bank,offset+i*stride),stride)+bytes(self.frame_bytes-stride) for i in range(256)]
         for name in ('bike_render_prepare','bike_render_draw'):
             address=d.symbols['_'+name]
             d.p.hook_register(address>>16,address&65535,self.observe(self.enter),name)

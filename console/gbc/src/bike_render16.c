@@ -113,6 +113,9 @@ _bike_dma_begin::
     ld a,(hl+)
     ld h,(hl)
     ld l,a
+#ifdef RIDING_BODY_TRANSFERS
+_bike_dma_regs::
+#endif
 010$:
     ld a,h
     ldh (#0x51),a
@@ -630,8 +633,27 @@ static void resident_wheels(const gbc_bike_t *bike) __sdcccall(0) BIKE_FIXED __n
 }
 #endif
 
+#ifdef RIDING_BODY_TRANSFERS
+void bike_body_upload(uint8_t body, uint8_t previous) BANKED;
+/* Register entry from bank 13. The source bank stays mapped during DMA. */
+void bike_body_dma(void) BIKE_FIXED __naked {
+    __asm
+    ld (#0x2000),a
+    ldh (#__current_bank),a
+    call _bike_dma_regs
+    ld a,#13
+    ld (#0x2000),a
+    ldh (#__current_bank),a
+    ret
+    __endasm;
+}
+#endif
+
 void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
-    uint8_t angle,compression,body,head,wheel,bank,oldbank,i,phase;
+    uint8_t angle,compression,body,head,wheel,oldbank,i,phase;
+#ifndef RIDING_BODY_TRANSFERS
+    uint8_t bank;
+#endif
     uint16_t frame;
     angle=(uint8_t)((bike->body.angle+1024U)>>11)&31;
     /* Use subpixel physical displacement so the selected rider pose does not
@@ -647,9 +669,13 @@ void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
     prepared_changed=body!=last_body;
     VBK_REG=1;
     if(body!=last_body) {
+#ifdef RIDING_BODY_TRANSFERS
+        bike_body_upload(body,last_body);
+#else
         bank=body>>6;
         SWITCH_ROM(10+bank);
         upload(BIKE_BODY_TILE,16,riding_bodies[bank]+((uint16_t)(body&63)<<8));
+#endif
         last_body=body;
     }
     __critical {frame=sys_time;}
@@ -664,7 +690,11 @@ void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
          * phase returns. The same frame gate still controls the OAM change. */
         if(head!=previous_head) {
             SWITCH_ROM(13);
+#ifdef RIDING_BODY_TRANSFERS
+            upload(head_tile,1,riding_heads+((uint16_t)head<<4));
+#else
             upload(head_tile,1,riding_heads+((uint16_t)head<<5));
+#endif
         }
         previous_head=last_head;
         shadow_OAM[12].tile=head_tile;

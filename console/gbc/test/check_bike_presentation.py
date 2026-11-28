@@ -3,9 +3,60 @@
 import argparse
 from collections import Counter
 from pathlib import Path
+import re
 
 from benchmark_gameplay import controller_plan
 from play import BASE, Driver, RIDING
+
+
+def check_body_plans(rom, gen):
+    from bike_frames16 import read_array
+
+    symbols = dict(re.findall(r'^DEF (\w+) 0x([0-9A-Fa-f]+)$',
+                              rom.with_suffix('.noi').read_text(), re.M))
+    if 'body_plan_ids' not in symbols:
+        return
+    image = rom.read_bytes()
+
+    def offset(name):
+        address = int(symbols[name], 16)
+        return (address >> 16) * 16384 + (address & 16383)
+
+    frames = []
+    for bank in range(3):
+        name = f'riding_body_{bank}'
+        data = read_array(gen / f'riding16_body_{bank}.c', name)
+        start = offset('_' + name)
+        assert image[start:start+len(data)] == data
+        frames.extend(data[i:i+256] for i in range(0, len(data), 256))
+    assert len(frames) == 192
+    heads = read_array(gen / 'riding16_parts.c', 'riding_heads')
+    start = offset('_riding_heads')
+    for i in range(256):
+        top = image[start+16*i:start+16*i+16]
+        assert top + bytes(16) == heads[i*32:(i+1)*32]
+
+    slots, ids, spans = map(offset, ('body_xor_slots', 'body_plan_ids', 'body_spans'))
+    # A freshly selected course can start in any pose with arbitrary old VRAM.
+    for previous in [*range(len(frames)), 255]:
+        for current, target in enumerate(frames):
+            slot = image[slots + (previous ^ current)]
+            plan = (15, 255)
+            if slot < 16:
+                pos = spans + 2 * image[ids + current * 16 + slot]
+                plan = image[pos:pos+2]
+            vram = bytearray(frames[previous] if previous != 255 else [0xa5]*256)
+            end = 0
+            for span in plan:
+                if span == 255:
+                    continue
+                begin = (span >> 4) * 16
+                assert end <= begin
+                end = begin + ((span & 15) + 1) * 16
+                assert end <= 256
+                vram[begin:end] = target[begin:end]
+            assert vram == target, (previous, current, plan)
+    print('37,056 exact body transitions including course entry, 256 exact heads')
 
 
 class PresentationDriver(Driver):
@@ -110,6 +161,7 @@ def main():
     parser.add_argument('--gen', type=Path, required=True)
     parser.add_argument('--out', type=Path, default=BASE/'build/check-bike-presentation')
     args = parser.parse_args()
+    check_body_plans(args.rom, args.gen)
     frames = cells = 0
     bursts = Counter()
     routes = ((11, 'brake'), (34, 'brake'), (1, 'gas'), (44, 'gas'),
