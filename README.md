@@ -54,6 +54,11 @@ passed emulator checks. The reported motorcycle failure persisted on the
 physical setup in that earlier build.
 Music remains unimplemented.
 
+<p>
+  <img src="console/gbc/docs/title.gif" width="320" alt="Game Boy Color 0.97 title screen, main menu and player name entry">
+  <img src="console/gbc/docs/gameplay.gif" width="320" alt="Riding over the hills and collecting the red apple on Warm Up">
+</p>
+
 [Status, build, controls and physics differences →](console/gbc/README.md)
 
 ### NES demake

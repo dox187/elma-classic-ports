@@ -13,6 +13,14 @@ The last full emulator replay (test70) averaged **29.83 updates/s** over
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
+<p>
+  <img src="docs/title.gif" width="320" alt="Title screen, main menu, player selection and name entry">
+  <img src="docs/levels.gif" width="320" alt="Browsing all six pages of the 54-course list">
+  <img src="docs/gameplay.gif" width="320" alt="Riding over the hills and collecting the red apple on Warm Up">
+</p>
+
+Captured from the 0.97 Game Boy Color ROM in PyBoy at the native 160 × 144 resolution.
+
 ## Build and run
 
 Finished tests keep their versioned playable ROM and the results recorded in
