@@ -42,9 +42,7 @@ def generate(gen, source):
     pages([n << 4 for n in range(256)], (0,))
     lines.append('motion_high_nibble:')
     pages([n >> 4 for n in range(256)], (0,))
-    lines.append('motion_signed_page::')
-    pages([0 if n < 128 else 255 for n in range(256)], (0,))
-    lines.append('motion_upper_page:')
+    lines.append('motion_upper_page::')
     directory = [0] * 256
     for i, upper in enumerate((*range(7), *range(-8, 0))):
         directory[upper & 255] = 0x45 + 3*i

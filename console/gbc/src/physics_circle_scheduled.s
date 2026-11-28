@@ -222,85 +222,107 @@ _riding_translate_body_state::
 ; Generate each known circle's full-interval x/y pair in the movement bank.
 ; The arithmetic upper nibble comes from the two high velocity bytes,
 ; including the signed fourth byte, so the path covers every signed32 input.
- .macro motion_axis offset,res
- ld hl,#(_Bike+offset+9)
+ .macro motion_axis offset,res,?upper,?general,?done
+ ; For the low position word consume V[4..19]. The top twelve bits
+ ; only change the high word when their signed value plus carry is nonzero.
+ ld hl,#(_Bike+offset+8)
  ld a,(hl+)
+ swap a
+ ld c,a
+ and #0xf0
+ ld d,a
+ ld a,(hl+)
+ swap a
  ld b,a
- ld a,(hl+)
- ld e,a
+ xor c
+ and #0xf0
+ xor c
+ ld c,a
  ld a,(hl)
- ld l,a
+ ld e,a
+ swap a
+ xor b
+ and #0xf0
+ xor b
+ ld b,a
+ ld a,(#(_move_residual+res+2))
+ xor #128
+ add d
+ rla
+ ld d,a
+ ccf
+ sbc a,a
+ ld (#(_move_residual+res+3)),a
+ ld a,d
+ rra
+ ld (#(_move_residual+res+2)),a
+ ld hl,#(_Bike+offset)
+ ld a,(hl)
+ adc c
+ ld (hl+),a
+ ld a,(hl)
+ adc b
+ ld (hl+),a
+ ; For a zero upper word, the high source byte is either 00 plus
+ ; no carry or FF plus carry. ADC retains that same carry in both cases.
+ ld a,(#(_Bike+offset+11))
+ ld d,a
+ adc #0
+ jr nz,upper
+ sbc a,a
+ xor e
+ and #0xf0
+ jr z,done
+ ld a,d
+ rlca
+ jr general
+upper:
+ sub d
+ rrca
+general:
+ ; ADC combines the low-word carry with the two disjoint
+ ; nibbles. The next ADC extends its carry into the signed high byte.
+ ld l,d
  ld h,#>motion_s32_high
  ld d,(hl)
  inc h
  ld a,(hl)
  ld l,e
  inc h
- or (hl)
+ adc (hl)
  ld e,a
- dec h
+ ld a,d
+ adc #0
+ ld d,a
+ ld hl,#(_Bike+offset+2)
  ld a,(hl)
- ld l,b
- inc h
- or (hl)
- ld b,a
- dec h
- ld a,(hl)
- ld c,a
- ld a,(#(_Bike+offset+8))
- ld l,a
- inc h
- ld a,(hl)
- or c
- ld c,a
- dec h
- ld a,(#(_move_residual+res+2))
- ; Add the fractional digit with its sign bias, retaining its carry
- ; across the signed residual store via the CPU flag stack.
- xor #0x80
- add (hl)
- ld hl,#(_move_residual+res+2)
- push af
- xor #0x80
+ add e
  ld (hl+),a
- rlca
- sbc a,a
+ ld a,(hl)
+ adc d
  ld (hl),a
- pop af
- ld hl,#(_Bike+offset)
- ld a,(hl)
- adc a,c
- ld (hl+),a
- ld a,(hl)
- adc a,b
- ld (hl+),a
- ld a,(hl)
- adc a,e
- ld (hl+),a
- ld a,(hl)
- adc a,d
- ld (hl),a
+done:
  .endm
  ; Both upper words must match before committing either coordinate.
- ; The sign page checks the entire fourth velocity byte. Zero directory
- ; entries route uncommon high words through the full-width routine.
+ ; The fourth byte plus the third byte's sign bit must sum to zero.
+ ; Zero directory entries route uncommon high words through the full-width routine.
  .macro motion_upper offset,miss
  ld hl,#(_Bike+offset+10)
  ld a,(hl+)
- ld b,(hl)
- ld l,a
- ld h,#>motion_signed_page
+ ld e,a
+ add a,a
  ld a,(hl)
- cp b
+ adc #0
  jp nz,miss
- inc h
+ ld l,e
+ ld h,#>motion_upper_page
  ld a,(hl)
  or a
  jp z,miss
  .endm
 
  ; B contains the three-plane upper digit page selected by motion_upper.
- .macro motion_partial_axis offset,res,publish,?positive
+ .macro motion_partial_axis offset,res,publish
  ld hl,#(_Bike+offset+8)
  ld a,(hl+)
  ld e,a
@@ -339,19 +361,21 @@ _riding_translate_body_state::
  xor a
  ldh (#_q24_saturated),a
  .endif
- ld hl,#(_move_residual+res+2)
- ld a,(hl)
- xor #0x80
- ld (hl-),a
- dec hl
+ ld hl,#(_move_residual+res)
  ld a,c
  add (hl)
  ld (hl+),a
  ld a,b
  adc (hl)
  ld (hl+),a
+ ; Bias the high residual byte without losing the low-word carry.
+ ld a,(hl)
+ rla
+ ccf
+ rra
+ ld b,a
  ldh a,(#_q24_fraction+2)
- adc (hl)
+ adc b
  rla
  ld c,a
  ccf
@@ -368,17 +392,14 @@ _riding_translate_body_state::
  ld a,(hl)
  adc d
  ld (hl+),a
- ld b,#0
- bit 7,d
- jr z,positive
- dec b
-positive:
- ld a,(hl)
- adc b
- ld (hl+),a
- ld a,(hl)
- adc b
- ld (hl),a
+ ; The high word changes only when the low-word carry and the
+ ; quotient's sign differ. RLA captures both bits, then ADC folds
+ ; their parity into bit zero. The uncommon change is exactly +/-1.
+ ld a,d
+ rla
+ adc #0
+ rrca
+ call c,motion_cross_word
  .endm
 
  .macro motion_axes base,res,?partial,?wide
@@ -407,18 +428,17 @@ wide:
 
 ; Each entry receives the exact circle whose coordinates are embedded below.
 .area _CODE
-_motion_body::
- ld hl,#motion_body
- jr motion_map
-_motion_wheel1::
- ld hl,#motion_wheel1
- jr motion_map
-_motion_wheel2::
- ld hl,#motion_wheel2
-motion_map:
+ .macro motion_enter target
  ld a,#32
  ld (#0x2000),a
- jp (hl)
+ jp target
+ .endm
+_motion_body::
+ motion_enter motion_body
+_motion_wheel1::
+ motion_enter motion_wheel1
+_motion_wheel2::
+ motion_enter motion_wheel2
 motion_generic:
  ldh a,(#__current_bank)
  ld (#0x2000),a
@@ -429,6 +449,21 @@ motion_restore:
  ret
 
 .area _CODE_32
+motion_cross_word:
+ bit 7,d
+ jr nz,motion_decrement_word
+ inc (hl)
+ ret nz
+ inc hl
+ inc (hl)
+ ret
+motion_decrement_word:
+ ld a,(hl)
+ sub #1
+ ld (hl+),a
+ ret nc
+ dec (hl)
+ ret
 motion_body:
  motion_axes 0,0
 motion_wheel1:
