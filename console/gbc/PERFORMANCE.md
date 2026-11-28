@@ -4694,3 +4694,39 @@ battery reload passed. A separate cardinal-angle renderer shortcut passed
 its geometry checks but added one late catalog update and was discarded.
 
 SHA-256 `b78866de3fbc1f1c543697c8e5347d718ff4c72dd96f7210d2703bcca09f047a`.
+
+## 0.96 test65 — Locked wheels, deep contacts and paired motion
+
+The wheel solver skips a locked wheel's unpublished velocity products, while
+retaining the impact result and the exact first velocity if the second
+support rejects. Each circle shares its two translation axes and preserves
+the Q24 residuals. Seven duplicate scalar rows made room for deep-contact
+quotients in bank 27. Other graphics-bank gaps hold 318 additional exact
+radial records. The merge-radius test preserves both separation coordinates
+in registers. Scenery pin selection also counts replacements at the same
+coordinate slot on the opposite side of a scrolling viewport.
+
+| PyBoy measurement | test64 | test65 |
+| --- | ---: | ---: |
+| Weighted primary updates/s, 25,310 intervals | 29.818 | 29.822 |
+| Three-refresh intervals, catalog / extended / complete Freefall | 57 / 20 / 0 | 50 / 21 / 0 |
+| Three-refresh intervals, independent seed, 5,302 intervals | 25 | 22 |
+| Independent Haircut, late out of 226 | 11 | 10 |
+| Mean active primary update, T-cycles | 206,805 | 205,793 |
+| Historical placements above budget out of 2,432 | 296 | 289 |
+| Peak physics on the historical placements, T-cycles | 484,324 | 480,672 |
+| Forced Steep Corner peak physics, T-cycles | 514,516 | 510,292 |
+
+The 25-position Steep grid took 86,604,044 T in total, down from
+87,780,096 T. All 200 updates still exceeded the budget. The 642-position
+sweep improved in aggregate on all 54 courses. Its maximum moved to
+course 48, (89,304, 57,112), input 9, wheel 2.
+
+All 100,382 recorded physics substeps matched test64. Native tests included
+29,904 translation axes, 51,429 deep vectors, 3,175 arbitrary-axis
+boundaries and 768 lock/impact boundaries. Seven camera routes matched on
+1,216 presentations and 61,845 background cells. The independent Haircut
+route matched on 227 presentations. All 54 course entries passed with one
+late update. Player saves and battery reload passed.
+
+SHA-256 `73c4a4b3966210093cc7ad772e6dffd7475304c9bddf719c5c6fca866353d5de`.
