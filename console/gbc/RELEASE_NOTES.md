@@ -50,6 +50,15 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test66 — Radial contacts, spring moments and scenery strips
+
+Six reclaimed ROM banks hold exact wheel normals down to radius 363. The
+spring solver shares signed products, and the scrolling renderer batches
+incoming tiles. Primary late intervals fell from 71 to 65. The independent
+replays still had 22, with identical physics in both suites.
+
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test66-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test66--radial-contacts-spring-moments-and-scenery-strips)
+
 ## 0.96 test65 — Locked wheels, deep contacts and paired motion
 
 A wheel held by two contacts can skip the velocity products that would be

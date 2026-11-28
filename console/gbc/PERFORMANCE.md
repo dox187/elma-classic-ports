@@ -4730,3 +4730,32 @@ route matched on 227 presentations. All 54 course entries passed with one
 late update. Player saves and battery reload passed.
 
 SHA-256 `73c4a4b3966210093cc7ad772e6dffd7475304c9bddf719c5c6fca866353d5de`.
+
+## 0.96 test66 — Radial contacts, spring moments and scenery strips
+
+The two projection readers share duplicate five-plane coefficient rows.
+Six freed ROM banks extend the annulus to 14,303 records. The sorted axes
+also distinguish inside misses from outside misses before computing squares.
+Both spring moments retain their signed floors. Scenery fetches reuse the
+course directory in SRAM and acquire incoming cells in bounded batches.
+
+| PyBoy measurement | test65 | test66 |
+| --- | ---: | ---: |
+| Weighted primary updates/s, 25,310 intervals | 29.822 | 29.825 |
+| Late intervals, catalog / extended / complete Freefall | 50 / 21 / 0 | 46 / 19 / 0 |
+| Independent seed, late out of 5,302 | 22 | 22 |
+| Independent Haircut, late out of 226 | 10 | 10 |
+| Mean active primary update, T-cycles | 205,793 | 205,394 |
+| Historical placements above budget out of 2,432 | 289 | 289 |
+| Peak historical physics, T-cycles | 480,672 | 479,888 |
+| Forced Steep Corner peak physics, T-cycles | 510,292 | 502,064 |
+
+Physics improved in aggregate on all 54 courses in the 642-position sweep.
+All 200 forced Steep steps still exceeded 280,896 T. Their total fell from
+86,604,044 to 85,736,140 T. All 100,382 recorded physics substeps matched
+test65. All 114,424 signed normal permutations, 3,480 omitted-row boundary
+probes, 32,000 spring moments and 88,704 preparation guard cases passed.
+The seven presentation routes matched on 1,216 frames and 61,845 cells.
+All 54 courses started, with one late update in the entry sweep.
+
+SHA-256 `6f70a1375c0c61e80b88e8efb0675618aef09c8ef6189ba301503b0a472c5c95`.
