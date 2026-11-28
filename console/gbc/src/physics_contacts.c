@@ -1017,6 +1017,7 @@ static uint8_t sure_old(const contact_t *t1,const contact_t *t2,int32_t dvx,int3
 /* The classifier only sends signed16 components of magnitude <= 23296 here.
  * Equality at 1 m/s selects the fast pivot on an axis and the slow pivot
  * elsewhere on the circle, as in the original component and radius tests. */
+#if !defined(RIDING_PAIR_BOUND) || !defined(RIDING_STOPPED_PAIR)
 static uint8_t pair_speed_near_limit(const circle_t *k) {
     int16_t x=(int16_t)k->vx, y=(int16_t)k->vy;
     if(!x || !y) {
@@ -1025,6 +1026,7 @@ static uint8_t pair_speed_near_limit(const circle_t *k) {
     }
     return mul16(x,x)+mul16(y,y) > (int32_t)VEL_1MS*VEL_1MS;
 }
+#endif
 #else
 static uint8_t faster_1ms( const circle_t* k ) {
 	if( k->vx >= VEL_1MS || k->vx <= -VEL_1MS || k->vy >= VEL_1MS || k->vy <= -VEL_1MS )
@@ -2118,6 +2120,171 @@ uint8_t riding_pair_supports(const contact_t *contact);
 uint8_t riding_stopped_pair_proof(void) __banked;
 #endif
 
+#if defined(RIDING_PAIR_BOUND) && defined(RIDING_STOPPED_PAIR) && VEL_1MS == 23069
+/* DE points at the original wheel input, BC at its two separation signs.
+ * Keep those signs on the stack across the two ordered pivot tests. */
+uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) __naked {
+    input;signs;
+    __asm
+    push bc
+    ld h,d
+    ld l,e
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    inc hl
+    ld a,l
+    ld (#_riding_pair_impulse),a
+    ld a,h
+    ld (#_riding_pair_impulse+1),a
+    ld hl,#8
+    add hl,de
+    ld a,l
+    ld (#_riding_pair_velocity),a
+    ld e,a
+    ld a,h
+    ld (#_riding_pair_velocity+1),a
+    ld d,a
+    xor a
+    ld (#_riding_pair_moment_side),a
+    call _riding_pair_speed_class
+    ld b,a
+    sub #1
+    sbc a,a
+    and #1
+    ld (#_riding_pair_stopped),a
+    ld a,b
+    cp #2
+    jr c,resolve_slow
+    jr z,resolve_fast
+    ld hl,#_riding_pair_velocity
+    ld a,(hl+)
+    ld h,(hl)
+    ld e,a
+    ld d,h
+    call _riding_pair_speed_strip
+    or a
+    jr z,resolve_slow
+resolve_fast:
+    ld hl,#_riding_pair_velocity
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    ld (#_riding_pair_vector),a
+    ld a,d
+    ld (#_riding_pair_vector+1),a
+    ld hl,#12
+    add hl,de
+    ld a,l
+    ld (#_riding_pair_moment),a
+    ld a,h
+    ld (#_riding_pair_moment+1),a
+    ld a,#10
+    ld (#_riding_pair_shift),a
+    call _riding_pair_fast_side
+    ld (#_riding_pair_moment_side),a
+    ld a,(#_riding_subphase)
+    ld hl,#_q24_index_C_NEW
+    or a
+    jr z,resolve_fast_phase
+    inc hl
+resolve_fast_phase:
+    ld a,(hl)
+    ld (#_riding_pair_coefficient),a
+    jr resolve_first
+resolve_slow:
+    ld hl,#_riding_pair_impulse
+    ld a,(hl+)
+    ld d,(hl)
+    ld e,a
+    ld (#_riding_pair_vector),a
+    ld a,d
+    ld (#_riding_pair_vector+1),a
+    ld hl,#8
+    add hl,de
+    ld d,h
+    ld e,l
+    call _riding_pair_slow_setup
+    ld a,(#_riding_pair_stopped)
+    or a
+    jr z,resolve_first
+    pop hl
+    push hl
+    ld a,(hl)
+    cp #2
+    jr z,resolve_proof
+    cp #128
+    jr nz,resolve_first
+resolve_proof:
+    ld e,#5
+    ld hl,#_riding_stopped_pair_proof
+    call ___sdcc_bcall_ehl
+    or a
+    jr z,resolve_first
+    pop hl
+    cp (hl)
+    jr nz,resolve_swap_single
+    inc hl
+    ld a,(hl-)
+    cp #2
+    jr z,resolve_second_only
+    cp #128
+    jr z,resolve_second_only
+    push hl
+resolve_first:
+    pop bc
+    push bc
+    ld de,#(_Ct+10)
+    call _riding_pair_sure
+    pop bc
+    or a
+    jr z,resolve_swap_then_support
+    inc bc
+    ld de,#_Ct
+    call _riding_pair_sure
+    or a
+    jr z,resolve_support
+    ld de,#(_Ct+10)
+    call _riding_pair_supports
+    or a
+    jr z,resolve_support
+    ld de,#_Ct
+    call _riding_pair_final_support
+    or a
+    jr z,resolve_swap_single
+    ld a,#2
+    ret
+resolve_second_only:
+    inc hl
+    ld b,h
+    ld c,l
+    ld de,#_Ct
+    call _riding_pair_sure
+    inc a
+    ret
+resolve_swap_then_support:
+    call resolve_copy
+resolve_support:
+    ld de,#_Ct
+    jp _riding_pair_supports
+resolve_swap_single:
+    call resolve_copy
+    ld a,#1
+    ret
+resolve_copy:
+    ld hl,#(_Ct+10)
+    ld de,#_Ct
+    .rept 9
+    ld a,(hl+)
+    ld (de),a
+    inc de
+    .endm
+    ld a,(hl)
+    ld (de),a
+    ret
+    __endasm;
+}
+#else
 uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
     circle_t *k=input->k;
     riding_pair_velocity=&k->vx;
@@ -2173,6 +2340,8 @@ uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
     }
     return riding_pair_supports(&Ct[0]);
 }
+
+#endif
 
 /* Consume the prepared count in A and the original input in DE. The
  * ordered resolver may reject either contact after updating the velocity.

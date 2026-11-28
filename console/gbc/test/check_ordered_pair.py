@@ -190,6 +190,34 @@ def check_pivot_intervals(reference, target):
     return 1600
 
 
+def check_locked_supports(reference, target):
+    # Coincident contact points accept both zero-separation pivots. The
+    # second predicate therefore sees either the first velocity removal or
+    # a silent two-support lock. Test both sides of the threshold with each
+    # audio history, swapping the two wheels and the order of the normals.
+    cases = 0
+    for slot in (0, 1):
+        for axis in (0, 1):
+            n0, n1 = ((16384, 0), (0, 16384)) if axis == 0 else ((0, 16384), (16384, 0))
+            for prior in (0, 1, 2):
+                for vx, vy in ((-232,-230),(-231,-230),(-230,-231),(0,0),
+                               (-230,-232),(1,-32769),(-65537,32768),(65535,65536)):
+                    for fx, fy in ((0,0), (300,-500), (-500,300), (1,1)):
+                        fields = {key: bytes(size) for key, size in FIELDS.items()}
+                        circle = 24*(1+slot)
+                        bike = bytearray(fields['_Bike'])
+                        struct.pack_into('<ii',bike,circle+8,vx,vy)
+                        fields['_Bike'] = bike
+                        fields['_Ct'] = struct.pack('<10h',*n0,404,411,518,*n1,409,411,518)
+                        fields['_riding_audio_contact'] = bytes((prior,0)) if not slot else bytes((0,prior))
+                        for phase in (0, 1):
+                            force = (fx,fy,0)
+                            assert reference.run(fields,phase,slot,force,False) == target.run(
+                                fields,phase,slot,force,False), (slot, axis, prior, vx, vy, fx, fy, phase)
+                            cases += 1
+    return cases
+
+
 def check_speed_class(cart):
     velocity = cart.symbols['_Bike'] + 32
     limit = 23069
@@ -323,6 +351,8 @@ def main():
                      actual['_riding_audio_impact'][slot])] += 1
         print(f'{check_first_push(reference, target)} two-contact push boundaries matched.')
         moving = check_moving_pivots(reference, target, rng)
+        if '_riding_pair_final_support' in target.symbols:
+            print(f'{check_locked_supports(reference, target)} lock and first-impact boundaries matched.')
         if '_riding_pivot_bound' in target.symbols:
             print(f'{check_pivot_intervals(reference, target)} slow-pivot interval boundaries matched.')
         if '_riding_pair_speed_class' in target.symbols:

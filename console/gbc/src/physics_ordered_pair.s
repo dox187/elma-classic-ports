@@ -242,12 +242,12 @@ pair_exact_moment::
  ; m=0 is supported on either side. Otherwise the signs must agree.
  xor d
  bit 7,a
- jr z,pair_true
+ jp z,pair_true
  ld a,d
  or e
  or b
  or c
- jr z,pair_true
+ jp z,pair_true
 pair_reject_moment::
  xor a
  ret
@@ -522,6 +522,100 @@ pair_wide_product:
 .area _CODE_9
 ; DE=contact. Accept and remove its inward normal velocity, or reject
 ; without mutation. Each call reads the velocity left by the previous one.
+ .ifdef RIDING_PAIR_BOUND
+; DE = signed32 velocity pair. The classifier already proved the two
+; components fit signed16. Check the component endpoints before squaring:
+; on an axis equality with VEL_1MS is fast, off-axis the circle is strict.
+_riding_pair_speed_strip::
+ ld h,d
+ ld l,e
+ call pair_strip_axis
+ jr nc,pair_strip_fast
+ push de
+ inc hl
+ inc hl
+ call pair_strip_axis
+ pop bc
+ jr nc,pair_strip_fast
+ ld a,d
+ or e
+ ret z
+ ld a,b
+ or c
+ ret z
+ push bc
+ ld b,d
+ ld c,e
+ call _riding_mul16_regs
+ pop bc
+ push hl
+ push de
+ ld d,b
+ ld e,c
+ call _riding_mul16_regs
+ pop bc
+ ld a,e
+ add c
+ ld e,a
+ ld a,d
+ adc b
+ ld d,a
+ pop bc
+ ld a,l
+ adc c
+ ld l,a
+ ld a,h
+ adc b
+ ld h,a
+ ; x*x + y*y >= 23069*23069 + 1
+ ld a,e
+ sub #0x4a
+ ld a,d
+ sbc #0x67
+ ld a,l
+ sbc #0xb8
+ ld a,h
+ sbc #0x1f
+ sbc a
+ inc a
+ ret
+pair_strip_fast:
+ ld a,#1
+ ret
+pair_strip_axis:
+ ld a,(hl+)
+ ld e,a
+ ld d,(hl)
+ inc hl
+ bit 7,d
+ jr z,pair_strip_abs
+ xor a
+ sub e
+ ld e,a
+ ld a,#0
+ sbc d
+ ld d,a
+pair_strip_abs:
+ ld a,e
+ sub #0x1d
+ ld a,d
+ sbc #0x5a
+ ret
+_riding_pair_final_support::
+ ld hl,#_riding_pair_velocity
+ ld a,(hl+)
+ cp #<(_Bike+56)
+ ld a,(hl)
+ ld hl,#_riding_audio_contact
+ jr nz,pair_lock_audio
+ cp #>(_Bike+56)
+ jr nz,pair_lock_audio
+ inc hl
+pair_lock_audio:
+ ld a,(hl)
+ or a
+ jp nz,pair_check_only
+ .endif
 _riding_pair_supports::
  ld hl,#pair_normal
  ld (hl),e
@@ -529,7 +623,7 @@ _riding_pair_supports::
  ld (hl),d
  ld a,(#_riding_pair_stopped)
  or a
- jr nz,pair_zero_velocity
+ jp nz,pair_zero_velocity
  ld hl,#_riding_pair_velocity
  ld c,(hl)
  inc hl
@@ -543,7 +637,7 @@ _riding_pair_supports::
  or l
  or d
  or e
- jr z,pair_zero_velocity
+ jp z,pair_zero_velocity
  ld b,h
  ld c,l
  ld hl,#pair_nv
@@ -620,6 +714,42 @@ pair_subtract:
  sbc b
  ld (hl),a
  ret
+ .ifdef RIDING_PAIR_BOUND
+; The other support has already succeeded. If the wheel was grounded
+; before this substep, the lock clears its velocity without sampling it.
+; A rejected second support must still leave the first removal intact.
+pair_check_only:
+ ld hl,#pair_normal
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ call pair_inward_impulse
+ or a
+ ret nz
+ ld a,(#_riding_pair_stopped)
+ or a
+ jp nz,pair_reject_moment
+ ld hl,#_riding_pair_velocity
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ ld hl,#_Ct
+ call _riding_dotq14_regs
+ bit 7,h
+ jp z,pair_reject_moment
+ ld a,h
+ and l
+ and d
+ inc a
+ jp nz,pair_true
+ ld a,(#_riding_supports_threshold)
+ or a
+ jp z,pair_true
+ cp e
+ jp z,pair_reject_moment
+ jp nc,pair_true
+ jp pair_reject_moment
+ .endif
 pair_zero_velocity:
  ; nv=0 changes neither component. A rounded nonpositive impulse supports.
 pair_inward_impulse:
