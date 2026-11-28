@@ -11,7 +11,15 @@ from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE / 'tools'))
-from projection_tables import BANKS, COEFFICIENTS, MIRRORED, ROWS_PER_BANK, row_page, validate_layout
+from projection_tables import BANKS, COEFFICIENTS, MIRRORED, ROWS_PER_BANK, row_page, validate_layout, coefficient_rows
+
+
+def linked_rows(symbols):
+    # The scenery packer allocates its rolling banks in ascending order.
+    if 'projection_shared_rows' not in symbols:
+        return coefficient_rows(())
+    banks = sorted(int(k.removeprefix('rolling_payload_')) for k in symbols if k.startswith('rolling_payload_'))
+    return coefficient_rows(banks)
 
 
 def verify_table_bytes(image, symbols):
@@ -28,8 +36,8 @@ def verify_table_bytes(image, symbols):
             bank = image[table + 512 + slot]
             page = image[table + 768 + slot] ^ (128 if y < 0 else 0)
             accepted[y] = (bank + (256 if bank & 128 else 0), page)
-    expected = {y: (BANKS[i // ROWS_PER_BANK], row_page(i)) for i, y in enumerate(COEFFICIENTS)}
-    for y in MIRRORED:
+    _, expected = linked_rows(symbols)
+    for y in [-k for k in expected]:
         bank, page = expected[-y]
         expected[y] = (bank, page | 128)
     assert expected == accepted
@@ -132,7 +140,7 @@ def check_rolling_projections(p, symbols, code, stack, source, current_bank, ban
     return checked
 
 
-def vectors():
+def vectors(coefficients):
     endpoints = (-(1 << 31), -(1 << 31) + 1, -8388609, -8388608, -65537,
                  -65536, -32769, -32768, -257, -256, -255, -1, 0, 1, 127,
                  255, 256, 257, 32767, 32768, 65535, 65536, 8388607,
@@ -141,7 +149,7 @@ def vectors():
     for x in range(-257, 2):
         for y in (-32768, -32767, -16384, -256, -1, 0, 1, 255, 16384, 32767):
             yield x, y
-    for y in (*COEFFICIENTS, *MIRRORED):
+    for y in coefficients:
         for x in endpoints:
             yield x, y
         for _ in range(16):
@@ -221,7 +229,9 @@ def check_native(image, symbols):
         p.memory[0xffff] = 0
         p.memory[0xff0f] = 0
         p.memory[code:code+len(routine)] = routine
-        for x, y in vectors():
+        _, rows = linked_rows(symbols)
+        coefficients = set(rows) | {-y for y in rows}
+        for x, y in vectors(sorted(coefficients)):
             bank = caller_banks[started % len(caller_banks)]
             p.memory[0x3000] = 0
             p.memory[0x2000] = bank
@@ -242,7 +252,7 @@ def check_native(image, symbols):
             assert bytes(p.memory[stack-64:stack-62]) == guards
             assert p.memory[current_bank] == bank
             assert bytes(p.memory[0x4000:0x4020]) == bank_windows[bank], (x, y, bank)
-            hits += y in (*COEFFICIENTS, *MIRRORED) and not -255 <= x <= 255
+            hits += y in coefficients and not -255 <= x <= 255
             started += 1
         dots = 0
         rng = random.Random(0x96d07)
@@ -299,10 +309,11 @@ def check_interrupts(image, symbols):
     finally:
         bios.stop(save=False)
     checked = 0
+    stored, _ = linked_rows(symbols)
     for i, bank in enumerate(BANKS):
         # Both widths must actually execute this bank's reader. Short
         # coefficients and exact unit normals can finish wholly in fixed ROM.
-        rows = COEFFICIENTS[i*ROWS_PER_BANK:(i+1)*ROWS_PER_BANK]
+        rows = stored[i*ROWS_PER_BANK:(i+1)*ROWS_PER_BANK]
         canonical = next(y for y in rows if abs(y) > 255 and abs(y) != 16384)
         for x, y in ((-32768, canonical), (0x73ef01fd, canonical), (-0x72340123, -canonical),
                      (32767, -canonical)):

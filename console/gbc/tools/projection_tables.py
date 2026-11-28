@@ -1,4 +1,5 @@
 """Generate the optional signed-coefficient projection reader for the full cartridge."""
+import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -195,36 +196,81 @@ def row_page(index):
     return 0x40 + 5 * (index % ROWS_PER_BANK)
 
 
-def fixed_hash():
+# Common previously untabulated magnitudes from moving contacts and ordinary
+# controller input. A re-used rolling row must have the exact signed factor.
+EXTRA_COEFFICIENTS = (
+    -8730, 16261, -13865, -2001, 12123, 11021, 6030, -15234, 5245, 15522,
+    -15626, 4927, 13560, 9195, 16059, 3249, -14841, 16212, -2367, -15803,
+    1279, 1242, 1570, 1402, 1219, 1481, 1079, 1176, 946, 1515, 933, 1061,
+    1372, 953, 1448, 967, 940, 1432, 1012, 1317, 1135, 1254, 1713, 989,
+    1533, 1165,
+)
+
+
+def coefficient_rows(rolling_banks):
+    """Both arithmetic readers share an unchanged five-plane rolling row."""
+    from rolling_map_banks import TANGENTS
+    stored = list(COEFFICIENTS)
+    locations = {k: (BANKS[i // ROWS_PER_BANK], row_page(i)) for i, k in enumerate(stored)}
+    if not rolling_banks:
+        return stored, locations
+    shared = {}
+    for i, tangent in enumerate(TANGENTS):
+        bank = rolling_banks[1+i//4]
+        # Existing slope descriptors encode the physical ninth bank bit in
+        # bit seven. Only the low direct banks have the same representation.
+        if bank < 128:
+            for axis, k in enumerate(tangent):
+                shared.setdefault(k, (bank, 0x48 + 10*(i%4) + 5*axis))
+    slots = [i for i, k in enumerate(stored) if k in shared]
+    if len(slots) >= len(EXTRA_COEFFICIENTS):
+        for i, new in zip(slots, EXTRA_COEFFICIENTS):
+            old = stored[i]
+            locations[new] = locations[old]
+            locations[old] = shared[old]
+            stored[i] = new
+    return stored, locations
+
+
+def generated_rows(gen):
+    manifest = gen / 'level_manifest.json'
+    banks = json.loads(manifest.read_text()).get('rolling_map_banks', ()) if manifest.exists() else ()
+    return coefficient_rows(banks)
+
+
+def fixed_hash(locations):
     # For a given high byte, addition of a displacement permutes all 256
     # low bytes. Matching the stored high byte therefore proves the whole key.
     groups = {}
-    for index, coefficient in enumerate(COEFFICIENTS):
+    for coefficient, (bank, page) in locations.items():
         value = abs(coefficient)
-        groups.setdefault(value >> 8, []).append((value & 255, index, coefficient))
+        groups.setdefault(value >> 8, []).append((value & 255, bank, page, coefficient))
     displacements = bytearray(256)
     tags = bytearray([255]) * 256
     banks, pages = bytearray(256), bytearray(256)
     for high, rows in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0])):
         for delta in range(256):
-            if all(tags[(low + delta) & 255] == 255 for low, _, _ in rows):
+            if all(tags[(low + delta) & 255] == 255 for low, _, _, _ in rows):
                 break
         else:
             raise ValueError(f'Cannot place projection magnitudes with high byte {high}')
         displacements[high] = delta
         displacements[255 - high] = 255 - delta
-        for low, index, coefficient in rows:
+        for low, bank, page, coefficient in rows:
             slot = (low + delta) & 255
             tags[slot] = high
-            banks[slot] = BANKS[index // ROWS_PER_BANK] & 255
-            pages[slot] = row_page(index) | (128 if coefficient < 0 else 0)
+            banks[slot] = bank & 255
+            pages[slot] = page | (128 if coefficient < 0 else 0)
     return displacements, tags, banks, pages
 
 
 def hash_source(gen):
     from head_clearance import write_if_changed
     lines = ['.module projection_hash', '.area _CODE', '_riding_projection_hash::']
-    for page in fixed_hash():
+    _, locations = generated_rows(gen)
+    if len(locations) > len(COEFFICIENTS):
+        lines.append('projection_shared_rows::')
+    for page in fixed_hash(locations):
         lines.extend(byte_lines(page))
     path = gen/'physics_projection_hash.s'
     write_if_changed(path, '\n'.join(lines)+'\n')
@@ -266,9 +312,10 @@ def generate(source, destination):
         output.append(f'_riding_shallow_dot_{magnitude}::')
         for row in shallow_rows(magnitude):
             output.extend(byte_lines(row))
+    stored, _ = generated_rows(destination.parent)
     for group, bank in enumerate(BANKS):
         output.extend((f'.area _CODE_{bank}', f'_riding_projection_bank_{bank}::'))
-        for y in COEFFICIENTS[group * ROWS_PER_BANK:(group + 1) * ROWS_PER_BANK]:
+        for y in stored[group * ROWS_PER_BANK:(group + 1) * ROWS_PER_BANK]:
             for page in planes(y):
                 output.extend(byte_lines(page))
     result = '\n'.join(output) + '\n'

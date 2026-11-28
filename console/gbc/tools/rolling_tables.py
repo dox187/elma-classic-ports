@@ -76,12 +76,8 @@ LOCAL_TANGENTS = {
 VERTICAL_TANGENT = (20, 16384)
 
 
-def slope_rows(assembly):
-    locations = {
-        coefficient: (projection_tables.BANKS[i // projection_tables.ROWS_PER_BANK],
-                      projection_tables.row_page(i))
-        for i, coefficient in enumerate(projection_tables.COEFFICIENTS)
-    }
+def slope_rows(assembly, gen):
+    _, locations = projection_tables.generated_rows(gen)
     locations.update({c: (30, 0x6d + 3*i) for i, c in enumerate(SLOPE_EXTRA)})
     directory = bytearray(256)
     tangents = (*SLOPE_TANGENTS, VERTICAL_TANGENT)
@@ -258,7 +254,7 @@ def generate(gen, assembly):
                 scalar.extend(projection_tables.byte_lines(plane))
     write_if_changed(gen / 'physics_roll_scalar.s', '\n'.join(scalar) + '\n')
     output.extend(shallow_tangent_banks(assembly))
-    output.extend(slope_rows(assembly))
+    output.extend(slope_rows(assembly, gen))
     graphics_file = gen / 'level_manifest.json'
     if graphics_file.exists():
         graphics = json.loads(graphics_file.read_text())
