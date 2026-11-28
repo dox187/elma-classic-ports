@@ -23,7 +23,8 @@ def check(rom, reference):
             address = sym[symbol]
             start = (address >> 16)*16384 + (address & 16383)
             return cart.image[start:start+size]
-        for source,end,destination in (('ss_pair_image','ss_pair_end',0xab00),
+        for source,end,destination in (('pair_reduction_image','pair_reduction_end',0xaa52),
+                                       ('ss_pair_image','ss_pair_end',0xab00),
                                        ('haircut_gate_image','haircut_gate_end',0xaca0),
                                        ('pair_bound_image','pair_bound_image_end',0xa570)):
             if source in sym:

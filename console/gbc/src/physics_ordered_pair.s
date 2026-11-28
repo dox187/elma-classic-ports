@@ -7,7 +7,7 @@ _riding_pair_tangent::
 pair_tangent: .ds 4
 _riding_pair_normal::
 pair_normal: .ds 2
-pair_nv: .ds 4
+pair_nv:: .ds 4
 
 .area _CODE_9
 .ifdef RIDING_PAIR_BOUND
@@ -390,8 +390,32 @@ _riding_pair_speed_class::
  add b
  cp #89
  jr c,pair_speed_slow
+ ; Both magnitudes lie between high*256 and (high+1)*256, including
+ ; the negative values classified with one's complement. Each interval
+ ; of eight X high bytes has monotone upper and lower circle ordinates.
+ sub b
+ ld e,a
+ ld a,b
+ rrca
+ rrca
+ rrca
+ and #15
+ ld c,a
+ ld b,#0
+ ld hl,#pair_speed_bands
+ add hl,bc
+ ld a,(hl+)
+ cp e
+ jr c,pair_speed_fast
+ ld a,e
+ cp (hl)
+ ld a,#1
+ ret c
  ld a,#3
  ret
+pair_speed_bands::
+ ; floor(sqrt(max(0, 23069^2 - (i*2048)^2))/256), i=0..12.
+ .db 90,89,88,86,84,80,76,70,63,54,41,19,0
 pair_speed_slow:
  ld a,c
  or a
@@ -676,10 +700,7 @@ pair_remove:
  ld a,(hl+)
  ld b,a
  push hl
- ld hl,#pair_nv
- call _riding_mulq14_regs
- ld b,h
- ld c,l
+ call pair_removal_product
  ld hl,#_riding_pair_velocity
  ld a,(hl+)
  ld h,(hl)
@@ -693,13 +714,41 @@ pair_remove:
  ld c,(hl)
  inc hl
  ld b,(hl)
+ call pair_removal_product
+ pop hl
+ call pair_subtract
+ jp pair_true
+pair_removal_product::
+ .ifdef RIDING_PAIR_BOUND
+ ; The fixed reader already handles zero and exact quarter-turn axes.
+ ld a,c
+ or a
+ jr nz,pair_removal_width
+ ld a,b
+ and #63
+ jr z,pair_removal_wide
+pair_removal_width:
+ ld hl,#pair_nv+2
+ ld a,(hl+)
+ cp (hl)
+ jr nz,pair_removal_wide
+ inc a
+ cp #2
+ jr nc,pair_removal_wide
+ ld a,(#pair_nv+1)
+ ld hl,#pair_nv
+ or (hl)
+ jr z,pair_removal_wide
+ ld a,(#ss_pair_ready)
+ or a
+ jp nz,pair_reduction_code
+ .endif
+pair_removal_wide:
  ld hl,#pair_nv
  call _riding_mulq14_regs
  ld b,h
  ld c,l
- pop hl
- call pair_subtract
- jp pair_true
+ ret
 pair_subtract:
  ld a,(hl)
  sub e

@@ -30,7 +30,16 @@ ss_pair_init::
  ld a,b
  or c
  jr nz,001$
- inc a
+ ld hl,#pair_reduction_image
+ ld de,#pair_reduction_code
+ ld b,#(pair_reduction_end-pair_reduction_image)
+002$:
+ ld a,(hl+)
+ ld (de),a
+ inc de
+ dec b
+ jr nz,002$
+ ld a,#1
  ld (#ss_pair_ready),a
  jp haircut_prepare_gate
 ss_pair_image::
@@ -216,5 +225,110 @@ rounded:
 ss_pair_end::
 
 .ifgt ss_pair_end-ss_pair_image-0x1a0
+ .error 1
+.endif
+
+; The radial directory ends at AA51. Keep the contact removal reader below
+; the brake reader at AB00 so it can visit the two unsigned product rows.
+.globl pair_reduction_code
+pair_reduction_code = 0xaa52
+pair_reduction_image::
+ ; BC is a signed normal, nv is a nonzero signed17 scalar with nonzero
+ ; low word. The signed product plus 8192 fits signed32 on this domain.
+ ld a,(#pair_nv+1)
+ pair_row
+ ld l,c
+ ld e,(hl)
+ inc h
+ ld d,(hl)
+ ld l,b
+ ld a,(hl)
+ dec h
+ ld l,(hl)
+ ld h,a
+ ld a,l
+ add d
+ ld d,a
+ ld a,h
+ adc #0
+ ld h,a
+ push hl
+ push de                      ; upper scalar digit times unsigned normal
+ ld a,(#pair_nv)
+ pair_row
+ ld l,c
+ inc h
+ ld d,(hl)
+ ld l,b
+ ld e,(hl)
+ dec h
+ ld a,(hl)
+ add d
+ ld d,a
+ ld a,e
+ adc #0
+ ld e,a
+ pop hl
+ ld a,d
+ add l
+ ld d,a                       ; complete product byte one
+ ld a,e
+ adc h
+ ld e,a
+ pop hl
+ ld a,h
+ adc #0
+ ld h,a
+ ld l,e
+ bit 7,b
+ jr z,reduction_normal_positive
+ ld a,(#pair_nv)
+ ld e,a
+ ld a,l
+ sub e
+ ld l,a
+ ld a,(#pair_nv+1)
+ ld e,a
+ ld a,h
+ sbc e
+ ld h,a
+reduction_normal_positive:
+ ld a,(#pair_nv+2)
+ or a
+ jr z,reduction_scalar_positive
+ ld a,l
+ sub c
+ ld l,a
+ ld a,h
+ sbc b
+ ld h,a
+reduction_scalar_positive:
+ ld a,d
+ add #32
+ jr nc,reduction_rounded
+ inc hl
+reduction_rounded:
+ ld e,a
+ ld a,h
+ add a
+ sbc a
+ ld b,a
+ add hl,hl
+ rla
+ add hl,hl
+ rla
+ ld c,a
+ ld a,e
+ rlca
+ rlca
+ and #3
+ or l
+ ld e,a
+ ld d,h
+ ld a,#9
+ ld (#0x2000),a
+ ret
+pair_reduction_end::
+.ifgt pair_reduction_end-pair_reduction_image-174
  .error 1
 .endif

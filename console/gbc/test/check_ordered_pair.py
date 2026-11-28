@@ -29,6 +29,7 @@ class Cartridge:
         self.mem[0x2000] = self.mem[self.symbols['__current_bank']] = self.bank
 
     def call(self, name, de, a, stack=0xdf80):
+        bank = self.mem[self.symbols['__current_bank']]
         code = 0xdfd0
         addr = self.symbols[name] & 0xffff
         program = [0x11, de & 255, de >> 8, 0x3e, a,
@@ -41,10 +42,10 @@ class Cartridge:
             if regs.PC == code + 8:
                 break
         assert (regs.SP, regs.PC) == (stack, code + 8), (name, regs.SP, regs.PC)
-        assert self.mem[self.symbols['__current_bank']] == self.bank
+        assert self.mem[self.symbols['__current_bank']] == bank
         # Observe the mapped ROM through its switchable window as well.
         offset = self.symbols['_riding_wheel_contact'] & 0xffff
-        assert self.mem[offset:offset+8] == self.mem[self.bank, offset:offset+8]
+        assert self.mem[offset:offset+8] == self.mem[bank, offset:offset+8]
         return regs.A
 
     def fill(self, slot, center, records):
@@ -73,6 +74,36 @@ class Cartridge:
         assert bytes(self.mem[stack:stack+len(args)]) == args
         return {key: bytes(self.mem[self.symbols[key]:self.symbols[key]+size])
                 for key, size in FIELDS.items()}
+
+
+def check_removal_products(reference, target):
+    # Install the SRAM routine through the same initializer as a course reset.
+    init_bank = target.symbols['ss_pair_init'] >> 16
+    mapper = target.symbols['__current_bank']
+    target.mem[0x2000] = target.mem[mapper] = init_bank
+    target.call('ss_pair_init', 0, 0)
+    target.mem[0x2000] = target.mem[mapper] = target.bank
+    assert target.mem[target.symbols['ss_pair_ready']]
+    rng = random.Random(72812)
+    scalars = (-2**31, -65537, -65536, -65535, -32769, -32768, -8193,
+               -8192, -1, 0, 1, 8191, 8192, 32767, 32768, 65535, 65536, 2**31-1)
+    axes = (-32768, -32767, -16384, -8192, -257, -256, -1, 0, 1, 255, 256, 8192, 16384, 32767)
+    pairs = [(v, n) for v in scalars for n in axes]
+    pairs += [(rng.randrange(-65536,65536), rng.randrange(-32768,32768)) for _ in range(8192)]
+    for value, normal in pairs:
+        outputs = []
+        for cart, direct in ((reference, False), (target, True)):
+            operand = cart.symbols['pair_nv'] if direct else 0xdf50
+            cart.mem[operand:operand+4] = struct.pack('<i', value)
+            regs = cart.emu.register_file
+            regs.B, regs.C = normal>>8 & 255, normal & 255
+            regs.HL = operand
+            cart.call('pair_removal_product' if direct else '_riding_mulq14_regs', 0, 0)
+            high = (regs.B<<8 | regs.C) if direct else regs.HL
+            outputs.append(high<<16 | regs.D<<8 | regs.E)
+            assert bytes(cart.mem[operand:operand+4]) == struct.pack('<i', value)
+        assert outputs[0] == outputs[1], (value, normal, outputs)
+    return len(pairs)
 
 
 def check_first_push(reference, target):
@@ -230,6 +261,15 @@ def check_speed_class(cart):
                     pairs.add((sx*x, sy*y))
                     pairs.add((sy*y, sx*x))
     pairs.update(((1 << 30, 0), (0, -1 << 31), (-65536, 65535)))
+    if 'pair_speed_bands' in cart.symbols:
+        address = cart.symbols['pair_speed_bands'] & 65535
+        bands = bytes(cart.mem[address:address+13])
+        assert list(bands) == [isqrt(max(0,limit**2-(2048*i)**2))//256 for i in range(13)]
+        for i in range(12):
+            for x in (2048*i-1,2048*i,2048*i+1):
+                for high in (bands[i],bands[i+1]):
+                    for y in (high*256-1,high*256,high*256+1):
+                        pairs.update(((x,y),(-x,y),(x,-y),(-x,-y)))
     seen = set()
     # The two off-axis integer points (10856, 20355) and its transpose
     # lie exactly on this circle. Only equality on an axis selects fast.
@@ -353,6 +393,8 @@ def main():
         moving = check_moving_pivots(reference, target, rng)
         if '_riding_pair_final_support' in target.symbols:
             print(f'{check_locked_supports(reference, target)} lock and first-impact boundaries matched.')
+        if 'pair_removal_product' in target.symbols and 'pair_reduction_code' in target.symbols:
+            print(f'{check_removal_products(reference, target)} signed normal removals matched.')
         if '_riding_pivot_bound' in target.symbols:
             print(f'{check_pivot_intervals(reference, target)} slow-pivot interval boundaries matched.')
         if '_riding_pair_speed_class' in target.symbols:
