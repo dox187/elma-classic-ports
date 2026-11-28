@@ -322,15 +322,10 @@ exact_product_double_high:
  jr exact_product_low_row
 exact_product_high_table:
  .ifdef RIDING_PROJECTION_TABLES
- ; A magnitude below 131072 consists of two arbitrary bytes and a
- ; possible unit at bit 16. Only the two arbitrary digits need ROM rows.
- inc b
- dec b
- jp z,product_low_word
- dec b
- jp z,product_extra_word
- inc b
- .endif
+ ; The two coefficient bytes select the same three magnitude digits.
+ ; Accumulate the upper row first and keep B:DE live for the lower row.
+ jp product_wide_rows
+ .else
  ; For other coefficients compute the entire upper row, then use the
  ; saved arm and low coefficient to look up the lower row.
  push bc
@@ -352,6 +347,7 @@ exact_product_high_table:
  ld b,(hl)
  ld (hl),a
  jr exact_product_low_row
+ .endif
 exact_product_unit_high:
  ld l,b
  ld h,#0
@@ -490,16 +486,6 @@ exact_product_done:
  add sp,#6
  ret
  .ifdef RIDING_PROJECTION_TABLES
-product_extra_word:
- ld h,a
- ld l,c                         ; add the whole coefficient at bit 16
- jr product_word_rows
-product_low_word:
- ld hl,#0
-product_word_rows:
- push hl
- ld b,a
- push bc                        ; original low coefficient for the second row
  .macro product_word_row digit
  ld l,digit
  ld h,#>_riding_scale_directory
@@ -508,51 +494,49 @@ product_word_rows:
  inc h
  ld h,(hl)
  .endm
- product_word_row b
+product_wide_rows:
+ ld l,a
+ ld h,#>_riding_scale_directory
+ ld a,(hl)
+ ld (#0x2000),a
+ inc h
+ ld h,(hl)
  ld l,e
- ld c,(hl)
+ ld a,(hl)
+ ldh (#projection_cross_low),a
  inc h
  ld a,(hl)
  ld l,d
- ld b,(hl)
  dec h
  add (hl)
- ld h,a
- ld l,c
- ld a,b
+ ldh (#projection_cross_middle),a
+ inc h
+ ld a,(hl)
+ ld l,b
+ dec h
+ adc (hl)
+ ldh (#projection_cross_upper),a
+ inc h
+ ld a,(hl)
  adc #0
- ld b,a                         ; upper row is B:HL, input still in DE
- push hl
- ldhl sp,#2
- ld c,(hl)
- product_word_row c
- ld l,e
- ld e,(hl)
- inc h
- ld a,(hl)
- ld l,d
- ld c,(hl)
- dec h
- add (hl)
+ push af
+
+ exact_product_row
+ ; BC:DE is the unshifted low row. Add the upper row at byte one.
+ ldh a,(#projection_cross_low)
+ add d
  ld d,a
- ld a,c
+ ldh a,(#projection_cross_middle)
+ adc c
+ ld l,a
+ ldh a,(#projection_cross_upper)
+ adc b
+ ld h,a
+ pop bc
+ ld a,b
  adc #0
  ld c,a
- pop hl
- ld a,d
- add l
- ld d,a
- ld a,c
- adc h
- ld l,a
- ld a,b
- adc #0
- ld h,a                         ; unsigned16 times unsigned16 fits in HL:DE
- pop bc
- pop bc
- add hl,bc                      ; possible bit-16 contribution
- ld bc,#0
- rl c
+ ld b,#0
  jp exact_product_byte_sign
  .endif
 exact_add:
