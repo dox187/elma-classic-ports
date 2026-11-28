@@ -43,7 +43,13 @@ def check_body_plans(rom, gen):
             slot = image[slots + (previous ^ current)]
             plan = (15, 255)
             if slot < 16:
-                pos = spans + 2 * image[ids + current * 16 + slot]
+                index = current*16 + slot
+                if 'body_plan_pairs' in symbols:
+                    pair = image[ids + index//2]
+                    plan_id = image[offset('body_plan_pairs') + pair*2 + index%2]
+                else:
+                    plan_id = image[ids + index]
+                pos = spans + 2*plan_id
                 plan = image[pos:pos+2]
             vram = bytearray(frames[previous] if previous != 255 else [0xa5]*256)
             end = 0
@@ -60,6 +66,20 @@ def check_body_plans(rom, gen):
 
 
 class PresentationDriver(Driver):
+    def check_resident_poses(self):
+        pointer = self.symbols.get('_body_preload_poses')
+        if pointer is None:
+            return
+        entries = self.rom_far((pointer >> 16, pointer & 65535), 22)
+        slots = entries[1::2]
+        assert len(set(slots)) == 11
+        for pose, slot in zip(entries[::2], slots):
+            bank, page = slot >> 7, slot & 127
+            assert page < (4 if bank else 7)
+            start = 0x8000 + page*256
+            expected = self.rom_far((10+pose//64, 0x4000 + (pose%64)*256), 256)
+            assert bytes(self.p.memory[bank, start:start+256]) == expected, (pose, bank, page)
+
     def observe_dma(self):
         # Find the final linked poll/launch sequence inside the renderer.
         # Bound its transition gap (36 T) and successful launch (40 T)
@@ -99,6 +119,8 @@ class PresentationDriver(Driver):
                 driver.observer_errors.append(error)
 
     def presentation(self):
+        if not self.frames:
+            self.check_resident_poses()
         memory = self.p.memory
         shadow = self.symbols['_shadow_OAM']
         oam = bytes(memory[shadow:shadow+160])
@@ -109,6 +131,14 @@ class PresentationDriver(Driver):
                 patterns.append(bytes(memory[(attr >> 3) & 1, address:address+32]))
         signed_bg = not memory[0xff40]&16
         canonical=bytearray(oam)
+        if '_bike_body_slot' in self.symbols:
+            slot = self.byte('bike_body_slot')
+            bank, page = slot >> 7, slot & 127
+            assert page < (5 if bank else 7)
+            for i in range(8):
+                index = 4*i+2
+                assert oam[index] == page*16 + i*2 and oam[index+1] == bank*8
+                canonical[index:index+2] = bytes((64+i*2, 8))
         if signed_bg:
             for i in range(0,160,4):
                 if any(oam[i:i+3]):canonical[i+2]^=128

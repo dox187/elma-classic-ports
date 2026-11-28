@@ -56,10 +56,30 @@ def generate(gen, reader):
             ids.append(patterns.get(spans,0))
         ids.extend(bytes(16-len(columns)))
     classes = bytes(columns.index(i) if i in columns else 255 for i in range(256))
-    text = ['.module bike_body_transfers', '.area _CODE_13', reader.read_text()]
-    for name, blob in (('body_xor_slots',classes),('body_plan_ids',ids),
-                       ('body_spans',bytes(x for pair in patterns for x in pair))):
-        text.extend([name+'::',*byte_lines(blob)])
+    # Adjacent transition IDs often repeat as a pair. The packed reader needs
+    # one dictionary index per two columns and two bytes per distinct pair.
+    pairs = list(dict.fromkeys(zip(ids[::2], ids[1::2])))
+    packed = len(pairs) <= 256
+    tables = [('body_xor_slots', classes)]
+    if packed:
+        lookup = {pair: i for i, pair in enumerate(pairs)}
+        tables.append(('body_plan_ids', bytes(lookup[p] for p in zip(ids[::2], ids[1::2]))))
+        tables.append(('body_plan_pairs', bytes(value for pair in pairs for value in pair)))
+    else:
+        tables.append(('body_plan_ids', ids))
+    tables.append(('body_spans', bytes(value for pair in patterns for value in pair)))
+
+    # Mid-compression poses on gentle slopes cover frequent changes of angle.
+    # Slot bit 7 selects the VRAM bank and its low bits select a 256-byte page.
+    resident = dict(zip((*range(32, 37), *range(58, 64)), (*range(7), *range(128, 132))))
+    tables.append(('_body_preload_poses', bytes(value for entry in resident.items() for value in entry)))
+    tables.append(('body_resident_slots', bytes(resident.get(p, 0x84) for p in range(32, 64))))
+    text = ['.module bike_body_transfers', '.area _CODE_13']
+    if packed:
+        text.append('BODY_PACKED_PLANS = 1')
+    text.append(reader.read_text())
+    for name, blob in tables:
+        text.extend([name + '::', *byte_lines(blob)])
     plans = gen/'bike_body_transfers.s'
     write_if_changed(plans,'\n'.join(text)+'\n')
     return compact, plans
