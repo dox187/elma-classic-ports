@@ -221,7 +221,8 @@ def vectors(coefficients):
     for boundary in (32768, 65536, 131072):
         for delta in (-2, -1, 0, 1, 2):
             for sign in (-1, 1):
-                for y in (-32768, -24585, -4098, -773, 773, 4098, 24585, 32767):
+                for y in (-32768, -24585, -16385, -16384, -16383, -4098, -773,
+                          773, 4098, 16383, 16384, 16385, 24585, 32767):
                     yield sign*(boundary+delta), y
     for _ in range(4096):
         yield rng.choice(endpoints) if rng.randrange(2) else rng.randint(-(1 << 31), (1 << 31)-1), rng.randint(-32768, 32767)

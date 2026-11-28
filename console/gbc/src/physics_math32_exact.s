@@ -389,6 +389,11 @@ exact_product_extend:
  ld bc,#0
 exact_product_byte_sign:
  pop af
+ .ifdef RIDING_PROJECTION_TABLES
+ jp nc,math32_projection_restore
+ call _riding_projection_negate48
+ jp math32_projection_restore
+ .else
  jr nc,exact_product_byte_done
  xor a
  sub a,e
@@ -411,6 +416,7 @@ exact_product_byte_done:
  ldh a,(#__current_bank)
  ld (#0x2000),a
  ret
+ .endif
 ; B:DE is an unsigned 24-bit magnitude, C selects a row in banks 36..43.
 ; Return the exact unsigned product in BC:DE, little-endian.
 _riding_product24x8_row::
@@ -1314,12 +1320,7 @@ math32_unit_shift:
  rr l
  rr d
  ld e,#0
- ld a,h
- add a,a
- sbc a,a
- ld b,a
- ld c,a
- jp math32_projection_restore
+ jp projection_extend_word
 math32_projection_lookup:
 _riding_projection_read_directory::
  push af                        ; width flag
@@ -1408,78 +1409,64 @@ math32_lookup_miss:
  .endif
  .ifdef RIDING_PROJECTION_TABLES
 _riding_projection_plain_word::
- ; Multiply both bytes of X by the unchanged Y register pair. The
- ; high-byte row starts one byte later. Keep its carries in HRAM while
- ; selecting the low-byte row. No interrupt handler uses this workspace.
- push de
- ld a,d
- dec a
- jr nz,projection_cross_high
- ld d,c                         ; 1 * unsigned Y
- ld a,b
- ldh (#projection_cross_middle),a
- xor a
- jr projection_cross_high_ready
-projection_cross_high:
+ ; x*y = u16(x)*u16(y) minus one opposite operand in the high
+ ; word for each negative input. Form that correction while both
+ ; original register pairs are live.
+ ld hl,#0
+ bit 7,d
+ jr z,projection_unsigned_x
+ add hl,bc
+projection_unsigned_x:
+ bit 7,b
+ jr z,projection_unsigned_y
+ add hl,de
+projection_unsigned_y:
+ push hl
  product_word_row d
  ld l,c
- ld d,(hl)                      ; byte 1 of the high partial product
+ ld d,(hl)
  inc h
  ld a,(hl)
  ld l,b
  dec h
  add (hl)
- ldh (#projection_cross_middle),a
  inc h
- ld a,(hl)
- adc #0
+ ld h,(hl)
+ ld l,a
+ jr nc,projection_cross_high_ready
+ inc h
 projection_cross_high_ready:
- ldh (#projection_cross_upper),a
+ push hl
  product_word_row e
  ld l,c
- ld e,(hl)                      ; output byte 0
+ ld e,(hl)
  inc h
  ld a,(hl)
  ld l,b
  dec h
  add (hl)
- ldh (#projection_cross_low),a
  inc h
- ld a,(hl)
- adc #0
- ld h,a
- ldh a,(#projection_cross_low)
+ ld h,(hl)
+ jr nc,projection_low_ready
+ inc h
+projection_low_ready:
  add d
- ld d,a                         ; output byte 1
- ldh a,(#projection_cross_middle)
- adc h
- ld l,a
- ldh a,(#projection_cross_upper)
- adc #0
- ld h,a
- ; Convert the unsigned high word to the signed product's high word.
- push hl
- ldhl sp,#3
- bit 7,(hl)
+ ld d,a
+ ld a,h
  pop hl
- jr z,projection_cross_y
- ld a,l
- sub c
+ adc l
  ld l,a
- ld a,h
- sbc b
- ld h,a
-projection_cross_y:
- bit 7,b
+ jr nc,projection_cross_joined
+ inc h
+projection_cross_joined:
  pop bc
- jr z,projection_cross_done
  ld a,l
  sub c
  ld l,a
  ld a,h
  sbc b
  ld h,a
-projection_cross_done:
+projection_extend_word:
  ld a,h
  add a
  sbc a
@@ -1619,6 +1606,49 @@ math32_projection_full_fallback:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
+ ; The low word is unsigned. For x = low + 65536*k, subtract
+ ; -k*y (and unsigned low for a negative y) from the unsigned
+ ; product's high word. Use only ranges where x*y fits signed32.
+ ld a,h
+ inc a
+ cp #2
+ jr nc,projection_large_winding
+ ld a,h
+ xor l
+ jr z,projection_single_winding
+ dec a
+ jr nz,projection_large_winding
+ ; For k=+1 or -2 the conservative coefficient range fits signed32,
+ ; except -131072 * -16384, handled by the unit-normal entry above.
+ ld a,b
+ add #64
+ cp #128
+ jr nc,projection_large_winding
+ bit 7,h
+ jr z,projection_plus_one
+ ld h,b
+ ld l,c
+ add hl,hl
+ jp projection_unsigned_x
+projection_plus_one:
+ xor a
+ sub c
+ ld l,a
+ sbc a,a
+ sub b
+ ld h,a
+ jp projection_unsigned_x
+projection_single_winding:
+ ld a,d
+ or e
+ jr z,projection_large_winding
+ bit 7,h
+ jp z,projection_unsigned_x
+ ld h,b
+ ld l,c
+ jp projection_unsigned_x
+projection_large_winding:
+ ld a,l
  jp exact_product_digits
  .else
  dec hl

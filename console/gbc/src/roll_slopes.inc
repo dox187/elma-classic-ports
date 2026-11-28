@@ -1637,18 +1637,12 @@ batch_extended_x_ready:
  ldhl sp,#8
  .macro batch_extended_sum x,y
  batch_sum_digits
- ld a,(#batch_ext_x)
- ld c,a
- ld a,(#batch_ext_x+1)
- ld e,a
  ld a,(#x)
- call batch_add_winding
- ldh a,(#batch_scalar)
- ld c,a
- ldh a,(#batch_scalar+1)
- ld e,a
+ or a
+ call nz,batch_add_ext_x
  ld a,(#y)
- call batch_add_winding
+ or a
+ call nz,batch_add_ext_y
  call slope_round
  .endm
  batch_extended_sum batch_ext_vx,batch_ext_vy
@@ -1674,9 +1668,18 @@ batch_extended_miss:
  jp rom_slope_map
 
 ; Add k times the signed coefficient EC to B:HL. D keeps the round byte.
+batch_add_ext_x:
+ push hl
+ ld hl,#batch_ext_x
+ jr batch_add_winding
+batch_add_ext_y:
+ push hl
+ ld hl,#batch_scalar
 batch_add_winding:
- or a
- ret z
+ ld c,(hl)
+ inc hl
+ ld e,(hl)
+ pop hl
  push de
  ld d,a
  bit 7,d
