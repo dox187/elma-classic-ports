@@ -19,7 +19,7 @@ def linked_rows(symbols):
     if 'projection_shared_rows' not in symbols:
         return coefficient_rows(())
     banks = sorted(int(k.removeprefix('rolling_payload_')) for k in symbols if k.startswith('rolling_payload_'))
-    return coefficient_rows(banks)
+    return coefficient_rows(banks, deep='normal_fraction_rows' in symbols)
 
 
 def verify_table_bytes(image, symbols):
@@ -61,6 +61,29 @@ def verify_table_bytes(image, symbols):
                 product = unsigned[operand & 255] + (signed[(operand >> 8) & 255] << 8)
             assert product == x * y
     return 65536 * len(accepted)
+
+
+def check_deep_fractions(image, symbols):
+    bank, directory = divmod(symbols['normal_fraction_rows'], 65536)
+    def word(address):
+        offset = bank*16384 + (address & 16383)
+        return int.from_bytes(image[offset:offset+2], 'little')
+    first_code = symbols['normal_fraction'] & 65535
+    checked = 0
+    occupied = set()
+    for length in range(1,128):
+        base = word(directory+2*length)
+        last = base + 2*(length//2) + 1
+        assert directory + 256 <= base <= last < first_code and base >> 8 == last >> 8
+        for n in range(length//2+1):
+            key = base + 2*n
+            assert key not in occupied
+            occupied.add(key)
+            value = word(key)
+            assert value >> 1 == (n << 14)//length
+            assert (32768-value) >> 1 == ((length-n) << 14)//length
+            checked += 2
+    return checked
 
 
 def check_shallow_tables(image, symbols):
@@ -314,7 +337,7 @@ def check_interrupts(image, symbols):
         # Both widths must actually execute this bank's reader. Short
         # coefficients and exact unit normals can finish wholly in fixed ROM.
         rows = stored[i*ROWS_PER_BANK:(i+1)*ROWS_PER_BANK]
-        canonical = next(y for y in rows if abs(y) > 255 and abs(y) != 16384)
+        canonical = next(y for y in rows if y is not None and abs(y) > 255 and abs(y) != 16384)
         for x, y in ((-32768, canonical), (0x73ef01fd, canonical), (-0x72340123, -canonical),
                      (32767, -canonical)):
             for target in (lookup, fetch, narrow if -32768 <= x <= 32767 else wide):
@@ -371,6 +394,8 @@ def main():
     validate_layout(symbols)
     image = args.rom.read_bytes()
     checks = {'exact_narrow_table_products': verify_table_bytes(image, symbols), 'checked_directory_inputs': 65536}
+    if 'normal_fraction_rows' in symbols:
+        checks['deep_fraction_quotients'] = check_deep_fractions(image, symbols)
     if '_riding_shallow_dot_61' in symbols or '_riding_shallow_dot_9' in symbols:
         checks['shallow_table_inputs'] = check_shallow_tables(image, symbols)
     checks.update(check_native(image, symbols))

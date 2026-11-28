@@ -286,6 +286,22 @@ def check(rom, reference):
                     _,got,_ = target.call('_riding_normal_fast',x,y,contacts[0],d2)
                     assert got == struct.pack('<hhh', *vector), (x,y,got,vector)
                     totals['deep physical vectors'] += 1
+        if 'normal_fraction_rows' in sym:
+            # The public API can supply a length unrelated to either axis.
+            # Probe signed-byte aliases, exact half/whole fractions and
+            # out-of-row inputs that have to enter the wide solver.
+            for length in range(1,128):
+                axes = (-32768, -32767, -512, -257, -256, -255, -129, -128, -length-1,
+                        -length, -length//2, -1, 0, 1, length//2, length-1, length,
+                        length+1, 128, 255, 256, 257, 511, 32766, 32767)
+                for x in axes:
+                    odd = totals['deep arbitrary-axis boundaries'] & 1
+                    y = -x-1 if odd else length
+                    d2 = length*length + (2*length if odd else 0)
+                    _, got, _ = target.call('_riding_normal_fast', x, y, contacts[0], d2)
+                    _, want, _ = old.call('_riding_normal_fast', x, y, contacts[1], d2)
+                    assert got == want, (x, y, d2, got, want)
+                    totals['deep arbitrary-axis boundaries'] += 1
         for x,y in ((289,289),(398,0),(0,-405),(-128,382),(250,-314)):
             physical=x*x+y*y
             for d2 in (physical,physical,physical+1,physical^256,physical^65536,

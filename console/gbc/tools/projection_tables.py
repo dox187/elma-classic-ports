@@ -6,6 +6,8 @@ from tempfile import NamedTemporaryFile
 DIRECTORY_BANK = 20
 BANKS = (*range(21, 28), 477, 478, 479, 480, 502, 503, 504, 505, DIRECTORY_BANK)
 ROWS_PER_BANK = 12
+DEEP_BANK = 27
+DEEP_SLOTS = 7
 # The 216 standard and 24 extended test27 routes select the more frequent sign
 # for each magnitude. The opposite sign uses the same five product planes.
 COEFFICIENTS = (
@@ -207,7 +209,7 @@ EXTRA_COEFFICIENTS = (
 )
 
 
-def coefficient_rows(rolling_banks):
+def coefficient_rows(rolling_banks, deep=False):
     """Both arithmetic readers share an unchanged five-plane rolling row."""
     from rolling_map_banks import TANGENTS
     stored = list(COEFFICIENTS)
@@ -229,13 +231,33 @@ def coefficient_rows(rolling_banks):
             locations[new] = locations[old]
             locations[old] = shared[old]
             stored[i] = new
+    if deep:
+        # Move only exactly duplicated signed rows onto their rolling planes.
+        # Use their former slots for the tail of bank 27, so all subsequent
+        # head, wheel and pair data retain their original physical addresses.
+        first = (BANKS.index(DEEP_BANK) + 1)*ROWS_PER_BANK - DEEP_SLOTS
+        tail = range(first, first + DEEP_SLOTS)
+        duplicates = [i for i, k in enumerate(stored) if k in shared]
+        if len(duplicates) >= DEEP_SLOTS:
+            displaced = [i for i in tail if stored[i] not in shared]
+            available = [i for i in duplicates if i not in tail][:len(displaced)]
+            shared_tail = [i for i in tail if stored[i] in shared]
+            for i in available + shared_tail:
+                locations[stored[i]] = shared[stored[i]]
+            for i, j in zip(displaced, available):
+                stored[j] = stored[i]
+                locations[stored[i]] = BANKS[j // ROWS_PER_BANK], row_page(j)
+            for i in tail:
+                stored[i] = None
     return stored, locations
 
 
 def generated_rows(gen):
     manifest = gen / 'level_manifest.json'
-    banks = json.loads(manifest.read_text()).get('rolling_map_banks', ()) if manifest.exists() else ()
-    return coefficient_rows(banks)
+    from rolling_map_banks import CODEC
+    pack = json.loads(manifest.read_text()) if manifest.exists() else {}
+    return coefficient_rows(pack.get('rolling_map_banks', ()),
+                            pack.get('rom_mib') == 8 and pack.get('map_codec') == CODEC)
 
 
 def fixed_hash(locations):
@@ -316,6 +338,8 @@ def generate(source, destination):
     for group, bank in enumerate(BANKS):
         output.extend((f'.area _CODE_{bank}', f'_riding_projection_bank_{bank}::'))
         for y in stored[group * ROWS_PER_BANK:(group + 1) * ROWS_PER_BANK]:
+            if y is None:
+                continue
             for page in planes(y):
                 output.extend(byte_lines(page))
     result = '\n'.join(output) + '\n'
@@ -331,8 +355,50 @@ def generate(source, destination):
     return destination
 
 
+def deep_fractions(gen, source):
+    """Insert the complete physical fraction table before cartridge bank 27's tail."""
+    from head_clearance import write_if_changed
+    if None not in generated_rows(gen)[0]:
+        return source
+    lines = ['RIDING_DEEP_ROWS = 1', '.module normal_deep', f'.area _CODE_{DEEP_BANK}',
+             'normal_fraction_rows::', ' .dw 0']
+    lines.extend(f' .dw deep_row_{length}' for length in range(1,128))
+    # Keep each complete row on one page, including its zero numerator.
+    # This makes the index a single low-byte addition for both components.
+    pages = []
+    for length in range(127,0,-1):
+        words = 1 + length//2
+        for page in pages:
+            if page[0] >= words:
+                break
+        else:
+            page = [128, []]
+            pages.append(page)
+        page[0] -= words
+        page[1].append(length)
+    for _, lengths in pages:
+        lines.append(' .bndry 256')
+        for length in lengths:
+            words = []
+            for n in range(length//2 + 1):
+                quotient, remainder = divmod(n << 14, length)
+                words.append(2*quotient + bool(remainder))
+            lines.extend([f'deep_row_{length}:', ' .dw ' + ','.join(map(str,words))])
+    lines.append(source.read_text().split('\n',1)[1])
+    lines.append(f' .ds {DEEP_SLOTS*1280}-(.-normal_fraction_rows)')
+    path = gen/'normal_deep_rows.s'
+    write_if_changed(path, '\n'.join(lines)+'\n')
+    return path
+
+
 def validate_layout(symbols):
     """Every indexed product plane starts at its expected physical bank address."""
+    if 'normal_fraction_rows' in symbols:
+        start = (DEEP_BANK<<16) + 0x4000 + 1280*(ROWS_PER_BANK-DEEP_SLOTS)
+        end = start + 1280*DEEP_SLOTS
+        if (symbols['normal_fraction_rows'] != start or symbols['normal_fraction_bank'] != DEEP_BANK
+                or not start + 256 <= symbols['normal_fraction'] < end):
+            raise ValueError('Deep fraction rows overlap a projection plane or leave their bank')
     for index, bank in enumerate(BANKS):
         start = (bank << 16) | 0x4000
         count = len(COEFFICIENTS[index*ROWS_PER_BANK:(index+1)*ROWS_PER_BANK])

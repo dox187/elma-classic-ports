@@ -291,9 +291,15 @@ normal_negative:
 
 normal_cache_deep:
  .ifdef RIDING_NORMAL_ATLAS
- ld e,#33
+ .ifdef RIDING_NORMAL_SRAM
+ ld hl,#normal_fraction
+ ld a,#normal_fraction_bank
+ call _riding_contact_bank_query
+ .else
+ ld e,#normal_fraction_bank
  ld hl,#normal_fraction
  call ___sdcc_bcall_ehl
+ .endif
  or a
  jp nz,normal_cached_destination
  ; Only arbitrary inputs outside the narrow domain need the general divide.

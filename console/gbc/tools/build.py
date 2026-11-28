@@ -715,7 +715,14 @@ def main():
         # The inner radial lookup follows the page-aligned braking data in bank 93.
         sources.insert(sources.index(a.gen/'head_quarters.s'), lengths)
         sources.append(inner_lengths)
-        sources.extend((BASE/'src/normal_deep.s', BASE/'src/physics_pair_impulse.s',
+        deep = BASE/'src/normal_deep.s'
+        packed_deep = projection_tables.deep_fractions(a.gen, deep)
+        if packed_deep == deep:
+            sources.append(deep)
+        else:
+            index = sources.index(a.gen/'physics_projection_game.s')
+            sources.insert(index+1, packed_deep)
+        sources.extend((BASE/'src/physics_pair_impulse.s',
                         BASE/'src/terrain_region.s', a.gen/'wheel_candidate_planes.s'))
     if head_lanes:
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/head_near.c')

@@ -1,5 +1,12 @@
 .module normal_deep
+ .ifdef RIDING_DEEP_ROWS
+.area _CODE_27
+normal_fraction_bank = 27
+ .else
 .area _CODE_33
+normal_fraction_bank = 33
+ .endif
+.globl normal_fraction_bank
 ; Deep physical vectors have 0 <= abs(axis) <= floor(sqrt(d2)) <= 127.
 ; At that size each fractional quotient digit needs one byte of remainder.
 ; Keep the full signed solver for callers supplying a nonphysical d2.
@@ -18,6 +25,15 @@ normal_fraction::
  ld c,a
  or a
  jr z,normal_fraction_zero
+ .ifdef RIDING_DEEP_ROWS
+ ; Both components use the same row of half-fractions.
+ add a
+ ld l,a
+ ld h,#>normal_fraction_rows
+ ld a,(hl+)
+ ld d,(hl)
+ ld e,a
+ .endif
  ld hl,#normal_cache_key
  call normal_fraction_axis
  or a
@@ -53,6 +69,56 @@ normal_fraction_miss:
  ret
 
 normal_fraction_axis:
+ .ifdef RIDING_DEEP_ROWS
+ ; For high byte 0 or FF, (lo XOR high) - high gives abs(axis).
+ ; The borrow also validates its high byte: only a positive byte or a
+ ; negative with nonzero low byte makes high + borrow wrap to zero.
+ ld a,(hl+)
+ ld b,(hl)
+ xor b
+ sub b
+ ld l,a
+ ld a,b
+ adc #0
+ jr nz,normal_fraction_miss
+ sla b                          ; retain sign, clear the mirror flag
+deep_magnitude:
+ ld a,c
+ sub l
+ jr c,normal_fraction_miss
+ jr z,deep_full
+ cp l
+ jr nc,deep_lower
+ ld l,a
+ inc b
+deep_lower:
+ ld a,l
+ add a
+ add e
+ ld l,a
+ ld h,d
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ; Each word is 2*floor(16384*n/d) plus one if its fraction is nonzero.
+ ; Taking the upper half of (32768 - word) thus gives the complementary
+ ; quotient even when the positive quotient was exactly integral.
+ bit 0,b
+ jr z,deep_half
+ xor a
+ sub l
+ ld l,a
+ ld a,#128
+ sbc h
+ ld h,a
+deep_half:
+ srl h
+ rr l
+ jr normal_fraction_sign
+deep_full:
+ ld hl,#16384
+ jr normal_fraction_sign
+ .else
  ld a,(hl+)
  ld e,a
  ld a,(hl)
@@ -88,6 +154,7 @@ next:
  .irp digit,7,6,5,4,3,2,1,0
  normal_fraction_bit l,digit
  .endm
+ .endif
 normal_fraction_sign:
  bit 7,b
  jr z,normal_fraction_done
