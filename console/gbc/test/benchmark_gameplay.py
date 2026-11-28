@@ -439,10 +439,11 @@ def run_case(args, level, scenario, names):
         return run_case_with_driver(args, level, scenario, names, Path(scratch))
 
 
-def run_case_with_driver(args, level, scenario, names, scratch):
+def run_case_with_driver(args, level, scenario, names, scratch, plan=None):
     started = time.monotonic()
     case_id = f"level-{level:02d}-{scenario}"
-    plan = controller_plan(scenario, args.seed, level, args.steps)
+    if plan is None:
+        plan = controller_plan(scenario, args.seed, level, args.steps)
     driver = observer = None
     errors = []
     result = {"id": case_id, "level": level, "name": names[level - 1], "scenario": scenario,

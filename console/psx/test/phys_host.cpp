@@ -10,6 +10,7 @@
 //   phys_host -f CASES [options]                 a summary line for each case
 //   phys_host LEVEL.txt --search [--dt D]        a script that finishes the level
 //                                                with the original physics
+//   phys_host LEVEL.txt --common-trace           one 30 Hz input mask per line
 //
 // LEVEL.txt is written by test/phys_levels.py. A script is items of keys
 // and a number of steps: G gas, B brake, R right volt, L left volt, N
@@ -775,7 +776,53 @@ static int search( int width, int maxsteps ) {
 	return 1;
 }
 
+static void common_sample( const engine& e ) {
+	const kor& body = e.pmot->kor1;
+	printf( "%.17g %.17g %.17g %c", body.r.x, body.r.y, body.alfa,
+			e.finished ? 'f' : e.dead ? 'd' : '-' );
+}
+
+static int common_trace( const char* level ) {
+	if( !load( level ) )
+		return 2;
+	engine original = { "orig", 0, &Motorst1 };
+	engine fixed = { "fixed", 1, &Motorst2 };
+	Kajakell = Ptop->setallaktiv( original.pmot );
+	Ptop->setallaktiv( fixed.pmot );
+	eng_reset( &original );
+	eng_reset( &fixed );
+
+	double elapsed = 0.0, target = 0.0;
+	int mask, parsed;
+	while( (parsed = scanf( "%d", &mask )) == 1 ) {
+		if( mask < 0 || mask > 15 )
+			return 2;
+		// The comparison format uses left=4 and right=8.
+		int input = mask & (IN_GAS | IN_BRAKE);
+		if( mask & 4 )
+			input |= IN_VOLT_L;
+		if( mask & 8 )
+			input |= IN_VOLT_R;
+		target += 0.4368/30.0;
+		while( elapsed <= target-0.000001 ) {
+			double dt = 0.0055;
+			if( elapsed+dt > target )
+				dt = target-elapsed;
+			eng_step( &original, input, elapsed, dt );
+			eng_step( &fixed, input, elapsed, dt );
+			elapsed += dt;
+		}
+		common_sample( original );
+		putchar( ' ' );
+		common_sample( fixed );
+		putchar( '\n' );
+	}
+	return parsed == EOF && !ferror( stdin ) && !ferror( stdout ) ? 0 : 2;
+}
+
 int main( int argc, char** argv ) {
+	if( argc == 3 && !strcmp( argv[2], "--common-trace" ) )
+		return common_trace( argv[1] );
 	if( argc < 3 ) {
 		fprintf( stderr, "usage: phys_host LEVEL.txt SCRIPT [options] | -f CASES [options]\n" );
 		return 2;

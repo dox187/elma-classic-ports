@@ -449,10 +449,50 @@ static void trace(engine& e,int step,double t) {
     for(int i=0;i<Nobj;++i) fprintf(Trace," %d",e.aktiv[i]);
     fprintf(Trace,"\n");
 }
+static void load_engine(engine& e) {
+    e.name="original";e.pmot=Pmot1;
+    Kajakell=Ptop->setallaktiv(e.pmot);eng_reset(&e);
+}
+
+static void unload() {
+    delete Pszak;Pszak=NULL;
+    for(int i=0;i<MAXGYURU;++i) if(Top->ptomb[i]) { delete[] Top->ptomb[i]->ponttomb;free(Top->ptomb[i]); }
+    for(int i=0;i<MAXKEREK;++i) free(Top->kerektomb[i]);
+    free(Top);free(Ecset);
+}
+
+static int run_common_case(const char* level, const char* inputs) {
+    if (!load(level)) return 0;
+    engine e = {};
+    load_engine(e);
+    double time = 0, target = 0;
+    while (*inputs && !isspace((unsigned char)*inputs)) {
+        const char value = *inputs++;
+        const int mask = value <= '9' ? value - '0' : value - 'a' + 10;
+        if (mask < 0 || mask > 15) return 0;
+        int input = mask & (IN_GAS | IN_BRAKE);
+        if (mask & 4) input |= IN_VOLT_L;
+        if (mask & 8) input |= IN_VOLT_R;
+        target += 0.4368 / 30.0;
+        while (time <= target - 0.000001 && !e.dead && !e.finished) {
+            const double dt = std::min(0.0055, target - time);
+            eng_step(&e, input, time, dt);
+            time += dt;
+        }
+        fprintf(Trace, "sample");
+        number(e.pmot->kor1.r.x);
+        number(e.pmot->kor1.r.y);
+        number(e.pmot->kor1.alfa);
+        fprintf(Trace, " %c\n", e.finished ? 'f' : e.dead ? 'd' : '-');
+    }
+    unload();
+    return 1;
+}
+
 static int run_case(const char* level,const char* script,double fps) {
     if(!load(level)) return 0;
-    engine e={};e.name="original";e.pmot=Pmot1;
-    Kajakell=Ptop->setallaktiv(e.pmot);eng_reset(&e);
+    engine e={};
+    load_engine(e);
     std::vector<item> items=parse(script);
     std::vector<double> starts;double total=0;
     for(size_t i=0;i<items.size();++i) { starts.push_back(total);total+=items[i].n*0.0055; }
@@ -475,10 +515,8 @@ static int run_case(const char* level,const char* script,double fps) {
     }
     fprintf(Trace,"result %d %d %ld\n",e.dead,e.finished,e.megvanido);
     for(size_t i=0;i<e.events.size();++i) { fprintf(Trace,"event %d %d",e.events[i].type,e.events[i].obj);number(e.events[i].t);fprintf(Trace,"\n"); }
-    delete Pszak;Pszak=NULL;
-    for(int i=0;i<MAXGYURU;++i) if(Top->ptomb[i]) { delete[] Top->ptomb[i]->ponttomb;free(Top->ptomb[i]); }
-    for(int i=0;i<MAXKEREK;++i) free(Top->kerektomb[i]);
-    free(Top);free(Ecset);return 1;
+    unload();
+    return 1;
 }
 int main(int argc,char** argv) {
 #ifdef ELMA_PS3
@@ -492,9 +530,11 @@ int main(int argc,char** argv) {
     char line[32768],level[1024];double fps;int n,index=0;
     while(fgets(line,sizeof(line),f)) {
         if(line[0]=='#' || line[0]=='\n') continue;
-        if(sscanf(line,"%1023s %lf %n",level,&fps,&n)!=2) return 3;
+        n = 0;
+        const bool common = sscanf(line,"%1023s common %n",level,&n)==1 && n>0;
+        if(!common && sscanf(line,"%1023s %lf %n",level,&fps,&n)!=2) return 3;
         fprintf(Trace,"case %d\n",index++);
-        if(!run_case(level,line+n,fps)) return 4;
+        if(!(common ? run_common_case(level,line+n) : run_case(level,line+n,fps))) return 4;
         fflush(Trace);
     }
     fprintf(Trace,"complete %d\n",index);fclose(Trace);fclose(f);return 0;

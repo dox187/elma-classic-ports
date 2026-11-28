@@ -1,0 +1,46 @@
+{
+  "corpus_version": 1,
+  "cases": 110,
+  "courses": 54,
+  "observation_ticks": 40104,
+  "reference_outcomes": {
+    "dead": 102,
+    "riding": 7,
+    "finish": 1
+  },
+  "scores": {
+    "nes": {
+      "mean_position_percent_wheelbase": 25.52478903162217,
+      "mean_body_angle_degrees": 9.629399137996247,
+      "same_outcome": 105,
+      "same_terminal_within_one_tick": 39
+    },
+    "snes": {
+      "mean_position_percent_wheelbase": 10.567808714830697,
+      "mean_body_angle_degrees": 4.564700087991639,
+      "same_outcome": 105,
+      "same_terminal_within_one_tick": 74
+    },
+    "gbc": {
+      "mean_position_percent_wheelbase": 16.844316221938083,
+      "mean_body_angle_degrees": 4.908354208635445,
+      "same_outcome": 107,
+      "same_terminal_within_one_tick": 64
+    },
+    "psx": {
+      "mean_position_percent_wheelbase": 0.010082270956852058,
+      "mean_body_angle_degrees": 0.006082829577954838,
+      "same_outcome": 110,
+      "same_terminal_within_one_tick": 102
+    },
+    "ps3": {
+      "mean_position_percent_wheelbase": 4.112778685650924e-12,
+      "mean_body_angle_degrees": 4.7112800746683585e-12,
+      "same_outcome": 110,
+      "same_terminal_within_one_tick": 103
+    }
+  },
+  "inputs_sha256": "07fe2409dcb3e7313f906738e151497dc01baecdf2fb25cf99ada95faeca9d1e",
+  "resource_sha256": "06e54ed79730befeab96605ef8b17700738e8e181fe51dfd09fb2e855c0478ff",
+  "gbc_rom_sha256": "6d46b1324df037de6f95b317394be5d0baf55ada69e76f898d93944f2b948db2"
+}
