@@ -4914,3 +4914,27 @@ FlashMaster behavior are pending. Automated gameplay testing is paused for
 manual comparison with test70.
 
 SHA-256 `dbefca611236166d1b35af76bfea70642b5519bf48f1658369c22a385c02f1bf`.
+
+## 0.96 release gameplay cadence
+
+The released 8 MiB ROM is byte-identical to test71, SHA-256
+`dbefca611236166d1b35af76bfea70642b5519bf48f1658369c22a385c02f1bf`.
+The following measurements come from the four saved **test70** controller
+replays on the original courses in PyBoy. They count elapsed display
+refreshes between consecutive gameplay input samples.
+
+| Replay set | Mean updates/s | Three-refresh intervals / total |
+|---|---:|---:|
+| All 54 courses, 216 runs | 29.83 | 41 / 19,669 |
+| Extended routes, 8 courses | 29.82 | 16 / 5,203 |
+| Independent inputs, 54 courses | 29.80 | 22 / 5,302 |
+| Complete Freefall | 29.86 | 0 / 438 |
+| All intervals, weighted by elapsed time | **29.83** | **79 / 30,612** |
+
+30,533 intervals took two refreshes (33.49 ms), and 79 took three
+(50.23 ms, equivalent to 19.91 updates/s for one interval). The slowest
+complete replay was Hi Flyer with held gas at 29.13 updates/s over 99
+intervals, five of which took three refreshes. Simulation steps remain
+sequential during the slowdown. Full-release gameplay timing and cartridge
+timing are pending. The forced collision stress measurements are recorded
+separately above.

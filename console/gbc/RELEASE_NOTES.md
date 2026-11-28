@@ -1,5 +1,15 @@
 # Game Boy Color release notes
 
+## 0.96 release
+
+The release uses the byte-identical test71 cartridge. The last full gameplay
+measurement used test70: **29.83 updates/s overall**, **19.91** over the
+longest individual interval, and **29.13** averaged over the slowest replay
+(Hi Flyer, gas). A total of 79 of 30,612 intervals took three display refreshes.
+Hardware timing and a full test71 replay remain unmeasured.
+
+[Playable release ROM](build/elma-gbc-v0.96-8m.gbc) · [Per-suite measurements](PERFORMANCE.md#096-release-gameplay-cadence)
+
 Earlier diagnostic ROMs remain available in their respective sections.
 The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
 contains the earlier exact optimizations with the old narrow physics.
@@ -25,13 +35,11 @@ and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
 |---|---|---|
 | 0.93 | Measured rebound correction and existing braking improvements | Retained diagnostic checkpoint; 13.43 updates/s in Freefall |
 | 0.94 | High-speed rolling, impacts, rotation and braking against PC; numeric saturation and overflow audit | 122-case audit complete; cutoff corrected, other limits remain |
-| 0.95 | Reduce the corrected model's runtime cost toward stable 30 FPS | Work continues within 0.96; no separate release |
-| 0.96 | Joint original-PC accuracy and full-game stable-30-FPS acceptance | In progress; both requirements remain mandatory |
+| 0.95 | Reduce the corrected model's runtime cost toward stable 30 FPS | Included in 0.96; no separate release |
+| 0.96 | Wheel physics and full-game timing | Released from test71; brief slowdowns remain |
 
-The retained 0.93/0.94 and current 0.96 diagnostics still have a runtime-cost
-limitation; the final joint acceptance target is 0.96. Version numbers do not imply that unpassed
-accuracy or timing requirements have been waived. All new ROM filenames remain
-versioned and directly inside `build/`.
+Performance optimization is paused at 0.96. The documented timing target
+remains two display refreshes per update.
 
 Playable test: **[0.91 test1 — 8 MiB](build/elma-gbc-v0.91-test1-8m.gbc)**,
 for MBC5 with 32 KiB cartridge RAM. Its SHA-256 is

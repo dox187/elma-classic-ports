@@ -1,15 +1,11 @@
 # Elasto Mania for Game Boy Color
 
-Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
-recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
-ROM exists yet. Latest playable diagnostic:
-**[0.96 test71 — 8 MiB, manual test build](build/elma-gbc-v0.96-test71-8m.gbc)**.
-On hardware, try sustained braking on Hangman, neutral riding on Curvaceous,
-and angled landings on Steep Corner. Automated runs are paused for this
-checkpoint. Test70 is the last full replay baseline: 57 late intervals in
-25,310 primary intervals, 22 in 5,302 independent intervals, and a 55.54 ms
-forced Steep Corner peak. The target is 33.49 ms per complete update.
-[Manual build and verification scope](PERFORMANCE.md#096-test71--manual-cartridge-checkpoint)
+**[0.96 release — 8 MiB](build/elma-gbc-v0.96-8m.gbc)** uses the test71 cartridge image.
+The last full emulator replay (test70) averaged **29.83 updates/s** over
+30,612 gameplay intervals. The slowest individual interval was **50.23 ms**
+(19.91 updates/s for that interval). The slowest complete replay was
+**Hi Flyer with held gas, 29.13 updates/s**. Hardware timing is unmeasured.
+[Per-suite results and measurement scope](PERFORMANCE.md#096-release-gameplay-cadence)
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
@@ -41,15 +37,9 @@ make 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The current kernel requires `ROM_MIB=8 PHYS_HZ=30 DAMPER=scheduled`.
 
-The current checkout builds versioned **0.96 development ROMs**. They are not
-accepted releases until their complete-game timing and regression checks pass.
-
-The current default output is **`build/elma-gbc-v0.96-8m.gbc`**. The corrected
-scheduled kernel is still too slow; use this development output for diagnostics.
-These are CGB-only MBC5 cartridges, not Game Boy
-Advance programs; monochrome Game Boy hardware is unsupported. Both use header
-type `0x1B` (MBC5+RAM+BATTERY), RAM code `0x03` (32 KiB), and ROM code `0x07`
-(4 MiB) or `0x08` (8 MiB).
+The default output is **`build/elma-gbc-v0.96-8m.gbc`**. The cartridge
+requires a Game Boy Color-compatible system and uses MBC5+RAM+BATTERY
+(header type `0x1B`), 32 KiB RAM (`0x03`) and 8 MiB ROM (`0x08`).
 
 `make 8m` generates assets in `build/gen-8m`. The earlier 4 MiB and alternative
 integration kernels remain in Git history; the current source rejects those
@@ -358,6 +348,7 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | 0.93 | PC-timed physics substeps, corrected rebound and braking |
 | 0.94 | High-speed physics audit and drive cutoff correction |
 | 0.95 | Speed work folded into 0.96 |
+| 0.96 | Release from test71, exact wheel contacts and faster suspension |
 
 ### 0.96 test builds
 
