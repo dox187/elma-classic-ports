@@ -4834,3 +4834,26 @@ geometry cache between wheel centers increased the forced-grid cost and
 reached the stack in the native fixture. These trials were discarded.
 
 SHA-256 `f833edac77ebf99dbb2d6737b53b8d94070ed853c958578aad98c621258bb5d3`.
+
+## 0.96 test69 — Wheel projections and terrain records
+
+| Emulator measurement | test68 | test69 |
+|---|---:|---:|
+| Primary late intervals out of 25,310 | 59 | 58 |
+| Independent late intervals out of 5,302 | 21 | 22 |
+| Mean active primary update, T-cycles | 205,172 | 205,019 |
+| Historical placements above budget out of 2,432 | 284 | 282 |
+| Historical peak physics, T-cycles | 473,156 | 468,604 |
+| Forced Steep Corner peak physics, T-cycles | 493,600 | 492,264 |
+
+The four controller suites, forced placements and Freefall comparison matched
+all 100,382 checked physics substeps. All 54 courses started, with one late
+interval on entry. Seven visual routes matched across 1,216 presentations
+and 61,845 cells. The independent Haircut run had ten late intervals in 226,
+up from nine. Forced Steep Corner still exceeded budget on all 200 updates.
+
+The lossless scenery repacker also freed four whole banks in a separate
+layout check. All 162,161 stored tiles and 1,166,848 map cells matched. This
+playable checkpoint keeps the previous scenery layout.
+
+SHA-256 `cb8cb66f7316c881b4f0ee21f71cd6097ef0c9a654692ffbcba2e95ca5a64031`.

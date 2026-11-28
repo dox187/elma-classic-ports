@@ -50,6 +50,15 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test69 — Wheel projections and terrain records
+
+Flat wheels resolve their tangent in the wheel bank. Other two-contact
+displacements share signed byte products. Terrain checks reuse the current
+record and its projection coefficients. All 100,382 checked physics substeps
+matched test68. The historical peak fell from 56.40 to 55.86 ms.
+
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test69-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test69--wheel-projections-and-terrain-records)
+
 ## 0.96 test68 — Contact lengths and scenery preloads
 
 The forced Steep Corner peak fell from 59.51 to 58.84 ms. The solver now
