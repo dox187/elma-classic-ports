@@ -10,3 +10,9 @@
 /state-elma-ports.dat
 /dist/
 /elma.cfg
+
+# Cartridge builds and original Elasto Mania resource files
+*.[gG][bB][cC]
+*.[gG][bB]
+[eE][lL][mM][aA].[rR][eE][sS]
+*.[lL][gG][rR]

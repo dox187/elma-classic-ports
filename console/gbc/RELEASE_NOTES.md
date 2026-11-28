@@ -15,7 +15,7 @@ test, flat acceleration and a 1 m drop were silent on the creak channel.
 A 2 m drop under throttle produced two audible wheel impacts. The native
 and host fixtures matched over all 300 steps.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.97-8m.gbc) · SHA-256
+[Local build instructions](README.md#build-and-run) · SHA-256
 `6d46b1324df037de6f95b317394be5d0baf55ada69e76f898d93944f2b948db2`
 
 ## 0.96 release
@@ -26,15 +26,15 @@ longest individual interval, and **29.13** averaged over the slowest replay
 (Hi Flyer, gas). A total of 79 of 30,612 intervals took three display refreshes.
 Hardware timing and a full test71 replay remain unmeasured.
 
-[Playable release ROM](build/elma-gbc-v0.96-8m.gbc) · [Per-suite measurements](PERFORMANCE.md#096-release-gameplay-cadence)
+[Per-suite measurements](PERFORMANCE.md#096-release-gameplay-cadence)
 
-Earlier diagnostic ROMs remain available in their respective sections.
-The retained **[0.96 test1 — 8 MiB](build/elma-gbc-v0.96-test1-8m.gbc)**
+The sections below document earlier local builds.
+The retained **0.96 test1 — 8 MiB**
 contains the earlier exact optimizations with the old narrow physics.
-The **[0.94 speed test — 8 MiB](build/elma-gbc-v0.94-speed-test-8m.gbc)**
+The **0.94 speed test — 8 MiB**
 is the earlier drive-cutoff checkpoint.
 The retained 0.93 checkpoint is
-**[0.93 rebound test — 8 MiB](build/elma-gbc-v0.93-rebound-test-8m.gbc)**.
+**0.93 rebound test — 8 MiB**.
 It fixes the measured rebound, but is too slow for release: Freefall averages
 **13.43 physics updates/s** in the emulator. The older
 `build/elma-gbc-v0.93-test1-8m.gbc` still has the measured 52.22% 4 m rebound
@@ -59,7 +59,7 @@ and rejected approaches. Development builds do not overwrite the 0.90 ROMs.
 Performance optimization is paused at 0.96. The documented timing target
 remains two display refreshes per update.
 
-Playable test: **[0.91 test1 — 8 MiB](build/elma-gbc-v0.91-test1-8m.gbc)**,
+Playable test: **0.91 test1 — 8 MiB**,
 for MBC5 with 32 KiB cartridge RAM. Its SHA-256 is
 `624e427940917c15d1d4960866f0368f61549b6f59292a41290c047b6c38a8b5`.
 
@@ -83,7 +83,7 @@ cartridge also uses the stopped-pivot shortcut, register-based damping
 correction and shorter pose export. Hangman braking and Curvaceous neutral
 riding are the clearest places to compare with test70 on hardware.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test71-8m.gbc) · [Component measurements and build checks](PERFORMANCE.md#096-test71--manual-cartridge-checkpoint)
+[Component measurements and build checks](PERFORMANCE.md#096-test71--manual-cartridge-checkpoint)
 
 ## 0.96 test70 — Four wheel-contact banks
 
@@ -93,7 +93,7 @@ shorter reciprocal projection for spring reaction. In the full replay,
 57 of 25,310 primary intervals exceeded two refreshes. All 100,382
 compared physics substeps matched test69.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test70-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test70--four-wheel-contact-banks)
+[Measurements and verification](PERFORMANCE.md#096-test70--four-wheel-contact-banks)
 
 ## 0.96 test69 — Wheel projections and terrain records
 
@@ -102,7 +102,7 @@ displacements share signed byte products. Terrain checks reuse the current
 record and its projection coefficients. All 100,382 checked physics substeps
 matched test68. The historical peak fell from 56.40 to 55.86 ms.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test69-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test69--wheel-projections-and-terrain-records)
+[Measurements and verification](PERFORMANCE.md#096-test69--wheel-projections-and-terrain-records)
 
 ## 0.96 test68 — Contact lengths and scenery preloads
 
@@ -112,7 +112,7 @@ Sixteen courses preload their most frequent scenery patterns at entry.
 Their visual replays needed 123 pattern uploads during riding, down from 264.
 Primary input cadence was 29.829 updates/s with 59 late intervals in 25,310.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test68-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test68--contact-lengths-and-scenery-preloads)
+[Measurements and verification](PERFORMANCE.md#096-test68--contact-lengths-and-scenery-preloads)
 
 ## 0.96 test67 — Signed products and complete contact tiles
 
@@ -122,7 +122,7 @@ tiles use their original geometry for every integer wheel center. Signed
 multiplication also costs less on other courses. Sixteen courses share
 background slots between patterns that cannot appear together.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test67-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test67--signed-products-and-complete-contact-tiles)
+[Measurements and verification](PERFORMANCE.md#096-test67--signed-products-and-complete-contact-tiles)
 
 ## 0.96 test66 — Radial contacts, spring moments and scenery strips
 
@@ -131,7 +131,7 @@ spring solver shares signed products, and the scrolling renderer batches
 incoming tiles. Primary late intervals fell from 71 to 65. The independent
 replays still had 22, with identical physics in both suites.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test66-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test66--radial-contacts-spring-moments-and-scenery-strips)
+[Measurements and verification](PERFORMANCE.md#096-test66--radial-contacts-spring-moments-and-scenery-strips)
 
 ## 0.96 test65 — Locked wheels, deep contacts and paired motion
 
@@ -141,7 +141,7 @@ and deep wheel contacts use exact quotient tables. Primary late intervals
 fell from 77 to 71 and independent late intervals from 25 to 22. All
 100,382 physics substeps matched test64.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test65-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test65--locked-wheels-deep-contacts-and-paired-motion)
+[Measurements and verification](PERFORMANCE.md#096-test65--locked-wheels-deep-contacts-and-paired-motion)
 
 ## 0.96 test64 — Wheel pivots, braking and rider response
 
@@ -152,7 +152,7 @@ On the independent Haircut route the count fell from 16 to 11. All 100,382
 recorded physics substeps matched test63. The forced Steep Corner peak
 was 61.34 ms in PyBoy.
 
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test64-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test64--wheel-pivots-braking-and-rider-response)
+[Measurements and verification](PERFORMANCE.md#096-test64--wheel-pivots-braking-and-rider-response)
 
 ## 0.96 test63 — Wheel projections and resident motorcycle poses
 
@@ -161,7 +161,7 @@ motorcycle poses stay in sprite memory. The independent replay set fell
 from 33 to 29 late intervals, including three fewer on Haircut. The forced
 Steep Corner peak fell from 63.38 to 62.01 ms. All 100,382 recorded
 physics substeps matched test62.
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test63-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test63--wheel-projections-and-resident-motorcycle-poses)
+[Measurements and verification](PERFORMANCE.md#096-test63--wheel-projections-and-resident-motorcycle-poses)
 
 ## 0.96 test62 — Bumpy Journey braking and moving wheel contacts
 
@@ -170,7 +170,7 @@ intervals out of 156. Two-wheel contacts can determine a pivot's direction
 with fewer multiplications, and the sprite renderer transfers only the
 tiles a pose change requires. All 100,382 recorded physics substeps
 matched test61. Freefall kept all 438 intervals at two display refreshes.
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test62-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test62--bumpy-journey-braking-and-moving-wheel-contacts)
+[Measurements and verification](PERFORMANCE.md#096-test62--bumpy-journey-braking-and-moving-wheel-contacts)
 
 ## 0.96 test61 — Bowling braking, throttle and head clearance
 
@@ -180,7 +180,7 @@ every integer position in a certified strip. Throttle and body updates use
 fewer instructions, and the head scan reuses the course clearance map.
 The principal replays now have 97 three-refresh intervals out of 25,310.
 All 100,382 recorded physics substeps matched test60.
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test61-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test61--bowling-braking-throttle-and-head-clearance)
+[Measurements and verification](PERFORMANCE.md#096-test61--bowling-braking-throttle-and-head-clearance)
 
 ## 0.96 test60 — Wheel endpoints, head sweeps and object contacts
 
@@ -190,7 +190,7 @@ unreachable terrain edges in one pass, and the object filter checks fewer
 distant objects. Haircut improved from 28.36 to 28.48 updates/s on the
 independent replay. Across the primary replays, 102 of 25,310 intervals took
 a third refresh, down from 110. The forced Steep Corner peak was 64.25 ms.
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test60-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test60--wheel-endpoints-head-sweeps-and-object-contacts)
+[Measurements and verification](PERFORMANCE.md#096-test60--wheel-endpoints-head-sweeps-and-object-contacts)
 
 ## 0.96 test59 — Endpoint lengths and object contact checks
 
@@ -199,7 +199,7 @@ The wheel solver looks up a rounded endpoint length when all reachable
 vectors in its slot agree. During riding, two coarse maps reject distant
 apples, killers and flowers. The primary replays needed a third refresh
 110 times in 25,310 intervals, the independent seed 45 times in 5,302.
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test59-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test59--endpoint-lengths-and-object-contact-checks)
+[Measurements and verification](PERFORMANCE.md#096-test59--endpoint-lengths-and-object-contact-checks)
 
 ## 0.96 test58 — Ordered terrain, braking and camera scroll
 
@@ -209,7 +209,7 @@ operations. The camera publishes fine scroll directly and resolves scenery in
 groups of four cells. Across the primary controller replays, 115 of 25,310
 intervals needed a third refresh, down from 130. All 100,382 recorded physics
 substeps matched test57. The Steep Corner stress grid peaked at 66.30 ms.
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test58-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test58--ordered-terrain-braking-and-camera-scroll)
+[Measurements and verification](PERFORMANCE.md#096-test58--ordered-terrain-braking-and-camera-scroll)
 
 ## 0.96 test57 — Wheel response and suspension preparation
 
@@ -219,7 +219,7 @@ The wheel solver now sends each contact outcome directly to the corresponding
 motion and impact code. Suspension can prepare the wheel offsets in a short
 wait before sampling the next input. Across the main replays, 130 intervals
 needed three refreshes. The independent replay seed improved from 68 to 62.
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test57-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test57--wheel-response-and-suspension-preparation)
+[Measurements and verification](PERFORMANCE.md#096-test57--wheel-response-and-suspension-preparation)
 
 ## 0.96 test56 — Hang Tight braking and ordered wheel contacts
 
@@ -228,7 +228,7 @@ from 16. Framework and Bowling each used a third refresh on 11 intervals.
 The wheel solver reuses its updated angular speed and reads certified slope
 projections in original terrain order. The camera reuses its movement check
 when preparing the next view. The slowest forced Steep Corner update fell
-from 70.86 to 68.67 ms. [Playable 8 MiB ROM](build/elma-gbc-v0.96-test56-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test56--hang-tight-braking-and-ordered-wheel-contacts)
+from 70.86 to 68.67 ms. [Measurements and verification](PERFORMANCE.md#096-test56--hang-tight-braking-and-ordered-wheel-contacts)
 
 ## 0.96 test55 — Wheel contacts on Steep Corner, Framework and Bowling
 
@@ -238,7 +238,7 @@ a duplicate projection during two-contact pushout and reuses ordered terrain
 data as a wheel moves across a corner. At the original Steep Corner peak,
 physics took 54.03 ms, down from 63.25 ms. The worst update on a new grid of
 25 neighboring positions took 70.86 ms. The physics substeps matched test54
-throughout both the controller and placement tests. [Playable 8 MiB ROM](build/elma-gbc-v0.96-test55-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test55--wheel-contacts-on-steep-corner-framework-and-bowling)
+throughout both the controller and placement tests. [Measurements and verification](PERFORMANCE.md#096-test55--wheel-contacts-on-steep-corner-framework-and-bowling)
 
 ## 0.96 test54 — Curvaceous contacts and Gravity Ride braking
 
@@ -247,7 +247,7 @@ refreshes throughout braking. Each run still had one longer interval during
 the approach. At the Curvaceous pinch the previously slowest physics update
 fell from 67.98 to 49.90 ms. Across both wheels and four inputs at the same
 start, the longest update now takes 56.08 ms. Steep Corner still exceeds
-the 33.49 ms budget. [Playable 8 MiB ROM](build/elma-gbc-v0.96-test54-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test54--curvaceous-contacts-and-gravity-ride-braking)
+the 33.49 ms budget. [Measurements and verification](PERFORMANCE.md#096-test54--curvaceous-contacts-and-gravity-ride-braking)
 
 ## 0.96 test53 — Wheel contacts and head clearance
 
@@ -257,7 +257,7 @@ The solver also reuses the rounded contact point at shared vertices and takes
 a shorter path for two simultaneous contacts. On Downhill, the head check can
 rule out contact beyond the end of a slope sooner. The worst forced corner
 update across both wheels fell from 75.56 to 67.98 ms. Stable 30 FPS is still
-open. [Playable 8 MiB ROM](build/elma-gbc-v0.96-test53-8m.gbc) · [Measurements and remaining slowdowns](PERFORMANCE.md#096-test53--wheel-contacts-and-head-clearance)
+open. [Measurements and remaining slowdowns](PERFORMANCE.md#096-test53--wheel-contacts-and-head-clearance)
 
 ## 0.96 test52 — Rolling projections and ordered wheel contacts
 
@@ -267,7 +267,7 @@ order, including the normals, lengths and contact points. This shortened
 the Steep Corner throttle and brake updates and one of the worst Downhill
 updates. The longest run of slow updates during Hang Tight braking fell
 from eleven to ten. Double Trouble braking still averages 25.71 updates/s.
-[Playable 8 MiB ROM](build/elma-gbc-v0.96-test52-8m.gbc) · [Measurements and remaining slowdowns](PERFORMANCE.md#096-test52--rolling-projections-and-ordered-wheel-contacts)
+[Measurements and remaining slowdowns](PERFORMANCE.md#096-test52--rolling-projections-and-ordered-wheel-contacts)
 
 ## 0.96 test51 — Rolling contacts and suspension
 
@@ -672,7 +672,7 @@ normals, contact flags and accumulated motion fractions. The PC rebound,
 braking and rotation regressions passed. Measurements use the double-speed
 CGB emulator. Cartridge timing still needs a physical test.
 
-[Download test8 for the 8 MiB cartridge](build/elma-gbc-v0.96-test8-8m.gbc) ·
+`elma-gbc-v0.96-test8-8m.gbc` ·
 SHA-256 `88ce9d247f301183bb5e92517e93412135b7f20b952fb9e6ce14a8466f93bbbf`.
 
 ## 0.96 test7 — wheel contacts, head collisions and damping torque
@@ -696,7 +696,7 @@ checks and the 20 extreme Freefall spin tests retain their previous results.
 All 54 courses started successfully. The stable-30 timing gate still fails
 in the emulator. Physical Game Boy Color timing is unverified.
 
-[Download test7 for the 8 MiB cartridge](build/elma-gbc-v0.96-test7-8m.gbc) ·
+`elma-gbc-v0.96-test7-8m.gbc` ·
 SHA-256 `3fb8c2c232f6e7c3bee4bda6eabb5d520670983e3bc24ed17113d3924166e15f`.
 
 ## 0.96 test6 — faster physics on GBC
@@ -723,7 +723,7 @@ All 54 courses passed the menu, start and rendering checks. The stable-30
 timing gate remains open. Measurements and rejected experiments are in
 [the performance log](PERFORMANCE.md#096-test6--integrated-physics-timing).
 
-[Download the 8 MiB ROM](build/elma-gbc-v0.96-test6-8m.gbc) ·
+`elma-gbc-v0.96-test6-8m.gbc` ·
 SHA-256 `9a6a84b44140158c1ceed5803d5050cadf58fc2e91e62b38850833032e1654ce`.
 Physical Game Boy Color timing awaits a cartridge test.
 
@@ -756,7 +756,7 @@ and complete no-input Freefall pass their functional checks. Freefall takes
 4–7 display frames per update and averages 11.61 updates/s. Stable 30 FPS,
 global 99.9% accuracy and physical-cartridge validation remain open.
 
-[Playable test5 ROM](build/elma-gbc-v0.96-test5-8m.gbc) · 8,388,608 bytes ·
+`elma-gbc-v0.96-test5-8m.gbc` · 8,388,608 bytes ·
 MBC5, 32 KiB RAM · SHA-256
 `4e10759c014da913bf67f1547da74e0ca1bcdf00aa72df1de841e65183317db0`.
 
@@ -783,7 +783,7 @@ and 16 trajectories against the desktop source. All 54 course starts and
 the no-input Freefall pass their functional checks. Freefall takes 4–7 display
 frames per update (12.85 updates/s). Hardware timing remains unverified.
 
-[Playable test4 ROM](build/elma-gbc-v0.96-test4-8m.gbc) · 8,388,608 bytes ·
+`elma-gbc-v0.96-test4-8m.gbc` · 8,388,608 bytes ·
 SHA-256 `83430fd97453fd313f341978b0defae3fe5709a761b0c0c0cd508e89ddc0dc98`.
 
 ## 0.96 test3 — airborne wheel extension
@@ -848,7 +848,7 @@ test1. The player/save suite completes its functional checks and still exits
 with failure for the unchanged cadence/deadline requirements. No hardware pass
 or stable-30-FPS release is claimed.
 
-ROM: **[elma-gbc-v0.96-test2-8m.gbc](build/elma-gbc-v0.96-test2-8m.gbc)**,
+ROM: **elma-gbc-v0.96-test2-8m.gbc**,
 **8,388,608 bytes**, MBC5 + 32 KiB RAM, header **1B/08/03**; banks **508–511 all FF**.
 SHA-256: `b5e5d2baacd43bc8857d954811addf323c39f8477e02d0e40459f14734ad1e5a`.
 The menu and splash show **0.96**. The versioned ROM is directly in `build/`.
@@ -972,7 +972,7 @@ All 54 starts, Freefall and volt controls pass their functional checks; the
 zero-overrun timing gates still fail. See [`PERFORMANCE.md`](PERFORMANCE.md)
 for the experiment sequence and evidence.
 
-Development ROM: **[0.93 test1 — 8 MiB](build/elma-gbc-v0.93-test1-8m.gbc)**.
+Development ROM: **0.93 test1 — 8 MiB**.
 The menu and splash both show 0.93. Grounded braking now follows the original
 PC damping substeps with rolling inertia; free-wheel braking is unchanged.
 All 27 controlled braking cases (flat/±15°, heights 1/4/8 m, speeds 0/4/8 model m/s)
@@ -1008,9 +1008,9 @@ Development test ROMs do not certify these unresolved accuracy requirements.
 
 ## 0.92 landing test
 
-Playable **[0.92 landing test — 8 MiB](build/elma-gbc-v0.92-landing-test-8m.gbc)**
+Playable **0.92 landing test — 8 MiB**
 keeps the audio and save format of 0.92 and corrects excessive landing rebound.
-The previous audio-only ROM remains available below.
+The audio-only build is documented below.
 
 The old exponential damper applied the free wheel's 10 kg response to the
 supported body as well. The correction uses a 59.03 kg effective body-point
@@ -1085,8 +1085,7 @@ Full traces, contact windows and failures are written before assertions.
 - Accepted left/right volts use `ugras.wav`; turning uses `fordul.wav`.
   Both use CH4, shared with flower/finish, which takes priority.
 
-The versioned 0.91 test1 image above remains available as the performance
-baseline. The playable **[0.92 — 8 MiB ROM](build/elma-gbc-v0.92-8m.gbc)**
+The 0.91 test1 image is the performance baseline. The playable **0.92 — 8 MiB ROM**
 uses MBC5 and 32 KiB RAM. Audio remains a native pulse/noise approximation
 of the original recordings. Physical GBC speaker balance still needs testing.
 

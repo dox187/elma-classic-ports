@@ -1,10 +1,10 @@
 # Elasto Mania for Game Boy Color
 
-**[0.97 — 8 MiB](build/elma-gbc-v0.97-8m.gbc)** raises the suspension
+**0.97 — 8 MiB** raises the suspension
 creak threshold. A wheel must make fresh contact at more than 6 model m/s
 into the terrain to trigger the sound. The previous threshold was 2 model m/s.
 
-**[0.96 release — 8 MiB](build/elma-gbc-v0.96-8m.gbc)** uses the test71 cartridge image.
+**0.96 release — 8 MiB** uses the test71 cartridge image.
 The last full emulator replay (test70) averaged **29.83 updates/s** over
 30,612 gameplay intervals. The slowest individual interval was **50.23 ms**
 (19.91 updates/s for that interval). The slowest complete replay was
@@ -22,6 +22,8 @@ Active development targets the 8 MiB cartridge. All 54 original internal courses
 Captured from the 0.97 Game Boy Color ROM in PyBoy at the native 160 × 144 resolution.
 
 ## Build and run
+
+Build the ROM locally with the data files from your own copy of Elasto Mania.
 
 Finished tests keep their versioned playable ROM and the results recorded in
 [PERFORMANCE.md](PERFORMANCE.md). Remove their private trial directories,
