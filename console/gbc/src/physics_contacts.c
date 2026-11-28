@@ -1202,6 +1202,11 @@ static void move( circle_t* k ) {
 // beallit for a wheel: dv is the velocity change from the forces, tq the
 // torque on it.
 uint8_t riding_audio_contact[2], riding_audio_impact[2];
+#if defined(__SDCC) && defined(RIDING_CORNER_CELLS) && defined(RIDING_PC_SCHEDULE)
+/* The quiet bound in physics_impact_bound.s is -2162 * 64, with
+ * room for Q14 rounding. */
+typedef char riding_impact_bound_range[RIDING_CREAK_SPEED > 2162L*64 ? 1 : -1];
+#endif
 /* Resolved support for the next body damper impulse; ph_init resets it. */
 int16_t riding_landing_nx[2], riding_landing_ny[2];
 uint8_t riding_landing_contact[2];
@@ -2094,26 +2099,29 @@ wheel_single_impact_value:
     xor a
     ret
 wheel_single_impact_negative:
-    ld a,h
-    and l
-    inc a
-    ld a,#1
-    ret nz
-    ld hl,#_riding_impact_low
+    ; Both values are negative. Compare all four bytes before testing carry.
+    push bc
+    ld b,h
+    ld c,l
+    ld hl,#_riding_impact_threshold
     ld a,e
     sub (hl)
     inc hl
     ld a,d
     sbc (hl)
+    inc hl
+    ld a,c
+    sbc (hl)
+    inc hl
+    ld a,b
+    sbc (hl)
+    pop bc
     rla
     and #1
     ret
     .area _CODE
 wheel_filtered_impact:
-#ifdef RIDING_CORNER_CELLS
-    ld a,(#_riding_impact_low+1)
-    cp #76
-    jr nc,wheel_impact_exact
+#if defined(RIDING_CORNER_CELLS) && defined(RIDING_PC_SCHEDULE)
     push de
     ld b,d
     ld c,e
@@ -2688,8 +2696,8 @@ void riding_wheel( circle_t* k, int32_t dvx, int32_t dvy, int32_t tq ) PH_BANKED
      * This event does not alter native bike state or collision decisions. */
     riding_audio_impact[wheel]=0;
     if(n && !riding_audio_contact[wheel]) {
-        if(riding_dotq32(k->vx,k->vy,Ct[0].nx,Ct[0].ny,14)<-(int32_t)(2.0*PH_VS)
-           || (n==2 && riding_dotq32(k->vx,k->vy,Ct[1].nx,Ct[1].ny,14)<-(int32_t)(2.0*PH_VS)))
+        if(riding_dotq32(k->vx,k->vy,Ct[0].nx,Ct[0].ny,14)<-RIDING_CREAK_SPEED
+           || (n==2 && riding_dotq32(k->vx,k->vy,Ct[1].nx,Ct[1].ny,14)<-RIDING_CREAK_SPEED))
             riding_audio_impact[wheel]=1;
     }
     riding_audio_contact[wheel]=n;

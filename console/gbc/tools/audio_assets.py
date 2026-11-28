@@ -288,7 +288,7 @@ def generate(res_path, out, constants=None):
                                              'resetting at +/-5%; CH3 retains its source period.'},
                    'wave_switch': 'Only at throttle-mode changes, with CH3 DAC off; no active wave RAM writes.'},
         'effects': effects,
-        'suspension_trigger': 'New supported wheel contact with incoming terrain-normal speed above 2 model m/s; '
+        'suspension_trigger': 'New supported wheel contact with incoming terrain-normal speed above 6 model m/s; '
                               'contact and impact are observed before collision response, not inferred from spring travel; '
                               'one audio observation per physics step; mute when both wheels leave ground.',
         'limitations': ['Representative periodic engine cycles cannot reproduce the complete changing recordings or their start/rev transition.',

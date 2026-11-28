@@ -1,5 +1,23 @@
 # Game Boy Color release notes
 
+## 0.97 — Suspension creak on harder landings
+
+The creak requires a new wheel contact with an inward speed greater than
+6 model m/s along the terrain normal. In 0.96 it triggered above 2 model
+m/s. This keeps small bumps quiet and still allows a hard landing under
+throttle to produce the original creak at its usual volume.
+
+On the two linked release images, 352 prepared single- and two-contact
+cases produced identical wheel and bike state, contact reports and
+fixed-point residuals. Sixty cases that raised the 0.96 sound event were
+quiet in 0.97. Hard impacts still raised it. In a synthetic flat-floor
+test, flat acceleration and a 1 m drop were silent on the creak channel.
+A 2 m drop under throttle produced two audible wheel impacts. The native
+and host fixtures matched over all 300 steps.
+
+[Playable 8 MiB ROM](build/elma-gbc-v0.97-8m.gbc) · SHA-256
+`6d46b1324df037de6f95b317394be5d0baf55ada69e76f898d93944f2b948db2`
+
 ## 0.96 release
 
 The release uses the byte-identical test71 cartridge. The last full gameplay

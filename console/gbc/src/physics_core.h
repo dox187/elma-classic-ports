@@ -41,6 +41,7 @@
 #endif
 #define PH_VS (PH_S*PH_VELOCITY_UNIT_TIME/4.0)
 #define PH_WS (PH_AN*PH_ANGULAR_UNIT_TIME/128.0)
+#define RIDING_CREAK_SPEED ((int32_t)(6.0*PH_VS))
 
 #define M_TO_F( m ) ((int32_t)((m)*PH_S))
 #define M_TO_U( m ) ((int16_t)((m)*1024.0 + ((m) < 0 ? -0.5 : 0.5)))

@@ -238,7 +238,7 @@ def run(command, log):
         raise RuntimeError(f'Build failed ({result.returncode}); see {log.name}')
 
 
-def prepare(args, suite=None):
+def prepare(args, suite=None, driver_code=DRIVER, extra_sources=()):
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     source, gen = out / 'source/gbc/src', out / 'gen'
@@ -302,8 +302,8 @@ def prepare(args, suite=None):
     if (gen / 'physics_q24_dispatch.c').exists():
         generated.append(gen / 'physics_q24_dispatch.c')
     driver = out / 'driver.c'
-    driver.write_text(f'#define CASE_COUNT {len(cases(args.steps) if suite is None else suite)}\n' + DRIVER)
-    sources = [driver, *native_sources, *generated]
+    driver.write_text(f'#define CASE_COUNT {len(cases(args.steps) if suite is None else suite)}\n' + driver_code)
+    sources = [driver, *native_sources, *generated, *(source / name for name in extra_sources)]
     flags = [args.lcc.resolve(), '-msm83:gb', '-Wf--opt-code-size',
              '-Wf--max-allocs-per-node', '-Wf100000', '-Wm-yC', '-Wm-yt0x19',
              '-Wm-yoA', '-Wl-m', '-Wl-j', '-I' + str(source), '-I' + str(gen)]

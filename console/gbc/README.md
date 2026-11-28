@@ -1,5 +1,9 @@
 # Elasto Mania for Game Boy Color
 
+**[0.97 — 8 MiB](build/elma-gbc-v0.97-8m.gbc)** raises the suspension
+creak threshold. A wheel must make fresh contact at more than 6 model m/s
+into the terrain to trigger the sound. The previous threshold was 2 model m/s.
+
 **[0.96 release — 8 MiB](build/elma-gbc-v0.96-8m.gbc)** uses the test71 cartridge image.
 The last full emulator replay (test70) averaged **29.83 updates/s** over
 30,612 gameplay intervals. The slowest individual interval was **50.23 ms**
@@ -37,14 +41,14 @@ make 8m ELMA_RES=/path/to/elma.res ELMA_LGR=/path/to/lgr/default.lgr
 
 The current kernel requires `ROM_MIB=8 PHYS_HZ=30 DAMPER=scheduled`.
 
-The default output is **`build/elma-gbc-v0.96-8m.gbc`**. The cartridge
+The default output is **`build/elma-gbc-v0.97-8m.gbc`**. The cartridge
 requires a Game Boy Color-compatible system and uses MBC5+RAM+BATTERY
 (header type `0x1B`), 32 KiB RAM (`0x03`) and 8 MiB ROM (`0x08`).
 
 `make 8m` generates assets in `build/gen-8m`. The earlier 4 MiB and alternative
 integration kernels remain in Git history; the current source rejects those
 profiles. For an explicit output name, use e.g.
-`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.96-dev-8m.gbc game` with your resource
+`make ROM_MIB=8 GAME_ROM=build/elma-gbc-v0.97-dev-8m.gbc game` with your resource
 paths. Both Make and the standalone builder read `VERSION` for their default
 playable filenames. Original rendered tiles are reused when their fingerprints
 match; codec and bank-layout mismatches are rejected before linking. The current scheduled Q24
@@ -349,6 +353,7 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | 0.94 | High-speed physics audit and drive cutoff correction |
 | 0.95 | Speed work folded into 0.96 |
 | 0.96 | Release from test71, exact wheel contacts and faster suspension |
+| 0.97 | Suspension creak on stronger impacts |
 
 ### 0.96 test builds
 

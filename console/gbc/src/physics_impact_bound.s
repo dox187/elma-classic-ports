@@ -34,16 +34,16 @@ _riding_impact_projection::
  pop hl
  ret nc
  add hl,bc
- ; For the scheduled build, impact is nv < -46137.  -720*64 =
- ; -46080 leaves a strictly safe margin through the Q14 rounding.
+ ; For the scheduled build, impact is nv < -138412.  -2162*64 =
+ ; -138368 leaves a strictly safe margin through the Q14 rounding.
  bit 7,h
  jr z,impact_quiet
  ld a,h
- cp #253
+ cp #247
  jr c,impact_unknown
  jr nz,impact_quiet
  ld a,l
- cp #48
+ cp #142
  jr nc,impact_quiet
 impact_unknown:
  xor a
