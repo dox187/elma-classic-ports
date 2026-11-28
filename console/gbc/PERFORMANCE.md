@@ -4566,3 +4566,50 @@ presentations and 61,845 background cells. All 54 courses started, with
 one late entry update. Player profiles and battery reload passed.
 
 SHA-256 `dd3eeb31095e740cca71c004e49dbb5ecbfd8a2654fbae14b9eb943d952a98d7`.
+
+## 0.96 test62 — Bumpy Journey braking and moving wheel contacts
+
+The Bumpy Journey reader checks two strips against ordered terrain geometry.
+Its vertex and plane expressions must reproduce the wheel solver at every
+integer center in an admitted tile. Moving two-contact pivots use an upper
+bound on the moment change. The solver computes a deferred first pivot if
+the second pivot needs its exact Q24 result. A separate signed bound skips
+the impact projection when the wheel velocity proves the contact is quiet.
+
+The suspension table covers a signed damping word and a signed upper digit.
+Body angle and angular velocity use aligned product pages, and the wider
+projection fallback reads each velocity digit once per coefficient pair.
+Only changed body tiles need a DMA transfer. Removing the known transparent
+lower half from each stored head image made room in bank 13.
+
+| PyBoy measurement | test61 | test62 |
+| --- | ---: | ---: |
+| Weighted primary updates/s over 25,310 intervals | 29.807 | 29.815 |
+| Three-refresh intervals, catalog / extended / complete Freefall | 69 / 28 / 0 | 61 / 21 / 0 |
+| Three-refresh intervals on independent seed out of 5,302 | 40 | 33 |
+| Mean active update on primary replays, T-cycles | 209,234 | 208,444 |
+| Extended Bumpy Journey braking, late out of 156 | 11 | 7 |
+| Independent Haircut, updates/s | 28.54 | 28.66 |
+| Historical placements, over budget out of 2,432 | 317 | 310 |
+| Peak physics on the historical placements, T-cycles | 502,048 | 494,880 |
+| Forced Steep Corner peak physics, T-cycles | 538,344 | 531,640 |
+
+The slowest primary routes were Twin Peaks throttle and Bowling braking
+at 29.13 updates/s each. The longest individual controller intervals took
+three refreshes (19.91 updates/s for that interval). All 200 forced Steep
+Corner updates exceeded the budget. At the previous maximum, wheels fell
+from 382,172 to 359,872 T and suspension from 94,308 to 90,744 T. The new
+maximum is at (25,176, 39,440), input 2, wheel 1. The grid total fell from
+91,662,728 to 90,149,640 T. The 642-position sweep improved in aggregate
+on each of the 54 courses, from 568,496,512 to 563,255,140 T overall.
+
+All 100,382 raw physics substeps matched test61. The native checks included
+26,280 angular torque pairs, 34,004 angular integration and velocity cases,
+9,824 Bumpy Journey wheel queries, 298,416 ordered terrain queries and 84
+partial leaves. The braking and speed suite matched all 3,170 states in 122
+cases. The body atlas check covered 37,056 pose transitions and 256 heads.
+Seven controller routes matched 1,216 presentations and 61,845 background
+cells. All 54 courses started, with one late entry update. Player profiles,
+records and battery reload passed.
+
+SHA-256 `fca2bf9610589ce788e4bde502234b8fe07353bc9b470144852a5628d33f3ab4`.

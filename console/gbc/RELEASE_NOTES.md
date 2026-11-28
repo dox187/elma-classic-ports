@@ -50,6 +50,15 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test62 — Bumpy Journey braking and moving wheel contacts
+
+On Bumpy Journey, the long braking replay improved from 11 to 7 late
+intervals out of 156. Two-wheel contacts can determine a pivot's direction
+with fewer multiplications, and the sprite renderer transfers only the
+tiles a pose change requires. All 100,382 recorded physics substeps
+matched test61. Freefall kept all 438 intervals at two display refreshes.
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test62-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test62--bumpy-journey-braking-and-moving-wheel-contacts)
+
 ## 0.96 test61 — Bowling braking, throttle and head clearance
 
 Bowling braking improved from 28.70 to 29.13 updates/s, with five long
