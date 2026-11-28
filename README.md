@@ -102,6 +102,22 @@ Title screen and Warm Up gameplay, captured in RPCS3 at 1280×720.
 
 [PS3 toolchain, build and package instructions →](console/ps3/README.md)
 
+### How close is the physics to the PC original?
+
+The PS3 port comes closest in the available tests. It runs the original
+double-precision engine and matched the PC SDL build bit for bit across all
+54 levels. Only the PS3 also has a direct comparison with the original
+Windows executable. The other ports use different tests and tolerances, so
+their results do not give a common percentage score.
+
+| Console | Test | Measured difference |
+| --- | --- | --- |
+| [NES](console/nes/test/hyflyer.py) | Four Hi Flyer landings, NTSC build at 50 physics steps/s, against a double-precision model of the original equations | NES reached the flower in 3 of 4 cases and the reference in all 4. In one wall landing the bike’s peak upward speed was about 45% lower. |
+| [SNES](console/snes/README.md#physics) | 134 scripted runs across all 54 levels, shipping solver against the PC source | 73.0% of 45,496 samples met all position, speed, rotation and event checks. Object or end-of-run events differed in 18 runs. |
+| [Game Boy Color 0.97](console/gbc/test/check_freefall_volts.py) | Two Freefall runs of 70 updates with opposite rotation inputs, release ROM against the PC source starting from the same bike state | Across both runs, peak errors were 1.93 cm in position and 0.0424° in body angle. At an [injected 140 rad/s](console/gbc/test/check_airborne_spin.py), the crash update still matched, but errors reached 27.6 cm and 15.75° before the crash. |
+| [PlayStation](console/psx/test/phys_test.py) | 162 host runs across all 54 levels, fixed-point solver against the PC source at 30 fps | Events matched in order in all 162 runs. While both bikes were still riding, their centres stayed within 1 cm in 161 runs. The largest separation was 13.74 cm. |
+| [PlayStation 3](console/ps3/PHYSICS_PROVENANCE.md) | Native PS3 code in RPCS3 against PC SDL, plus captured Windows 1.11a shareware steps | All recorded state bits and events matched PC SDL in 1,135 runs. Against Windows, 4,551 of 4,559 individual steps matched byte for byte across three levels. |
+
 ## Handheld Linux devices
 
 The SDL backend with gamepad controls and packages for PortMaster handhelds
