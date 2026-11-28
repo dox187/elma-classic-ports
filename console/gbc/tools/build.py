@@ -388,12 +388,15 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
             if hashlib.sha256((gen/name).read_bytes()).hexdigest() != digest:
                 raise ValueError(f'Head-clearance source changed during build: {name}')
         intervals['physics_head_bank_'] = (head['first_bank'], head['last_bank'])
+    released = set(levels.get('released_banks', ()))
+    if not released <= set(range(levels['first_bank'], levels['last_bank']+1)):
+        raise ValueError('Released bank outside the graphics interval')
     previous_end=-1
     for prefix,(first,last) in intervals.items():
         if not 0<first<=last<bank_count or first<=previous_end:
             raise ValueError('Overlapping or out-of-range ROM bank reservation: %s%d..%d'%(prefix,first,last))
         previous_end=last
-        expected={gen/('%s%d.c'%(prefix,bank))for bank in range(first,last+1)}
+        expected={gen/('%s%d.c'%(prefix,bank))for bank in range(first,last+1) if prefix != 'level_bank_' or bank not in released}
         actual=set(gen.glob(prefix+'*.c'))
         if expected!=actual:
             raise ValueError('Missing or stale generated bank files for '+prefix)
@@ -410,7 +413,8 @@ def validate_profile(gen, requested_rom_mib=None, sources=()):
             if rom_mib==8 and bank>=508:
                 raise ValueError('The 8 MiB cartridge profile leaves banks 508..511 unused: '+str(path))
             for prefix,(first,last) in intervals.items():
-                if first<=bank<=last and path!=gen/('%s%d.c'%(prefix,bank)):
+                reserved = first <= bank <= last and (prefix != 'level_bank_' or bank not in released)
+                if reserved and path!=gen/('%s%d.c'%(prefix,bank)):
                     raise ValueError('Source overlaps reserved ROM bank %d: %s'%(bank,path))
     return rom_mib
 

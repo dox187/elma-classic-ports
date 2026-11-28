@@ -214,6 +214,8 @@ def generate(gen, dest=None):
     graphics = json.loads((gen/'level_manifest.json').read_text())
     free = {}
     for bank in range(graphics['first_bank'],graphics['last_bank']+1):
+        if bank in graphics.get('released_banks', ()):
+            continue
         source = (gen/f'level_bank_{bank}.c').read_bytes()
         values = source.split(b'{',1)[1].split(b'}',1)[0].strip().rstrip(b',')
         free[bank] = 16384-(1+values.count(b',') if values else 0)

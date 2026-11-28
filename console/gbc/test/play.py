@@ -264,7 +264,16 @@ class Driver:
             record = self.level_manifest['levels'][index]
             with np.load(self.gen/'levels'/('%02d'%(index+1))/'tiles.npz') as source:
                 data = {name:source[name].copy() for name in source.files}
-            data['patterns'] = bytes(data['patterns'])
+            if 'pattern_order' in record:
+                from scenery_compact import packed_tiles
+                original_patterns = data['patterns'].reshape(-1, 16)
+                original_ids = data['ids']
+                data['ids'], data['patterns'] = packed_tiles(record, data)
+                packed = np.frombuffer(data['patterns'], dtype=np.uint8).reshape(-1, 16)
+                assert np.array_equal(packed[data['ids']], original_patterns[original_ids])
+                assert np.array_equal(packed[0], original_patterns[0])
+            else:
+                data['patterns'] = bytes(data['patterns'])
             if 'pattern_blocks' in record:
                 directory=self.rom_far(record['patterns'],len(record['pattern_blocks'])*4)
                 assert list(struct.iter_unpack('<HH',directory))==[tuple(p)for p in record['pattern_blocks']]
@@ -293,6 +302,22 @@ class Driver:
                     actual=(b''.join(self.graphics_block(pointer,512) for pointer in entry)
                             if split_planes else self.graphics_block(entry,1536))
                     assert actual == expected, 'ROM map payload differs from generated level%d chunk%d'%(index+1,chunk)
+            released = self.level_manifest.get('released_banks')
+            if released:
+                first = self.level_manifest['first_bank']
+                last = self.level_manifest['last_bank']
+                available = set(range(first,last+1)).difference(released)
+                bank, address = record['patterns']
+                size = 16 * record['pattern_count']
+                assert 0x4000 <= address <= 0x7ff0 and address % 16 == 0
+                assert set(range(bank, bank+(address-0x4000+size-1)//16384+1)) <= available
+                for tag, address in record['chunks']:
+                    size = 1024 if tag & 0xc000 else 1536
+                    assert tag & 511 in available and 0x4000 <= address <= 0x8000-size
+                for name,size in (('chunk_directory',4*len(record['chunks'])),
+                                  ('palette',56), ('objects_pointer',14*len(record['objects']))):
+                    bank,address = record[name]
+                    assert bank in available and 0x4000 <= address <= 0x8000-size
             data['record'] = record
             directory = self.symbols.get('_world_scenery_slots')
             if directory is not None:

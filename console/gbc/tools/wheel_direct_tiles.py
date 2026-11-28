@@ -6,6 +6,8 @@ from corner_samples import cell_samples
 from projection_tables import byte_lines
 
 BANK = 503
+# Keep the generated decoder and its palettes within the radial slab.
+RESERVED_BYTES = 10240
 # Only coordinates come from profiling. Compute both ordered normals and
 # lengths for every integer center using the packed course's original edges.
 TILES = {

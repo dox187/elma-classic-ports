@@ -19,6 +19,7 @@ VERSION := $(shell cat VERSION)
 GAME_ROM ?= build/elma-gbc-v$(VERSION)-$(ROM_MIB)m.gbc
 GEN ?= $(if $(filter 4,$(ROM_MIB)),build/gen,build/gen-8m)
 LEVEL_CACHE ?= build/gen
+COMPACT_SCENERY ?= 0
 # Keep the 8 MiB physics tables directly after scenery, away from the ROM tail.
 COEFFICIENT_BANK := $(if $(filter scheduled,$(DAMPER)),481,$(if $(filter 4,$(ROM_MIB)),252,477))
 COEFFICIENT_TOOL := $(if $(filter scheduled,$(DAMPER)),math_q24_coefficients.py,math32_coefficients.py)
@@ -46,7 +47,7 @@ assets: FORCE
 	$(PYTHON) tools/assets.py --res "$(ELMA_RES)" --lgr "$(ELMA_LGR)" --out $(GEN)
 	$(PYTHON) tools/physics_constants.py $(GEN)
 	$(PYTHON) tools/physics_level.py --res "$(ELMA_RES)" --out $(GEN) --hz $(PHYS_HZ) --damper $(DAMPER)
-	$(PYTHON) tools/levels.py --res "$(ELMA_RES)" --lgr "$(ELMA_LGR)" --out $(GEN) --rom-mib $(ROM_MIB) --cache-gen "$(LEVEL_CACHE)"
+	$(PYTHON) tools/levels.py --res "$(ELMA_RES)" --lgr "$(ELMA_LGR)" --out $(GEN) --rom-mib $(ROM_MIB) --cache-gen "$(LEVEL_CACHE)" $(if $(filter 1,$(COMPACT_SCENERY)),--compact-scenery)
 ifeq ($(ROM_MIB),4)
 	$(PYTHON) tools/pack_graphics.py --gen $(GEN) --sdk "$(GBDK_HOME)"
 endif

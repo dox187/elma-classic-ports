@@ -41,6 +41,9 @@ def generate(gen, original, dest=None):
     for level in manifest['levels']:
         with np.load(gen/'levels'/f"{level['index']+1:02}"/'tiles.npz') as source:
             ids = source['ids']
+            if 'pattern_order' in level:
+                from scenery_compact import packed_tiles
+                ids, _ = packed_tiles(level, source)
             counts = np.bincount(ids.ravel().astype(int), minlength=level['pattern_count'])
         if len(counts) != level['pattern_count']:
             raise ValueError('Scenery tile ID exceeds the linked dictionary')

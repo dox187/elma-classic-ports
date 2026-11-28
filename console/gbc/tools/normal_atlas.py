@@ -70,6 +70,8 @@ def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False, slabs=No
     wheel_banks = set(map(int,re.findall(r'^_wheel_terrain_tail_(\d+)::',wheel_rows.read_text(),re.M)))
     capacity = {}
     for bank in range(max(256,graphics['first_bank']),graphics['last_bank']+1):
+        if bank in graphics.get('released_banks', ()):
+            continue
         if bank in wheel_banks or bank in ROOM:
             continue
         contents = (gen/f'level_bank_{bank}.c').read_bytes().split(b'{',1)[1].split(b'}',1)[0].strip().rstrip(b',')
@@ -77,6 +79,10 @@ def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False, slabs=No
     room = capacity.copy()
     if slabs:
         room.update({bank:15360 for bank in slabs})
+        if graphics.get('released_banks'):
+            from wheel_direct_tiles import BANK, RESERVED_BYTES
+            if BANK in slabs:
+                room[BANK] -= RESERVED_BYTES
         # The pivot routine follows the normal data in this scenery bank.
         if 476 in room:
             room[476] -= 390

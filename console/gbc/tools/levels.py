@@ -228,6 +228,8 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--res',type=Path,required=True);p.add_argument('--lgr',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--rom-mib',type=int,choices=(4,8),default=4)
     p.add_argument('--cache-gen',type=Path,help='reuse verified rendered tiles from another generated directory')
+    p.add_argument('--compact-scenery', action='store_true',
+                   help='release four whole banks in the original scheduled 8 MiB pack')
     a=p.parse_args();a.out.mkdir(parents=True,exist_ok=True)
     assets.OUT=a.out
     physics=json.loads((a.out/'physics_bank_manifest.json').read_text())
@@ -236,7 +238,13 @@ def main():
     source_hashes={str(x.resolve()):hashlib.sha256(x.read_bytes()).hexdigest()for x in(a.res,a.lgr)}
     riding_constants=(a.out/'riding_constants.h').read_text()
     scheduled=a.rom_mib==8 and '#define RIDING_PC_SCHEDULE 1' in riding_constants
-    fingerprint=hashlib.sha256(Path(__file__).read_bytes()+render_key.encode()
+    compact_key = b''
+    if a.compact_scenery:
+        if not scheduled:
+            p.error('--compact-scenery requires the scheduled 8 MiB profile')
+        import scenery_compact
+        compact_key = Path(scenery_compact.__file__).read_bytes()
+    fingerprint=hashlib.sha256(Path(__file__).read_bytes()+render_key.encode()+compact_key
         + Path(rolling_map_banks.__file__).read_bytes()+Path(rider_map_tables.__file__).read_bytes()+riding_constants.encode()
         +(a.out/'physics_bank_manifest.json').read_bytes()).hexdigest()
     cache_dir=a.out
@@ -245,7 +253,8 @@ def main():
     if cached and cached.get('fingerprint')==fingerprint and cached.get('rom_mib')==a.rom_mib \
        and cached.get('map_codec') in ((desired_codec,rider_map_tables.CODEC,rolling_map_banks.CODEC) if scheduled else (desired_codec,)) and cached['first_bank']==first \
        and all((a.out/name).is_file()for name in ('level_catalogue.c','level_catalogue.h')) \
-       and all((a.out/('level_bank_%d.c'%bank)).is_file()for bank in range(first,cached['last_bank']+1)):
+       and all((a.out/('level_bank_%d.c'%bank)).is_file()for bank in range(first,cached['last_bank']+1)
+               if bank not in cached.get('released_banks', ())):
         print('All-level graphics unchanged: banks %d..%d'%(first,cached['last_bank']));return
     if cached is None and a.cache_gen:
         cache_dir=a.cache_gen
@@ -266,7 +275,8 @@ def main():
             with np.load(source_dir/'tiles.npz') as tiles:
                 grid=tiles['ids'];attribute=tiles['attrs'];pal=tiles['palettes'];patterns=tiles['patterns'].tobytes()
             if grid.shape!=(h//8,w//8) or attribute.shape!=grid.shape or pal.shape!=(7,4,3) \
-               or len(patterns)!=record['pattern_count']*16 or grid.max()>=record['pattern_count']:
+               or len(patterns)!=record.get('source_pattern_count',record['pattern_count'])*16 \
+               or grid.max()>=len(patterns)//16:
                 raise ValueError('Invalid rendered tile cache for level %d'%(number+1))
             if source_dir.resolve()!=target.resolve():
                 for name in ('tiles.npz','source.png','preview.png'):
@@ -340,7 +350,10 @@ extern const uint16_t killer_palette[];
     if rolling_banks:
         manifest.update(map_codec=rolling_map_banks.CODEC, rolling_map_banks=rolling_banks)
     (a.out/'level_manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-    print('All-level graphics banks %d..%d, %d payload bytes'%(first,packer.bank,manifest['payload_bytes']))
+    if a.compact_scenery:
+        scenery_compact.compact(a.out)
+    else:
+        print('All-level graphics banks %d..%d, %d payload bytes'%(first,packer.bank,manifest['payload_bytes']))
 
 
 if __name__=='__main__':main()
