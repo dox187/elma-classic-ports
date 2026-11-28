@@ -17,6 +17,7 @@ _riding_corner_gravity::
  jr c,corner_select
  inc a
 corner_select:
+_riding_corner_map::
  ld (#0x2000),a
  ld a,#1
  ld (#0x3000),a
@@ -32,6 +33,11 @@ corner_select:
 
 .area _CODE_32
 _riding_corner_select::
+ .ifdef RIDING_EXTENDED_CONTACTS
+ ld hl,#_riding_extended_install
+ ld e,#33
+ call ___sdcc_bcall_ehl
+ .endif
  ; The bank reader runs from RAM while the selected tile's ROM is mapped.
  ; Its internal branches are relative and its data addresses point to WRAM.
  ld hl,#corner_template

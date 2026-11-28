@@ -16,7 +16,7 @@ TILES = {
 }
 
 
-def dispatch(name, tiles):
+def dispatch(name, tiles, side=16):
     offsets = (3, 7, 2, 6, 1, 5)
 
     def walk(items, depth):
@@ -27,7 +27,7 @@ def dispatch(name, tiles):
         result = [' inc hl' if step > 0 else ' dec hl'] * abs(step)
         result.append(' ld a,(hl)')
         if depth >= 4:
-            result.append(' and #240')
+            result.append(f' and #{256-side}')
         groups = defaultdict(list)
         for key, destination in items:
             groups[key[depth]].append((key, destination))
@@ -40,8 +40,8 @@ def dispatch(name, tiles):
 
     items = []
     for i, (x, y) in enumerate(tiles):
-        assert not (x & 15 or y & 15) and 0 <= x < 1 << 23 and 0 <= y < 1 << 23
-        key = (x >> 16, y >> 16, x >> 8 & 255, y >> 8 & 255, x & 240, y & 240)
+        assert not (x & (side-1) or y & (side-1)) and 0 <= x < 1 << 23 and 0 <= y < 1 << 23
+        key = (x >> 16, y >> 16, x >> 8 & 255, y >> 8 & 255, x & (256-side), y & (256-side))
         items.append((key, f'direct_{name}_{i}'))
     return [f'direct_{name}_tiles::', ' ld h,d', ' ld l,e', *walk(items, 0)]
 
@@ -49,7 +49,7 @@ def dispatch(name, tiles):
 def packed_indices(blob, indices, bits):
     """Return A = indices[C]. An aligned pair, quartet or octet shares a byte."""
     step = 8 // bits
-    data = [sum(indices[j+k] << (k*bits) for k in range(step)) for j in range(0, 256, step)]
+    data = [sum(indices[j+k] << (k*bits) for k in range(step)) for j in range(0, len(indices), step)]
     return [f' ld hl,#{blob(data)}', f' call direct_unpack{bits}']
 
 
@@ -57,21 +57,25 @@ def raw_lookup(blob, values):
     return [f' ld hl,#{blob(values)}', ' add hl,bc', ' ld a,(hl)']
 
 
-def direct_field(blob, field):
+def unrow(side):
+    return [' swap a'] if side == 16 else [' rrca'] * 3
+
+
+def direct_field(blob, field, side):
     # Separate integer X/Y terms of a nearly planar field, storing every
     # residual explicitly. If more than four are needed use all 256 bytes.
     def mode(values):
         return Counter(values).most_common(1)[0][0]
-    rows = list(field[::16])
+    rows = list(field[::side])
     for _ in range(3):
-        cols = [mode((field[y*16+x] - rows[y]) & 255 for y in range(16)) for x in range(16)]
-        rows = [mode((field[y*16+x] - cols[x]) & 255 for x in range(16)) for y in range(16)]
-    delta = [(value - rows[i >> 4] - cols[i & 15]) & 255 for i, value in enumerate(field)]
+        cols = [mode((field[y*side+x] - rows[y]) & 255 for y in range(side)) for x in range(side)]
+        rows = [mode((field[y*side+x] - cols[x]) & 255 for x in range(side)) for y in range(side)]
+    delta = [(value - rows[i // side] - cols[i % side]) & 255 for i, value in enumerate(field)]
     palette = list(dict.fromkeys(delta))
     if len(palette) > 4:
         return raw_lookup(blob, field)
-    code = [' ld a,c', ' swap a', ' and #15', ' ld e,a', f' ld hl,#{blob(rows)}',
-            ' add hl,de', ' ld a,(hl)', ' push af', ' ld a,c', ' and #15', ' ld e,a',
+    code = [' ld a,c', *unrow(side), f' and #{side-1}', ' ld e,a', f' ld hl,#{blob(rows)}',
+            ' add hl,de', ' ld a,(hl)', ' push af', ' ld a,c', f' and #{side-1}', ' ld e,a',
             f' ld hl,#{blob(cols)}', ' add hl,de', ' pop af', ' add (hl)']
     if len(palette) == 1:
         return code + ([f' add #{palette[0]}'] if palette[0] else [])
@@ -81,19 +85,19 @@ def direct_field(blob, field):
                    f' ld hl,#{blob(palette)}', ' add hl,de', ' pop af', ' add (hl)']
 
 
-def palette_index(blob, indices, colors):
-    rows = [indices[j:j+16] for j in range(0, 256, 16)]
+def palette_index(blob, indices, colors, side):
+    rows = [indices[j:j+side] for j in range(0, len(indices), side)]
     if len(set(rows)) == 1:
-        return [' ld a,c', ' and #15', ' ld e,a', f' ld hl,#{blob(rows[0])}', ' add hl,de', ' ld a,(hl)']
+        return [' ld a,c', f' and #{side-1}', ' ld e,a', f' ld hl,#{blob(rows[0])}', ' add hl,de', ' ld a,(hl)']
     if all(len(set(row)) == 1 for row in rows):
-        return [' ld a,c', ' swap a', ' and #15', ' ld e,a', f' ld hl,#{blob(indices[::16])}', ' add hl,de', ' ld a,(hl)']
+        return [' ld a,c', *unrow(side), f' and #{side-1}', ' ld e,a', f' ld hl,#{blob(indices[::side])}', ' add hl,de', ' ld a,(hl)']
     if colors > 16:
         return raw_lookup(blob, indices)
     bits = 1 if colors <= 2 else 2 if colors <= 4 else 4
     return packed_indices(blob, indices, bits)
 
 
-def tile_reader(blob, samples):
+def tile_reader(blob, samples, side=16):
     # Nx, Ny, length are live for each returned contact. The ordinary
     # length projection rebuilds both points only when a pair is returned.
     records = [b''.join(struct.pack('<hhh', *contact) for contact in hit) for hit in samples]
@@ -114,7 +118,7 @@ def tile_reader(blob, samples):
         colors = len(group[0][1])
         shared = []
         if colors > 1 and (colors <= 16 or len(group) > 1):
-            shared = palette_index(blob, indices, colors) + [' ld e,a']
+            shared = palette_index(blob, indices, colors, side) + [' ld e,a']
         lines += shared
         for dest, palette in group:
             if colors == 1:
@@ -122,7 +126,7 @@ def tile_reader(blob, samples):
             elif shared:
                 lines.extend([f' ld hl,#{blob(palette)}', ' add hl,de', ' ld a,(hl)'])
             else:
-                lines.extend(direct_field(blob, fields[dest]))
+                lines.extend(direct_field(blob, fields[dest], side))
             lines.append(' push af' if dest is None else f' ld (#_Ct+{dest}),a')
     return [*lines, ' pop af', ' jp direct_decoded']
 

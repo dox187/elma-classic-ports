@@ -1321,6 +1321,14 @@ math32_unit_shift:
  rr d
  ld e,#0
  jp projection_extend_word
+
+ ; A wheel reciprocal is positive and cannot be a byte or unit
+ ; coefficient. A word torque can go directly to the signed16 reader.
+_riding_projection_reciprocal::
+ ld a,d
+ inc a
+ cp #2
+ jp c,_riding_projection_signed16
 math32_projection_lookup:
 _riding_projection_read_directory::
  push af                        ; width flag

@@ -105,14 +105,14 @@ def contacts(records, qx, qy):
     return () if first is None else (first,)
 
 
-def cell_samples(level, banks, x, y):
-    """Return 256 y-major tuples of active (nx, ny, length) records."""
-    if x % TILE or y % TILE:
-        raise ValueError(f'Unaligned 16-unit square ({x}, {y})')
+def cell_samples(level, banks, x, y, side=TILE):
+    """Return y-major tuples of active (nx, ny, length) records."""
+    if x % side or y % side:
+        raise ValueError(f'Unaligned {side}-unit square ({x}, {y})')
     records = cell_records(level, banks, x, y)
     qx, qy = x & 4095, y & 4095
     return tuple(contacts(records, qx + dx, qy + dy)
-                 for dy in range(TILE) for dx in range(TILE))
+                 for dy in range(side) for dx in range(side))
 
 
 def verify(gen, rom, cells):

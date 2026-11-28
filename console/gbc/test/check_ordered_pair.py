@@ -236,6 +236,35 @@ def check_pivot_intervals(reference, target):
     return 1600
 
 
+
+def check_pivot_replay(reference, target):
+    # The support rejects the outward impulse and free motion with zero
+    # torque retains the pivot's Q24 fraction. Swap the contact order
+    # for rejection on the first pivot, second pivot, or a zero separation.
+    cases = 0
+    for slot in (0, 1):
+        for phase in (0, 1):
+            for vx in (0, 2048, 25000, 65537, 262143):
+                for length in (384, 415, 416, 447):
+                    for n0, x in (((0, 16384), -200), ((0, 16384), 200),
+                                  ((16384, 0), 200)):
+                        fields = {key: bytes(size) for key, size in FIELDS.items()}
+                        wheel = 24*(1+slot)
+                        bike = bytearray(fields['_Bike'])
+                        struct.pack_into('<i', bike, wheel+8, vx)
+                        fields['_Bike'] = bike
+                        fields['_Ct'] = struct.pack('<10h', *n0, length, x, 0,
+                                                    0, 16384, length, 0, 0)
+                        force = (60017, 5041, 0)
+                        want = reference.run(fields, phase, slot, force, False)
+                        got = target.run(fields, phase, slot, force, False)
+                        assert got == want, (slot, phase, vx, length, n0, x)
+                        assert got['_riding_landing_contact'][slot] == 0
+                        assert any(got['_q24_fraction'])
+                        cases += 1
+    return cases
+
+
 def check_locked_supports(reference, target):
     # Coincident contact points accept both zero-separation pivots. The
     # second predicate therefore sees either the first velocity removal or
@@ -412,6 +441,7 @@ def main():
             print(f'{check_removal_products(reference, target)} signed normal removals matched.')
         if '_riding_pivot_bound' in target.symbols:
             print(f'{check_pivot_intervals(reference, target)} slow-pivot interval boundaries matched.')
+            print(f'{check_pivot_replay(reference, target)} zero-torque pivot replays matched.')
         if '_riding_pair_speed_class' in target.symbols:
             print(f'{check_speed_class(target)} velocity boundaries passed.')
         if 'pair_length_scale' in target.symbols:

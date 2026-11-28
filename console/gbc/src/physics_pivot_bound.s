@@ -1,36 +1,101 @@
-; Full-phase slow wheel pivot. With U(a)=a for a>=0 and ~a otherwise,
-; w is 256, or 1024 if either impulse needs a wider digit. u=U(v)//w.
-; Multiply both signed u digits by their signed tangent high bytes and sum
-; to P. In these units the original dot differs from P by at most
-; ux+uy+131: each discarded velocity magnitude <= w, each omitted Q14
-; byte <256, each high coefficient is in [-64,64], and the dot rounds once.
+; Bound a pivot's angular moment before doing its exact projection.
+; U(v) is v for v>=0 and ~v otherwise. Form the signed dot P of
+; U(v)//w and tangent>>8, with w=256 or 1024. The exact Q14 dot
+; differs from (w/64)*P by at most (w/64)*(ux+uy+131).
 ;
-; For w=256 the moment increment per unit P is
-; alpha=4*length*C_OLD[0]/(64*2^24). Inside the checked length range and
-; build coefficient range, 1/alpha is strictly between 2-1/8 and 2+1/8.
-; Thus -2*tq bounds the zero crossing to within U(tq)//8+ux+uy+136.
-; The extra units cover the signed floors, positive-half Q24 tie and strict
-; sign test. At w=1024 divide the torque center and its radius by four.
-; An interval hit can defer the first accepted pivot or reject either one.
-; A second accepted pivot always publishes its exact Q24 fraction. If its
-; geometry separation rounds to zero the existing replay restores the first.
+; With contact length 384..447 and w=256, the inverse slope from P
+; to angular moment lies in (1.81,2.12) for full slow pivots and
+; (1.19,1.40) for partial slow pivots. Use -2*m or -1.25*m for
+; the crossing center, with |m|/4 for its uncertainty. Divide both
+; by four when w=1024. For fast pivots use w=1024, crossing center
+; -16*m and radius 2*|m| (inverse slope in (14.39,16.76)).
+; The remaining radius ux+uy+144 covers the dot error, signed floors,
+; Q24 rounding and strict sign tests. A miss uses the exact kernel.
 .module physics_pivot_bound
 .area _DATA
-; Each bound row stores the multiply-table bank, page and velocity sign.
 bound_row_x: .ds 3
 bound_row_y: .ds 3
 bound_low: .ds 2
 bound_high: .ds 2
+bound_width: .ds 1
+bound_known_side: .ds 1
+bound_moment: .ds 2
+bound_rejected_length: .ds 1
+bound_rejected_sign: .ds 1
 bound_ready: .ds 1
-.area _CODE_476
+.area _CODE_9
 _riding_pivot_bound::
- ; HL=length, checked before accessing the current pair's cached interval.
+ push hl
+ push bc
+ call bound_classify
+ ld e,a
+ pop bc
+ pop hl
+ ld a,e
+ or a
+ jp z,pair_exact_moment
+ dec a
+ jr nz,bound_defer_rejection
+ pop af
+ ld a,#13
+ ld (#_riding_pair_moment_side),a
+ ld a,#1
+ ret
+bound_defer_rejection:
+ ld a,l                         ; all admitted lengths have high byte 1
+ ld (#bound_rejected_length),a
+ pop af
+ ld (#bound_rejected_sign),a
+ ld a,#16
+ ld (#_riding_pair_moment_side),a
+ jp pair_reject_moment
+
+; DE is the surviving support. A successful support rolls and overwrites
+; Q24, as does a nonzero free torque. On a free step with zero torque,
+; materialize the deferred rejected pivot before the caller moves the wheel.
+_riding_pair_last_support::
+ call _riding_pair_supports
+ or a
+ ret nz
+ ld a,(#_riding_pair_moment_side)
+ and #16
+ ret z
+ ld hl,#_riding_pair_impulse
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld bc,#8
+ add hl,bc
+ ld a,(hl+)
+ or (hl)
+ inc hl
+ or (hl)
+ inc hl
+ or (hl)
+ jp nz,pair_reject_moment
+ ld a,(#bound_rejected_sign)
+ push af
+ ld a,(#bound_rejected_length)
+ ld l,a
+ ld h,#1
+ jp pair_exact_moment
+
+bound_classify:
+ ; Admit tangent high digits [-65,64], including slightly widened normals.
  ld a,h
  dec a
  jp nz,bound_miss
  ld a,l
  sub #128
- cp #32
+ cp #64
+ jp nc,bound_miss
+ ld a,(#_riding_pair_tangent+1)
+ add #65
+ cp #130
+ jp nc,bound_miss
+ ld a,(#_riding_pair_tangent+3)
+ add #65
+ cp #130
  jp nc,bound_miss
  ld a,(#_riding_pair_moment_side)
  bit 3,a
@@ -38,15 +103,10 @@ _riding_pivot_bound::
  call bound_prepare
  ret nc
 bound_project:
- ld a,(#_riding_pair_tangent+1)
- add #64
- cp #129
- jp nc,bound_miss
- ld a,(#_riding_pair_tangent+3)
- add #64
- cp #129
- jp nc,bound_miss
- call bound_products
+ ld a,(#bound_known_side)
+ or a
+ jr nz,bound_choice
+ call _riding_pair_bound_gate
  ld a,h
  xor #128
  ld h,a
@@ -86,7 +146,8 @@ bound_miss:
  ret
 
 bound_prepare:
- ; Limit |tq| so the signed interval endpoints fit a word.
+ xor a
+ ld (#bound_known_side),a
  ld hl,#_riding_pair_moment
  ld a,(hl+)
  ld h,(hl)
@@ -95,10 +156,6 @@ bound_prepare:
  ld e,a
  ld a,(hl+)
  ld d,a
- add #32
- cp #64
- jp nc,bound_disable
- ld a,d
  add a
  sbc a
  cp (hl)
@@ -106,47 +163,36 @@ bound_prepare:
  inc hl
  cp (hl)
  jp nz,bound_disable
- ; T=-2*tq, R=floor(U(tq)/8)+ux+uy+136.
  xor d
- ld b,a
+ cp #32
+ jp nc,bound_disable
+ ld a,e
+ ld (#bound_moment),a
  ld a,d
- add a
- sbc a
- xor e
- ld c,a
- srl b
- rr c
- srl b
- rr c
- srl b
- rr c
- push bc
- xor a
- sub e
- ld l,a
- ld a,#0
- sbc d
- ld h,a
- add hl,hl
- push hl
+ ld (#bound_moment+1),a
+
  ld hl,#_riding_pair_vector
  ld a,(hl+)
  ld h,(hl)
  ld l,a
  ld de,#bound_row_x+2
  call bound_digit
- jr nc,bound_failed
+ jp nc,bound_disable
  ld b,a
  push bc
  ld de,#bound_row_y+2
  call bound_digit
- pop hl                          ; X magnitude, in units of 256
- jr nc,bound_failed
+ pop hl
+ jp nc,bound_disable
  ld b,a
- ld d,c                          ; Y magnitude, in the same units
+ ld d,c
+ ld a,(#_riding_pair_shift)
+ cp #10
+ jr z,bound_wide_rows
  ld a,h
  or b
  jr z,bound_narrow_rows
+bound_wide_rows:
  srl b
  rr d
  srl b
@@ -155,29 +201,107 @@ bound_prepare:
  rr l
  srl h
  rr l
+ ld a,#1
+bound_narrow_rows:
+ ld (#bound_width),a
  ld c,l
  ld a,d
  call bound_bind
- pop de
+ ; Keep the signed P in [-32760,32760] even for both extreme digits.
+ ld a,h
+ or a
+ jr z,bound_row_sum
+ ld a,l
+ cp #249
+ jp nc,bound_disable
+bound_row_sum:
+ push hl
+ ld a,(#bound_moment)
+ ld e,a
+ ld a,(#bound_moment+1)
+ ld d,a
+ add a
+ sbc a
+ ld c,a
+ xor d
+ ld b,a
+ ld a,c
+ xor e
+ ld c,a
+ xor a
+ sub e
+ ld e,a
+ ld a,#0
+ sbc d
+ ld d,a                          ; DE=-m, BC=U(m)
+ ld a,(#_riding_pair_shift)
+ cp #10
+ jr z,bound_fast_center
+ ld h,d
+ ld l,e
+ ld a,(#_riding_subphase)
+ or a
+ jr z,bound_full_center
  sra d
  rr e
  sra d
  rr e
- pop bc
+ add hl,de
+ jr bound_slow_radius
+bound_full_center:
+ add hl,hl
+bound_slow_radius:
+ srl b
+ rr c
+ srl b
+ rr c
+ ld a,(#bound_width)
+ or a
+ jr z,bound_thresholds
+ sra h
+ rr l
+ sra h
+ rr l
  srl b
  rr c
  srl b
  rr c
  jr bound_thresholds
-bound_narrow_rows:
- ld c,l
- ld a,d
- call bound_bind
- pop de
- pop bc
-bound_thresholds:
+
+bound_fast_center:
+ ; Even at the largest admitted length, each 1024 velocity units
+ ; at maximum tangent magnitude contributes fewer than 4.5 angular
+ ; units. (ux+uy+2)*5 dominates both rounded products.
+ push bc
+ ld bc,#2
  add hl,bc
- ld bc,#136
+ ld b,h
+ ld c,l
+ add hl,hl
+ add hl,hl
+ add hl,bc
+ pop bc
+ ld a,c
+ sub l
+ ld a,b
+ sbc h
+ jr nc,bound_fast_dominant
+ ld a,b
+ cp #4
+ jr nc,bound_fast_unknown
+ ld h,d
+ ld l,e
+ .rept 4
+ add hl,hl
+ .endm
+ sla c
+ rl b
+bound_thresholds:
+ ld d,h
+ ld e,l
+ pop hl
+ add hl,bc
+ ld bc,#144
  add hl,bc
  ld b,h
  ld c,l
@@ -194,12 +318,22 @@ bound_thresholds:
  sbc b
  xor #128
  ld (#bound_low+1),a
+ jr bound_activate
+bound_fast_dominant:
+ pop hl
+ ld a,(#bound_moment+1)
+ and #128
+ jr nz,bound_store_side
+ ld a,#2
+bound_store_side:
+ ld (#bound_known_side),a
+bound_activate:
  ld a,#12
  ld (#_riding_pair_moment_side),a
  scf
  ret
-bound_failed:
- add sp,#4
+bound_fast_unknown:
+ pop hl
 bound_disable:
  xor a
  ld (#_riding_pair_moment_side),a
@@ -255,7 +389,6 @@ bound_bind:
  add hl,bc
  ret
 
-_riding_pair_bound_end::
 .area _CODE
 ; Called by cold course setup and also by standalone wheel entry points.
 ; Fixed-ROM VBlank preserves registers and the hardware ROM/RAM windows.
@@ -302,37 +435,10 @@ bound_copy:
 
 .globl _riding_pair_bound_gate
 _riding_pair_bound_gate = 0xa570
-; SRAM0 holds the mapped call and both byte-product reads. The image also
-; addresses two entry points in bank 9 after restoring the low and high
-; MBC5 registers. The head maps that precede it stay at their linked offsets.
+; The SRAM reader maps both byte-product rows, then restores bank 9.
+; The head maps that precede it stay at their linked offsets.
 pair_bound_image::
- push hl
- push bc
- ld a,#220
- ld (#0x2000),a
- ld a,#1
- ld (#0x3000),a
- call _riding_pivot_bound
- ld e,a
- xor a
- ld (#0x3000),a
- ld a,#9
- ld (#0x2000),a
- pop bc
- pop hl
- ld a,e
- or a
- jp z,pair_exact_moment
- pop bc
- dec a
- jp nz,pair_reject_moment
- ld a,#13
- ld (#_riding_pair_moment_side),a
- ld a,#1
- ret
 bound_products_image:
- xor a
- ld (#0x3000),a
  ld hl,#bound_row_x
  ld a,(#_riding_pair_tangent+1)
  call bound_term
@@ -342,10 +448,8 @@ bound_products_image:
  call bound_term
  pop hl
  add hl,bc
- ld a,#220
+ ld a,#9
  ld (#0x2000),a
- ld a,#1
- ld (#0x3000),a
  ret
 bound_term_image:
  ld c,a
@@ -381,5 +485,4 @@ pair_bound_image_end::
 .ifgt pair_bound_image_end-pair_bound_image-144
  .error 1
 .endif
-bound_products = (bound_products_image-pair_bound_image)+0xa570
 bound_term = (bound_term_image-pair_bound_image)+0xa570

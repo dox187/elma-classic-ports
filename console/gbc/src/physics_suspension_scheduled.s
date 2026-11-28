@@ -1721,7 +1721,7 @@ ss_reaction_word:
  ld a,(hl+)
  ld b,(hl)
  ld c,a
- call _riding_projection_signed16
+ call _riding_projection_reciprocal
  ld e,d
  ld d,l
  ld l,h

@@ -400,6 +400,7 @@ uint8_t riding_contact_merge(void) {
 static uint8_t contacts(int32_t cx,int32_t cy) __naked {
  cx;cy;
  __asm
+_riding_contacts_fallback::
     ld a,b
     and a,#15
     ld h,a
@@ -1895,7 +1896,11 @@ ws_cert:
     ld de,#-6
     add hl,de
     call wheel_query_position
+#ifdef RIDING_EXTENDED_CONTACTS
+    call _riding_extended_contacts
+#else
     call _contacts
+#endif
 _riding_patch_have_answer::
 ws_have_answer:
     or a,a
@@ -2268,6 +2273,9 @@ void riding_pair_slow_setup(const int32_t *moment) __preserves_regs(b,c);
 #endif
 uint8_t riding_pair_sure(const contact_t *pivot,uint8_t *separation);
 uint8_t riding_pair_supports(const contact_t *contact);
+#ifdef RIDING_PAIR_BOUND
+uint8_t riding_pair_last_support(const contact_t *contact);
+#endif
 
 #ifdef RIDING_STOPPED_PAIR
 uint8_t riding_stopped_pair_proof(void) __banked;
@@ -2335,6 +2343,11 @@ resolve_fast:
     ld a,#10
     ld (#_riding_pair_shift),a
     call _riding_pair_fast_side
+    or a
+    jr nz,resolve_fast_side
+    call _riding_prepare_pair_bound
+    ld a,#4
+resolve_fast_side:
     ld (#_riding_pair_moment_side),a
     ld a,(#_riding_subphase)
     ld hl,#_q24_index_C_NEW
@@ -2419,7 +2432,7 @@ resolve_swap_then_support:
     call resolve_copy
 resolve_support:
     ld de,#_Ct
-    jp _riding_pair_supports
+    jp _riding_pair_last_support
 resolve_swap_single:
     call resolve_copy
     ld a,#1
@@ -2491,7 +2504,11 @@ uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
         Ct[0]=Ct[1];
         return 1;
     }
+#ifdef RIDING_PAIR_BOUND
+    return riding_pair_last_support(&Ct[0]);
+#else
     return riding_pair_supports(&Ct[0]);
+#endif
 }
 
 #endif

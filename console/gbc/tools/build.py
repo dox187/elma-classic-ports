@@ -36,6 +36,7 @@ import seat_tables
 import sqrt_tables
 import stopped_pair
 import wheel_direct_tiles
+import wheel_extended_tiles
 import wheel_terrain
 
 BASE=Path(__file__).resolve().parents[1]
@@ -196,6 +197,12 @@ def validate_linked_layout(symbol_path,rom_mib):
             if not (symbols[f'_riding_radial_space_{bank}'] <= symbols['direct_data_start'] <
                     symbols['direct_data_end'] <= symbols[f'_riding_radial_space_end_{bank}']):
                 raise ValueError('Direct wheel reader exceeds the reserved radial bank')
+    if 'extended_465_start' in symbols:
+        for bank in wheel_extended_tiles.BANKS:
+            start = symbols[f'extended_{bank}_start']
+            end = symbols[f'extended_{bank}_end']
+            if start != (bank << 16) + 0x4000 or end > start + 16384:
+                raise ValueError(f'Extended contact tiles exceed bank {bank}')
     if '_riding_wheel_lookup' in symbols:
         wheel_terrain.validate_layout(symbols)
     if '_riding_projection_bank_477' in symbols:
@@ -451,15 +458,16 @@ def main():
     sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
     graphics = json.loads((a.gen/'level_manifest.json').read_text())
     signed_bg = scheduled and rom_mib==8 and graphics['map_codec']==rolling_map_banks.CODEC
-    # Full slow-pivot sign interval requires 8/17 < alpha < 8/15 for
-    # every contact length in 384..415, where alpha=4*length*C/(64*2^24).
+    # These are the two Q24 coefficients used by the pivot sign bounds.
     pivot_bound = False
     if signed_bg:
         constants = (a.gen/'riding_constants.h').read_text()
-        full_old = int(re.search(r'q24_C_OLD\[2\]=\{(-?\d+),', constants).group(1))
-        pivot_bound = 328966 <= full_old <= 344977
+        old = re.search(r'q24_C_OLD\[2\]=\{(-?\d+),(-?\d+)\}', constants).groups()
+        new = re.search(r'q24_C_NEW\[2\]=\{(-?\d+),(-?\d+)\}', constants).groups()
+        pivot_bound = old == ('330579','501370') and new == ('166886','166886')
     pivot_flags = 'RIDING_PAIR_BOUND = 1\n' if pivot_bound else ''
 
+    extended_contacts = []
     if rom_mib==8:
         sources[sources.index(BASE/'src/video_strip_pair.s')] = BASE/'src/world_map_planes.s'
         # Only world.c and its near acquisition kernel call these SRAM helpers.
@@ -492,7 +500,7 @@ def main():
             'physics_div_fast.s','physics_sin_fast.s',
             'physics_div20_scheduled.s','physics_export_fast.s','physics_bounds.s',
             'physics_rider_fast.s','physics_rider_response.s','physics_phase.s','physics_circle_scheduled.s',
-            'physics_supports_fast.s','physics_ordered_pair.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
+            'physics_ordered_pair.s','physics_free_fast.s','physics_roll_fast.s','physics_wheel_bridge.c',
             'physics_angle.c','physics_body_angle.s','physics_geometry.c','physics_pose_lookup.s','physics_head_pose.s','physics_brake_fast.s',
             'physics_suspension_scheduled.s','physics_step_scheduled.s','physics_level_bounds.s','physics_recip_fast.s','physics_contact_filter.s','physics_reaction_division.s')]
         sources.insert(0, a.gen/'physics_rider_rows.c')
@@ -686,6 +694,12 @@ def main():
             radial_slabs[wheel_direct_tiles.BANK] += '\n' + data
             head_clearance.write_if_changed(a.gen/'direct_wheel_runtime.s', runtime)
             direct_prefix = 'RIDING_DIRECT_TILES = 1\n'
+        if direct_prefix and all(
+            not (a.gen/f'level_bank_{bank}.c').exists() and bank not in terrain_banks
+            for bank in wheel_extended_tiles.BANKS):
+            extended_contacts = wheel_extended_tiles.generate(
+                a.gen, BASE/'src/extended_wheel.inc', levels, terrain_banks)
+            direct_prefix += 'RIDING_EXTENDED_CONTACTS = 1\n'
         head_clearance.write_if_changed(lookup, direct_prefix + (BASE/'src/corner_lookup.s').read_text() + directory)
         sources.append(lookup)
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/haircut_gate.s')
@@ -787,7 +801,7 @@ def main():
         if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS'] + (['-DRIDING_BODY_TRANSFERS'] if head_lanes else [])
         if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS'] + (['-DRIDING_BODY_TRANSFERS'] if head_lanes else [])
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
-        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR','-DRIDING_SWEPT_HEAD_ONLY'] + (['-DRIDING_CORNER_CELLS'] if head_lanes else []) + (['-DRIDING_PAIR_BOUND'] if pivot_bound else [])
+        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR','-DRIDING_SWEPT_HEAD_ONLY'] + (['-DRIDING_CORNER_CELLS'] if head_lanes else []) + (['-DRIDING_PAIR_BOUND'] if pivot_bound else []) + (['-DRIDING_EXTENDED_CONTACTS'] if extended_contacts else [])
         if scheduled and path==sweep_path:
             return ['-DRIDING_HEAD_TERRAIN'] + (['-DRIDING_HEAD_LANES'] if head_lanes else [])
         return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []
@@ -797,6 +811,7 @@ def main():
     if head_lanes and wheel_direct_tiles.BANK in radial_slabs:
         # The lookup pages in low ROM must stay at the start of their banks.
         sources.append(a.gen/'direct_wheel_runtime.s')
+    sources.extend(extended_contacts)
     objects=[];keys=[];pending=[]
     for path in sources:
         key=source_key(path)

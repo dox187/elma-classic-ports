@@ -83,7 +83,7 @@ def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False, slabs=No
             from wheel_direct_tiles import BANK, RESERVED_BYTES
             if BANK in slabs:
                 room[BANK] -= RESERVED_BYTES
-        # The pivot routine follows the normal data in this scenery bank.
+        # Keep the established atlas placement in bank 476.
         if 476 in room:
             room[476] -= 390
     placement = {}
@@ -97,7 +97,7 @@ def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False, slabs=No
         placement[i] = bank
         room[bank] -= sizes[i]
     # After packing complete groups, spend the bank's remaining bytes on
-    # deeper offsets. Keep bank 476's tail available to the pivot solver.
+    # deeper offsets. Keep the existing reserve at the end of bank 476.
     # Extend the closest missing radius first, independently in each bank.
     if extend_rows and not slabs:
         for bank in set(placement.values()) - {476}:
@@ -188,10 +188,6 @@ def validate_layout(symbols):
             bank = int(match[1])
             end = symbols[f'_normal_atlas_end_{bank}']
             bank_end = symbols[f's__CODE_{bank}'] + symbols[f'l__CODE_{bank}']
-            if bank == 476 and '_riding_pivot_bound' in symbols:
-                if symbols['_riding_pair_bound_end'] != bank_end:
-                    raise ValueError('Pivot bounds must finish immediately after the bank 476 normal atlas')
-                bank_end = symbols['_riding_pivot_bound']
             if (not 256 <= bank < 508 or bank in ROOM or f'_wheel_terrain_tail_{bank}' in symbols
                     or symbols[f'_level_bank_{bank}'] != (bank<<16)+0x4000
                     or start != (bank<<16)+symbols[f'_normal_graphics_end_{bank}']

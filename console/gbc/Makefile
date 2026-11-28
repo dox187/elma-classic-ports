@@ -19,7 +19,7 @@ VERSION := $(shell cat VERSION)
 GAME_ROM ?= build/elma-gbc-v$(VERSION)-$(ROM_MIB)m.gbc
 GEN ?= $(if $(filter 4,$(ROM_MIB)),build/gen,build/gen-8m)
 LEVEL_CACHE ?= build/gen
-COMPACT_SCENERY ?= 0
+COMPACT_SCENERY ?= 1
 # Keep the 8 MiB physics tables directly after scenery, away from the ROM tail.
 COEFFICIENT_BANK := $(if $(filter scheduled,$(DAMPER)),481,$(if $(filter 4,$(ROM_MIB)),252,477))
 COEFFICIENT_TOOL := $(if $(filter scheduled,$(DAMPER)),math_q24_coefficients.py,math32_coefficients.py)

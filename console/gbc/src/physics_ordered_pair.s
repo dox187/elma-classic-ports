@@ -11,8 +11,8 @@ pair_nv:: .ds 4
 
 .area _CODE_9
 .ifdef RIDING_PAIR_BOUND
-; Full slow pivots with a nontrivial applied torque can share its sign
-; thresholds and both velocity rows. The setup leaves the caller's BC live.
+; Both slow pivots share the sign thresholds and velocity rows.
+; The setup leaves the caller's BC live.
 _riding_pair_slow_setup::
  ld hl,#_riding_pair_moment
  ld (hl),e
@@ -20,23 +20,51 @@ _riding_pair_slow_setup::
  ld (hl),d
  ld a,#6
  ld (#_riding_pair_shift),a
- ld hl,#(_q24_index_C_OLD+1)
+ ld hl,#_q24_index_C_OLD
  ld a,(#_riding_subphase)
  or a
- jr nz,pair_set_coefficient
- dec hl
- ld a,(de)
- add a
- inc de
- ld a,(de)
- adc #0
- jr z,pair_set_coefficient
+ jr z,pair_enable_bound
+ inc hl
+ ; With both components below 16 digits, the rounding radius is a
+ ; large share of the partial-phase projection. Use the exact path.
+ push hl
+ push bc
+ ld hl,#_riding_pair_vector
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ inc hl
+ call pair_small_impulse
+ call c,pair_small_impulse
+ pop bc
+ pop hl
+ jr c,pair_set_coefficient
+pair_enable_bound:
  call _riding_prepare_pair_bound
  ld a,#4
  ld (#_riding_pair_moment_side),a
 pair_set_coefficient:
  ld a,(hl)
  ld (#_riding_pair_coefficient),a
+ ret
+pair_small_impulse:
+ ; Carry means U(impulse) < 4096. Advance HL to the next high byte.
+ ld a,(hl+)
+ ld c,a
+ add a
+ sbc a
+ ld b,a
+ xor c
+ cp #16
+ ret nc
+ ld a,(hl+)
+ xor b
+ ret nz
+ ld a,(hl+)
+ xor b
+ ret nz
+ inc hl
+ scf
  ret
 .endif
 ; DE = pivot (Ct[0] or Ct[1]), BC = its rounded separation-sign cell.
@@ -175,10 +203,10 @@ pair_certify_moment:
  or a
  jp z,pair_exact_moment
 .ifdef RIDING_PAIR_BOUND
- ; Values 4 and 12 select the full-phase interval before and after binding
+ ; Values 4 and 12 select the interval before and after binding
  ; the two rows; 13 additionally defers the first pivot's Q24 fraction.
  bit 2,a
- jp nz,_riding_pair_bound_gate
+ jp nz,_riding_pivot_bound
 .endif
  ld b,a
  pop af
@@ -255,7 +283,7 @@ pair_true:
  ld a,#1
  ret
 
-.area _CODE
+.area _CODE_9
  ; DE=dx and BC=dy. U(v) is v for v>=0 and ~v otherwise, so
  ; U(v)<=abs(v)<=U(v)+1. A strictly larger U identifies a coordinate
  ; at least as large in magnitude. Limit both U values to 16383 to
