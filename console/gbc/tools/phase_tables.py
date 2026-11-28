@@ -2,6 +2,10 @@
 import json
 import re
 
+from bike_frames16 import read_array
+from head_clearance import write_if_changed
+from projection_tables import byte_lines
+
 
 def generate(gen, source):
     manifest = json.loads((gen / 'physics_q24_manifest.json').read_text())
@@ -81,6 +85,21 @@ def circle_source(gen, source, phase):
     return output
 
 
+def body_angle_pages(gen, out=None):
+    """Place every 256-entry angular lookup on a page without padding bank 3."""
+    header = gen / 'physics_angle_rows.h'
+    names = [f'riding_angle_digit{i}' for i in range(4)]
+    names.extend(f'riding_angle_frac{i}' for i in range(3))
+    names.extend(('riding_oms_product', 'riding_angle_carry', 'riding_angle_negative'))
+    lines = ['.module body_angle_pages', '.area _CODE_3', 'body_angle_pages::']
+    for name in names:
+        data = read_array(header, name)
+        lines.extend(('_' + name + '::', *byte_lines(data)))
+    output = (out or gen) / 'body_angle_pages.s'
+    write_if_changed(output, '\n'.join(lines) + '\n')
+    return output
+
+
 def body_angle(gen, source, out=None):
     """Fold the signed fractional high byte's bias into the top velocity row."""
     constants = (gen / 'riding_constants.h').read_text()
@@ -90,7 +109,8 @@ def body_angle(gen, source, out=None):
     scale = int(match[1])
     if scale != int(match[2]) or not 0x40000100 <= scale < 0x80000000:
         raise ValueError('Unsupported body angular coefficient')
-    lines = ['RIDING_OMS_NEAR = 1', source.read_text(), '.area _CODE_3', 'oms_near_rows:']
+    lines = ['RIDING_OMS_NEAR = 1', 'RIDING_ANGLE_PAGES = 1', source.read_text(),
+             '.area _CODE_3', 'oms_near_rows:']
     for digit in range(32):
         signed = digit if digit < 16 else digit - 32
         value = ((signed * 65536 - 128) * scale) >> 24

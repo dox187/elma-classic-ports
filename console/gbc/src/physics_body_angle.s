@@ -72,13 +72,23 @@ _riding_full_angle::
 .area _CODE_3
 ; Each byte of omega selects an integer quotient and a remainder for
 ; omega*27007/1280. All remainders share a single final floor.
-.macro angle_page table,offset
- ld a,(#_Bike+20+offset)
+; The cartridge packs the digit planes at page boundaries. Standalone
+; callers can still link the original unaligned coefficient arrays.
+.macro angle_index table
+ .ifdef RIDING_ANGLE_PAGES
+ ld l,a
+ ld h,#>table
+ .else
  add a,#<table
  ld l,a
  ld a,#>table
  adc a,#0
  ld h,a
+ .endif
+.endm
+.macro angle_page table,offset
+ ld a,(#_Bike+20+offset)
+ angle_index table
 .endm
 
 ; The accumulated quotient is BCDE, least significant byte in E.
@@ -110,11 +120,7 @@ _riding_full_angle::
 ; Each discarded low byte contributes its carry to the next digit.
 .macro angle_residual_page table,offset
  ld a,(#_angular_residual+offset)
- add a,#<table
- ld l,a
- ld a,#>table
- adc a,#0
- ld h,a
+ angle_index table
 .endm
 .globl b_riding_partial_body_angle
 b_riding_partial_body_angle = 3
@@ -211,11 +217,7 @@ angle_wide:
  angle_add_digit _riding_angle_digit3,3
 angle_finish:
  pop af
- add a,#<_riding_angle_carry
- ld l,a
- ld a,#>_riding_angle_carry
- adc a,#0
- ld h,a
+ angle_index _riding_angle_carry
  ld a,(hl)
  add a,a
  sbc a,a
@@ -254,11 +256,7 @@ b_body_oms = 3
 ; Select the five parallel bytes of digit*m. The table can start at any
 ; address in this bank. Incrementing H moves to the next product byte.
 .macro oms_row
- add a,#<_riding_oms_product
- ld l,a
- ld a,#>_riding_oms_product
- adc a,#0
- ld h,a
+ angle_index _riding_oms_product
 .endm
 
 ; DEBC <- floor((digit*m + DEBC)/256). The low byte contributes its carry
@@ -308,11 +306,7 @@ b_body_oms = 3
 ; omega. After six base-256 digits DEBC holds the quotient from bits 0..47.
 ; The last signed digit scales by exactly m, including at the clamp edges.
  .macro oms_at page
- add a,#<_riding_oms_product
- ld l,a
- ld a,#>(_riding_oms_product+256*page)
- adc a,#0
- ld h,a
+ angle_index (_riding_oms_product+256*page)
  .endm
 _body_oms::
  .ifdef RIDING_OMS_NEAR

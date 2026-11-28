@@ -74,6 +74,13 @@ def validate_linked_layout(symbol_path,rom_mib):
             fixed_end=max(fixed_end,start+size)
         elif bank>=rom_mib*64 or start>>16!=bank or address<0x4000 or address+size>0x8000:
             raise ValueError(f'ROM bank {bank} exceeds its linked address window')
+    if 'body_angle_pages' in symbols:
+        pages = [f'_riding_angle_digit{i}' for i in range(4)]
+        pages += [f'_riding_angle_frac{i}' for i in range(3)]
+        for name in (*pages, '_riding_oms_product', '_riding_angle_carry'):
+            address = symbols[name]
+            if address >> 16 != 3 or address & 255:
+                raise ValueError(f'{name} requires an aligned lookup page in bank 3')
     if '_torque_C_SPRING_T_0' in symbols:
         for name in ('C_SPRING_T', 'C_FRIC_T'):
             for phase in (0, 1):
@@ -483,6 +490,8 @@ def main():
         sources[sources.index(phase_source)] = phase
         circle_source = BASE/'src/physics_circle_scheduled.s'
         sources[sources.index(circle_source)] = phase_tables.circle_source(a.gen, circle_source, phase)
+        sources.remove(BASE/'src/physics_angle.c')
+        sources.insert(0, phase_tables.body_angle_pages(a.gen))
         angle_source = BASE/'src/physics_body_angle.s'
         sources[sources.index(angle_source)] = phase_tables.body_angle(a.gen, angle_source)
         free_source = BASE/'src/physics_free_fast.s'
