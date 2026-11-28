@@ -133,50 +133,6 @@ roll_axis_inputs_30:
  roll_axis_inputs_kernel ground_resume_deltas
  roll_axis_value_kernel
  roll_stationary_kernel roll_stationary_30,1
-; The horizontal unit tangent needs only two saturated signed negations.
-roll_flat_inputs:
- ld a,#3
- ldh (#near_page),a
- ldhl sp,#6
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld de,#8
- add hl,de
- call roll_flat_negate
- push de
- push bc
- ldhl sp,#8
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- call roll_flat_negate
- jp ground_resume_deltas
-roll_flat_negate:
- xor a
- sub (hl)
- ld c,a
- inc hl
- ld a,#0
- sbc (hl)
- ld b,a
- inc hl
- ld a,#0
- sbc (hl)
- ld e,a
- inc hl
- ld a,#0
- sbc (hl)
- ld d,a
- cp #128
- ret nz
- ld a,e
- or b
- or c
- ret nz
- ld de,#0x7fff
- ld bc,#0xffff
- ret
 .endm
 
 .area _CODE_9
@@ -231,7 +187,7 @@ roll_start:
  ld a,d
  .ifdef RIDING_GROUND_ROWS
  cp #0xc0
- jp z,roll_map_flat
+ jp z,roll_flat_inputs
  cp #0x40
  jr nz,roll_input_dots
  xor a
@@ -466,10 +422,71 @@ roll_map_axis:
  ld (#0x2000),a
  ld a,c
  jp roll_axis_inputs_30
-roll_map_flat:
- ld a,#30
- ld (#0x2000),a
- jp roll_flat_inputs
+.area _CODE_9
+; The horizontal unit tangent needs only two saturated signed negations.
+; Run both in the wheel bank and enter the shared delta calculation directly.
+roll_flat_inputs:
+ ld a,#3
+ ldh (#near_page),a
+ ldhl sp,#6
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ ld de,#8
+ add hl,de
+ call roll_flat_negate
+ push de
+ push bc
+ ldhl sp,#8
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ call roll_flat_negate
+ jp roll_projected_inputs
+ground_cached_flat:
+ push hl
+ ldhl sp,#4
+ call roll_flat_negate
+ ; DEBC is the negated X projection. The Y projection is zero.
+ pop hl
+ ld a,c
+ ld (hl+),a
+ ld a,b
+ ld (hl+),a
+ ld a,e
+ ld (hl+),a
+ ld a,d
+ ld (hl+),a
+ xor a
+ .rept 4
+ ld (hl+),a
+ .endm
+ ret
+roll_flat_negate:
+ xor a
+ sub (hl)
+ ld c,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld b,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld e,a
+ inc hl
+ ld a,#0
+ sbc (hl)
+ ld d,a
+ cp #128
+ ret nz
+ ld a,e
+ or b
+ or c
+ ret nz
+ ld de,#0x7fff
+ ld bc,#0xffff
+ ret
  .else
  roll_stationary_kernel roll_stationary,0
  .endif

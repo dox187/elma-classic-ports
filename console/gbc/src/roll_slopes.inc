@@ -703,9 +703,6 @@ near_project_map:
  jp near_project
 ; These continuations belong to the roll whose input dispatcher verified
 ; the tangent. Standalone callers still enter the public pair dispatcher.
-ground_cached_flat:
- push hl
- jp ground_flat_pair
 ground_cached_pair:
  push hl
  ldh a,(#ground_projection_bank)
