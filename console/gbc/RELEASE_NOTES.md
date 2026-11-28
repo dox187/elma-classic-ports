@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test68 — Contact lengths and scenery preloads
+
+The forced Steep Corner peak fell from 59.51 to 58.84 ms. The solver now
+looks up certified contact lengths and shortens wheel velocity corrections.
+Sixteen courses preload their most frequent scenery patterns at entry.
+Their visual replays needed 123 pattern uploads during riding, down from 264.
+Primary input cadence was 29.829 updates/s with 59 late intervals in 25,310.
+
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test68-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test68--contact-lengths-and-scenery-preloads)
+
 ## 0.96 test67 — Signed products and complete contact tiles
 
 The 48th course's hardest test66 step fell from 57.21 to 50.45 ms with the

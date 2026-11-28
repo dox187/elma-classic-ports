@@ -4792,3 +4792,45 @@ probes. Across the 16 repacked courses, 1,386 presentations matched and
 with one late update in the entry sweep.
 
 SHA-256 `25d34e55842beb3392c60139539a962a47ba3b1d47e21d2a0b76c1e2fb1f07f9`.
+
+## 0.96 test68 — Contact lengths and scenery preloads
+
+The physical normalizer can read an exact length for 466,408 of 477,772
+reachable signed offsets in its reciprocal range. Each band also records
+whether projecting that length reconstructs the original endpoint. The
+11,364 ambiguous offsets use the existing dot product. The linked test
+checked 2,078 band outcomes, bank restoration through a VBlank interrupt,
+and 540 public calls with a separately supplied squared distance.
+
+Short signed wheel corrections reuse the SRAM multiplier. Thirteen speed
+bounds avoid squaring velocity components where the 1 m/s decision is certain.
+There were 8,444 direct removal comparisons and 1,524 speed boundary cases.
+
+| PyBoy measurement | test67 | test68 |
+| --- | ---: | ---: |
+| Weighted primary updates/s, 25,310 intervals | 29.829 | 29.829 |
+| Late intervals, catalog / extended / complete Freefall | 40 / 19 / 0 | 40 / 19 / 0 |
+| Independent seed, late out of 5,302 | 21 | 21 |
+| Independent Haircut, late out of 226 | 9 | 9 |
+| Mean active primary update, T-cycles | 205,206 | 205,172 |
+| Historical placements above budget out of 2,432 | 284 | 284 |
+| Peak historical physics, T-cycles | 473,156 | 473,156 |
+| Forced Steep Corner peak physics, T-cycles | 499,200 | 493,600 |
+
+Across 200 forced Steep updates, physics fell from 85,072,040 to
+84,443,588 T. All 200 exceeded the 280,896 T whole-game budget. All
+100,382 checked physics substeps matched test67. All 54 courses started.
+There was one late interval in the entry sweep.
+
+Sixteen medium courses dedicate spare VRAM slots to frequent scenery tiles.
+Their seeded replays had 1,386 identical presentations and 33,117 checked
+background cells. Across those routes, entry uploads increased from 5,391
+to 8,246 and uploads after the first presentation fell from 264 to 123.
+Seven further visual routes checked 1,216 presentations and 61,845 cells.
+
+Trials that reordered the two contact impulses or moved more work before
+the next input missed additional display intervals. Sharing an additional
+geometry cache between wheel centers increased the forced-grid cost and
+reached the stack in the native fixture. These trials were discarded.
+
+SHA-256 `f833edac77ebf99dbb2d6737b53b8d94070ed853c958578aad98c621258bb5d3`.
