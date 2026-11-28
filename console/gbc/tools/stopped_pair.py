@@ -66,11 +66,10 @@ def generate(gen, reader):
     constants = (gen / 'riding_constants.h').read_text()
     scales = tuple(map(int, re.search(r'q24_C_OLD\[2\]=\{(-?\d+),(-?\d+)\}', constants).groups()))
     new_scales = tuple(map(int, re.search(r'q24_C_NEW\[2\]=\{(-?\d+),(-?\d+)\}', constants).groups()))
-    bound_enabled = all(0 <= value <= 250000 for value in new_scales)
-    # Velocity magnitudes are bounded in units of 65536. Round the Q24
-    # coefficient upward so the moment bound is expressed in units of 256.
-    bins = 3 if max(new_scales) <= 3 * 65536 else 4
-    output = [f'PAIR_FAST_BOUND = {int(bound_enabled)}', f'PAIR_MOMENT_BINS = {bins}',
+    # For q >= 2, round((1640*q + 1) * C_NEW / 2**24) <= 17*q.
+    # The added unit covers the signed floor in the contact length scale.
+    bound_enabled = all(0 <= value <= 170000 for value in new_scales)
+    output = [f'PAIR_TIGHT_BOUND = {int(bound_enabled)}',
               reader.read_text(), 'stopped_match:']
     for i, normal in enumerate(NORMALS):
         bands = NORMAL_BANDS.get(normal)

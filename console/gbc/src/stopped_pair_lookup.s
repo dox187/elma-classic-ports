@@ -181,92 +181,183 @@ stopped_invalid:
  ret
 
 .area _CODE
-; Let S bound |vx|+|vy|, using the next multiple of 65536 for each
-; component. Signed16 tangent coefficients give |dotQ14| <= 2*S.
-; For lengths 0..511 the shifted magnitude is <= S, including flooring.
-; With a Q24 coefficient <= PAIR_MOMENT_BINS*65536 the rounded moment
-; change is <= (S/65536)*PAIR_MOMENT_BINS*256. A larger signed16
-; angular velocity fixes the sign and its sum cannot wrap signed32.
 _riding_pair_fast_side::
- .if PAIR_FAST_BOUND
- ld hl,#2
- add hl,de
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- inc a
- cp #2
- jr nc,pair_side_unknown
- dec a
- xor c
- ld b,a
- inc hl
- inc hl
- ld a,(hl+)
- ld c,a
- ld a,(hl+)
- inc a
- cp #2
- jr nc,pair_side_unknown
- dec a
- xor c
- add b
- jr c,pair_side_unknown
- ; With >= 128 units of 256, no signed16 angular speed can qualify.
- cp #41
- jr nc,pair_side_unknown
- add #2
- ld b,a
- add a
- .if PAIR_MOMENT_BINS-3
- add a
- .else
- add b
- .endif
- ld b,a
- ld de,#5
- add hl,de
- ld a,(hl+)
- ld c,a
- add a
- sbc a
- cp (hl)
- jr nz,pair_side_unknown
- inc hl
- cp (hl)
- jr nz,pair_side_unknown
- xor c
- cp b
- jr c,pair_side_unknown
- jr z,pair_side_unknown
- ; Rolling always publishes Q24. Airborne motion publishes it on the
- ; partial substep, or when a nonzero torque invokes the free coefficient.
- ; Full-substep free motion with zero torque can preserve the pivot state.
+ ; Full-substep free motion with zero torque can leave the last Q24
+ ; fraction observable even on rejection. Use the original evaluation.
  ld a,(#_riding_subphase)
  or a
- jr nz,pair_side_known
+ jr nz,pair_bound_eligible
  ld hl,#_riding_pair_impulse
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- ld de,#8
- add hl,de
+ ld bc,#8
+ add hl,bc
  ld a,(hl+)
  or (hl)
  inc hl
  or (hl)
  inc hl
  or (hl)
- jr z,pair_side_unknown
-pair_side_known:
+ ret z
+pair_bound_eligible:
+ ld b,d
+ ld c,e
+ ld e,#13
+ ld hl,#pair_bound_start
+ jp ___sdcc_bcall_ehl
+.area _CODE_13
+pair_bound_start:
+ ld d,b
+ ld e,c
+ .if PAIR_TIGHT_BOUND
+ ; q bounds |vx|+|vy| in multiples of 4096. For physical Q14
+ ; coefficients of magnitude at most one and contact length <=410,
+ ; the two shift/round stages change angular speed by at most 17*q.
+ ld hl,#1
+ add hl,de
+ call pair_speed_bucket
+ ret nc
+ ld d,a
+ call pair_speed_bucket
+ ret nc
+ add d
+ jr c,pair_speed_unknown
+ add #2
+ jr c,pair_speed_unknown
+ ld b,h
+ ld c,l
+ ld d,a
+ ld e,#2
+ ld hl,#pair_bound_omega
+ jp ___sdcc_bcall_ehl
+.area _CODE_2
+pair_bound_omega:
+ ld a,d
+ ld d,b
+ ld e,c
+ ld c,a
+ ld b,#0
+ ld h,b
+ ld l,c
+ .rept 4
+ add hl,hl
+ .endm
+ add hl,bc
+ push hl                        ; 17*q
+ ld hl,#4
+ add hl,de
+ ld a,(hl)
+ add a
+ sbc a
+ ld c,a
+ ld a,(hl-)
+ xor c
+ ld b,a
+ ld a,(hl+)
+ xor c
+ inc hl
+ ld e,a
+ inc hl
+ ; Only signed-word angular speeds qualify, ruling out signed32 wrap.
+ ld a,(hl-)
+ xor c
+ jr nz,pair_side_pop_unknown
+ ld a,(hl)
+ xor c
+ jr nz,pair_side_pop_unknown
+ pop hl
+ ld a,e
+ scf
+ sbc l
+ ld a,b
+ sbc h
+ jr c,pair_side_unknown
+ ; Both pivots share this proof. Their directions and lengths are
+ ; public inputs, including in the full-width wheel fixture.
+ push bc
+ call pair_normal_bounds
+ pop bc
+ or a
+ ret z
  ld a,c
  and #128
  ret nz
  ld a,#2
  ret
- .endif
+.area _CODE_2
+pair_side_pop_unknown:
+ pop hl
 pair_side_unknown:
  xor a
  ret
+ ; Return floor(U(v)/4096), U(v)=v for nonnegative v and ~v otherwise.
+ ; The top byte and three magnitude bits admit at most 127 buckets.
+ ; Advance HL from byte one to byte one of the next velocity.
+.area _CODE_13
+pair_speed_bucket:
+ ld a,(hl+)
+ swap a
+ and #15
+ ld c,a
+ ld a,(hl+)
+ ld b,a
+ ld a,(hl+)
+ inc a
+ cp #2
+ jr nc,pair_speed_unknown
+ dec a
+ ld e,a
+ xor b
+ cp #8
+ jr nc,pair_speed_unknown
+ ld a,b
+ swap a
+ and #240
+ or c
+ xor e
+ inc hl
+ scf
+ ret
+pair_speed_unknown:
+ xor a
+ ret
+.area _CODE_2
+pair_normal_bounds:
+ ld hl,#_Ct
+ call pair_normal_bound
+ ret nc
+ .rept 4
+ inc hl
+ .endm
+pair_normal_bound:
+ .rept 2
+ inc hl
+ ld a,(hl+)
+ add #64
+ cp #128
+ jr nc,pair_normal_unknown ; includes -16384, excludes +16384
+ .endm
+ ld a,(hl+)
+ ld c,a
+ ld a,(hl+)
+ or a
+ jr z,pair_normal_known
+ dec a
+ jr nz,pair_normal_unknown
+ ld a,c
+ cp #155
+ jr nc,pair_normal_unknown
+pair_normal_known:
+ ld a,#1
+ scf
+ ret
+pair_normal_unknown:
+ xor a
+ ret
+ .else
+ xor a
+ ret
+ .endif
 
 .area _CODE_5

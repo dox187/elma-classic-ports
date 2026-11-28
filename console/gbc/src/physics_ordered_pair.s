@@ -116,14 +116,18 @@ pair_store_sign:
 pair_have_sign:
  cp #1
  jr nz,pair_project
- ; Rounded zero does not evaluate Q24 or change its reported fraction.
- add sp,#4
- ret
+ ; The second pivot may retain the Q24 fraction of a certified first
+ ; pivot. Materialize it if the second separation rounds to zero.
+ jp pair_zero_separation
 pair_project:
  pop hl
  pop bc
  ; HL=pivot, A=separation sign. Save the length and sign through the dot.
+ jp pair_certify_moment
+.area _CODE
+pair_certify_moment:
  push af
+ ld c,l
  inc hl
  inc hl
  inc hl
@@ -131,20 +135,46 @@ pair_project:
  ld a,(hl+)
  ld h,(hl)
  ld l,a
- ; A proved rejection ends in rolling or a free response that replaces
- ; Q24. Accepted pivots still publish their exact fraction in case two
- ; supports eventually hold.
+ ; Bit zero marks a deferred first pivot. A nonzero second pivot either
+ ; publishes its own fraction or rejects into a response that replaces it.
  ld a,h
  cp #2
- jr nc,pair_exact_moment
+ jr nc,pair_do_exact
  ld a,(#_riding_pair_moment_side)
  or a
- jr z,pair_exact_moment
+ jr z,pair_do_exact
+ res 0,a
  ld b,a
  pop af
  cp b
- jr nz,pair_reject_moment
+ jp nz,pair_reject_moment
  push af
+ ld a,c
+ cp #<(_Ct+10)
+ jr nz,pair_do_exact
+ ld a,b
+ or #1
+ ld (#_riding_pair_moment_side),a
+ pop af
+ jp pair_true
+pair_do_exact:
+ jp pair_exact_moment
+pair_zero_separation:
+ ld a,(#_riding_pair_moment_side)
+ rrca
+ jr c,pair_replay_first
+ add sp,#4
+ ld a,#1
+ ret
+pair_replay_first:
+ pop hl
+ pop bc
+ dec bc
+ ld de,#(_Ct+10)
+ xor a
+ ld (#_riding_pair_moment_side),a
+ jp _riding_pair_sure
+.area _CODE_9
 pair_exact_moment:
  push hl
  ld hl,#_riding_pair_vector
