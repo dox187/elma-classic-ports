@@ -4759,3 +4759,36 @@ The seven presentation routes matched on 1,216 frames and 61,845 cells.
 All 54 courses started, with one late update in the entry sweep.
 
 SHA-256 `6f70a1375c0c61e80b88e8efb0675618aef09c8ef6189ba301503b0a472c5c95`.
+
+## 0.96 test67 — Signed products and complete contact tiles
+
+The solver combines signed partial products and skips a zero upper digit
+during rolling. Eight 16-by-16 tiles on courses 32 and 48 store ordered
+contact geometry generated from all 2,048 integer centers. The mapper
+trampoline reuses the disabled binder in those courses. Sixteen courses
+preload the low 256 background patterns and share the remaining slots only
+between patterns that cannot coexist in the old and incoming viewport.
+
+| PyBoy measurement | test66 | test67 |
+| --- | ---: | ---: |
+| Weighted primary updates/s, 25,310 intervals | 29.825 | 29.829 |
+| Late intervals, catalog / extended / complete Freefall | 46 / 19 / 0 | 40 / 19 / 0 |
+| Independent seed, late out of 5,302 | 22 | 21 |
+| Independent Haircut, late out of 226 | 10 | 9 |
+| Mean active primary update, T-cycles | 205,394 | 205,206 |
+| Historical placements above budget out of 2,432 | 289 | 284 |
+| Peak historical physics, T-cycles | 479,888 | 473,156 |
+| Forced Steep Corner peak physics, T-cycles | 502,064 | 499,200 |
+
+The previous historical peak on course 48 fell to 423,168 T. The new peak
+was on course 18. The historical sweep improved in aggregate on 51 of 54
+courses. All 200 forced Steep updates still exceeded 280,896 T. The combined
+Steep cost fell from 85,736,140 to 85,072,040 T.
+
+All 100,382 recorded physics substeps matched test66. Native coverage included
+36,204 signed projection products, all eight direct tiles and 1,024 outside
+probes. Across the 16 repacked courses, 1,386 presentations matched and
+33,117 visible cells were checked against the source. All 54 courses started,
+with one late update in the entry sweep.
+
+SHA-256 `25d34e55842beb3392c60139539a962a47ba3b1d47e21d2a0b76c1e2fb1f07f9`.

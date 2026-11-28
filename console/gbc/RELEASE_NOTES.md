@@ -50,6 +50,16 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test67 — Signed products and complete contact tiles
+
+The 48th course's hardest test66 step fell from 57.21 to 50.45 ms with the
+same wheel positions, velocities and contact response. Eight complete terrain
+tiles use their original geometry for every integer wheel center. Signed
+multiplication also costs less on other courses. Sixteen courses share
+background slots between patterns that cannot appear together.
+
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test67-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test67--signed-products-and-complete-contact-tiles)
+
 ## 0.96 test66 — Radial contacts, spring moments and scenery strips
 
 Six reclaimed ROM banks hold exact wheel normals down to radius 363. The
