@@ -13,7 +13,7 @@ ss_spin_mid: .ds 16
 ss_spin_top: .ds 16
 ss_product_upper: .ds 2
 ss_moment: .ds 9
-ss_ts: .ds 5                       ; low 36 bits of (floored spring sum << 4)
+ss_ts:: .ds 5                      ; low 36 bits of (floored spring sum << 4)
 ss_coarse:: .ds 4
 ss_tr:: .ds 4
 ss_reaction_high: .ds 1
@@ -192,21 +192,33 @@ selected:
  ss_reverse_sub left
 .endm
 
-; BC:DE holds the shared body coordinate or the individual arm.
-.macro ss_write_delta left,destination,store
- ld hl,#(left)
+; Build the physical lever and spring displacement together. Keep each
+; newly stored lever digit in its register for the anchor subtraction.
+.macro ss_lever_digit op,digit,offset
+ ld a,(hl+)
+ op digit
+ ld digit,a
+ ld (#ss_damping+16+offset),a
+.endm
+.macro ss_prepare_lever wheel,offset
+ ld hl,#(_Bike+wheel)
+ ss_lever_digit sub,e,offset
+ ss_lever_digit sbc,d,(offset+1)
+ ss_lever_digit sbc,c,(offset+2)
+ ss_lever_digit sbc,b,(offset+3)
+ ld hl,#(_riding_pose_anchor+offset)
  ld a,(hl+)
  sub e
- store (#(destination)),a
+ ldh (ss_force_products+28+offset),a
  ld a,(hl+)
  sbc d
- store (#(destination+1)),a
+ ldh (ss_force_products+29+offset),a
  ld a,(hl+)
  sbc c
- store (#(destination+2)),a
- ld a,(hl+)
+ ldh (ss_force_products+30+offset),a
+ ld a,(hl)
  sbc b
- store (#(destination+3)),a
+ ldh (ss_force_products+31+offset),a
 .endm
 
 ; The native table products are (raw + 2^23) = integer*2^24 + biased.
@@ -500,7 +512,7 @@ converted:
 ; In the ordinary range, split the two signed operands into unsigned
 ; low words and upper digits of zero or -1. The unsigned row product
 ; is corrected by the anchor at bit 16 and the displacement at bit 24.
-.macro ss_raw_product label,arm,disp,rows,fold,?upper_arm,?arm_done,?positive_arm,?positive_disp,?upper_disp,?upper_disp_equal,?have_middle,?rows_done
+.macro ss_raw_product label,arm,disp,rows,fold,?upper_arm,?arm_done,?positive_arm,?positive_disp,?upper_disp,?upper_disp_equal,?have_middle,?rows_done,?upper_generic,?upper_add,?upper_sub,?upper_word
 .area _CODE
 label:
  ld hl,#arm
@@ -623,6 +635,7 @@ arm_done:
  jr z,positive_disp
  inc a
  jr nz,upper_disp_equal
+upper_sub:
  ld hl,#arm
  ld a,c
  sub a,(hl)
@@ -660,29 +673,40 @@ upper_arm:
  pop de
  jr arm_done
 upper_disp_equal:
- ; Equal upper digits other than 00/ff require both shifted rows.
- push de
- push bc
  ld a,(hl)
- ld b,a
- ld c,a
- ld hl,#arm
- call ss_upper_disp_word
- pop bc
- pop hl
- pop de
- ret
+ jr upper_word
 upper_disp:
+ ; For the adjacent signed upper words +1 and -2, add their unscaled
+ ; anchor directly to product bytes 2..5. The low word is already stacked.
+ xor (hl)
+ dec a
+ jr nz,upper_generic
+ ld a,(hl)
+ or a
+ jr z,upper_add
+ inc a
+ jr nz,upper_generic
+ ld hl,#arm
+ call ss_sub_spring_arm
+ jr upper_sub
+upper_add:
+ ld hl,#arm
+ call ss_add_spring_arm
+ jr positive_disp
+upper_generic:
+ dec hl
+ ; Preserve the partial bytes before loading the general signed word.
+ ld a,(hl+)
+upper_word:
  push de
  push bc
  ld b,(hl)
  ld c,a
  ld hl,#arm
- call ss_spring_upper_disp
+ call ss_upper_disp_word
  pop bc
- pop hl
  pop de
- ret
+ jr positive_disp
 
 .endm
 
@@ -739,16 +763,6 @@ upper_disp:
  ; discarded fractions can never carry into the retained sum.
  and a,#0xf0
  add sp,#6
-.endm
-; The four spring displacements occupy the future damper-product rows.
-; The spring batch consumes all four before the damper batch fills its rows.
-.macro ss_displacement_axis anchor,arm,destination
- ss_read ss_damping+arm
- ss_write_delta _riding_pose_anchor+anchor,(ss_force_products+destination),ldh
-.endm
-.macro ss_wheel_displacement offset
- ss_displacement_axis offset,(16+offset),(28+offset)
- ss_displacement_axis (8+offset),(24+offset),(36+offset)
 .endm
 .macro ss_wheel_spring offset
  .if offset
@@ -1045,19 +1059,25 @@ _riding_spring_prefix::
  ld (hl+),a
  ld (hl),d
  ss_read _Bike
- ss_write_delta (_Bike+24),(ss_damping+16),ld
- ss_write_delta (_Bike+48),(ss_damping+20),ld
+ push bc
+ push de
+ ss_prepare_lever 24,0
+ pop de
+ pop bc
+ ss_prepare_lever 48,4
  ss_read _Bike+4
- ss_write_delta (_Bike+28),(ss_damping+24),ld
- ss_write_delta (_Bike+52),(ss_damping+28),ld
+ push bc
+ push de
+ ss_prepare_lever 28,8
+ pop de
+ pop bc
+ ss_prepare_lever 52,12
  ret
 
 _riding_spring_inputs::
  call ss_wheel_values
  jp ss_spring_total
 ss_wheel_values:
- ss_wheel_displacement 0
- ss_wheel_displacement 4
  ss_wheel_relative_velocity 24,0
  ss_wheel_relative_velocity 48,4
  ret
@@ -1069,7 +1089,7 @@ ss_wheel_values:
 ss_spring_total:
  call ss_try_mirrored
  ret z
-ss_both_moments:
+ss_both_moments::
  call ss_first_moment
 ss_second_moment:
  ss_wheel_spring 4
@@ -1954,97 +1974,28 @@ ss_upper_arm_add:
  ret
 
 .area _CODE_8
-; Add the low 32 bits of A * signed16(D>>16) to bytes two through five.
-; The unsigned low digit uses four anchor bytes, the signed upper digit
-; needs only three. The two discarded top bytes cannot affect the moment.
-ss_spring_upper_disp:
- ld a,b
- or a
- jr z,ss_upper_disp_byte
- inc a
- jp nz,ss_upper_disp_word
+; BC holds product bytes 2..3 and DE holds bytes 4..5.
+.macro ss_arm_unit label,low,high
+label:
  ld a,c
- cpl
- inc a
- jr z,ss_upper_minus_256
+ low (hl)
  ld c,a
- call ss_upper_disp_byte_row
- ldhl sp,#2
- ld a,(hl)
- sub a,e
- ld (hl+),a
- ld a,(hl)
- sbc a,d
- ld (hl+),a
- ld a,(hl)
- sbc a,c
- ld (hl+),a
- ld a,(hl)
- sbc a,b
- ld (hl),a
- ret
-ss_upper_minus_256:
- ld a,(hl+)
+ inc hl
+ ld a,b
+ high (hl)
+ ld b,a
+ inc hl
+ ld a,e
+ high (hl)
  ld e,a
- ld a,(hl+)
+ inc hl
+ ld a,d
+ high (hl)
  ld d,a
- ld c,(hl)
- ldhl sp,#3
- ld a,(hl)
- sub a,e
- ld (hl+),a
- ld a,(hl)
- sbc a,d
- ld (hl+),a
- ld a,(hl)
- sbc a,c
- ld (hl),a
  ret
-ss_upper_disp_byte:
- call ss_upper_disp_byte_row
- ldhl sp,#2
- ld a,(hl)
- add a,e
- ld (hl+),a
- ld a,(hl)
- adc a,d
- ld (hl+),a
- ld a,(hl)
- adc a,c
- ld (hl+),a
- ld a,(hl)
- adc a,b
- ld (hl),a
- ret
-ss_near_area
-ss_upper_disp_byte_row:
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld a,(hl+)
- ld b,a
- ld a,(hl)
- dec c
- jr nz,ss_upper_disp_more
- ld c,b
- ld b,a
- ret
-ss_upper_disp_more:
- dec c
- jr nz,ss_upper_disp_table
- ld c,b
- ld b,a
- sla e
- rl d
- rl c
- rl b
- ret
-ss_upper_disp_table:
- inc c
- inc c
- jp ss_spring_u32_row
-.area _CODE_8
+.endm
+ ss_arm_unit ss_add_spring_arm,add,adc
+ ss_arm_unit ss_sub_spring_arm,sub,sbc
 .area _CODE
 ss_upper_disp_word:
  push hl                        ; anchor
@@ -2161,17 +2112,6 @@ ss_upper_disp_add:
  ld (#0x2000),a
  ret
 
-.area _CODE
-ss_spring_u32_row:
- push af
- call _riding_product24x8_row
- pop af
- ld l,a
- dec h                          ; low product plane of the same row
- ld a,(hl)
- add a,b
- ld b,a
- jp ss_mt_product_done
 .area _CODE_8
 
 ; The four products share omega. For signed24 operands write it as

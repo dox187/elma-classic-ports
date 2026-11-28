@@ -4,6 +4,8 @@ from collections import Counter
 from io import BytesIO
 from pathlib import Path
 import re
+import random
+import struct
 
 from pyboy import PyBoy
 
@@ -283,12 +285,58 @@ def guard_matrix(rom,sy,limits):
         emu.stop(save=False)
 
 
+def check_spring_moments(rom):
+    from check_normal_atlas import Cartridge
+    cart = Cartridge(rom)
+    memory, symbols = cart.m, cart.sym
+    entry = symbols['ss_both_moments']
+    routine = struct.pack('<BHBB', 0xcd, entry & 65535, 0x18, 0xfe)
+    memory[cart.code:cart.code+len(routine)] = routine
+    bank = entry >> 16
+    memory[0x2000] = memory[symbols['__current_bank']] = bank
+    arms_at = symbols['_riding_pose_anchor']
+    displacement_at = symbols['_riding_spring_product_rows'] + 28
+    output = symbols['ss_ts']
+    randomizer = random.Random(42917)
+    edges = [-2**31, 2**31-1, -2**24-1, -2**24, -2**23,
+             -131073, -131072, -131071, -65537, -65536, -65535, -1, 0, 1,
+             65535, 65536, 65537, 131071, 131072, 131073, 2**24-1, 2**24]
+    try:
+        for index in range(32000):
+            if index < 20000:
+                arms = randomizer.choices(edges, k=4)
+                offsets = randomizer.choices(edges, k=4)
+                offsets[index % 4] = (index // 64)*65536 + index%64 - 32
+            else:
+                arms = [randomizer.randrange(-2**31, 2**31) for _ in range(4)]
+                limit = 2**31 if index%2 else 2**17
+                offsets = [randomizer.randrange(-limit, limit) for _ in range(4)]
+            for address, values in ((arms_at, arms), (displacement_at, offsets)):
+                memory[address:address+16] = struct.pack('<4i', *values)
+            cart.reg.PC, cart.reg.SP = cart.code, cart.stack
+            cart.p.tick(1, False)
+            assert (cart.reg.PC, cart.reg.SP) == (cart.code+3, cart.stack)
+            # Each wheel floors its own determinant before the two are summed.
+            moment = sum((arms[j]*offsets[2+j] - arms[2+j]*offsets[j]) >> 12
+                         for j in range(2))
+            actual = int.from_bytes(bytes(memory[output:output+5]), 'little')
+            assert actual == (moment << 4) & ((1 << 40)-1), (index, arms, offsets)
+            for address, values in ((arms_at, arms), (displacement_at, offsets)):
+                assert bytes(memory[address:address+16]) == struct.pack('<4i', *values)
+        assert memory[symbols['__current_bank']] == bank
+        print('32,000 signed spring moments matched the integer reference')
+    finally:
+        cart.p.stop(save=False)
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--rom',type=Path,required=True)
     ap.add_argument('--reference',type=Path)
     a=ap.parse_args()
     sy=symbols(a.rom)
+    if 'ss_both_moments' in sy:
+        check_spring_moments(a.rom)
     sites=guard_sites(a.rom,sy)
     # Count the entire suffix from RET NC through stage publication to the
     # next guard or return, including every call, branch and stack operation.
