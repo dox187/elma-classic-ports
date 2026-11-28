@@ -16,7 +16,6 @@ typedef struct {
 #define BIKE_HEAD_TILE 216
 #define BIKE_HEAD_BACK_TILE 245
 
-void bike_render_init(void);
 void bike_render_hide(void);
 /* Call immediately after vsync, before camera/map work, to upload changed
  * patterns during VBlank. draw() also prepares when used on its own. */
@@ -26,6 +25,7 @@ void bike_render_prepare(const gbc_bike_t *bike);
 #else
 #define BIKE_DRAW_CALL
 #endif
+void bike_render_init(void) BIKE_DRAW_CALL;
 void bike_render_draw(const gbc_bike_t *bike, const bike_screen_t *screen) BIKE_DRAW_CALL;
 
 #endif

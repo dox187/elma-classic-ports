@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 import bike_frames16
+import body_transfers
 import bowling_planes
 import bumpy_terrain
 import brake_dispatch
@@ -145,6 +146,10 @@ def validate_linked_layout(symbol_path,rom_mib):
             address = symbols.get(name, 0)
             if address >> 16 != 13 or address & 15:
                 raise ValueError(f'{name} must be GDMA-aligned in sprite bank 13')
+    if '_bike_body_upload' in symbols:
+        for i in range(3):
+            if symbols.get(f'_riding_body_{i}') != ((10+i) << 16) + 0x4000:
+                raise ValueError('Body DMA source frames require page-aligned whole banks 10..12')
     if '_riding_sqrt_large' in symbols:
         for name, bank in (('_riding_sqrt_large', 15), ('_riding_sqrt_upper', 15),
                            ('_riding_sqrt_small', 35), ('_riding_sqrt_byte', 35)):
@@ -618,6 +623,9 @@ def main():
     head_lanes = scheduled and rom_mib == 8 and graphics['map_codec'] == rolling_map_banks.CODEC
     immediate_drive = False
     if head_lanes:
+        compact, transfers = body_transfers.generate(a.gen, BASE/'src/bike_body_upload.inc')
+        sources[sources.index(a.gen/'riding16_parts.c')] = compact
+        sources.insert(sources.index(a.gen/'head_quarters.s'), transfers)
         levels, terrain_banks, _ = head_clearance.packed_inputs(a.gen)
         hang = hang_terrain.generate(a.gen, BASE/'src/hang_terrain.inc', levels, terrain_banks)
         sources[sources.index(a.gen/'physics_bank_87.c')] = hang
@@ -683,6 +691,7 @@ def main():
     if head_lanes:
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/head_near.c')
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/bumpy_setup.s')
+        sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/physics_impact_bound.s')
 
     def coefficient_lookup(path):
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
@@ -703,7 +712,7 @@ def main():
             flags = ['-DRIDING_PAIRED_ROTATION'] + (['-DRIDING_SEAT_LOOKUP'] if seat_lookup else [])
             return flags + (['-DRIDING_IMMEDIATE_DRIVE'] if immediate_drive else [])
         if scheduled and path == BASE/'src/play.c': return ['-DRIDING_BANKED_DRAW']
-        if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS']
+        if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS'] + (['-DRIDING_BODY_TRANSFERS'] if head_lanes else [])
         if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
         if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR'] + (['-DRIDING_CORNER_CELLS'] if head_lanes else [])

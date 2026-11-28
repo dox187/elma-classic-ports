@@ -70,7 +70,7 @@ static bike_screen_t last_screen;
 
 void bike_render16_init_sprites(void) BANKED;
 
-void bike_render_init(void) BIKE_FIXED {
+void bike_render_init(void) BIKE_DRAW_CALL {
     last_body=last_wheel[0]=last_wheel[1]=255;
     previous_head=last_head=256;
     head_tile=BIKE_HEAD_TILE;

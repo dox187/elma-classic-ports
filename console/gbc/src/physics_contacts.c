@@ -1818,8 +1818,7 @@ wheel_single_slot:
     ld a,b
     cp #2
     jr c,wheel_single_impact
-    call wheel_normal_velocity
-    call wheel_single_impact_value
+    call wheel_filtered_impact
     jr wheel_single_impact
 wheel_single_quiet:
     xor a
@@ -1870,6 +1869,28 @@ wheel_single_impact_negative:
     rla
     and #1
     ret
+    .area _CODE
+wheel_filtered_impact:
+#ifdef RIDING_CORNER_CELLS
+    ld a,(#_riding_impact_low+1)
+    cp #76
+    jr nc,wheel_impact_exact
+    push de
+    ld b,d
+    ld c,e
+    ld e,#3
+    ld hl,#_riding_impact_projection
+    call ___sdcc_bcall_ehl
+    pop de
+    or a
+    jr z,wheel_impact_exact
+    xor a
+    ret
+#endif
+wheel_impact_exact:
+    call wheel_normal_velocity
+    jp wheel_single_impact_value
+    .area _CODE_9
 wheel_normal_velocity:
     ld hl,#8
     add hl,de
@@ -2138,8 +2159,7 @@ pair_report_both:
     or a
     jr nz,pair_report_quiet
     push de
-    call wheel_normal_velocity
-    call wheel_single_impact_value
+    call wheel_filtered_impact
     pop de
     or a
     jr nz,pair_report_impact
