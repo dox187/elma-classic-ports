@@ -840,6 +840,21 @@ prepare_pair:
     ld a,(hl)
     cp #150
     jr c,prepare_first_push
+    ; At 406..408, two signed high bytes <=50 put each positive
+    ; fractional contribution below 204. Their rounded sum stays below
+    ; 410, the strict upper limit at length 408; negative terms only help.
+    cp #153
+    jr nc,prepare_restore_first
+    ld hl,#(_Ct+11)
+    ld a,(hl+)
+    xor #128
+    cp #179
+    jr nc,prepare_restore_first
+    inc hl
+    ld a,(hl)
+    xor #128
+    cp #179
+    jr c,prepare_first_push
 prepare_restore_first:
     ld a,#2
 prepare_filter_second:
