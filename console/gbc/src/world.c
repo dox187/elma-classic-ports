@@ -206,10 +206,22 @@ static uint8_t fetch_strip(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
 #ifndef WORLD_GRAPHICS_ZX0
 /* Return one in-bounds raw fragment, or zero at a padded cell. The caller
  * advances unsigned coordinates and owns the three destination arrays. */
+#ifdef WORLD_SIGNED_BG
+/* Hot strip fragments use tile bounds and the course's first sixteen
+ * chunk-row addresses. Larger maps retain their full directory arithmetic. */
+static uint16_t raw_tile_bounds[2];
+uint16_t raw_chunk_rows[16];
+#endif
 static uint8_t raw_map_fragment(uint16_t x,uint16_t y,uint8_t vertical,uint8_t count,
                                 uint8_t *low,uint8_t *high,uint8_t *attrs) __sdcccall(0) __naked {
     x;y;vertical;count;low;high;attrs;
     __asm
+#ifdef WORLD_SIGNED_BG
+        ld hl,#_raw_tile_bounds
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+#else
         ld hl,#_game_world
         ld a,(hl+)
         ld e,a
@@ -218,6 +230,7 @@ static uint8_t raw_map_fragment(uint16_t x,uint16_t y,uint8_t vertical,uint8_t c
         srl d
         rr e
         .endm
+#endif
         ldhl sp,#2
         ld a,e
         sub (hl)
@@ -230,6 +243,12 @@ static uint8_t raw_map_fragment(uint16_t x,uint16_t y,uint8_t vertical,uint8_t c
         or e
         jp z,raw_outside
         push de
+#ifdef WORLD_SIGNED_BG
+        ld hl,#_raw_tile_bounds+2
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+#else
         ld hl,#_game_world+2
         ld a,(hl+)
         ld e,a
@@ -238,6 +257,7 @@ static uint8_t raw_map_fragment(uint16_t x,uint16_t y,uint8_t vertical,uint8_t c
         srl d
         rr e
         .endm
+#endif
         ldhl sp,#6
         ld a,e
         sub (hl)
@@ -285,6 +305,25 @@ raw_limit_count:
         ld a,b
 raw_run:
         push af
+#ifdef WORLD_SIGNED_BG
+        ldhl sp,#7
+        ld a,(hl-)
+        or a
+        jr nz,raw_generic_chunk_row
+        ld a,(hl)
+        swap a
+        and #15
+        add a
+        ld e,a
+        ld d,#0
+        ld hl,#_raw_chunk_rows
+        add hl,de
+        ld a,(hl+)
+        ld c,a
+        ld b,(hl)
+        jr raw_column_address
+raw_generic_chunk_row:
+#endif
         ; y / 16 can use nine bits after the world bounds test.
         ldhl sp,#6
         ld a,(hl+)
@@ -312,8 +351,41 @@ raw_skip_add:
         rl d
         jr raw_multiply_row
 raw_row_product:
+#ifdef WORLD_SIGNED_BG
+        add hl,hl
+        add hl,hl
+        ld a,(#_game_world+20)
+        ld e,a
+        ld a,(#_game_world+21)
+        ld d,a
+        add hl,de
+#endif
         ld b,h
         ld c,l
+#ifdef WORLD_SIGNED_BG
+raw_column_address:
+        ldhl sp,#4
+        ld a,(hl+)
+        .rept 3
+        rrca
+        .endm
+        and #28
+        ld e,a
+        ld a,(hl)
+        .rept 3
+        rrca
+        .endm
+        ld d,a
+        and #0xe0
+        or e
+        ld l,a
+        ld a,d
+        and #31
+        ld h,a
+        add hl,bc
+        bit 7,h
+        jr nz,raw_entry
+#else
         ; x / 32 fits one byte because the pixel width is uint16_t.
         ldhl sp,#4
         ld a,(hl+)
@@ -333,6 +405,7 @@ raw_row_product:
         ld h,b
         ld l,c
         add hl,de
+#endif
         ld a,(#_last_chunk)
         cp l
         jr nz,raw_load_chunk
@@ -344,6 +417,7 @@ raw_load_chunk:
         ld (#_last_chunk),a
         ld a,h
         ld (#_last_chunk+1),a
+#ifndef WORLD_SIGNED_BG
         add hl,hl
         add hl,hl
         ld a,(#_game_world+20)
@@ -351,6 +425,7 @@ raw_load_chunk:
         ld a,(#_game_world+21)
         ld d,a
         add hl,de
+#endif
         ld de,#4
         push de
         ld de,#_chunk
@@ -364,11 +439,19 @@ raw_load_chunk:
         call _world_far_copy
         add sp,#8
 raw_have_chunk:
-        ldhl sp,#4
+#ifdef WORLD_SIGNED_BG
+        ld hl,#_chunk
+raw_entry:
+        push hl
+        raw_entry_stack = 2
+#else
+        raw_entry_stack = 0
+#endif
+        ldhl sp,#(4+raw_entry_stack)
         ld a,(hl)
         and #31
         ld e,a
-        ldhl sp,#6
+        ldhl sp,#(6+raw_entry_stack)
         ld a,(hl)
         and #15
         .rept 3
@@ -381,39 +464,52 @@ raw_have_chunk:
         ld a,d
         and #1
         ld d,a
+#ifdef WORLD_SIGNED_BG
+        pop hl
+        ld a,(hl+)
+        ld c,a
+        ld a,(hl+)
+        ld b,a
+        push bc
+#else
         ld hl,#_chunk+2
+#endif
         ld a,(hl+)
         ld h,(hl)
         ld l,a
         add hl,de
         ld d,h
         ld e,l
-        ldhl sp,#8
+        ldhl sp,#(8+raw_entry_stack)
         ld a,(hl)
         or a
         ld b,#1
         jr z,raw_arguments
         ld b,#32
 raw_arguments:
-        ldhl sp,#1
+        ldhl sp,#(1+raw_entry_stack)
         ld c,(hl)
         push bc
         ; Each push moves the following source word to the same displacement.
         .rept 3
-        ldhl sp,#16
+        ldhl sp,#(16+raw_entry_stack)
         ld a,(hl+)
         ld h,(hl)
         ld l,a
         push hl
         .endm
         push de
+#ifdef WORLD_SIGNED_BG
+        ldhl sp,#10
+#else
         ld hl,#_chunk
+#endif
         ld a,(hl+)
         ld h,(hl)
         ld l,a
         push hl
         call _world_far_gather3
-        add sp,#12
+        add sp,#(12+raw_entry_stack)
         pop af
         ld e,a
         ret

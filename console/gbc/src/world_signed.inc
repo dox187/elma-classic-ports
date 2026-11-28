@@ -29,30 +29,138 @@ static uint8_t direct_map_supported(void) {
 static uint16_t coord_start,coord_wrap;
 static uint8_t coord_boundary,coord_vertical;
 static const uint16_t coord_steps[]={0,22,44,66,88,110,132,154,176,198,220,242,264,286,308,330,352,374,396,418,440};
-/* Most courses fit these 308-column and 260-row lookup ranges. Keep the
- * division fallback for larger maps supported by the 16-bit camera. */
-#define COLUMN_CYCLE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21
-#define ROW_CYCLE    0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
-static const uint8_t column_modulo[]={
-    COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,
-    COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE,COLUMN_CYCLE
+/* Residues for floor(coordinate/2). The high nibble is modulo 11, the
+ * low nibble modulo 10. Appending the original parity restores modulo
+ * 22 or 20 respectively, so both axes share the same 128-byte table. */
+static const uint8_t coord_modulo[]={
+    0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xa0,0x01,0x12,0x23,0x34,0x45,
+    0x56,0x67,0x78,0x89,0x90,0xa1,0x02,0x13,0x24,0x35,0x46,0x57,0x68,0x79,0x80,0x91,
+    0xa2,0x03,0x14,0x25,0x36,0x47,0x58,0x69,0x70,0x81,0x92,0xa3,0x04,0x15,0x26,0x37,
+    0x48,0x59,0x60,0x71,0x82,0x93,0xa4,0x05,0x16,0x27,0x38,0x49,0x50,0x61,0x72,0x83,
+    0x94,0xa5,0x06,0x17,0x28,0x39,0x40,0x51,0x62,0x73,0x84,0x95,0xa6,0x07,0x18,0x29,
+    0x30,0x41,0x52,0x63,0x74,0x85,0x96,0xa7,0x08,0x19,0x20,0x31,0x42,0x53,0x64,0x75,
+    0x86,0x97,0xa8,0x09,0x10,0x21,0x32,0x43,0x54,0x65,0x76,0x87,0x98,0xa9,0x00,0x11,
+    0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xa0,0x01,0x12,0x23,0x34,0x45,0x56,0x67,
 };
-static const uint8_t row_modulo[]={
-    ROW_CYCLE,ROW_CYCLE,ROW_CYCLE,ROW_CYCLE,ROW_CYCLE,ROW_CYCLE,ROW_CYCLE,
-    ROW_CYCLE,ROW_CYCLE,ROW_CYCLE,ROW_CYCLE,ROW_CYCLE,ROW_CYCLE
-};
-static void set_coordinate_slots(uint16_t x,uint16_t y,uint8_t vertical){
-    uint8_t column,row;
-    if(all_patterns)return;
-    column=x<sizeof(column_modulo)?column_modulo[x]:x%22U;
-    row=y<sizeof(row_modulo)?row_modulo[y]:y%20U;
-    coord_start=COORDINATE_FIRST+coord_steps[row]+column;
-    coord_wrap=coord_start-(vertical?440:22);
-    coord_boundary=vertical?20-row:22-column;
-    coord_vertical=vertical;
-}
-static void prepare_acquire(void) __naked {
+/* Both fetch stages leave the strip's exact tile origin in these two words.
+ * The common 8-bit case indexes a residue table. A second page folds by
+ * 256 modulo either period; larger unsigned coordinates use full division. */
+static void set_coordinate_slots(uint8_t vertical) __naked {
+    vertical;
     __asm
+        ld (#_coord_vertical),a
+        ld a,(#_all_patterns)
+        or a
+        ret nz
+        ld hl,#_prepare_strip_x
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        ld a,d
+        or a
+        jr z,coord_x_lookup
+        dec a
+        jr nz,coord_x_wide
+        ld a,e
+        add #14
+        jr c,coord_x_wide
+        ld e,a
+coord_x_lookup:
+        ld a,e
+        rrca
+        ld c,a
+        and #127
+        ld e,a
+        ld d,#0
+        ld hl,#_coord_modulo
+        add hl,de
+        ld a,(hl)
+        swap a
+        and #15
+        rl c
+        rla
+        jr coord_x_ready
+coord_x_wide:
+        ld bc,#22
+        call __moduint
+        ld a,c
+coord_x_ready:
+        push af
+        ld hl,#_prepare_strip_y
+        ld a,(hl+)
+        ld e,a
+        ld d,(hl)
+        ld a,d
+        or a
+        jr z,coord_y_lookup
+        dec a
+        jr nz,coord_y_wide
+        ld a,e
+        add #16
+        jr c,coord_y_wide
+        ld e,a
+coord_y_lookup:
+        ld a,e
+        rrca
+        ld c,a
+        and #127
+        ld e,a
+        ld d,#0
+        ld hl,#_coord_modulo
+        add hl,de
+        ld a,(hl)
+        and #15
+        rl c
+        rla
+        ld c,a
+        jr coord_y_ready
+coord_y_wide:
+        ld bc,#20
+        call __moduint
+coord_y_ready:
+        ld a,c
+        add a
+        ld e,a
+        ld d,#0
+        ld hl,#_coord_steps
+        add hl,de
+        ld a,(hl+)
+        ld h,(hl)
+        ld l,a
+        pop af
+        ld b,a
+        add #52
+        ld e,a
+        add hl,de
+        ld a,l
+        ld (#_coord_start),a
+        ld a,h
+        ld (#_coord_start+1),a
+        ld a,(#_coord_vertical)
+        or a
+        jr nz,coord_vertical_span
+        ld a,#22
+        sub b
+        ld de,#-22
+        jr coord_set_span
+coord_vertical_span:
+        ld a,#20
+        sub c
+        ld de,#-440
+coord_set_span:
+        ld (#_coord_boundary),a
+        add hl,de
+        ld a,l
+        ld (#_coord_wrap),a
+        ld a,h
+        ld (#_coord_wrap+1),a
+        ret
+    __endasm;
+}
+static void prepare_acquire(uint8_t limit) __naked {
+    limit;
+    __asm
+        ld c,a
         ld a,(#_all_patterns)
         or a
         jr z,coord_item
@@ -76,12 +184,11 @@ coord_full_next:
         ld (#_prepare_index),a
         ret
 coord_item:
-        ; Resolve at most four cells per guard. The low-ID plane becomes the
-        ; published tile plane after acquisition, so both source pointers can
-        ; advance together and pin hits need no per-cell index calculation.
+        ; Resolve four cells per idle budget guard or all cells at publication.
+        ; The low-ID plane becomes the published tile plane after acquisition.
         ld a,(#_prepare_index)
         ld e,a
-        add #4
+        add c
         ld hl,#_prepare_count
         cp (hl)
         jr c,coord_group
@@ -189,13 +296,44 @@ static void prepare_publish(uint8_t vertical) {
                                strip_low,strip_attrs);
 }
 
+extern uint8_t wheel_course_size[2];
+/* The first 64 entries of each page are reserved for wheel-row metadata.
+ * Five nine-entry scenery rows fit in the remainder, including every
+ * released course. Larger level packs use their original ROM directory. */
+static const uint16_t scenery_rows[15]={
+    0xad40,0xad64,0xad88,0xadac,0xadd0,0xae40,0xae64,0xae88,
+    0xaeac,0xaed0,0xaf40,0xaf64,0xaf88,0xafac,0xafd0
+};
+void world_prepare_directory(void) {
+    uint16_t address=game_world.chunks.address;
+    uint8_t i;
+    if(wheel_course_size[1]<=64 && game_world.chunks_x<=9 && game_world.chunks_y<=15) {
+        uint8_t bytes=4*game_world.chunks_x;
+        for(i=0;i<game_world.chunks_y;++i) {
+            uint16_t target=scenery_rows[i];
+            raw_chunk_rows[i]=target;
+            world_far_copy(game_world.chunks.bank,(const uint8_t *)address,(uint8_t *)target,bytes);
+            address+=bytes;
+        }
+    } else {
+        uint16_t bytes=4U*game_world.chunks_x;
+        for(i=0;i<16;++i) {
+            raw_chunk_rows[i]=address;
+            address+=bytes;
+        }
+    }
+}
+
 void world_begin(uint16_t x,uint16_t y) BANKED {
     uint16_t i;
     prepare_stage=PREP_NONE;
     last_chunk=INVALID;
     world_cache_failures=world_uploads=0;
+    raw_tile_bounds[0]=game_world.width>>3;
+    raw_tile_bounds[1]=game_world.height>>3;
     ENABLE_RAM_MBC5;
     rRAMB=0;
+    world_prepare_directory();
     world_map_snapshot();
     all_patterns=game_world.pattern_count<=492;
     world_direct_map=all_patterns && direct_map_supported();
@@ -221,9 +359,9 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
         prepare_strip_y=i;
         fetch_strip(prepare_strip_x,i,0,21,0,0);
         if(!world_direct_map) {
-            set_coordinate_slots(prepare_strip_x,i,0);
+            set_coordinate_slots(0);
             prepare_index=0;
-            do {prepare_acquire();} while(prepare_index<21);
+            prepare_acquire(21);
         }
         prepare_publish(0);
     }
@@ -277,7 +415,7 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
                 if(prepare_index==prepare_count) {
                     if(world_direct_map)prepare_stage=PREP_COL_PUBLISH;
                     else {
-                        set_coordinate_slots(prepare_strip_x,prepare_strip_y,1);
+                        set_coordinate_slots(1);
                         prepare_index=0;
                         prepare_stage=PREP_COL_ACQUIRE;
                     }
@@ -301,7 +439,7 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
                 if(prepare_index==prepare_count) {
                     if(world_direct_map)prepare_stage=PREP_ROW_PUBLISH;
                     else {
-                        set_coordinate_slots(prepare_strip_x,prepare_strip_y,0);
+                        set_coordinate_slots(0);
                         prepare_index=0;
                         prepare_stage=PREP_ROW_ACQUIRE;
                     }
@@ -311,7 +449,7 @@ static void prepare_run(uint16_t start,uint8_t budgeted) {
             case PREP_ROW_ACQUIRE:
                 do {
                     if(budgeted && !prepare_budget(start,20))return;
-                    prepare_acquire();
+                    prepare_acquire(budgeted?4:21);
                 } while(prepare_index!=prepare_count);
                 ++prepare_stage;
                 break;
