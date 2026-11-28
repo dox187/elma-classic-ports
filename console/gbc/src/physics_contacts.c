@@ -2112,6 +2112,9 @@ uint8_t riding_pair_shift, riding_pair_coefficient, riding_pair_stopped;
 uint8_t riding_pair_moment_side;
 uint8_t riding_pair_fast_side(const int32_t *velocity);
 uint8_t riding_pair_speed_class(const int32_t *velocity);
+#ifdef RIDING_PAIR_BOUND
+void riding_pair_slow_setup(const int32_t *moment) __preserves_regs(b,c);
+#endif
 uint8_t riding_pair_sure(const contact_t *pivot,uint8_t *separation);
 uint8_t riding_pair_supports(const contact_t *contact);
 
@@ -2141,9 +2144,13 @@ uint8_t resolve_ordered_pair(const wheel_input_t *input,uint8_t *signs) {
         riding_pair_coefficient=q24_index_C_NEW[riding_subphase];
     } else {
         riding_pair_vector=riding_pair_impulse;
+#ifdef RIDING_PAIR_BOUND
+        riding_pair_slow_setup(&input->tq);
+#else
         riding_pair_moment=&input->tq;
         riding_pair_shift=6;
         riding_pair_coefficient=q24_index_C_OLD[riding_subphase];
+#endif
     }
 #ifdef RIDING_STOPPED_PAIR
     if(riding_pair_stopped && (signs[0] == 2 || signs[0] == 128)) {

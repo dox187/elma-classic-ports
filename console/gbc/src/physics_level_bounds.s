@@ -63,6 +63,9 @@ bounds_pair_ready:
  ld a,(#normal_sram_ready)
  or a
  jr nz,bounds_normal_ready
+ .ifdef RIDING_PAIR_BOUND
+ call _riding_prepare_pair_bound
+ .endif
  ld e,#13
  ld hl,#normal_sram_init
  call ___sdcc_bcall_ehl

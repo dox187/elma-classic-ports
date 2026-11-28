@@ -128,7 +128,14 @@ def validate_layout(symbols):
         if start is None:
             continue
         end = symbols[f'_head_quarter_end_{bank}']
+        bank_end = symbols[f's__CODE_{bank}'] + symbols[f'l__CODE_{bank}']
+        if bank == 507 and 'pair_bound_install' in symbols:
+            image, image_end = symbols['pair_bound_image'], symbols['pair_bound_image_end']
+            if (not end < image < image_end == bank_end or image_end-image > 144
+                    or symbols['_riding_pair_bound_gate'] != 0xa570):
+                raise ValueError('Invalid placement of the SRAM pivot reader after the bank 507 head map')
+            bank_end = symbols['pair_bound_install']
         if (start >> 16 != bank or not 0 < end-start <= capacity or
-                end != symbols[f's__CODE_{bank}'] + symbols[f'l__CODE_{bank}'] or
+                end != bank_end or
                 end > (bank<<16)+0x8000):
             raise ValueError(f'Quarter-metre head map exceeds the tail of bank {bank}')

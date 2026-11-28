@@ -3,12 +3,42 @@
 ; signed32; the separation sign belongs only to the geometry.
 .module physics_ordered_pair
 .area _DATA
+_riding_pair_tangent::
 pair_tangent: .ds 4
 _riding_pair_normal::
 pair_normal: .ds 2
 pair_nv: .ds 4
 
 .area _CODE_9
+.ifdef RIDING_PAIR_BOUND
+; Full slow pivots with a nontrivial applied torque can share its sign
+; thresholds and both velocity rows. The setup leaves the caller's BC live.
+_riding_pair_slow_setup::
+ ld hl,#_riding_pair_moment
+ ld (hl),e
+ inc hl
+ ld (hl),d
+ ld a,#6
+ ld (#_riding_pair_shift),a
+ ld hl,#(_q24_index_C_OLD+1)
+ ld a,(#_riding_subphase)
+ or a
+ jr nz,pair_set_coefficient
+ dec hl
+ ld a,(de)
+ add a
+ inc de
+ ld a,(de)
+ adc #0
+ jr z,pair_set_coefficient
+ call _riding_prepare_pair_bound
+ ld a,#4
+ ld (#_riding_pair_moment_side),a
+pair_set_coefficient:
+ ld a,(hl)
+ ld (#_riding_pair_coefficient),a
+ ret
+.endif
 ; DE = pivot (Ct[0] or Ct[1]), BC = its rounded separation-sign cell.
 _riding_pair_sure::
  push bc
@@ -139,11 +169,17 @@ pair_certify_moment:
  ; publishes its own fraction or rejects into a response that replaces it.
  ld a,h
  cp #2
- jr nc,pair_do_exact
+ jp nc,pair_exact_moment
  ld a,(#_riding_pair_moment_side)
- or a
- jr z,pair_do_exact
  res 0,a
+ or a
+ jp z,pair_exact_moment
+.ifdef RIDING_PAIR_BOUND
+ ; Values 4 and 12 select the full-phase interval before and after binding
+ ; the two rows; 13 additionally defers the first pivot's Q24 fraction.
+ bit 2,a
+ jp nz,_riding_pair_bound_gate
+.endif
  ld b,a
  pop af
  cp b
@@ -151,14 +187,12 @@ pair_certify_moment:
  push af
  ld a,c
  cp #<(_Ct+10)
- jr nz,pair_do_exact
+ jp nz,pair_exact_moment
  ld a,b
  or #1
  ld (#_riding_pair_moment_side),a
  pop af
  jp pair_true
-pair_do_exact:
- jp pair_exact_moment
 pair_zero_separation:
  ld a,(#_riding_pair_moment_side)
  rrca
@@ -175,7 +209,7 @@ pair_replay_first:
  ld (#_riding_pair_moment_side),a
  jp _riding_pair_sure
 .area _CODE_9
-pair_exact_moment:
+pair_exact_moment::
  push hl
  ld hl,#_riding_pair_vector
  ld a,(hl+)
@@ -214,9 +248,7 @@ pair_exact_moment:
  or b
  or c
  jr z,pair_true
- xor a
- ret
-pair_reject_moment:
+pair_reject_moment::
  xor a
  ret
 pair_true:

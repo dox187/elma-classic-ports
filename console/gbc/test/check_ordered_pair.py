@@ -149,6 +149,47 @@ def check_moving_pivots(reference, target, rng):
     return checked
 
 
+
+def check_pivot_intervals(reference, target):
+    # Exercise actual overlapping-contact responses on both sides of each
+    # magnitude/length cutoff. Perpendicular contact displacements exercise
+    # Q24 replay when a deferred first pivot precedes zero separation.
+    rng = random.Random(72461)
+    velocities = [-262145, -262144, -262143, -65537, -65536, -65535,
+                  -256, -1, 0, 1, 255, 65535, 65536, 65537, 262143, 262144]
+    axes = [-16641, -16385, -16384, -16383, -256, -1, 0, 255,
+            256, 16383, 16384, 16639, 16640]
+    lengths = (383, 384, 385, 403, 405, 414, 415, 416)
+    for i in range(1600):
+        dx, dy = (rng.choice(velocities) if rng.randrange(2) else rng.randint(-262144, 262143)
+                  for _ in range(2))
+        def record():
+            return [rng.choice(axes), rng.choice(axes), rng.choice(lengths),
+                    rng.randint(-1024, 1024), rng.randint(-1024, 1024)]
+        first, second = record(), record()
+        if i % 7 == 0:
+            # Perpendicular displacement makes the second pivot's dot zero
+            # while leaving the first nonzero whenever its tangent differs.
+            first[0:2] = [16384, 0]
+            second[4] = first[4]
+        nx, ny, length = (second, first)[i & 1][:3]
+        tangent = (dy*nx - dx*ny + 8192) >> 14
+        change = (((tangent*length >> 6)*330579) + (1 << 23)) >> 24
+        torque = -change + rng.choice((-1024, -129, -1, 0, 1, 127, 1024))
+        if i % 4 == 0:
+            torque = rng.choice((-8193, -8192, -129, -128, 0, 127, 128, 8191, 8192))
+        fields = {key: rng.randbytes(size) for key, size in FIELDS.items()}
+        bike = bytearray(fields['_Bike'])
+        struct.pack_into('<ii', bike, 32, rng.randint(-1600, 1600), rng.randint(-1600, 1600))
+        fields['_Bike'] = bike
+        fields['_Ct'] = struct.pack('<10h', *first, *second)
+        force = dx, dy, torque
+        phase = int(i % 13 == 0)
+        assert reference.run(fields, phase, 0, force, False) == target.run(fields, phase, 0, force, False), (
+            first, second, force, phase)
+    return 1600
+
+
 def check_speed_class(cart):
     velocity = cart.symbols['_Bike'] + 32
     limit = 23069
@@ -282,6 +323,8 @@ def main():
                      actual['_riding_audio_impact'][slot])] += 1
         print(f'{check_first_push(reference, target)} two-contact push boundaries matched.')
         moving = check_moving_pivots(reference, target, rng)
+        if '_riding_pivot_bound' in target.symbols:
+            print(f'{check_pivot_intervals(reference, target)} slow-pivot interval boundaries matched.')
         if '_riding_pair_speed_class' in target.symbols:
             print(f'{check_speed_class(target)} velocity boundaries passed.')
         if 'pair_length_scale' in target.symbols:

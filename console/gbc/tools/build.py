@@ -439,6 +439,15 @@ def main():
     sources.append(BASE/'src'/('world_lookup_raw.s' if rom_mib==8 else 'world_lookup_linked.s'))
     graphics = json.loads((a.gen/'level_manifest.json').read_text())
     signed_bg = scheduled and rom_mib==8 and graphics['map_codec']==rolling_map_banks.CODEC
+    # Full slow-pivot sign interval requires 8/17 < alpha < 8/15 for
+    # every contact length in 384..415, where alpha=4*length*C/(64*2^24).
+    pivot_bound = False
+    if signed_bg:
+        constants = (a.gen/'riding_constants.h').read_text()
+        full_old = int(re.search(r'q24_C_OLD\[2\]=\{(-?\d+),', constants).group(1))
+        pivot_bound = 328966 <= full_old <= 344977
+    pivot_flags = 'RIDING_PAIR_BOUND = 1\n' if pivot_bound else ''
+
     if rom_mib==8:
         sources[sources.index(BASE/'src/video_strip_pair.s')] = BASE/'src/world_map_planes.s'
         # Only world.c and its near acquisition kernel call these SRAM helpers.
@@ -521,7 +530,7 @@ def main():
         sources.insert(0, a.gen/'physics_roll_scalar.s')
         pair_source = BASE/'src/physics_ordered_pair.s'
         pair_game = a.gen/'physics_ordered_pair_game.s'
-        head_clearance.write_if_changed(pair_game, 'RIDING_LEAF_REGION = 1\n'+pair_source.read_text())
+        head_clearance.write_if_changed(pair_game, 'RIDING_LEAF_REGION = 1\n'+pivot_flags+pair_source.read_text())
         sources[sources.index(pair_source)] = pair_game
         for name in ('physics_contact_loop', 'physics_normal_fast'):
             source = BASE/'src'/(name+'.s')
@@ -657,7 +666,7 @@ def main():
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/haircut_gate.s')
         bounds = BASE/'src/physics_level_bounds.s'
         bounds_game = a.gen/'physics_level_bounds_sram.s'
-        bounds_flags = 'RIDING_NORMAL_SRAM = 1\n'
+        bounds_flags = 'RIDING_NORMAL_SRAM = 1\n'+pivot_flags
         if signed_bg:
             bounds_flags += 'RIDING_REACTION_PAIR = 1\nRIDING_WHEEL_ROW_RAM = 1\n'
             wheel = BASE/'src/wheel_terrain.s'
@@ -712,6 +721,9 @@ def main():
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/bumpy_setup.s')
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/physics_impact_bound.s')
 
+    if pivot_bound:
+        sources.append(BASE/'src/physics_pivot_bound.s')
+
     def coefficient_lookup(path):
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
@@ -734,7 +746,7 @@ def main():
         if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS'] + (['-DRIDING_BODY_TRANSFERS'] if head_lanes else [])
         if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS'] + (['-DRIDING_BODY_TRANSFERS'] if head_lanes else [])
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
-        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR'] + (['-DRIDING_CORNER_CELLS'] if head_lanes else [])
+        if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR'] + (['-DRIDING_CORNER_CELLS'] if head_lanes else []) + (['-DRIDING_PAIR_BOUND'] if pivot_bound else [])
         if scheduled and path==sweep_path:
             return ['-DRIDING_HEAD_TERRAIN'] + (['-DRIDING_HEAD_LANES'] if head_lanes else [])
         return ['-DRIDING_COEFFICIENT_LOOKUP'] if coefficient_lookup(path) else []

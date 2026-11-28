@@ -123,9 +123,14 @@ def validate_layout(symbols):
         if match:
             bank = int(match[1])
             end = symbols[f'_normal_atlas_end_{bank}']
+            bank_end = symbols[f's__CODE_{bank}'] + symbols[f'l__CODE_{bank}']
+            if bank == 476 and '_riding_pivot_bound' in symbols:
+                if symbols['_riding_pair_bound_end'] != bank_end:
+                    raise ValueError('Pivot bounds must finish immediately after the bank 476 normal atlas')
+                bank_end = symbols['_riding_pivot_bound']
             if (not 256 <= bank < 508 or bank in ROOM or f'_wheel_terrain_tail_{bank}' in symbols
                     or symbols[f'_level_bank_{bank}'] != (bank<<16)+0x4000
                     or start != (bank<<16)+symbols[f'_normal_graphics_end_{bank}']
-                    or end != symbols[f's__CODE_{bank}']+symbols[f'l__CODE_{bank}']
+                    or end != bank_end
                     or not start < end <= (bank<<16)+0x8000):
                 raise ValueError(f'Vertex normals overlap another asset or overflow bank {bank}')
