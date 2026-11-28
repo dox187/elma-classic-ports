@@ -61,6 +61,10 @@ OBSERVED_METRES = (
     ((7, 9, 10), (6, 9, 2), (6, 9, 1)),
 )
 PAYLOAD_BYTES = 4496
+# Extra bank-20 tail space reserved for dense leaves on the independent route.
+# Install these after the original coverage so no other course loses a metre.
+EXTRA_METRES = ((38, 37, 6, 10), (38, 37, 6, 6))
+EXTRA_BYTES = 36
 
 
 def refinement_tables(levels, banks, rows, codes, patterns):
@@ -69,14 +73,14 @@ def refinement_tables(levels, banks, rows, codes, patterns):
     used = set()
     payload_size = 0
 
-    def install(level, cx, cy, sub, quarters):
+    def install(level, cx, cy, sub, quarters, limit=PAYLOAD_BYTES):
         nonlocal payload_size
         key = (level, cx, cy, sub)
         if key in used:
             return
         parts = [quarters[i:i+4] for i in range(0, 16, 4)]
         extra = 8 + 4*len(set(parts).difference(row_ids))
-        if payload_size+extra > PAYLOAD_BYTES or len(selected[level]) >= 255:
+        if payload_size+extra > limit or len(selected[level]) >= 255:
             return
         if len(row_ids) + len(set(parts).difference(row_ids)) > 512:
             return
@@ -129,6 +133,10 @@ def refinement_tables(levels, banks, rows, codes, patterns):
             if rank < len(choices):
                 _, cx, cy, sub, quarters = choices[rank]
                 install(l, cx, cy, sub, quarters)
+
+    for course, cx, cy, sub in EXTRA_METRES:
+        if course < len(rows) and cy < len(rows[course]) and cx < len(rows[course][cy]):
+            install(course, cx, cy, sub, rows[course][cy][cx][sub][2], PAYLOAD_BYTES+EXTRA_BYTES)
 
     lines = ['.area _CODE_20', '_wheel_refinement_levels::']
     for l, entries in enumerate(selected):
