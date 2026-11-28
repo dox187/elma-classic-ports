@@ -726,7 +726,7 @@ def main():
             return flags + (['-DRIDING_IMMEDIATE_DRIVE'] if immediate_drive else [])
         if scheduled and path == BASE/'src/play.c': return ['-DRIDING_BANKED_DRAW']
         if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS'] + (['-DRIDING_BODY_TRANSFERS'] if head_lanes else [])
-        if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS']
+        if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS'] + (['-DRIDING_BODY_TRANSFERS'] if head_lanes else [])
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
         if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR'] + (['-DRIDING_CORNER_CELLS'] if head_lanes else [])
         if scheduled and path==sweep_path:

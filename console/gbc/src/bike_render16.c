@@ -61,7 +61,12 @@ _body16_registers:
 }
 
 static uint8_t last_body,last_wheel[2];
-static uint16_t last_head,previous_head;
+static uint16_t last_head;
+#ifdef RIDING_BODY_TRANSFERS
+uint16_t bike_streamed_heads[2];
+#else
+static uint16_t previous_head;
+#endif
 static uint16_t head_upload_frame;
 static uint8_t head_tile;
 static uint8_t positions_valid,center_x,center_y,center_mask;
@@ -72,7 +77,12 @@ void bike_render16_init_sprites(void) BANKED;
 
 void bike_render_init(void) BIKE_DRAW_CALL {
     last_body=last_wheel[0]=last_wheel[1]=255;
-    previous_head=last_head=256;
+    last_head=256;
+#ifdef RIDING_BODY_TRANSFERS
+    bike_streamed_heads[0]=bike_streamed_heads[1]=256;
+#else
+    previous_head=256;
+#endif
     head_tile=BIKE_HEAD_TILE;
     head_upload_frame=0;
     positions_valid=0;
@@ -684,20 +694,32 @@ void bike_render_prepare(const gbc_bike_t *bike) BIKE_FIXED {
          * pattern intact until the next DMA publishes the matching new pose.
          * At most one publication per display frame prevents a second prepare
          * call from recycling the pattern that hardware OAM still references. */
+#ifdef RIDING_BODY_TRANSFERS
+        uint8_t resident=(head+4U)&127U;
+        if(head<128 && resident<BIKE_HEAD_RESIDENT_COUNT) {
+            shadow_OAM[12].tile=BIKE_HEAD_RESIDENT_TILE+2U*resident;
+        } else {
+            uint8_t slot=head_tile==BIKE_HEAD_TILE;
+            head_tile=slot ? BIKE_HEAD_BACK_TILE : BIKE_HEAD_TILE;
+            if(bike_streamed_heads[slot]!=head) {
+                SWITCH_ROM(13);
+                upload(head_tile,1,riding_heads+((uint16_t)head<<4));
+                bike_streamed_heads[slot]=head;
+            }
+            shadow_OAM[12].tile=head_tile;
+        }
+#else
         head_tile=head_tile==BIKE_HEAD_TILE ? BIKE_HEAD_BACK_TILE : BIKE_HEAD_TILE;
         /* The other head buffer still holds the preceding publication, even
          * after a skipped display frame. Reuse its pixels when a half-pixel
          * phase returns. The same frame gate still controls the OAM change. */
         if(head!=previous_head) {
             SWITCH_ROM(13);
-#ifdef RIDING_BODY_TRANSFERS
-            upload(head_tile,1,riding_heads+((uint16_t)head<<4));
-#else
             upload(head_tile,1,riding_heads+((uint16_t)head<<5));
-#endif
         }
         previous_head=last_head;
         shadow_OAM[12].tile=head_tile;
+#endif
         head_upload_frame=frame;
         last_head=head;
     }

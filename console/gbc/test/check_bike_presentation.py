@@ -79,6 +79,13 @@ class PresentationDriver(Driver):
             start = 0x8000 + page*256
             expected = self.rom_far((10+pose//64, 0x4000 + (pose%64)*256), 256)
             assert bytes(self.p.memory[bank, start:start+256]) == expected, (pose, bank, page)
+        if '_bike_streamed_heads' in self.symbols:
+            source = self.symbols['_riding_heads'] & 65535
+            for i in range(12):
+                pose = (124+i) & 127
+                start = 0x8000 + (92+i*2)*16
+                expected = self.rom_far((13, source+pose*16),16) + bytes(16)
+                assert bytes(self.p.memory[1,start:start+32]) == expected, ('resident head', pose)
 
     def observe_dma(self):
         # Find the final linked poll/launch sequence inside the renderer.
@@ -140,6 +147,15 @@ class PresentationDriver(Driver):
                 assert oam[index] == page*16 + i*2 and oam[index+1] == bank*8
                 canonical[index:index+2] = bytes((64+i*2, 8))
         if signed_bg:
+            # Compare the published head pixels even when its OAM Y is hidden.
+            # Captured tile IDs can differ between the immutable and streaming slots.
+            head = oam[50]
+            resident = '_bike_streamed_heads' in self.symbols
+            assert head in (88,90) or (resident and 92<=head<116 and head%2==0)
+            assert oam[51] == 12
+            start = 0x8000 + 16*head
+            patterns.append(bytes(memory[1,start:start+32]))
+            canonical[50] = 88
             for i in range(0,160,4):
                 if any(oam[i:i+3]):canonical[i+2]^=128
         hud=0x8ec0 if signed_bg else 0x8dc0

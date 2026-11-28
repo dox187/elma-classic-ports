@@ -24,6 +24,16 @@ void bike_render16_init_sprites(void) BANKED {
         }
     }
 #endif
+#ifdef RIDING_BODY_TRANSFERS
+    /* Twelve pairs fit between the streamed heads and the third wheel phase. */
+    for(i=0;i<BIKE_HEAD_RESIDENT_COUNT;++i) {
+        uint8_t pixels[16];
+        uint8_t head=(i+124)&127, tile=BIKE_HEAD_RESIDENT_TILE+2*i;
+        world_far_copy(13,riding_heads+(uint16_t)head*16,pixels,sizeof(pixels));
+        set_sprite_data(tile,1,pixels);
+        set_sprite_data(tile+1,1,blank_head_half);
+    }
+#endif
     set_sprite_data((uint8_t)(BIKE_HEAD_TILE+1),1,blank_head_half);
     set_sprite_data((uint8_t)(BIKE_HEAD_BACK_TILE+1),1,blank_head_half);
     VBK_REG=0;
