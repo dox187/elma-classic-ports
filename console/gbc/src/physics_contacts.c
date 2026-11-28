@@ -281,11 +281,7 @@ merge_separation:
     ld a,(#_Ct+19)
     sbc (hl)
     ld b,a
-    push de
-    push bc
     call _riding_merge_close
-    pop bc
-    pop de
     or a
     ld a,#2
     ret z

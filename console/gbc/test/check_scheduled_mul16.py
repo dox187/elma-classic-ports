@@ -79,6 +79,7 @@ def main():
                 d2 = x*x + y*y
                 if name == '_riding_merge_close':
                     assert r.A == int(d2 < 102**2), (x, y, r.A)
+                    assert (r.D << 8 | r.E, r.B << 8 | r.C) == (x & 65535, y & 65535)
                 else:
                     assert (r.D << 24 | r.E << 16 | r.B << 8 | r.C) == d2, (x, y, d2)
                 assert (r.SP, r.PC) == (stack, code+4)

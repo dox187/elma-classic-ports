@@ -136,31 +136,36 @@ endpoint_square:
 .area _CODE_9
 ; Signed X in DE and Y in BC. The table contains the largest absolute Y
 ; strictly inside the original merge circle for each absolute X.
+; Preserve DE and BC for the midpoint calculation on a close pair.
 _riding_merge_close::
  ld a,d
- or a
- ld a,e
- jr z,merge_abs_x
- inc d
- jr nz,merge_far
- cpl
  inc a
+ jr z,merge_negative_x
+ dec a
+ jr nz,merge_far
+ ld a,e
+ jr merge_abs_x
+merge_negative_x:
+ xor a
+ sub e
  jr z,merge_far                ; -256 must not wrap to zero
 merge_abs_x:
  ld l,a
  cp #102
  jr nc,merge_far
  ld a,b
- or a
- ld a,c
- jr z,merge_abs_y
- inc b
- jr nz,merge_far
- cpl
  inc a
+ jr z,merge_negative_y
+ dec a
+ jr nz,merge_far
+ ld a,c
+ jr merge_abs_y
+merge_negative_y:
+ xor a
+ sub c
  jr z,merge_far                ; -256
 merge_abs_y:
- ld c,a
+ ld h,a
  jp merge_limit_read
 merge_far:
  xor a
@@ -168,15 +173,18 @@ merge_far:
 
 .area _CODE
 merge_limit_read:
- ld h,#>_riding_merge_limit
  ld a,#28
  ld (#0x2000),a
- ld a,(hl)
- cp c
+ ; Carry iff limit + (255 - |Y|) + 1 reaches 256.
+ ld a,h
+ ld h,#>_riding_merge_limit
+ cpl
+ scf
+ adc (hl)
  ld a,#9
  ld (#0x2000),a
- sbc a,a
- inc a
+ ld a,#0
+ rla
  ret
 
 .area _CODE_9
