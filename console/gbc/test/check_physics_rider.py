@@ -147,6 +147,14 @@ def check_scheduled_rom(rom):
         spin_cases.extend((w, t) for w in wide_edges for t in tangents)
         spin_cases.extend((rng.randint(-8388608, 8388607), rng.randint(-32768, 32767))
                           for _ in range(7000))
+        # The ordinary-width shortcut folds a small signed upper angular
+        # digit into the product's high word. Cross both gates and every
+        # low-word carry/sign transition, including negative half ties.
+        for upper in range(-3, 4):
+            for low in (0, 1, 8191, 8192, 16384, 32767, 32768, 65534, 65535):
+                omega = (upper << 16) + low
+                spin_cases.extend((omega, tangent) for tangent in
+                                  (-8193, -8192, -8191, -1, 0, 1, 8190, 8191, 8192))
         for omega, tangent in spin_cases:
             mem[out:out+4] = struct.pack('<i', omega)
             regs.HL, regs.B, regs.C = out, (tangent >> 8) & 255, tangent & 255

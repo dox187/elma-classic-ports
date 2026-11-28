@@ -320,7 +320,7 @@ step_gravity_y:
  push hl
 step_rider_response:
  step_push32 _riding_suspension_state+step_oms
- step_push32 _riding_pose_rest
+ add sp,#-4                      ; the limiter consumes the cached pose directly
  call _riding_rider_response_after_limit
  add sp,#16
  ; Only now can the rider's old body velocity and residual be replaced.

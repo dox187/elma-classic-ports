@@ -13,8 +13,8 @@ rider_delta_y: .ds 3
 .endif
 .area _CODE_8
 
-; The step caller has just limited the rider and supplies the cached pose's
-; rest vector, whose components have magnitude at most 7210. A certified
+; The step caller has just limited the rider. Its cached rest vector has
+; components with magnitude at most 7210. A certified
 ; raw delta or a restored small rotation therefore cannot saturate either
 ; Q4 result. The public entry still covers every possible 32-bit position
 ; and every signed16 rest argument independently.
@@ -22,7 +22,7 @@ _riding_rider_response_after_limit::
  .ifdef RIDING_PAIRED_ROTATION
  ld a,(#rider_delta_x+2)
  cp #0x80
- jr z,_riding_rider_response32
+ jr z,rider_restore_arguments
  add sp,#-8
 .macro rider_cached_axis delta,rest,direction,tangent
  ld hl,#delta
@@ -48,10 +48,8 @@ _riding_rider_response_after_limit::
  ; floor(-delta / 16) = -floor(delta / 16) - (delta mod 16 != 0).
  ld a,e
  and #15
- ld e,a
- ldhl sp,#rest
- xor a
- sub e
+ add #255                     ; carry iff the discarded nibble was nonzero
+ ld hl,#(_riding_pose_rest+rest)
  ld a,(hl+)
  sbc b
  ld e,a
@@ -61,10 +59,21 @@ _riding_rider_response_after_limit::
  ld (hl-),a
  ld (hl),e
 .endm
- rider_cached_axis rider_delta_x,10,0,4
- rider_cached_axis rider_delta_y,12,2,6
+ rider_cached_axis rider_delta_x,0,0,4
+ rider_cached_axis rider_delta_y,2,2,6
  jr rider_response_ready
  .endif
+rider_restore_arguments:
+ ; Only the full-width displacement fallback needs rest in its public frame.
+ ldhl sp,#2
+ ld de,#_riding_pose_rest
+ ld b,#4
+rider_copy_rest:
+ ld a,(de)
+ inc de
+ ld (hl+),a
+ dec b
+ jr nz,rider_copy_rest
 _riding_rider_response32::
  add sp,#-8
  call _riding_rider_vectors_frame
@@ -126,45 +135,8 @@ rider_response_ready:
  call _riding_rider_pair16
  jr combine
 wide:
- push bc
- push de
- call _riding_rider_f_wide
- add sp,#4
- push hl
- push de
- ldhl sp,#(direction+4)
- ld a,(hl+)
- ld e,a
- ld d,(hl)
- ld a,d
- add a,a
- sbc a,a
- ld h,a
- ld l,a
- push hl
- push de
- call _riding_rider_s
- add sp,#4
- ld b,h
- ld c,l
- ldhl sp,#0
- ld a,e
- sub a,(hl)
- ld e,a
- inc hl
- ld a,d
- sbc a,(hl)
- ld d,a
- inc hl
- ld a,c
- sbc a,(hl)
- ld c,a
- inc hl
- ld a,b
- sbc a,(hl)
- ld h,a
- ld l,c
- add sp,#4
+ ldhl sp,#direction
+ call rider_wide_difference
 combine:
  ld b,h
  ld c,l
@@ -192,6 +164,41 @@ combine:
  rider_response_axis 4,0,12,84,2,22,rider_wide_y,rider_combine_y
  add sp,#8
  jp _riding_rider_move_y_regs
+
+rider_wide_difference:
+ push hl                          ; displacement pointer for the spring lookup
+ push bc
+ push de
+ call _riding_rider_f_wide
+ add sp,#4
+ pop bc
+ push hl
+ push de
+ ld h,b
+ ld l,c
+ ld de,#0                         ; signed16 lookup gives spring minus zero
+ call _riding_rider_pair16
+ ld b,h
+ ld c,l
+ ldhl sp,#0
+ ld a,e
+ sub a,(hl)
+ ld e,a
+ inc hl
+ ld a,d
+ sbc a,(hl)
+ ld d,a
+ inc hl
+ ld a,c
+ sbc a,(hl)
+ ld c,a
+ inc hl
+ ld a,b
+ sbc a,(hl)
+ ld h,a
+ ld l,c
+ add sp,#4
+ ret
 
 ; The rider needs only the rounded Q14 value. A signed16 omega fits a
 ; signed32 product, so omit the generic signed48 extension and saturation.
@@ -231,7 +238,40 @@ rider_spin_wide:
  sbc a,a
  cp (hl)
  dec hl
- jp z,rider_spin_three_bytes
+ jr nz,rider_spin_full_width
+ ; With |tangent| <= 8192 and an upper angular digit in [-2,2],
+ ; the raw product fits signed32. Its high word is the usual unsigned
+ ; word product plus upper*tangent and the signed tangent correction.
+ ld a,b
+ add #32
+ cp #64
+ jr nc,rider_spin_three_bytes
+ ld a,(hl)
+ add #2
+ cp #5
+ jr nc,rider_spin_three_bytes
+ ld h,b
+ ld l,c
+ sub #2
+ jr z,rider_spin_upper_zero
+ bit 0,a
+ jr nz,rider_spin_upper_sign
+ add hl,hl
+rider_spin_upper_sign:
+ bit 7,a
+ jr z,rider_spin_tangent_sign
+ xor a
+ sub l
+ ld l,a
+ ld a,#0
+ sbc h
+ ld h,a
+ jr rider_spin_tangent_sign
+rider_spin_upper_zero:
+ ld hl,#0
+rider_spin_tangent_sign:
+ jp rider_word_x_positive
+rider_spin_full_width:
  .endif
  dec hl
  dec hl
@@ -544,6 +584,7 @@ rider_spin_rounded:
  ld a,h
  rlca
  sbc a,a
+ ld b,a
  add hl,hl
  rla
  add hl,hl
@@ -554,10 +595,7 @@ rider_spin_rounded:
  or e
  ld e,a
  ld l,h
- ld a,h
- rlca
- sbc a,a
- ld h,a
+ ld h,b
  ret
 
  .ifdef RIDING_PROJECTION_TABLES
