@@ -35,6 +35,7 @@ import scenery_pins
 import seat_tables
 import sqrt_tables
 import stopped_pair
+import wheel_direct_tiles
 import wheel_terrain
 
 BASE=Path(__file__).resolve().parents[1]
@@ -188,6 +189,13 @@ def validate_linked_layout(symbol_path,rom_mib):
             raise ValueError('Movement product pages must begin at 0x4000 in banks 32 and 33')
     if '_riding_normal_ring' in symbols:
         normal_atlas.validate_layout(symbols)
+        if 'direct_data_start' in symbols:
+            if symbols['direct_template_size'] >= symbols['_riding_sparse_lookup'] - symbols['_riding_sparse_bind']:
+                raise ValueError('Direct wheel trampoline exceeds the inactive binder')
+            bank = wheel_direct_tiles.BANK
+            if not (symbols[f'_riding_radial_space_{bank}'] <= symbols['direct_data_start'] <
+                    symbols['direct_data_end'] <= symbols[f'_riding_radial_space_end_{bank}']):
+                raise ValueError('Direct wheel reader exceeds the reserved radial bank')
     if '_riding_wheel_lookup' in symbols:
         wheel_terrain.validate_layout(symbols)
     if '_riding_projection_bank_477' in symbols:
@@ -665,7 +673,13 @@ def main():
         head_clearance.write_if_changed(step_game, prefix+step.read_text())
         sources[sources.index(step)] = step_game
         lookup = a.gen/'corner_lookup_game.s'
-        head_clearance.write_if_changed(lookup, (BASE/'src/corner_lookup.s').read_text() + directory)
+        direct_prefix = ''
+        if wheel_direct_tiles.BANK in radial_slabs:
+            runtime, data = wheel_direct_tiles.generate(BASE/'src/direct_wheel.inc', levels, terrain_banks)
+            radial_slabs[wheel_direct_tiles.BANK] += '\n' + data
+            head_clearance.write_if_changed(a.gen/'direct_wheel_runtime.s', runtime)
+            direct_prefix = 'RIDING_DIRECT_TILES = 1\n'
+        head_clearance.write_if_changed(lookup, direct_prefix + (BASE/'src/corner_lookup.s').read_text() + directory)
         sources.append(lookup)
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/haircut_gate.s')
         bounds = BASE/'src/physics_level_bounds.s'
@@ -772,6 +786,9 @@ def main():
     def source_key(path):
         extra=b''.join(b' '+flag.encode() for flag in apply_scenery_flags(path,source_flags(path)))
         return hashlib.sha256(configuration+extra+dependencies(path,a.gen)).hexdigest()
+    if head_lanes and wheel_direct_tiles.BANK in radial_slabs:
+        # The lookup pages in low ROM must stay at the start of their banks.
+        sources.append(a.gen/'direct_wheel_runtime.s')
     objects=[];keys=[];pending=[]
     for path in sources:
         key=source_key(path)

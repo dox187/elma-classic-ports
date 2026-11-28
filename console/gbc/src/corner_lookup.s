@@ -41,7 +41,7 @@ _riding_corner_select::
  ld hl,#_riding_sparse_courses
  ld a,(#_physics_level_index)
  cp #54
- jr nc,corner_no_level
+ jp nc,corner_no_level
  ld c,a
  ld b,#0
  ; 11 bytes per course (two 24-bit coordinates, bank, two pointers).
@@ -88,6 +88,23 @@ corner_has_secondary:
  ld (#corner_ram+(corner_sparse_branch-corner_template)+1),a
  pop af
 corner_level_ready:
+ .ifdef RIDING_DIRECT_TILES
+ cp #31
+ ld hl,#direct_steep
+ jr z,corner_direct_install
+ cp #47
+ ld hl,#direct_course48
+ jr nz,corner_not_direct
+corner_direct_install:
+ push hl
+ ld hl,#direct_template_start
+ ld de,#_riding_sparse_bind+1
+ ld bc,#direct_template_size
+ call corner_copy
+ pop hl
+ jp corner_disable_bind
+corner_not_direct:
+ .endif
  cp #37
  jr nz,corner_existing_level
  ld hl,#_riding_patch_wheel_inputs

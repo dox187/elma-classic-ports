@@ -198,6 +198,10 @@ def check_dispatch(target, cells):
         course_reader = None
         if level == 10:
             course_reader = target.sym['_riding_corner_wheel_inputs']
+        elif level == 31 and 'direct_steep' in target.sym:
+            course_reader = target.sym['direct_steep']
+        elif level == 47 and 'direct_course48' in target.sym:
+            course_reader = target.sym['direct_course48']
         elif level == 37 and '_riding_patch_wheel_inputs' in target.sym:
             course_reader = target.sym['_riding_patch_wheel_inputs']
         elif level == 38 and '_haircut_wheel_inputs' in target.sym:
