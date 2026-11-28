@@ -294,6 +294,14 @@ class Driver:
                             if split_planes else self.graphics_block(entry,1536))
                     assert actual == expected, 'ROM map payload differs from generated level%d chunk%d'%(index+1,chunk)
             data['record'] = record
+            directory = self.symbols.get('_world_scenery_slots')
+            if directory is not None:
+                bank = directory >> 16
+                address = int.from_bytes(self.rom_far((bank, (directory & 65535)+2*index), 2), 'little')
+                if address:
+                    slots = self.rom_far((bank, address), record['pattern_count']-256)
+                    assert max(slots)<236
+                    data['scenery_slots'] = slots
             self.level_sources[index] = data
         return self.level_sources[index]
 
@@ -332,6 +340,14 @@ class Driver:
                     if lookup_format==3:
                         if source['record']['pattern_count']<=492:
                             cached=pattern
+                        elif 'scenery_slots' in source:
+                            cached=pattern
+                            if pattern>=256:
+                                slot=source['scenery_slots'][pattern-256]
+                                assert self.p.memory[0,0xa000+pattern-256]==slot
+                                tag=self.p.memory[0,0xa300+slot] | self.p.memory[0,0xa400+slot]<<8
+                                assert tag==pattern, 'shared scenery slot contains another visible pattern'
+                                cached=256+slot
                         else:
                             tag=self.p.memory[0,0xa000+(pattern&255)]
                             high=self.p.memory[0,0xa100+(pattern&255)]

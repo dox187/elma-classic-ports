@@ -10,6 +10,9 @@ extern const uint16_t world_scenery_pins[][52];
 #define COORDINATE_FIRST 52
 #define COORDINATE_COUNT 440
 static uint8_t all_patterns;
+#ifdef WORLD_SCENERY_SLOTS
+uint8_t world_load_scenery_slots(void) BANKED;
+#endif
 uint8_t world_direct_map;
 
 /* With uniform-zero high bytes, the second plane already contains the
@@ -164,6 +167,10 @@ static void prepare_acquire(uint8_t limit) __naked {
         ld a,(#_all_patterns)
         or a
         jr z,coord_item
+#ifdef WORLD_SCENERY_SLOTS
+        dec a
+        jp nz,scenery_slot_acquire
+#endif
         ; An all-resident level maps each logical ID directly to its BG bank/tile.
         ld hl,#_strip_high
         ld de,#_strip_attrs
@@ -289,6 +296,74 @@ coord_bank_ready:
         pop hl
         ld b,#0xa1
         jr coord_store
+#ifdef WORLD_SCENERY_SLOTS
+scenery_slot_acquire:
+        ; All low IDs are immutable in VRAM bank 0. A high ID has one
+        ; assigned bank-1 slot and a full two-byte tag in SRAM.
+        ld a,(#_prepare_index)
+        ld e,a
+        ld d,#0
+        add c
+        ld hl,#_prepare_count
+        cp (hl)
+        jr c,scenery_slot_span
+        ld a,(hl)
+scenery_slot_span:
+        ld (#_prepare_index),a
+        sub e
+        ld b,a
+        ld hl,#_strip_high
+        add hl,de
+scenery_slot_next:
+        ld a,(hl+)
+        or a
+        jr z,scenery_slot_done
+        push hl
+        push bc
+        ld b,a
+        ld de,#(_strip_low-_strip_high-1)
+        add hl,de
+        ld c,(hl)
+        push hl
+        add #0x9f
+        ld h,a
+        ld l,c
+        ld e,(hl)
+        pop hl
+        ld (hl),e
+        push de
+        ld de,#(_strip_attrs-_strip_low)
+        add hl,de
+        set 3,(hl)
+        pop de
+        ld l,e
+        ld h,#0xa4
+        ld a,(hl)
+        cp b
+        jr nz,scenery_slot_replace
+        dec h
+        ld a,(hl)
+        cp c
+        jr z,scenery_slot_resolved
+        inc h
+scenery_slot_replace:
+        ld (hl),b
+        dec h
+        ld (hl),c
+        ld d,#1
+        push bc
+        push de
+        call _world_cache_upload
+        pop de
+        pop bc
+scenery_slot_resolved:
+        pop bc
+        pop hl
+scenery_slot_done:
+        dec b
+        jr nz,scenery_slot_next
+        ret
+#endif
     __endasm;
 }
 /* Both input planes live in the same WRAM strip buffers on every signed
@@ -365,6 +440,12 @@ void world_begin(uint16_t x,uint16_t y) BANKED {
     world_map_snapshot();
     all_patterns=game_world.pattern_count<=492;
     world_direct_map=all_patterns && direct_map_supported();
+#ifdef WORLD_SCENERY_SLOTS
+    if(!all_patterns)all_patterns=world_load_scenery_slots();
+    if(all_patterns==2) {
+        for(i=0;i<256;++i)world_cache_upload(i,i);
+    } else
+#endif
     if(all_patterns) {
         for(i=0;i<game_world.pattern_count;++i)world_cache_upload(i,i);
     } else {

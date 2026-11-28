@@ -741,7 +741,12 @@ def main():
     def coefficient_lookup(path):
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
+    colored = signed_bg and '_world_scenery_slots::' in (a.gen/'physics_projection_game.s').read_text()
+    if colored:
+        sources.append(BASE/'src/world_scenery_slots.c')
     def apply_scenery_flags(path,flags):
+        if colored and path.name=='world.c':
+            flags = flags+['-DWORLD_SCENERY_SLOTS']
         if signed_bg and path.name in ('world.c','world_dma.c','play.c','result.c','bike_render16.c',
                                        'bike_render16_init.c','riding16_meta.c'):
             return flags+['-DWORLD_SIGNED_BG']

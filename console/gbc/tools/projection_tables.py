@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+import scenery_slots
 
 DIRECTORY_BANK = 20
 BANKS = (*range(21, 28), 477, 478, 479, 480, 502, 503, 504, 505, DIRECTORY_BANK)
@@ -269,7 +270,9 @@ def coefficient_rows(rolling_banks, deep=False, radial=False):
                 for axis, k in enumerate(tangent):
                     shared.setdefault(k, (bank, 0x48 + 10*(i%4) + 5*axis))
             slots = [i for i in range(len(stored)) if BANKS[i//ROWS_PER_BANK] in RADIAL_BANKS]
-            reserve_rows(stored, locations, shared, slots)
+            scenery = [i for i in range(len(stored)) if BANKS[i//ROWS_PER_BANK] == scenery_slots.BANK]
+            if not reserve_rows(stored, locations, shared, slots + scenery):
+                reserve_rows(stored, locations, shared, slots)
     return stored, locations
 
 
@@ -370,6 +373,9 @@ def generate(source, destination):
         if nine_bit and bank in RADIAL_BANKS:
             output.extend((f'_riding_radial_space_{bank}::', ' .ds 15360', f'_riding_radial_space_end_{bank}::'))
             continue
+        if bank == scenery_slots.BANK and stored[group*ROWS_PER_BANK] is None:
+            output.extend(scenery_slots.generate(destination.parent))
+            continue
         for y in stored[group * ROWS_PER_BANK:(group + 1) * ROWS_PER_BANK]:
             if y is None:
                 continue
@@ -426,6 +432,11 @@ def deep_fractions(gen, source):
 
 def validate_layout(symbols):
     """Every indexed product plane starts at its expected physical bank address."""
+    if '_world_scenery_slots' in symbols:
+        start = (scenery_slots.BANK << 16) + 0x4000
+        if (symbols['_world_scenery_slots'] != start or
+                not start < symbols['_world_scenery_slots_end'] <= start + scenery_slots.CAPACITY):
+            raise ValueError('Shared scenery patterns exceed the released ROM bank')
     if 'normal_fraction_rows' in symbols:
         start = (DEEP_BANK<<16) + 0x4000 + 1280*(ROWS_PER_BANK-DEEP_SLOTS)
         end = start + 1280*DEEP_SLOTS
