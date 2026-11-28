@@ -131,6 +131,52 @@ def check(rom, gen):
                     assert got == expected & 0xffffffff, (torque, arm, got, expected)
             print(f'{len(torques)*len(arms)} signed reaction-arm projections matched')
 
+        if 'ss_pair_entry' in symbols:
+            # Exercise the complete two-arm path, including a call before level
+            # selection and signed12 endpoints on both sides of the fast domain.
+            def pair(torque, x, y):
+                addr = symbols['ss_coarse']
+                mem[addr:addr+4] = struct.pack('<hh', x, y)
+                entry = symbols['ss_pair_entry']
+                mem[code:code+5] = [0xcd, entry & 255, entry >> 8, 0x18, 0xfe]
+                regs.B, regs.C = (torque >> 24) & 255, (torque >> 16) & 255
+                regs.D, regs.E = (torque >> 8) & 255, torque & 255
+                regs.SP, regs.PC = stack, code
+                emu.tick(1, False)
+                check_return(code+3)
+                horizontal = bytes((regs.E, regs.D, regs.C, regs.B))
+                addr = symbols['ss_pair_y']
+                actual = struct.unpack('<II', horizontal + bytes(mem[addr:addr+4]))
+                def project(arm):
+                    return max(-2**31, min(2**31-1, (torque*arm + 8192) >> 14))
+                assert actual == (project(y) & 0xffffffff, -project(x) & 0xffffffff), (torque, x, y, actual)
+
+            torques = [-196609, -196608, -196607, -131073, -131072, -131071, -65537, -65536,
+                       -65535, -32768, -8192, -1, 0, 1, 31, 32, 127, 128, 8192, 32768,
+                       65535, 65536, 65537, 131071, 131072, 131073, 196606, 196607, 196608]
+            assert not mem[symbols['ss_pair_ready']]
+            for torque in torques:
+                pair(torque, 1023, -512)
+            entry = symbols['ss_pair_init']
+            mem[0x2000] = mem[symbols['__current_bank']] = entry >> 16
+            mem[code:code+5] = [0xcd, entry & 255, (entry >> 8) & 255, 0x18, 0xfe]
+            regs.SP, regs.PC = stack, code
+            emu.tick(1, False)
+            assert regs.PC == code+3 and regs.SP == stack and mem[symbols['ss_pair_ready']]
+            mem[0x2000] = mem[symbols['__current_bank']] = 8
+            endpoints = [-32768, -4096, -2049, -2048, -1025, -257, -256, -128, -1, 0,
+                         1, 127, 128, 255, 256, 511, 1023, 2047, 2048, 32767]
+            for torque in torques:
+                for x in endpoints:
+                    for y in endpoints:
+                        pair(torque, x, y)
+            pair_rng = random.Random(96)
+            for _ in range(7000):
+                x, y = (pair_rng.randint(-2048, 2047) for _ in range(2))
+                pair(pair_rng.randint(-196608, 196607), x, y)
+            print(f'{len(torques)*len(endpoints)**2 + 7000} paired arm projections and '
+                  f'{len(torques)} uninitialized pairs matched')
+
         if 'ss_wheel_reaction_value' in symbols:
             entry = symbols['ss_wheel_reaction_value'] & 65535
             coarse = symbols['ss_coarse']

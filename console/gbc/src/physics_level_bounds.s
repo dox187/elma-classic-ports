@@ -45,6 +45,15 @@ bounds_inner:
 .globl b_riding_prepare_level_bounds
 b_riding_prepare_level_bounds = 14
 _riding_prepare_level_bounds::
+ .ifdef RIDING_REACTION_PAIR
+ ld a,(#ss_pair_ready)
+ or a
+ jr nz,bounds_pair_ready
+ ld e,#13
+ ld hl,#ss_pair_init
+ call ___sdcc_bcall_ehl
+bounds_pair_ready:
+ .endif
  .ifdef RIDING_NORMAL_SRAM
  ld a,(#normal_sram_ready)
  or a

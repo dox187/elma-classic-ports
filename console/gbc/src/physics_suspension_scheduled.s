@@ -844,13 +844,21 @@ ordinary:
 have_reaction:
  .endif
  .endif
+ .ifdef RIDING_REACTION_PAIR
+ call ss_pair_entry
+ .else
  call ss_prepare_reaction
  ss_reaction_product 2
+ .endif
  ss_accumulate _riding_suspension_state+ss_wheel_dvx+record
  xor a
  call _riding_force_sub_integer_regs
+ .ifdef RIDING_REACTION_PAIR
+ ss_read ss_pair_y
+ .else
  ss_reaction_product 0
  ss_negate
+ .endif
  ss_accumulate _riding_suspension_state+ss_wheel_dvy+record
  ld a,#1
  call _riding_force_sub_integer_regs
@@ -1430,6 +1438,18 @@ ss_wide_torque:
  ss_raw_product ss_spring_y1,_riding_pose_anchor+12,ss_force_products+32,ss_spring_y1_rows,ss_spring_y1_fold
 
 ss_near_area
+.ifdef RIDING_REACTION_PAIR
+.globl ss_pair_entry
+.globl ss_pair_y
+ss_pair_y = ss_spin_mid+4
+ss_pair_fallback::
+ call ss_prepare_reaction
+ ss_reaction_product 0
+ ss_negate
+ ss_store ss_pair_y
+ ss_reaction_product 2
+ ret
+.endif
 ss_prepare_reaction::
  .ifdef RIDING_TORQUE_WORDS
  ss_store ss_tr

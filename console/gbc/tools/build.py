@@ -591,6 +591,9 @@ def main():
         suspension = a.gen/'physics_suspension_game.s'
         paired = a.gen/'physics_suspension_torque_game.s'
         prefix = 'RIDING_TORQUE_WORDS = 1\n'
+        if signed_bg:
+            prefix += 'RIDING_REACTION_PAIR = 1\n'
+            sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/physics_reaction_pair.s')
         if graphics['map_codec'] == rolling_map_banks.CODEC:
             bank = rolling_tables.REACTION_WORD_BANK
             original = a.gen/f'level_bank_{bank}.c'
@@ -653,7 +656,10 @@ def main():
         sources.append(lookup)
         bounds = BASE/'src/physics_level_bounds.s'
         bounds_game = a.gen/'physics_level_bounds_sram.s'
-        head_clearance.write_if_changed(bounds_game, 'RIDING_NORMAL_SRAM = 1\n'+bounds.read_text())
+        bounds_flags = 'RIDING_NORMAL_SRAM = 1\n'
+        if signed_bg:
+            bounds_flags += 'RIDING_REACTION_PAIR = 1\n'
+        head_clearance.write_if_changed(bounds_game, bounds_flags+bounds.read_text())
         sources[sources.index(bounds)] = bounds_game
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/normal_sram.s')
         lane_code, lane_table = head_lane_tables.generate(a.gen, BASE/'src/head_lanes.s')
