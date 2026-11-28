@@ -3,6 +3,7 @@ from collections import defaultdict
 import re
 import struct
 
+import bumpy_terrain
 from head_clearance import write_if_changed
 from projection_tables import planes, byte_lines
 
@@ -173,9 +174,10 @@ def bank_sources(sources, manifest, gen, src):
         output = [f'.module rolling_map_{bank}', f'.area _CODE_{bank}', f'_level_bank_{bank}::']
         if bank == banks[0]:
             group,skip = 'directory',512
+            reader, tiles = bumpy_terrain.directory(gen, src, directory, bank)
             output += ['.globl rom_slope_map,rom_slope_miss',
                        '.globl '+','.join(f'rom_slope_{k}_{i}' for k in ('inputs','project') for i in range(4)),
-                       directory]
+                       reader]
         else:
             group,skip = 'products',2048
             output += ['.globl slope_fallback_dots,slope_pair_miss,ground_resume_deltas,ground_return',
@@ -184,7 +186,10 @@ def bank_sources(sources, manifest, gen, src):
                 suffix = str(i) if bank==banks[1] else f'{bank}_{i}'
                 output.append(f' map_tangent rom_slope_inputs_{suffix},rom_slope_project_{suffix},{72+i*10},read_x_{i},read_y_{i}')
         output += [f' .ds {skip}-(.-_level_bank_{bank})', f'rolling_payload_{bank}::']
-        output.extend(byte_lines(data[skip:]))
+        if group == 'directory':
+            output.extend(bumpy_terrain.payload(data, skip, tiles))
+        else:
+            output.extend(byte_lines(data[skip:]))
         target = gen / f'rolling_{group}_{bank}.s'
         write_if_changed(target,'\n'.join(output)+'\n')
         result.append(target)

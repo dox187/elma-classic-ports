@@ -1068,7 +1068,7 @@ void riding_surface_reset(void) __nonbanked {
 #ifdef RIDING_CORNER_CELLS
     __asm
     ld e,#87
-    ld hl,#_hang_wheel_select
+    ld hl,#_bumpy_wheel_select
     call ___sdcc_bcall_ehl
     __endasm;
 #endif

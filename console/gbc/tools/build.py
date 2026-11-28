@@ -9,8 +9,8 @@ import subprocess
 import tempfile
 
 import bike_frames16
-import body_transfers
 import bowling_planes
+import bumpy_terrain
 import brake_dispatch
 import corner_bank
 import corner_cells
@@ -102,6 +102,13 @@ def validate_linked_layout(symbol_path,rom_mib):
         if '_hang_query' in symbols and (symbols['_hang_query'] >> 16 != 7 or
                 symbols['_riding_sparse_bind'] + 1 + symbols['hang_stub_bytes'] > symbols['_riding_sparse_lookup']):
             raise ValueError('Hang Tight wheel dispatch or query is misplaced')
+    if '_bumpy_query' in symbols:
+        bank = symbols['bumpy_bank']
+        if (symbols['bumpy_tiles'] != (bank << 16)+0x4000+bumpy_terrain.TABLE_OFFSET or
+                symbols['bumpy_tiles_end'] - symbols['bumpy_tiles'] != 512 or
+                symbols['_bumpy_query'] >> 16 != bank or symbols['_bumpy_wheel_select'] >> 16 != 87 or
+                symbols['_riding_sparse_bind']+symbols['bumpy_stub_bytes'] > symbols['_riding_sparse_lookup']):
+            raise ValueError('Bumpy Journey wheel dispatch overlaps its rolling directory or WRAM reader')
     if '_bowling_wheel_select' in symbols:
         if (symbols['_physics_bank_86'] != 0x564000 or symbols['_bowling_wheel_select'] >> 16 != 86 or
                 symbols['_bowling_terrain_end'] > 0x568000):
@@ -138,10 +145,6 @@ def validate_linked_layout(symbol_path,rom_mib):
             address = symbols.get(name, 0)
             if address >> 16 != 13 or address & 15:
                 raise ValueError(f'{name} must be GDMA-aligned in sprite bank 13')
-    if '_bike_body_upload' in symbols:
-        for i in range(3):
-            if symbols.get(f'_riding_body_{i}') != ((10+i) << 16) + 0x4000:
-                raise ValueError('Body DMA source frames require page-aligned whole banks 10..12')
     if '_riding_sqrt_large' in symbols:
         for name, bank in (('_riding_sqrt_large', 15), ('_riding_sqrt_upper', 15),
                            ('_riding_sqrt_small', 35), ('_riding_sqrt_byte', 35)):
@@ -250,7 +253,14 @@ def mismatched_map_banks(rom, sources):
             offset = bank * 16384 + skip
             data = source if match else source.with_name(f'level_bank_{bank}.c')
             values = data.read_text().split('{', 1)[1].split('}', 1)[0].strip()
-            payload = bytes(map(int, values.rstrip(',').split(',')))[skip:]
+            payload = bytearray(map(int, values.rstrip(',').split(',')))[skip:]
+            if helper and helper[1] == 'directory' and 'bumpy_tiles::' in source.read_text():
+                tile_lines = source.read_text().split('bumpy_tiles::\n')[1].split('bumpy_tiles_end::')[0]
+                tiles = bytes(int(n) for line in tile_lines.splitlines() for n in line[5:].split(','))
+                if len(tiles) != 512:
+                    raise ValueError('Truncated wheel strip directory')
+                start = bumpy_terrain.TABLE_OFFSET - skip
+                payload[start:start+len(tiles)] = tiles
             if rom[offset:offset + len(payload)] != payload:
                 mismatches.append(source)
     return mismatches
@@ -608,9 +618,6 @@ def main():
     head_lanes = scheduled and rom_mib == 8 and graphics['map_codec'] == rolling_map_banks.CODEC
     immediate_drive = False
     if head_lanes:
-        compact, transfers = body_transfers.generate(a.gen, BASE/'src/bike_body_upload.inc')
-        sources[sources.index(a.gen/'riding16_parts.c')] = compact
-        sources.insert(sources.index(a.gen/'head_quarters.s'), transfers)
         levels, terrain_banks, _ = head_clearance.packed_inputs(a.gen)
         hang = hang_terrain.generate(a.gen, BASE/'src/hang_terrain.inc', levels, terrain_banks)
         sources[sources.index(a.gen/'physics_bank_87.c')] = hang
@@ -675,6 +682,7 @@ def main():
                         BASE/'src/terrain_region.s', a.gen/'wheel_candidate_planes.s'))
     if head_lanes:
         sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/head_near.c')
+        sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/bumpy_setup.s')
 
     def coefficient_lookup(path):
         return not scheduled and ((path.parent==BASE/'src' and path.suffix=='.c' and path.name.startswith('physics')) or any(candidate is not None and path==candidate.resolve()for candidate in(a.sweep_source,a.collision_source)))
@@ -695,7 +703,7 @@ def main():
             flags = ['-DRIDING_PAIRED_ROTATION'] + (['-DRIDING_SEAT_LOOKUP'] if seat_lookup else [])
             return flags + (['-DRIDING_IMMEDIATE_DRIVE'] if immediate_drive else [])
         if scheduled and path == BASE/'src/play.c': return ['-DRIDING_BANKED_DRAW']
-        if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS'] + (['-DRIDING_BODY_TRANSFERS'] if head_lanes else [])
+        if scheduled and path == BASE/'src/bike_render16.c': return ['-DRIDING_BANKED_DRAW','-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/bike_render16_init.c': return ['-DRIDING_PAIRED_MASKS']
         if scheduled and path == BASE/'src/physics_q24.c': return ['-DRIDING_SCHEDULED_CART']
         if scheduled and path==BASE/'src/physics_contacts.c':return ['-DRIDING_WHEEL_TERRAIN','-DRIDING_NORMAL_ATLAS','-DRIDING_STOPPED_PAIR'] + (['-DRIDING_CORNER_CELLS'] if head_lanes else [])

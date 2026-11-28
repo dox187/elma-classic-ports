@@ -258,32 +258,5 @@ bowling_shared_cap:
  ld a,#<bowling_cap_y
  ld (hl+),a
  ld (hl),#>bowling_cap_y
- ; The shared resolver uses both contacts as scratch, while this wheel
- ; query publishes only the first six bytes of a single active contact.
- ld hl,#(_Ct+6)
- ld b,#7
-bowling_save_contacts:
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- push de
- dec b
- jr nz,bowling_save_contacts
- ld hl,#_riding_shared_cap
- ld e,#9
- call ___sdcc_bcall_ehl
- ld c,a
- ld b,#7
- ld hl,#(_Ct+19)
-bowling_restore_contacts:
- pop de
- ld a,d
- ld (hl-),a
- ld a,e
- ld (hl-),a
- dec b
- jr nz,bowling_restore_contacts
- ld a,c
- ret
+ jp _riding_resolve_shared_cap
 .area _CODE_86
