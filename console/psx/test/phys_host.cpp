@@ -41,6 +41,7 @@
 #undef class
 #undef private
 #undef protected
+#undef fopen  // The host harness reads extracted levels through stdio.
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -114,7 +115,7 @@ static void initmotor( motorst* pmot ) {
 	pmot->vezetov = vekt2( 0.0, 0.0 );
 }
 
-static void initadatok( void ) {
+void initadatok( void ) {
 	initmotor( Pmot1 );
 	initmotor( Pmot2 );
 	Fekegyutthato = 100.0;
