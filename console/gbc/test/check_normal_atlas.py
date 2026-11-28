@@ -179,6 +179,29 @@ def check_physical_lengths(target, oracle, totals):
                 totals['arbitrary squared lengths'] += 1
 
 
+def check_unmapped_rows(target, totals):
+    directory = target.sym['_riding_normal_groups'] & 65535
+    valid = target.sym['normal_cache_valid']
+    for group in range(145):
+        address = directory + 4*group
+        original = bytes(target.m[9, address:address+4])
+        odd_limit = math.isqrt(410**2 - 1 - (2*group+1)**2)
+        try:
+            target.m[9, address+1:address+4] = [0, 0, odd_limit-256]
+            for small in (2*group, 2*group+1):
+                limit = math.isqrt(410**2 - 1 - small**2)
+                for large in (max(small, 255), max(small, limit-1), limit, limit+1, 511, 512):
+                    for x, y in ((small, -large), (-large, small)):
+                        target.m[valid] = 0
+                        hit, result, initial = target.call('_riding_normal_ring', x, y, 0xa101)
+                        outside = x*x + y*y >= 410**2
+                        assert not hit and result == initial
+                        assert bool(target.reg.F & 0x10) == outside, (x, y, outside)
+                        totals['unmapped row boundaries'] += 1
+        finally:
+            target.m[9, address:address+4] = original
+
+
 def check(rom, reference):
     target, old = Cartridge(rom),Cartridge(reference)
     totals = Counter()
@@ -202,6 +225,9 @@ def check(rom, reference):
             assert decoded[-len(bigs):] == bigs
             minimum = sym.get('normal_extended_inner_radius',396)
             assert decoded[0]>=small and small**2+decoded[0]**2>=minimum**2
+            if sym.get('normal_ring_length_bias'):
+                assert decoded == [b for b in range(max(small,256),410)
+                                   if minimum**2 <= small**2+b*b < 410**2]
             bigs = decoded
             assert 0x4000<=ptr<=0x8000-8*count
             representatives[bank] = small,bigs[-1]
@@ -228,6 +254,8 @@ def check(rom, reference):
                                 assert target.merge(other, got, qx, qy) == old.merge(other, want, qx, qy)
                                 totals['mixed contact pairs'] += 1
         assert totals['entries']>=4440 and totals['rows']==290
+        if sym.get('normal_ring_length_bias'):
+            check_unmapped_rows(target, totals)
         # Every bank must survive an IRQ taken immediately after the mapper
         # changes both registers, including the exact public/physical cache key.
         for bank,(x,y) in representatives.items():
@@ -328,7 +356,11 @@ def check(rom, reference):
         for x,y in ((0,0),(127,1),(0,395),(0,410),(280,277),(290,290),
                     (511,128),(512,0),(-32768,0),(32767,32767),(-32768,-32768)):
             hit,got,pattern=target.call('_riding_normal_ring',x,y,contacts[0])
-            assert not hit and got==pattern
+            if sym.get('normal_ring_length_bias') and minimum**2 <= x*x+y*y < 410**2:
+                _, want, _ = old.call('_riding_normal_fast',x,y,contacts[1],x*x+y*y)
+                assert hit and got == want
+            else:
+                assert not hit and got==pattern
             for d2 in (0,16383,16384,168098,33570817,-1,2147483647):
                 _,want,_=old.call('_riding_normal_fast',x,y,contacts[0],d2)
                 _,got,_=target.call('_riding_normal_fast',x,y,contacts[1],d2)

@@ -14,7 +14,7 @@ GROUPS = 145
 RECORD = struct.Struct('<HHBBH')
 
 
-def encode(x, y, roots):
+def encode(x, y, roots, length_bias=0):
     d2 = x*x + y*y
     root = roots[min((d2-16384) >> 9, len(roots)-1)]
     px, py = x*root, y*root
@@ -40,8 +40,8 @@ def encode(x, y, roots):
     if len(set(projected_errors)) == 1:
         flags |= {(0, 0): 0x40, (0, -1): 0x80, (0, 1): 0xc0}.get(projected_errors[0], 0)
     assert 256 <= base < 511 and d2 >> 16 == 2
-    base_byte = base & 255
-    assert not base_byte & 64
+    base_byte = base - 256 - length_bias
+    assert 0 <= base_byte <= 255 and not base_byte & 64
     if not flags & 0xc0 and len(set(projected_errors)) == 1:
         delta = projected_errors[0]
         if delta in ((-1, -1), (1, 1)):
@@ -50,15 +50,20 @@ def encode(x, y, roots):
     return RECORD.pack(nx, ny, base_byte, flags, d2 & 65535)
 
 
-def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False):
+def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False, slabs=None):
     roots = [int(x) for x in re.findall(r'\d+', roots_path.read_text().split('\n',1)[1])]
+    # All admitted squared lengths still have upper word 2. A 96-unit
+    # bias keeps lengths 352..415 in six bits beside the diagonal flag.
+    minimum = 363 if slabs else INNER
+    length_bias = 96 if slabs else 0
     groups = []
     for group in range(GROUPS):
         rows = []
         for small in (2*group, 2*group+1):
-            values = [big for big in range(small, OUTER) if INNER**2 <= small**2 + big**2 < OUTER**2]
+            values = [big for big in range(max(small,256), OUTER)
+                      if minimum**2 <= small**2 + big**2 < OUTER**2]
             assert values and 256 <= values[0] and values == list(range(values[0], values[-1]+1))
-            rows.append((values[0]-256, b''.join(encode(small, b, roots) for b in values)))
+            rows.append((values[0]-256, b''.join(encode(small, b, roots, length_bias) for b in values)))
         groups.append(rows)
     assert 2*(2*GROUPS)**2 >= OUTER**2
     graphics = json.loads((gen/'level_manifest.json').read_text())
@@ -70,6 +75,11 @@ def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False):
         contents = (gen/f'level_bank_{bank}.c').read_bytes().split(b'{',1)[1].split(b'}',1)[0].strip().rstrip(b',')
         capacity[bank] = 16384 - (1+contents.count(b',') if contents else 0)
     room = capacity.copy()
+    if slabs:
+        room.update({bank:15360 for bank in slabs})
+        # The pivot routine follows the normal data in this scenery bank.
+        if 476 in room:
+            room[476] -= 390
     placement = {}
     sizes = [8+sum(len(payload) for _,payload in group) for group in groups]
     for i in sorted(range(GROUPS),key=lambda i:-sizes[i]):
@@ -83,7 +93,7 @@ def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False):
     # After packing complete groups, spend the bank's remaining bytes on
     # deeper offsets. Keep bank 476's tail available to the pivot solver.
     # Extend the closest missing radius first, independently in each bank.
-    if extend_rows:
+    if extend_rows and not slabs:
         for bank in set(placement.values()) - {476}:
             pending = []
             def offer(small, big):
@@ -107,30 +117,54 @@ def generate(gen, roots_path, wheel_rows, dest=None, extend_rows=False):
                         for g, rows in enumerate(groups) for start, _ in rows)
     out = ['.module normal_atlas_data', '.globl normal_ring_miss_span',
            f'normal_ring_miss_span = {miss_span}', '.area _CODE_9', '_riding_normal_groups::']
+    out += ['.globl normal_ring_length_bias', f'normal_ring_length_bias = {length_bias}']
     if extend_rows:
-        out += ['.globl normal_extended_inner_radius', 'normal_extended_inner_radius = 386']
+        out += ['.globl normal_extended_inner_radius',
+                f'normal_extended_inner_radius = {minimum if slabs else 386}']
     for i in range(GROUPS):
         # Both sorted rows lie below the outer limit of the even row.
         out.append(f' .db {isqrt(OUTER*OUTER - 1 - (2*i)**2)-256}')
         if i in placement:
             out += [f' .dw normal_group_{i}',f' .db {placement[i]&255}']
         else:
-            out += [' .dw 0',' .db 0']
+            out += [' .dw 0', f' .db {isqrt(OUTER**2-1-(2*i+1)**2)-256}']
     out += ['_riding_normal_groups_end::']
     for bank in sorted(set(placement.values())):
-        out += [f'.globl _normal_graphics_end_{bank}',f'_normal_graphics_end_{bank} = {32768-capacity[bank]}',
-                f'.area _CODE_{bank}',f'_normal_atlas_tail_{bank}::']
+        embedded = slabs is not None and bank in slabs
+        target = [] if embedded else out
+        if not embedded:
+            target += [f'.globl _normal_graphics_end_{bank}',f'_normal_graphics_end_{bank} = {32768-capacity[bank]}',
+                       f'.area _CODE_{bank}',f'_normal_atlas_tail_{bank}::']
         for i in sorted(i for i,b in placement.items() if b==bank):
             group = groups[i]
-            out += [f'normal_group_{i}:']
+            if embedded:
+                out.append(f'.globl normal_group_{i}')
+            target.append(f'normal_group_{i}:' + (':' if embedded else ''))
             for j,(start,data) in enumerate(group):
-                out += [f' .db {start},{len(data)//RECORD.size}',f' .dw normal_row_{2*i+j}']
+                target += [f' .db {start},{len(data)//RECORD.size}',f' .dw normal_row_{2*i+j}']
             for j,(_,data) in enumerate(group):
-                out += [f'normal_row_{2*i+j}:']
-                out += [' .db '+','.join(map(str,data[k:k+32])) for k in range(0,len(data),32)]
-        out += [f'_normal_atlas_end_{bank}::']
+                target += [f'normal_row_{2*i+j}:']
+                target += [' .db '+','.join(map(str,data[k:k+32])) for k in range(0,len(data),32)]
+        if embedded:
+            slabs[bank] = '\n'.join(target)
+        else:
+            target += [f'_normal_atlas_end_{bank}::']
     path = (dest or gen)/'normal_atlas_data.s'
     write_if_changed(path,'\n'.join(out)+'\n')
+    return path
+
+
+def fill_projection_space(gen, source, slabs):
+    text = source.read_text()
+    for bank, payload in slabs.items():
+        base = f'_riding_radial_space_{bank}'
+        reserved = f'{base}::\n .ds 15360\n{base.replace("space_", "space_end_")}::'
+        if text.count(reserved) != 1:
+            raise ValueError(f'Expected one full radial allocation in bank {bank}')
+        text = text.replace(reserved, reserved.replace(' .ds 15360',
+                            f'{payload}\n .ds 15360-(.-{base})'))
+    path = gen/'physics_projection_radial.s'
+    write_if_changed(path,text)
     return path
 
 

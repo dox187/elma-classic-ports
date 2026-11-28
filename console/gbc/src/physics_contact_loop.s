@@ -395,6 +395,29 @@ contact_loop_radial:
  jr nz,contact_loop_accept_radial
  .endif
 contact_loop_radial_miss:
+ .ifdef RIDING_NORMAL_ATLAS
+ ; Carry from the atlas already rejected the exterior. Keep the offsets
+ ; on the ABI stack and fill the squared-length word pair in place.
+ ld hl,#contact_loop_k
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+ push hl
+ add sp,#-4
+ push bc
+ push de
+ call _riding_endpoint_squared
+ ldhl sp,#4
+ .irp digit,c,b,e,d
+ ld a,digit
+ ld (hl+),a
+ .endm
+ xor a
+ ld (#normal_length_tag),a
+ call _riding_normal_physical
+ add sp,#10
+ jp contact_mark_radial
+ .else
  ld a,e
  add a,#0x99
  ld l,a
@@ -417,22 +440,6 @@ contact_loop_radial_miss:
  ld a,h
  sbc a,#3
  ret nc
- .ifdef RIDING_NORMAL_ATLAS
- ld hl,#contact_loop_k
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- push hl
- ld hl,#contact_loop_x
- ld a,e
- ld (hl+),a
- ld a,d
- ld (hl+),a
- ld a,c
- ld (hl+),a
- ld (hl),b
- call _riding_endpoint_squared
- .else
  ; Existing exact multiply kernel, with its register entry avoiding ABI spills.
  ld hl,#contact_loop_k
  ld a,(hl+)
@@ -465,7 +472,6 @@ contact_loop_radial_miss:
  ld a,h
  adc a,d
  ld d,a
- .endif
  ; d2 is nonnegative after the strict coordinate guards above.
  ld a,c
  sub a,#0xa4
@@ -484,16 +490,10 @@ contact_loop_normalize:
  call contact_loop_xy
  push bc
  push de
- .ifdef RIDING_NORMAL_ATLAS
- xor a
- ld (#normal_length_tag),a
- call _riding_normal_physical
- .else
  call _riding_normal_fast
- .endif
  add sp,#10
+ .endif
  .ifdef RIDING_NORMAL_ATLAS
- jp contact_mark_radial
 contact_loop_accept_radial:
  ld b,#1
  jr contact_loop_accept_kind

@@ -57,7 +57,10 @@ ring_y_unsigned:
  ld a,d
  or b
  cp #1
- jp nz,ring_miss
+ jr z,ring_compare_axes
+ jp nc,ring_outside           ; at least one magnitude is >=512
+ jp ring_miss                 ; both magnitudes <=255, hence inside the disk
+ring_compare_axes:
  ld a,c
  sub e
  ld a,b
@@ -109,7 +112,7 @@ ring_descriptor:
  ld a,(hl+)
  ld l,(hl)
  or a
- jr z,ring_miss
+ jr z,ring_untabulated
  ld h,a
  ld a,l
  ld l,e
@@ -125,6 +128,16 @@ ring_miss:
  pop hl
  xor a
  ret
+
+; When the cartridge omits a group, L carries the odd row's outer bound.
+; The larger (even-row) bound was already checked above.
+ring_untabulated:
+ ld a,d
+ or a
+ jr z,ring_miss
+ ld a,l
+ cp c
+ jr nc,ring_miss
 
 ; Outside the strict 410-unit circle. The merge caller still sees a miss.
 ring_outside:
@@ -191,7 +204,7 @@ ring_length_selected:
  rrca
  ld a,(#normal_shape_length)
  res 6,a
- adc a,#0
+ adc a,#normal_ring_length_bias
  ld (#normal_cache_value+4),a
  ld a,#1
  ld (#normal_cache_value+5),a

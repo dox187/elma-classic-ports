@@ -575,10 +575,13 @@ def main():
         # Native graphics pointers require their original bank base. Place
         # each linked terrain row after the graphics payload in its bank.
         wheel_rows = wheel_terrain.generate(a.gen)
+        projection = a.gen/'physics_projection_game.s'
+        radial_slabs = {int(bank):'' for bank in re.findall(r'^_riding_radial_space_(\d+)::',
+                                                            projection.read_text(),re.M)} if signed_bg else {}
         sources += [BASE/'src/physics_leaf_region.c', BASE/'src/wheel_terrain.s',
                     BASE/'src/physics_leaf_region.s', wheel_rows, head_refinement.generate(a.gen),
                     normal_atlas.generate(a.gen, BASE.parent/'nes/src/rsqrt.inc', wheel_rows,
-                                          extend_rows=signed_bg)]
+                                          extend_rows=signed_bg, slabs=radial_slabs)]
         sources.append(brake_game)
     if scheduled:
         # Append the divider after the aligned bank-35 numeric tables.
@@ -722,6 +725,9 @@ def main():
         else:
             index = sources.index(a.gen/'physics_projection_game.s')
             sources.insert(index+1, packed_deep)
+        if radial_slabs:
+            index = sources.index(projection)
+            sources[index] = normal_atlas.fill_projection_space(a.gen,projection,radial_slabs)
         sources.extend((BASE/'src/physics_pair_impulse.s',
                         BASE/'src/terrain_region.s', a.gen/'wheel_candidate_planes.s'))
     if head_lanes:
