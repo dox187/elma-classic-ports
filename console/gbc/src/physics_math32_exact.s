@@ -1377,6 +1377,18 @@ math32_lookup_map:
  inc h
  ld a,(hl)
  ld (#0x2000),a
+ .ifdef RIDING_NINE_BIT_ROWS
+ inc h
+ ld a,(hl)
+ xor b
+ ld h,a
+ bit 6,h
+ jr nz,math32_lookup_ready
+ set 6,h
+ ld a,#1
+ ld (#0x3000),a
+math32_lookup_ready:
+ .else
  bit 7,a
  jr z,math32_lookup_page
  ld a,#1
@@ -1386,6 +1398,7 @@ math32_lookup_page:
  ld a,(hl)
  xor b
  ld h,a
+ .endif
  xor a
  ret
 

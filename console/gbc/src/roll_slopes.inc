@@ -33,10 +33,17 @@ slope_fallback_dots:
 slope_read_word:
  ld a,b
  ld (#0x2000),a
+ .ifdef RIDING_NINE_BIT_SLOPES
+ ld a,c
+ ld (#0x3000),a
+ srl a
+ ld h,a
+ .else
  rlca
  ld (#0x3000),a
- ; The sign-extended raw word product feeds the full dot accumulator.
  ld h,c
+ .endif
+ ; The sign-extended raw word product feeds the full dot accumulator.
  ld l,e
  ld c,(hl)
  inc h
@@ -69,9 +76,16 @@ slope_read_product:
  push af
  ld a,b
  ld (#0x2000),a
+ .ifdef RIDING_NINE_BIT_SLOPES
+ ld a,c
+ ld (#0x3000),a
+ srl a
+ ld h,a
+ .else
  rlca
  ld (#0x3000),a
  ld h,c
+ .endif
 _riding_projection_saved24::
  ld l,e
  ld c,(hl)

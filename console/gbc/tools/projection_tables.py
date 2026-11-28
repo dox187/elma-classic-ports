@@ -8,6 +8,7 @@ BANKS = (*range(21, 28), 477, 478, 479, 480, 502, 503, 504, 505, DIRECTORY_BANK)
 ROWS_PER_BANK = 12
 DEEP_BANK = 27
 DEEP_SLOTS = 7
+RADIAL_BANKS = (477, 478, 479, 480, 502, 503)
 # The 216 standard and 24 extended test27 routes select the more frequent sign
 # for each magnitude. The opposite sign uses the same five product planes.
 COEFFICIENTS = (
@@ -209,7 +210,29 @@ EXTRA_COEFFICIENTS = (
 )
 
 
-def coefficient_rows(rolling_banks, deep=False):
+def reserve_rows(stored, locations, shared, slots):
+    """Consolidate signed duplicates before transferring the displaced rows."""
+    slots = tuple(slots)
+    duplicates = [i for i, k in enumerate(stored) if k in shared]
+    if len(duplicates) < len(slots):
+        return False
+    displaced = [i for i in slots if stored[i] not in shared]
+    free = [i for i in duplicates if i not in slots][:len(displaced)]
+    for i in free + [i for i in slots if stored[i] in shared]:
+        locations[stored[i]] = shared[stored[i]]
+    for i, j in zip(displaced, free):
+        stored[j] = stored[i]
+        locations[stored[i]] = BANKS[j // ROWS_PER_BANK], row_page(j)
+    for i in slots:
+        stored[i] = None
+    return True
+
+
+def radial_reserved(stored):
+    return stored[BANKS.index(RADIAL_BANKS[0])*ROWS_PER_BANK] is None
+
+
+def coefficient_rows(rolling_banks, deep=False, radial=False):
     """Both arithmetic readers share an unchanged five-plane rolling row."""
     from rolling_map_banks import TANGENTS
     stored = list(COEFFICIENTS)
@@ -237,18 +260,16 @@ def coefficient_rows(rolling_banks, deep=False):
         # head, wheel and pair data retain their original physical addresses.
         first = (BANKS.index(DEEP_BANK) + 1)*ROWS_PER_BANK - DEEP_SLOTS
         tail = range(first, first + DEEP_SLOTS)
-        duplicates = [i for i, k in enumerate(stored) if k in shared]
-        if len(duplicates) >= DEEP_SLOTS:
-            displaced = [i for i in tail if stored[i] not in shared]
-            available = [i for i in duplicates if i not in tail][:len(displaced)]
-            shared_tail = [i for i in tail if stored[i] in shared]
-            for i in available + shared_tail:
-                locations[stored[i]] = shared[stored[i]]
-            for i, j in zip(displaced, available):
-                stored[j] = stored[i]
-                locations[stored[i]] = BANKS[j // ROWS_PER_BANK], row_page(j)
-            for i in tail:
-                stored[i] = None
+        if reserve_rows(stored, locations, shared, tail) and radial:
+            # Full MBC5 row descriptors can address the remaining rolling
+            # banks, including the physical range 128..255. All rows retain
+            # their signed factor and digit order.
+            for i, tangent in enumerate(TANGENTS):
+                bank = rolling_banks[1+i//4]
+                for axis, k in enumerate(tangent):
+                    shared.setdefault(k, (bank, 0x48 + 10*(i%4) + 5*axis))
+            slots = [i for i in range(len(stored)) if BANKS[i//ROWS_PER_BANK] in RADIAL_BANKS]
+            reserve_rows(stored, locations, shared, slots)
     return stored, locations
 
 
@@ -256,11 +277,11 @@ def generated_rows(gen):
     manifest = gen / 'level_manifest.json'
     from rolling_map_banks import CODEC
     pack = json.loads(manifest.read_text()) if manifest.exists() else {}
-    return coefficient_rows(pack.get('rolling_map_banks', ()),
-                            pack.get('rom_mib') == 8 and pack.get('map_codec') == CODEC)
+    signed = pack.get('rom_mib') == 8 and pack.get('map_codec') == CODEC
+    return coefficient_rows(pack.get('rolling_map_banks', ()), deep=signed, radial=signed)
 
 
-def fixed_hash(locations):
+def fixed_hash(locations, nine_bit=False):
     # For a given high byte, addition of a displacement permutes all 256
     # low bytes. Matching the stored high byte therefore proves the whole key.
     groups = {}
@@ -282,17 +303,22 @@ def fixed_hash(locations):
             slot = (low + delta) & 255
             tags[slot] = high
             banks[slot] = bank & 255
-            pages[slot] = page | (128 if coefficient < 0 else 0)
+            # Product addresses are in the 4000..7fff window. Reuse
+            # their fixed page bit 6 for the complemented ninth bank bit.
+            encoded = page ^ (64 if nine_bit and bank >= 256 else 0)
+            pages[slot] = encoded | (128 if coefficient < 0 else 0)
     return displacements, tags, banks, pages
 
 
 def hash_source(gen):
     from head_clearance import write_if_changed
     lines = ['.module projection_hash', '.area _CODE', '_riding_projection_hash::']
-    _, locations = generated_rows(gen)
+    stored, locations = generated_rows(gen)
     if len(locations) > len(COEFFICIENTS):
         lines.append('projection_shared_rows::')
-    for page in fixed_hash(locations):
+    if radial_reserved(stored):
+        lines.append('projection_nine_bit_rows::')
+    for page in fixed_hash(locations, radial_reserved(stored)):
         lines.extend(byte_lines(page))
     path = gen/'physics_projection_hash.s'
     write_if_changed(path, '\n'.join(lines)+'\n')
@@ -326,7 +352,12 @@ def byte_lines(data):
 
 def generate(source, destination):
     """Enable the cart reader. Standalone native fixtures assemble source directly."""
-    output = ['RIDING_PROJECTION_TABLES = 1', source.read_text()]
+    stored, _ = generated_rows(destination.parent)
+    nine_bit = radial_reserved(stored)
+    output = ['RIDING_PROJECTION_TABLES = 1']
+    if nine_bit:
+        output.append('RIDING_NINE_BIT_ROWS = 1')
+    output.append(source.read_text())
     output.append('.area _CODE')
     output.append(READER)
     output.append('.area _CODE_4')
@@ -334,9 +365,11 @@ def generate(source, destination):
         output.append(f'_riding_shallow_dot_{magnitude}::')
         for row in shallow_rows(magnitude):
             output.extend(byte_lines(row))
-    stored, _ = generated_rows(destination.parent)
     for group, bank in enumerate(BANKS):
         output.extend((f'.area _CODE_{bank}', f'_riding_projection_bank_{bank}::'))
+        if nine_bit and bank in RADIAL_BANKS:
+            output.extend((f'_riding_radial_space_{bank}::', ' .ds 15360', f'_riding_radial_space_end_{bank}::'))
+            continue
         for y in stored[group * ROWS_PER_BANK:(group + 1) * ROWS_PER_BANK]:
             if y is None:
                 continue
@@ -399,6 +432,12 @@ def validate_layout(symbols):
         if (symbols['normal_fraction_rows'] != start or symbols['normal_fraction_bank'] != DEEP_BANK
                 or not start + 256 <= symbols['normal_fraction'] < end):
             raise ValueError('Deep fraction rows overlap a projection plane or leave their bank')
+    if 'projection_nine_bit_rows' in symbols:
+        for bank in RADIAL_BANKS:
+            base = (bank<<16) + 0x4000
+            if (symbols.get(f'_riding_radial_space_{bank}') != base or
+                    symbols.get(f'_riding_radial_space_end_{bank}') != base + ROWS_PER_BANK*1280):
+                raise ValueError(f'Radial reservation overlaps a linked tail in bank {bank}')
     for index, bank in enumerate(BANKS):
         start = (bank << 16) | 0x4000
         count = len(COEFFICIENTS[index*ROWS_PER_BANK:(index+1)*ROWS_PER_BANK])

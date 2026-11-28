@@ -11,7 +11,7 @@ from pyboy import PyBoy
 
 BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE / 'tools'))
-from projection_tables import BANKS, COEFFICIENTS, MIRRORED, ROWS_PER_BANK, row_page, validate_layout, coefficient_rows
+from projection_tables import COEFFICIENTS, MIRRORED, planes, validate_layout, coefficient_rows
 
 
 def linked_rows(symbols):
@@ -19,7 +19,7 @@ def linked_rows(symbols):
     if 'projection_shared_rows' not in symbols:
         return coefficient_rows(())
     banks = sorted(int(k.removeprefix('rolling_payload_')) for k in symbols if k.startswith('rolling_payload_'))
-    return coefficient_rows(banks, deep='normal_fraction_rows' in symbols)
+    return coefficient_rows(banks, deep='normal_fraction_rows' in symbols, radial='projection_nine_bit_rows' in symbols)
 
 
 def verify_table_bytes(image, symbols):
@@ -35,7 +35,10 @@ def verify_table_bytes(image, symbols):
         if image[table + 256 + slot] == high:
             bank = image[table + 512 + slot]
             page = image[table + 768 + slot] ^ (128 if y < 0 else 0)
-            accepted[y] = (bank + (256 if bank & 128 else 0), page)
+            if 'projection_nine_bit_rows' in symbols:
+                accepted[y] = (bank + (0 if page & 64 else 256), page | 64)
+            else:
+                accepted[y] = (bank + (256 if bank & 128 else 0), page)
     _, expected = linked_rows(symbols)
     for y in [-k for k in expected]:
         bank, page = expected[-y]
@@ -61,6 +64,33 @@ def verify_table_bytes(image, symbols):
                 product = unsigned[operand & 255] + (signed[(operand >> 8) & 255] << 8)
             assert product == x * y
     return 65536 * len(accepted)
+
+
+def check_slope_descriptors(image, symbols):
+    from rolling_tables import LOCAL_TANGENTS, SLOPE_EXTRA, SLOPE_TANGENTS, VERTICAL_TANGENT
+    bank = symbols['slope_hash'] >> 16
+    base = (bank << 14) - 0x4000
+    addresses = base + (symbols['slope_addresses'] & 65535)
+    compact = {t for group in LOCAL_TANGENTS.values() for t in group}
+    checked = 0
+    for i, tangent in enumerate((*SLOPE_TANGENTS, VERTICAL_TANGENT), 1):
+        ptr = int.from_bytes(image[addresses+2*i:addresses+2*i+2], 'little')
+        key = image[base+ptr:base+ptr+8]
+        assert tuple(int.from_bytes(key[n:n+2], 'little', signed=True) for n in (0,2)) == tangent
+        if tangent in compact or tangent == VERTICAL_TANGENT:
+            assert key[4] == int(tangent in compact)
+            continue
+        for axis, coefficient in enumerate(tangent):
+            slot = 4 + 2*axis
+            page, lo = key[slot:slot+2]
+            if coefficient in SLOPE_EXTRA:
+                assert (lo, page) == (30, 0x6d + 3*SLOPE_EXTRA.index(coefficient))
+            else:
+                physical = lo + (page & 1)*256
+                address = physical*16384 + ((page >> 1)-64)*256
+                assert image[address:address+1280] == b''.join(planes(coefficient))
+            checked += 1
+    return checked
 
 
 def check_deep_fractions(image, symbols):
@@ -332,12 +362,14 @@ def check_interrupts(image, symbols):
     finally:
         bios.stop(save=False)
     checked = 0
-    stored, _ = linked_rows(symbols)
-    for i, bank in enumerate(BANKS):
-        # Both widths must actually execute this bank's reader. Short
-        # coefficients and exact unit normals can finish wholly in fixed ROM.
-        rows = stored[i*ROWS_PER_BANK:(i+1)*ROWS_PER_BANK]
-        canonical = next(y for y in rows if y is not None and abs(y) > 255 and abs(y) != 16384)
+    _, locations = linked_rows(symbols)
+    # Exercise an actual arithmetic row in every selected physical bank,
+    # including the low-byte aliases on opposite halves of the cartridge.
+    per_bank = {}
+    for y, (bank, _) in locations.items():
+        if abs(y) > 255 and abs(y) != 16384:
+            per_bank.setdefault(bank, y)
+    for bank, canonical in sorted(per_bank.items()):
         for x, y in ((-32768, canonical), (0x73ef01fd, canonical), (-0x72340123, -canonical),
                      (32767, -canonical)):
             for target in (lookup, fetch, narrow if -32768 <= x <= 32767 else wide):
@@ -394,6 +426,8 @@ def main():
     validate_layout(symbols)
     image = args.rom.read_bytes()
     checks = {'exact_narrow_table_products': verify_table_bytes(image, symbols), 'checked_directory_inputs': 65536}
+    if 'projection_nine_bit_rows' in symbols:
+        checks['slope_row_descriptors'] = check_slope_descriptors(image, symbols)
     if 'normal_fraction_rows' in symbols:
         checks['deep_fraction_quotients'] = check_deep_fractions(image, symbols)
     if '_riding_shallow_dot_61' in symbols or '_riding_shallow_dot_9' in symbols:

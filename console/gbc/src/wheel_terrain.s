@@ -128,7 +128,13 @@ wheel_real_row:
  push bc
  ld c,b
  jp _riding_wheel_read_map
+; The map reader has restored bank 9 before jumping here. The pattern
+; indexer can share that bank with the patterns on the signed cartridge.
+.ifdef RIDING_WHEEL_ROW_RAM
+.area _CODE_9
+.else
 .area _CODE
+.endif
 wheel_half_pattern:
  ; BA indexes four row-major half-metre certificates in bank 9.
  ld l,a

@@ -77,12 +77,15 @@ VERTICAL_TANGENT = (20, 16384)
 
 
 def slope_rows(assembly, gen):
-    _, locations = projection_tables.generated_rows(gen)
+    stored, locations = projection_tables.generated_rows(gen)
+    nine_bit = projection_tables.radial_reserved(stored)
     locations.update({c: (30, 0x6d + 3*i) for i, c in enumerate(SLOPE_EXTRA)})
     directory = bytearray(256)
     tangents = (*SLOPE_TANGENTS, VERTICAL_TANGENT)
     output = [assembly.with_name('roll_slopes.inc').read_text(), '.area _CODE_35',
               ' .bndry 256', 'slope_hash::']
+    if nine_bit:
+        output.insert(0, 'RIDING_NINE_BIT_SLOPES = 1')
     if len(set(tangents)) != len(tangents) or len(tangents) > 127:
         raise ValueError('Rolling tangent directory needs distinct two-byte slots')
     for i, (x, y) in enumerate(tangents, 1):
@@ -110,7 +113,12 @@ def slope_rows(assembly, gen):
         row = []
         for coefficient in (x, y):
             bank, page = locations[coefficient]
-            if (bank >> 8) != ((bank >> 7) & 1):
+            if nine_bit and bank != 30:
+                # Local slope tags 0/1 and bank 30's three-plane reader
+                # keep their existing ABI. General rows encode ROMB1 in
+                # bit zero; the remaining bits recover the physical page.
+                page = 2*page + (bank >> 8)
+            elif (bank >> 8) != ((bank >> 7) & 1):
                 raise ValueError('Rolling projection bank must encode its ninth bit in bit seven')
             row.extend((page, bank & 255))
         output.append(' .db ' + ','.join(map(str, row)))
