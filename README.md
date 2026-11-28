@@ -27,39 +27,16 @@ platform's README covers requirements, building and use.
 
 ### Game Boy Color demake
 
-All 54 registered internal levels are selectable from a native GBDK menu,
-using original level geometry and LGR artwork. The riding engine includes
-32-bit linear velocities, suspension, braking, rider movement and swept head
-collisions. Apples are red and flower petals white. Version 0.96 closed the
-current optimization round. Its last fully measured build (test70) averaged
-29.83 gameplay updates/s across the original-course replays. In 0.97 the
-suspension creaks on harder landings. The port includes an
-original-artwork title screen, separate main/pause menus, Controls and native
-GBC engine/event sounds, four saved player profiles, a Game Boy name-entry
-keyboard, per-course records, a labelled timer and crash controls. Version 0.84
-reduces the CH1 exhaust layer to approximately half its 0.83 volume following
-hardware feedback: 3 at idle and 8 under throttle. The original-derived CH3
-cycles, wheel-speed curve and effect levels remain intact. It includes the
-0.74 original splash logo with readable native platform, version, port-author
-and original-game credit text below it. The timer updates on every
-riding frame, and the finish panel shows the finish time, previous
-best and record status over the frozen final gameplay image. A detailed result
-screen is available with Up. Quiet idle audio and held volt controls retain
-the 0.72 behavior. The current build uses **8 MiB ROM and 32 KiB cartridge RAM**.
-Earlier versions also had a 4 MiB compressed build. The previous 128 KiB
-layout's graphics corruption was reproduced under a 32 KiB RAM limit. The
-original 8 MiB build failed its physical ROM check at bank 508. The updated
-8 MiB build moved its physics tables away from that ROM tail. That change
-passed emulator checks. The reported motorcycle failure persisted on the
-physical setup in that earlier build.
-Music remains unimplemented.
+A Game Boy Color version with all 54 internal levels and artwork from
+your own copy of Elasto Mania. It uses fixed-point bike physics and saves
+per-course best times for up to four players in cartridge RAM.
 
 <p>
   <img src="console/gbc/docs/title.gif" width="320" alt="Game Boy Color 0.97 title screen, main menu and player name entry">
   <img src="console/gbc/docs/gameplay.gif" width="320" alt="Riding over the hills and collecting the red apple on Warm Up">
 </p>
 
-[Status, build, controls and physics differences →](console/gbc/README.md)
+[Requirements, build and controls →](console/gbc/README.md)
 
 ### NES demake
 
