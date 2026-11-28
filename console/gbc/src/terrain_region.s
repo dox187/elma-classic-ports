@@ -103,6 +103,18 @@ terrain_small_sub:
  ld b,a
  ret
 
+; Selection leaves the record pointer in DE on both cache hits and misses.
+.macro contact_region_read_coeffs
+ ld hl,#8
+ add hl,de
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
+.endm
 contact_region_query::
  ld a,(#_riding_contact_regions_dirty)
  or a
@@ -173,8 +185,14 @@ contact_region_plane:
  ret
 
 contact_region_miss:
- call contact_region_distance
+ ; Retain the source tangent coefficients for the second exact projection.
+ ; Rejections discard this pair. An accepted distance uses it directly.
+ contact_region_read_coeffs
+ push de
+ push bc
+ call contact_region_distance_coeffs
  jr c,contact_region_inside
+ add sp,#4
  ; Geometry divides each segment into <=8m pieces and rounds its unit
  ; direction to Q14. Thus |ex|+|ey| <= sqrt(2)*16384+1. Across this
  ; 64u square each relative coordinate changes by <=63 without wrapping,
@@ -199,9 +217,6 @@ contact_region_reject:
 contact_region_inside:
  ; The tangent dot is only needed on a miss. Save the exact position even
  ; on boundaries, including the artificial end's half-open ownership.
- call contact_region_coeffs
- push de
- push bc
  ; Put the tangent's X axis in the same major-axis position as a
  ; near-horizontal edge's cross-distance projection.
  ld hl,#contact_loop_x
@@ -362,33 +377,9 @@ contact_region_save:
  ld a,(#contact_loop_box+1)
  ld (hl),a
  ret
-contact_region_coeffs:
- ld hl,#contact_loop_seg
- ld a,(hl+)
- ld h,(hl)
- ld l,a
- ld de,#8
- add hl,de
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld a,(hl+)
- ld c,a
- ld b,(hl)
- ret
-contact_region_xy:
- ld hl,#contact_loop_x
- ld a,(hl+)
- ld e,a
- ld a,(hl+)
- ld d,a
- ld a,(hl+)
- ld c,a
- ld b,(hl)
- ret
 contact_region_distance:
- call contact_region_coeffs
+ contact_region_read_coeffs
+contact_region_distance_coeffs:
  push de
  xor a
  sub c
@@ -397,7 +388,14 @@ contact_region_distance:
  sub b
  ld b,a
  push bc
- call contact_region_xy
+ ld hl,#contact_loop_x
+ ld a,(hl+)
+ ld e,a
+ ld a,(hl+)
+ ld d,a
+ ld a,(hl+)
+ ld c,a
+ ld b,(hl)
  call terrain_record_dot
  ld hl,#contact_loop_d
  ld a,c
