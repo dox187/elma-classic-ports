@@ -29,14 +29,14 @@ def assign(ids, count):
     return bytes(slots)
 
 
-def generate(gen):
+def generate(gen, capacity):
     levels = json.loads((gen/'level_manifest.json').read_text())['levels']
     pointers = ['0'] * len(levels)
     records = []
     used = 2*len(levels)
     for level in levels:
         count = level['pattern_count']
-        if not 492 < count <= 1024 or used + count-256 > CAPACITY:
+        if not 492 < count <= 1024 or used + count-256 > capacity:
             continue
         index = level['index']
         with np.load(gen/'levels'/f'{index+1:02}'/'tiles.npz') as data:
@@ -48,4 +48,4 @@ def generate(gen):
         records.append(pointers[index]+':')
         records.extend(' .db '+','.join(map(str, slots[i:i+32])) for i in range(0,len(slots),32))
     return ['_world_scenery_slots::', *(' .dw '+p for p in pointers), *records,
-            '_world_scenery_slots_end::', ' .ds 15360-(.-_world_scenery_slots)']
+            '_world_scenery_slots_end::']

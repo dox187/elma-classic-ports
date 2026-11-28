@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import scenery_slots
+from normal_length import physical_bands
 
 DIRECTORY_BANK = 20
 BANKS = (*range(21, 28), 477, 478, 479, 480, 502, 503, 504, 505, DIRECTORY_BANK)
@@ -374,7 +375,14 @@ def generate(source, destination):
             output.extend((f'_riding_radial_space_{bank}::', ' .ds 15360', f'_riding_radial_space_end_{bank}::'))
             continue
         if bank == scenery_slots.BANK and stored[group*ROWS_PER_BANK] is None:
-            output.extend(scenery_slots.generate(destination.parent))
+            root = Path(__file__).resolve().parents[1]
+            bands = physical_bands(root.parent/'nes/src/rsqrt.inc')
+            # The physical reader occupies at most 128 bytes after the rows.
+            output.extend(scenery_slots.generate(destination.parent, scenery_slots.CAPACITY-len(bands)-128))
+            output.append('normal_length_bands::')
+            output.extend(byte_lines(bands))
+            output.append((root/'src/normal_length_bands.inc').read_text())
+            output.extend(('normal_length_bands_end::', ' .ds 15360-(.-_world_scenery_slots)'))
             continue
         for y in stored[group * ROWS_PER_BANK:(group + 1) * ROWS_PER_BANK]:
             if y is None:
@@ -437,6 +445,13 @@ def validate_layout(symbols):
         if (symbols['_world_scenery_slots'] != start or
                 not start < symbols['_world_scenery_slots_end'] <= start + scenery_slots.CAPACITY):
             raise ValueError('Shared scenery patterns exceed the released ROM bank')
+        if 'normal_length_bands' in symbols:
+            bands = symbols['normal_length_bands']
+            reader = symbols['normal_band_read']
+            if (bands != symbols['_world_scenery_slots_end'] or
+                    reader != bands + 4*((168448-16384)//128) or
+                    not reader < symbols['normal_length_bands_end'] <= start + scenery_slots.CAPACITY):
+                raise ValueError('Physical contact lengths overlap scenery or leave their ROM bank')
     if 'normal_fraction_rows' in symbols:
         start = (DEEP_BANK<<16) + 0x4000 + 1280*(ROWS_PER_BANK-DEEP_SLOTS)
         end = start + 1280*DEEP_SLOTS

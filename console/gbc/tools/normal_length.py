@@ -83,3 +83,36 @@ def generate(gen, reader, roots_path):
     inner = assemble('normal_inner_lengths', 'NORMAL_INNER_LENGTHS = 1',
                      (('normal_inner_rows', inner_rows), ('normal_inner_patterns', inner_patterns)))
     return outer, inner
+
+
+def physical_bands(roots_path):
+    """Four bytes per 128 consecutive squared distances, in reciprocal order."""
+    roots = tuple(map(int, roots_path.read_text().split('\n', 1)[1].strip().rstrip(',').split(',')))
+    lower, upper = 16384, 168448
+    rows = [{} for _ in range((upper-lower)//128)]
+    limit = isqrt(upper-1)
+    for x in range(-limit, limit+1):
+        for y in range(-limit, limit+1):
+            squared = x*x + y*y
+            if lower <= squared < upper:
+                reciprocal = roots[(squared-lower)//512]
+                nx, ny = x*reciprocal >> 4, y*reciprocal >> 4
+                length = (x*nx + y*ny + 8192) >> 14
+                offset = squared & 127
+                entries = rows[(squared-lower)//128]
+                first, last, exact = entries.get(length, (128, -1, True))
+                exact &= (length*nx+8192) >> 14 == x and (length*ny+8192) >> 14 == y
+                entries[length] = min(first, offset), max(last, offset), exact
+
+    data = bytearray()
+    for entries in rows:
+        if not entries or max(entries) - min(entries) > 1:
+            # Overlapping thresholds covering the entire row force the arithmetic dot.
+            data.extend((0, 128, 0, 0))
+            continue
+        base = min(entries)
+        _, last, exact_low = entries[base]
+        first, _, exact_high = entries.get(base+1, (128, -1, False))
+        low_tag, high_tag = (64 if exact else 2 for exact in (exact_low, exact_high))
+        data.extend((first, last+1, base & 255, (base >> 8) | low_tag | (high_tag << 1)))
+    return data

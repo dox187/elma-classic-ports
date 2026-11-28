@@ -540,6 +540,9 @@ def main():
         pair_game = a.gen/'physics_ordered_pair_game.s'
         head_clearance.write_if_changed(pair_game, 'RIDING_LEAF_REGION = 1\n'+pivot_flags+pair_source.read_text())
         sources[sources.index(pair_source)] = pair_game
+        math_source = BASE/'src/physics_math32_exact.s'
+        sources[sources.index(math_source)] = projection_tables.generate(math_source, a.gen/'physics_projection_game.s')
+        length_bands = 'normal_length_bands::' in (a.gen/'physics_projection_game.s').read_text()
         for name in ('physics_contact_loop', 'physics_normal_fast'):
             source = BASE/'src'/(name+'.s')
             game_source = a.gen/(name+'_game.s')
@@ -549,6 +552,8 @@ def main():
                         + '\n' + (BASE/'src/wheel_candidates.inc').read_text())
             if name == 'physics_normal_fast':
                 text += '\n'+(BASE/'src/physics_normal_atlas.s').read_text()
+                if length_bands:
+                    text = 'RIDING_NORMAL_LENGTH_BANDS = 1\n'+text
                 if signed_bg:
                     text = 'RIDING_NORMAL_SRAM = 1\n'+text
             head_clearance.write_if_changed(game_source,text)
@@ -562,8 +567,6 @@ def main():
         geometry_game = a.gen/'physics_math_game.s'
         head_clearance.write_if_changed(geometry_game, 'RIDING_GEOMETRY_PRODUCTS = 1\n'+geometry_math.read_text())
         sources[sources.index(geometry_math)] = geometry_game
-        math_source = BASE/'src/physics_math32_exact.s'
-        sources[sources.index(math_source)] = projection_tables.generate(math_source, a.gen/'physics_projection_game.s')
     else:
         sources.extend((BASE/'src/physics_math.c', BASE/'src/physics_math32.c'))
         sources += sorted(x for x in (BASE/'src').glob('physics_*.s')if x.name not in ('physics_mul16.s','physics_mul_scheduled.s','physics_div20_scheduled.s','physics_leaf_region.s','physics_rider_rotation.s','physics_roll_shallow.s','physics_sqrt_scheduled.s') and not x.name.startswith('physics_q24'))
@@ -726,12 +729,13 @@ def main():
                 corner_bank.after_numeric_prefix(table, original, bank, '_world_scenery_pins_end')
             sources[sources.index(original)] = table
 
-    if scheduled:
+    if scheduled and not length_bands:
         lengths, inner_lengths = normal_length.generate(
             a.gen, BASE/'src/normal_length.inc', BASE.parent/'nes/src/rsqrt.inc')
         # The inner radial lookup follows the page-aligned braking data in bank 93.
         sources.insert(sources.index(a.gen/'head_quarters.s'), lengths)
         sources.append(inner_lengths)
+    if scheduled:
         deep = BASE/'src/normal_deep.s'
         packed_deep = projection_tables.deep_fractions(a.gen, deep)
         if packed_deep == deep:

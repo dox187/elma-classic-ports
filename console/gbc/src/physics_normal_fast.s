@@ -171,7 +171,11 @@ normal_axes_done:
  ld a,(#normal_physical)
  or a
  jr z,normal_dot_length
+ .ifdef RIDING_NORMAL_LENGTH_BANDS
+ call normal_band_map
+ .else
  call normal_physical_length
+ .endif
  jr c,normal_have_length
 normal_dot_length:
  .endif
@@ -343,6 +347,7 @@ normal_cache_store_result:
 .area _CODE_9
 ; Physical squared lengths select a conservative slot at the matching depth.
 ; A zero return requests the full normalized-vector dot.
+ .ifndef RIDING_NORMAL_LENGTH_BANDS
 normal_physical_length:
  ld a,(#normal_cache_key+7)
  or a
@@ -385,4 +390,5 @@ normal_inner_range:
 normal_length_miss:
  or a
  ret
+ .endif
  .endif

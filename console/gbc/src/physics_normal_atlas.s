@@ -293,6 +293,16 @@ ring_above:
  jr ring_restore
 ring_unmapped:
  xor a
+ .ifdef RIDING_NORMAL_LENGTH_BANDS
+ jr ring_restore
+normal_band_map:
+ ld a,#248
+ ld (#0x2000),a
+ ld a,#1
+ ld (#0x3000),a
+ jp normal_band_read
+normal_ring_restore::
+ .endif
 ring_restore:
  push af
  xor a

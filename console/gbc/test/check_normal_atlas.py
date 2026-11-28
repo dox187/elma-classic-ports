@@ -116,6 +116,77 @@ def check_endpoint_roundtrips(target, reference, totals):
         target.m[0x2000] = target.m[current_bank] = 9
 
 
+def check_length_bands(target, oracle, totals):
+    def offset(name):
+        address = target.sym[name]
+        return (address >> 16)*16384 + (address & 16383)
+
+    roots = struct.unpack_from('<297H', target.image, offset('_riding_normal_rsqrt'))
+    table = offset('normal_length_bands')
+    witnesses = {}
+    for x in range(-410, 411):
+        for y in range(-410, 411):
+            squared = x*x + y*y
+            if not 16384 <= squared < 168448:
+                continue
+            row = (squared-16384)//128
+            low, high, base, flags = target.image[table+4*row:table+4*row+4]
+            digit = squared & 127
+            if digit < low:
+                extra = 0
+            elif digit >= high:
+                extra = 1
+            else:
+                witnesses.setdefault((row, 2), (x, y, squared, 0))
+                totals['overlapping physical lengths'] += 1
+                continue
+            result = base + ((flags & 1)<<8) + extra
+            reciprocal = roots[(squared-16384)//512]
+            nx, ny = x*reciprocal >> 4, y*reciprocal >> 4
+            assert result == (x*nx+y*ny+8192) >> 14, (x, y, squared)
+            tag = (flags >> extra) & 66
+            assert tag in (2, 64)
+            if tag == 64:
+                assert (nx*result+8192)>>14 == x and (ny*result+8192)>>14 == y
+            witnesses.setdefault((row, extra), (x, y, squared, tag))
+            totals['exact physical band lengths'] += 1
+    for x, y, squared, tag in witnesses.values():
+        target.m[target.sym['normal_cache_valid']] = target.m[target.sym['normal_length_tag']] = 0
+        _, got, _ = target.call('_riding_normal_physical', x, y, 0xa201, squared)
+        _, expected, _ = oracle.call('_riding_normal_fast', x, y, 0xa201, squared)
+        assert got == expected and target.m[target.sym['normal_length_tag']] == tag, (x, y, squared)
+        totals['linked physical band outcomes'] += 1
+
+    bank, reader = divmod(target.sym['normal_band_read'], 65536)
+    jump = target.sym['normal_ring_restore'] - 3
+    assert target.image[jump:jump+3] == struct.pack('<BH', 0xc3, reader)
+    interrupted = []
+    requested = False
+    def inject(_):
+        nonlocal requested
+        if not requested:
+            assert bytes(target.m[0x4000:0x4020]) == target.image[bank*16384:bank*16384+32]
+            requested = True
+            target.m[0xff0f] = 1
+    def vblank(_):
+        sp = target.reg.SP
+        interrupted.append(int.from_bytes(bytes(target.m[sp:sp+2]), 'little'))
+    target.p.hook_register(0, jump, inject, None)
+    target.p.hook_register(0, 0x40, vblank, None)
+    try:
+        x, y, squared, tag = next(w for w in witnesses.values() if w[3] == 64)
+        target.m[target.sym['normal_cache_valid']] = 0
+        target.m[0xffff], target.m[0xff0f] = 1, 0
+        _, got, _ = target.call('_riding_normal_physical', x, y, 0xa201, squared, irq=True)
+        _, expected, _ = oracle.call('_riding_normal_fast', x, y, 0xa201, squared)
+        assert got == expected and any(pc == jump or reader <= pc < reader+8 for pc in interrupted), interrupted
+        totals['interrupted physical band reads'] += 1
+    finally:
+        target.m[0xffff] = target.m[0xff0f] = 0
+        target.p.hook_deregister(0, jump)
+        target.p.hook_deregister(0, 0x40)
+
+
 def check_physical_lengths(target, oracle, totals):
     def rom_offset(symbol):
         address = target.sym[symbol]
@@ -165,8 +236,12 @@ def check_physical_lengths(target, oracle, totals):
             _, got, _ = target.call('_riding_normal_physical', sign*x, sign*y, 0xa201, squared)
             _, want, _ = oracle.call('_riding_normal_fast', sign*x, sign*y, 0xa201, squared)
             assert got == want, (x, y, squared, sign)
-            assert target.m[target.sym['normal_length_tag']] == tag, (x, y, squared, tag)
+            if 'normal_length_bands' not in target.sym:
+                assert target.m[target.sym['normal_length_tag']] == tag, (x, y, squared, tag)
             totals['linked physical lengths'] += 1
+
+
+def check_public_lengths(target, oracle, totals):
     # Public callers can supply an unrelated squared length to the same kernel.
     for squared in (16384, 32767, 32768, 65535, 65536, 65537, 71680, 98304, 131071, 131072, 168099,
                     168447, 168448, 33570817, 2147483647):
@@ -368,8 +443,11 @@ def check(rom, reference):
                 totals['public edge cases'] += 1
         if 'contact_root_certificate' in sym:
             check_endpoint_roundtrips(target, old, totals)
-        if '_riding_normal_physical' in sym:
+        check_public_lengths(target, old, totals)
+        if 'normal_length_rows' in sym:
             check_physical_lengths(target, old, totals)
+        if 'normal_length_bands' in sym:
+            check_length_bands(target, old, totals)
         print(dict(totals))
     finally:
         target.p.stop(save=False)
