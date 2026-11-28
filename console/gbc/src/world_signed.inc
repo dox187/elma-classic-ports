@@ -12,6 +12,9 @@ extern const uint16_t world_scenery_pins[][52];
 static uint8_t all_patterns;
 #ifdef WORLD_SCENERY_SLOTS
 uint8_t world_load_scenery_slots(void) BANKED;
+void world_preload_scenery_slot(uint8_t slot,uint16_t id) BANKED {
+    world_cache_upload(256U+slot,id);
+}
 #endif
 uint8_t world_direct_map;
 

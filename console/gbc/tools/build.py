@@ -761,7 +761,7 @@ def main():
     sweep_path=a.sweep_source.resolve() if a.sweep_source else BASE/'src/physics_sweep.c'
     colored = signed_bg and '_world_scenery_slots::' in (a.gen/'physics_projection_game.s').read_text()
     if colored:
-        sources.append(BASE/'src/world_scenery_slots.c')
+        sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/world_scenery_slots.c')
     def apply_scenery_flags(path,flags):
         if colored and path.name=='world.c':
             flags = flags+['-DWORLD_SCENERY_SLOTS']
