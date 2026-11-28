@@ -532,6 +532,8 @@ def main():
                         + '\n' + (BASE/'src/wheel_candidates.inc').read_text())
             if name == 'physics_normal_fast':
                 text += '\n'+(BASE/'src/physics_normal_atlas.s').read_text()
+                if signed_bg:
+                    text = 'RIDING_NORMAL_SRAM = 1\n'+text
             head_clearance.write_if_changed(game_source,text)
             sources[sources.index(source)] = game_source
         rider_source = BASE/'src/physics_rider_response.s'
@@ -649,6 +651,11 @@ def main():
         lookup = a.gen/'corner_lookup_game.s'
         head_clearance.write_if_changed(lookup, (BASE/'src/corner_lookup.s').read_text() + directory)
         sources.append(lookup)
+        bounds = BASE/'src/physics_level_bounds.s'
+        bounds_game = a.gen/'physics_level_bounds_sram.s'
+        head_clearance.write_if_changed(bounds_game, 'RIDING_NORMAL_SRAM = 1\n'+bounds.read_text())
+        sources[sources.index(bounds)] = bounds_game
+        sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/normal_sram.s')
         lane_code, lane_table = head_lane_tables.generate(a.gen, BASE/'src/head_lanes.s')
         sources[sources.index(a.gen/'level_bank_469.c')] = lane_table
         sources.insert(sources.index(a.gen/'head_quarters.s'), lane_code)

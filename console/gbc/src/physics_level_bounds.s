@@ -45,6 +45,15 @@ bounds_inner:
 .globl b_riding_prepare_level_bounds
 b_riding_prepare_level_bounds = 14
 _riding_prepare_level_bounds::
+ .ifdef RIDING_NORMAL_SRAM
+ ld a,(#normal_sram_ready)
+ or a
+ jr nz,bounds_normal_ready
+ ld e,#13
+ ld hl,#normal_sram_init
+ call ___sdcc_bcall_ehl
+bounds_normal_ready:
+ .endif
  ld hl,#(_riding_level+35)
  ld de,#(_riding_level+26)
  call bounds_inner_axis

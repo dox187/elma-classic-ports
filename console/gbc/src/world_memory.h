@@ -9,7 +9,8 @@
 #endif
 
 /* On the signed 8 MiB cart, SRAM0 A000..A56F belongs to scenery.
- * The two object-membership pages stay below the B000 map mirror. */
+ * The two object-membership pages end at A7FF. The 297 radial product row
+ * pointers occupy A800..AA51, below the B000 map mirror. */
 #define WORLD_OBJECT_X_REGIONS 0xa600
 #define WORLD_OBJECT_Y_REGIONS 0xa700
 

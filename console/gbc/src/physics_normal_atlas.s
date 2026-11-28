@@ -100,8 +100,10 @@ ring_descriptor:
  adc #>_riding_normal_groups
  ld h,a
  ld a,(hl+)
- cp c                          ; both rows end at or below this value
+ sub c                         ; both rows end at or below this value
  jr c,ring_outside
+ cp #normal_ring_miss_span
+ jr nc,ring_miss
  ld a,(hl+)
  ld e,a
  ld a,(hl+)

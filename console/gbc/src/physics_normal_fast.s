@@ -99,7 +99,33 @@ normal_table:
  jr c,normal_index_ready
 normal_last:
  ld de,#592
+ .ifdef RIDING_NORMAL_SRAM
+ jr normal_scalar_axes
+ .endif
 normal_index_ready:
+ .ifdef RIDING_NORMAL_SRAM
+ ; Physically supplied d2 bounds both axes and the product within signed16.
+ ld a,(#normal_sram_ready)
+ or a
+ jr z,normal_scalar_axes
+ ld a,(#normal_physical)
+ or a
+ jr z,normal_scalar_axes
+ ld a,(hl-)                  ; high byte of supplied d2
+ or a
+ jr nz,normal_scalar_axes
+ ld a,(hl)
+ cp #3
+ jr nc,normal_scalar_axes
+ push bc                     ; shared epilogue discards this word
+ ld c,e
+ ld b,d
+ ld a,#13
+ ld hl,#normal_sram_axes
+ call _riding_contact_bank_query
+ jr normal_axes_done
+normal_scalar_axes:
+ .endif
  ld hl,#_riding_normal_rsqrt
  add hl,de
  ld c,(hl)
@@ -139,6 +165,9 @@ normal_index_ready:
  inc hl
  ld (hl),d
  .ifdef RIDING_NORMAL_ATLAS
+ .ifdef RIDING_NORMAL_SRAM
+normal_axes_done:
+ .endif
  ld a,(#normal_physical)
  or a
  jr z,normal_dot_length

@@ -128,8 +128,76 @@ static void merge_point(contact_t *c,int16_t qx,int16_t qy) {
 #define merge_point contact_point
 #endif
 #if defined(RIDING_NORMAL_ATLAS) && MERGE == 102
-static void merge_normal_slow(int16_t x,int16_t y) {
-    normalize(x,y,mul16(x,x)+mul16(y,y),&Ct[0]);
+static void merge_normal_slow(int16_t x,int16_t y) __naked {
+    x;y;
+    __asm
+_riding_merge_normal::
+    ; Save the physical vector once. Narrow squared coordinates share two
+    ; page lookups. The general path preserves the full signed16 domain.
+    ld hl,#_Ct
+    push hl
+    push de
+    push bc
+    ld a,d
+    add #2
+    cp #4
+    jr nc,merge_wide_square
+    ld a,b
+    add #2
+    cp #4
+    jr nc,merge_wide_square
+    call _riding_endpoint_squared
+    jr merge_square_ready
+merge_wide_square:
+    push bc
+    ld b,d
+    ld c,e
+    call _riding_mul16_regs
+    pop bc
+    push hl
+    push de
+    ld d,b
+    ld e,c
+    call _riding_mul16_regs
+    pop bc
+    ld a,e
+    add c
+    ld c,a
+    ld a,d
+    adc b
+    ld b,a
+    pop de
+    ld a,l
+    adc e
+    ld e,a
+    ld a,h
+    adc d
+    ld d,a
+merge_square_ready:
+    ; Swap d2 into the coordinate slots and push the original two words,
+    ; yielding the original (x,y,d2,destination) stack ABI.
+    ldhl sp,#0
+    ld a,(hl)
+    ld (hl),c
+    ld c,a
+    inc hl
+    ld a,(hl)
+    ld (hl),b
+    ld b,a
+    inc hl
+    ld a,(hl)
+    ld (hl),e
+    ld e,a
+    inc hl
+    ld a,(hl)
+    ld (hl),d
+    ld d,a
+    push bc
+    push de
+    call _riding_normal_physical
+    add sp,#10
+    ret
+    __endasm;
 }
 
 uint8_t riding_contact_merge(void) __naked {

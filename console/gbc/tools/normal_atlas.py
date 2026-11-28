@@ -79,7 +79,12 @@ def generate(gen, roots_path, wheel_rows, dest=None):
         bank = min(fits,key=lambda b:(room[b],b))
         placement[i] = bank
         room[bank] -= sizes[i]
-    out = ['.module normal_atlas_data','.area _CODE_9','_riding_normal_groups::']
+    # The two rows share their outer bound. An offset below both row
+    # starts can skip the banked annulus lookup entirely.
+    miss_span = 1 + max(isqrt(OUTER**2-1-(2*g)**2) - max(s, isqrt(INNER**2-1-s*s)+1)
+                        for g in range(GROUPS) for s in (2*g, 2*g+1))
+    out = ['.module normal_atlas_data', '.globl normal_ring_miss_span',
+           f'normal_ring_miss_span = {miss_span}', '.area _CODE_9', '_riding_normal_groups::']
     for i in range(GROUPS):
         # Both sorted rows lie below the outer limit of the even row.
         out.append(f' .db {isqrt(OUTER*OUTER - 1 - (2*i)**2)-256}')
