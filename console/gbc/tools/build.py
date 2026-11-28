@@ -654,6 +654,7 @@ def main():
         lookup = a.gen/'corner_lookup_game.s'
         head_clearance.write_if_changed(lookup, (BASE/'src/corner_lookup.s').read_text() + directory)
         sources.append(lookup)
+        sources.insert(sources.index(a.gen/'head_quarters.s'), BASE/'src/haircut_gate.s')
         bounds = BASE/'src/physics_level_bounds.s'
         bounds_game = a.gen/'physics_level_bounds_sram.s'
         bounds_flags = 'RIDING_NORMAL_SRAM = 1\n'

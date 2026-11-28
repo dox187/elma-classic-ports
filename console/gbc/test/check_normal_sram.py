@@ -18,8 +18,27 @@ def check(rom, reference):
         m[0x4000] = 0
         cart.invoke('_cpu_fast')
         cart.invoke('_physics_collision_select', a=31)
-        assert bytes(m[0xa000:0xa800]) == poison[:0x800]
-        assert bytes(m[0xaa52:0xc000]) == poison[0xa52:]
+        expected = bytearray(poison)
+        def rom_bytes(symbol, size):
+            address = sym[symbol]
+            start = (address >> 16)*16384 + (address & 16383)
+            return cart.image[start:start+size]
+        for source,end,destination in (('ss_pair_image','ss_pair_end',0xab00),
+                                       ('haircut_gate_image','haircut_gate_end',0xaca0)):
+            if source in sym:
+                size = sym[end]-sym[source]
+                expected[destination-0xa000:destination-0xa000+size] = rom_bytes(source,size)
+        if '_wheel_course_size' in sym:
+            metadata = rom_bytes('_wheel_terrain_maps',4*32)[-4:]
+            width,height,address = struct.unpack('<BBH',metadata)
+            assert cart.read('_wheel_course_size',2) == bytes((width,height))
+            offset = 9*16384 + (address & 16383)
+            rows = cart.image[offset:offset+3*height]
+            for i in range(3):
+                start = 0xd00+256*i
+                expected[start:start+height] = rows[i::3]
+        assert bytes(m[0xa000:0xa800]) == expected[:0x800]
+        assert bytes(m[0xaa52:0xc000]) == expected[0xa52:]
         directory = bytes(m[0xa800:0xaa52])
         src = sym['_riding_normal_rsqrt']
         factors = struct.unpack_from('<297H', cart.image, (src>>16)*16384 + (src&16383))

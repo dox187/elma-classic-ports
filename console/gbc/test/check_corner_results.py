@@ -200,6 +200,8 @@ def check_dispatch(target, cells):
             course_reader = target.sym['_riding_corner_wheel_inputs']
         elif level == 37 and '_riding_patch_wheel_inputs' in target.sym:
             course_reader = target.sym['_riding_patch_wheel_inputs']
+        elif level == 38 and '_haircut_wheel_inputs' in target.sym:
+            course_reader = target.sym['_haircut_wheel_inputs']
         elif ((level == 45 and '_bowling_flat' in target.sym) or
               (level == 51 and '_hang_query' in target.sym)):
             course_reader = target.sym['_riding_sparse_bind'] + 1

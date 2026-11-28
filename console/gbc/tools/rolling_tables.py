@@ -134,9 +134,12 @@ def slope_rows(assembly, gen):
     return output
 
 
-def shallow_tangent_banks(assembly):
+def shallow_tangent_banks(assembly, gen):
+    from haircut_terrain import bank_sections
+    terrain = bank_sections(gen)
     output = [assembly.with_name('physics_roll_shallow.s').read_text(),
-              assembly.with_name('roll_local.inc').read_text()]
+              assembly.with_name('roll_local.inc').read_text(),
+              assembly.with_name('haircut_terrain.inc').read_text()]
     directory = bytearray(256)
     for group, bank in enumerate((29, 30)):
         output.extend((f'.area _CODE_{bank}', f'ground_rows_{bank}::'))
@@ -177,6 +180,7 @@ def shallow_tangent_banks(assembly):
             extra = index - len(factors)
             if 0 <= extra < len(tangent_code)-3:
                 output.append(tangent_code[extra+3])
+            output.extend(terrain.get((bank, index), ()))
             output += [' .bndry 256']
         if len(coefficients) < 12:
             if (12 - len(coefficients)) * 5 != 3 * len(SLOPE_EXTRA):
@@ -253,7 +257,7 @@ def generate(gen, assembly):
             for plane in planes:
                 scalar.extend(projection_tables.byte_lines(plane))
     write_if_changed(gen / 'physics_roll_scalar.s', '\n'.join(scalar) + '\n')
-    output.extend(shallow_tangent_banks(assembly))
+    output.extend(shallow_tangent_banks(assembly, gen))
     output.extend(slope_rows(assembly, gen))
     graphics_file = gen / 'level_manifest.json'
     if graphics_file.exists():

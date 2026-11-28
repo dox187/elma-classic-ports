@@ -1,5 +1,5 @@
-; Both arms use the same generally different torque every wheel. Map
-; each of its two byte rows once. The stack holds the upper row of
+; Both arms of a wheel use the same torque. Map each of its two byte
+; rows once. The stack holds the upper row of
 ; both unsigned products, with X on top.
 .module physics_reaction_pair
 .area _DATA
@@ -32,7 +32,7 @@ ss_pair_init::
  jr nz,001$
  inc a
  ld (#ss_pair_ready),a
- ret
+ jp haircut_prepare_gate
 ss_pair_image::
  ; BC:DE = torque. The small signed high word K is in [-3,2].
  ; A signed12 arm times a torque in this range, rounded at Q14, fits
@@ -215,6 +215,6 @@ rounded:
  ret
 ss_pair_end::
 
-.ifgt ss_pair_end-ss_pair_image-0x500
+.ifgt ss_pair_end-ss_pair_image-0x1a0
  .error 1
 .endif

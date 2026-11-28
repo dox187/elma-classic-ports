@@ -93,6 +93,9 @@ corner_level_ready:
  ld hl,#_riding_patch_wheel_inputs
  jr corner_disable_bind
 corner_existing_level:
+ cp #38
+ ld hl,#_haircut_wheel_inputs
+ jr z,corner_disable_bind
  cp #10
  jr z,corner_dense_target
  ; Check the first position after a course reset. Seeding the invalid
