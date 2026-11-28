@@ -99,21 +99,24 @@ _gbc_video_world_strip_pair::
  ld a,(hl+)
  ld d,(hl)
  ld e,a
- pop hl
- push bc
- push hl
+ ldhl sp,#8
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
+; The exact SRAM origin is on the stack, HL/DE are tiles/attributes,
+; and B/C are count/orientation. Both paths consume the pushed origin.
+_world_write_planes::
  ld a,c
  or a
  jr nz,plane_put_column
+ ld b,h
+ ld c,l
+ pop hl
+ push hl
+ push bc
  set 2,h
  call plane_write_row
- pop hl
- pop bc
- push hl
- ldhl sp,#8
- ld a,(hl+)
- ld d,(hl)
- ld e,a
+ pop de
  pop hl
  push hl
  call plane_write_row
@@ -133,18 +136,19 @@ _gbc_video_world_strip_pair::
  ei
  ret
 plane_put_column:
+ push bc
+ push hl
+ ldhl sp,#4
+ ld a,(hl+)
+ ld h,(hl)
+ ld l,a
  set 2,h
  di
  ld a,#1
  ldh (#0x4f),a
  call plane_column_copy
- pop hl
+ pop de
  pop bc
- push hl
- ldhl sp,#8
- ld a,(hl+)
- ld d,(hl)
- ld e,a
  pop hl
  xor a
  ldh (#0x4f),a
@@ -181,6 +185,7 @@ plane_column_prefix:
  ld a,(de)
  cp (hl)
  jr nz,plane_column_changed
+plane_column_same:
  inc de
  ld a,l
  add #32
@@ -215,6 +220,16 @@ plane_column_loop:
  plane_col_byte plane_col_mid
  plane_col_byte plane_col_end
  pop af
+ or a
+ ret z
+ ld h,b
+ ld b,a
+ ld a,(de)
+ cp (hl)
+ jr z,plane_column_same
+ ld a,b
+ ld b,h
+ ld h,c
  jr plane_column_loop
 plane_column_last:
  or a

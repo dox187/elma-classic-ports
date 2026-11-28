@@ -291,9 +291,37 @@ coord_bank_ready:
         jr coord_store
     __endasm;
 }
-static void prepare_publish(uint8_t vertical) {
-    gbc_video_world_strip_pair(prepare_strip_x,prepare_strip_y,vertical,prepare_count,
-                               strip_low,strip_attrs);
+/* Both input planes live in the same WRAM strip buffers on every signed
+ * course. Supply them directly to the common map writer at publication. */
+static void prepare_publish(uint8_t vertical) __naked {
+    vertical;
+    __asm
+        ld c,a
+        xor a
+        ld (#0x4000),a
+        ld a,(#_prepare_strip_y)
+        and #31
+        .rept 3
+        rrca
+        .endm
+        ld e,a
+        and #3
+        or #0xb0
+        ld h,a
+        ld a,e
+        and #0xe0
+        ld e,a
+        ld a,(#_prepare_strip_x)
+        and #31
+        or e
+        ld l,a
+        push hl
+        ld a,(#_prepare_count)
+        ld b,a
+        ld de,#_strip_attrs
+        ld hl,#_strip_low
+        jp _world_write_planes
+    __endasm;
 }
 
 extern uint8_t wheel_course_size[2];
