@@ -44,9 +44,17 @@ def generate(gen, original, dest=None):
             counts = np.bincount(ids.ravel().astype(int), minlength=level['pattern_count'])
         if len(counts) != level['pattern_count']:
             raise ValueError('Scenery tile ID exceeds the linked dictionary')
+        # Coordinate slots repeat every 22 columns and 20 rows. A different
+        # tile at the preceding occupant needs a pattern transfer as well as
+        # a directory lookup. Count both directions on both axes.
+        scores = 4*counts
+        for here, there in ((ids[:,22:],ids[:,:-22]), (ids[20:,:],ids[:-20,:])):
+            changed = here != there
+            for side in (here, there):
+                scores += 5*np.bincount(side[changed], minlength=len(counts))
         used = set()
         pins = []
-        for tile in np.argsort(-counts, kind='stable'):
+        for tile in np.argsort(-scores, kind='stable'):
             key = int(tile) & 255
             if key not in used:
                 used.add(key)
