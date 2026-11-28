@@ -65,6 +65,8 @@ class HeadVerifier:
         self.tiles=(216,218)if self.height==16 else(216,245)
         if d.rom_constant('world_lookup_format',0)==3:
             self.tiles=tuple(tile-128 for tile in self.tiles)
+        if '_bike_streamed_heads' in d.symbols:
+            self.tiles += tuple(range(92,116,2))
         address=d.symbols['_riding_heads'];bank,offset=address>>16,address&65535
         stride = 16 if '_bike_body_upload' in d.symbols else self.frame_bytes
         self.frames=[d.rom_far((bank,offset+i*stride),stride)+bytes(self.frame_bytes-stride) for i in range(256)]

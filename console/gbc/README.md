@@ -3,11 +3,11 @@
 Current development version: **0.96 — joint physics fidelity and stable-30-FPS work**,
 recorded in [`VERSION`](VERSION). Development is in progress; no accepted 0.96
 ROM exists yet. Latest playable diagnostic:
-**[0.96 test63 — 8 MiB](build/elma-gbc-v0.96-test63-8m.gbc)**.
-The primary controller replays averaged 29.816 updates/s. Out of 25,310
-intervals, 81 took three refreshes. Independent Haircut improved from 19
-to 16 late intervals in 226. The forced Steep Corner peak took 62.01 ms
-for physics alone against the 33.49 ms whole-game budget. [Measurements and verification](PERFORMANCE.md#096-test63--wheel-projections-and-resident-motorcycle-poses)
+**[0.96 test64 — 8 MiB](build/elma-gbc-v0.96-test64-8m.gbc)**.
+The primary controller replays averaged 29.818 updates/s, with 77 late
+intervals out of 25,310. On the independent Haircut replay, 11 of 226
+intervals took three refreshes. Forced Steep Corner peaked at 61.34 ms
+for physics alone against the 33.49 ms whole-game budget. [Measurements and verification](PERFORMANCE.md#096-test64--wheel-pivots-braking-and-rider-response)
 
 Active development targets the 8 MiB cartridge. All 54 original internal courses are selectable, with player profiles and per-course records.
 
@@ -424,3 +424,4 @@ Read the [detailed GBC release notes](RELEASE_NOTES.md) for build changes, measu
 | test61 | Reused Bowling vertex contacts and shortened throttle, body and head updates |
 | test62 | Shortened Bumpy Journey braking, moving contacts, suspension and sprite transfers |
 | test63 | Cached wheel projections and eleven motorcycle poses |
+| test64 | Bounded wheel pivots, shared braking products and resident rider heads |

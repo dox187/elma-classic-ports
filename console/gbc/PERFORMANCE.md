@@ -4656,3 +4656,41 @@ states in 122 cases. All 54 courses started with one late entry update.
 Player records and battery reload passed.
 
 SHA-256 `673a5cf2d373f92dff1e52c064a09605c712a4ab6c54fbdc0a3384d118ad1fce`.
+
+## 0.96 test64 — Wheel pivots, braking and rider response
+
+A signed interval proves when a wheel pivot can reject the applied torque.
+Ambiguous bounds and surviving pivots retain the original rounding and Q24
+fraction. The two brake arms reuse their reaction coefficient rows. Rider
+displacements share their rest coordinates, and a bounded angular digit takes
+the shorter signed product. Each course copies its three wheel row indices to
+SRAM pages AD00–AFFF on entry. Additional Haircut cells use certified geometry.
+Twelve upright head patterns occupy VRAM bank 1, tiles 92–115.
+
+| PyBoy measurement | test63 | test64 |
+| --- | ---: | ---: |
+| Weighted primary updates/s, 25,310 intervals | 29.816 | 29.818 |
+| Three-refresh intervals, catalog / extended / complete Freefall | 60 / 21 / 0 | 57 / 20 / 0 |
+| Three-refresh intervals, independent seed, 5,302 intervals | 29 | 25 |
+| Independent Haircut, late out of 226 | 16 | 11 |
+| Mean active primary update, T-cycles | 208,247 | 206,805 |
+| Historical placements above budget out of 2,432 | 307 | 296 |
+| Peak physics on the historical placements, T-cycles | 487,692 | 484,324 |
+| Forced Steep Corner peak physics, T-cycles | 520,140 | 514,516 |
+
+The previous Steep maximum at (25,176, 39,440) took 502,908 T. The new peak
+was at (25,176, 39,416), input 9, wheel 1. All 200 forced updates exceeded
+280,896 T. Historical placements improved in aggregate on all 54 courses.
+The slowest primary routes averaged 29.13 updates/s. A three-refresh
+interval was 50.23 ms. These are emulator measurements.
+
+All 100,382 raw physics substeps matched test63. The native tests covered
+1,600 new pivot boundaries, 18,600 paired brake arms, 13,302 rider spin
+cases and 27,664 Haircut wheel queries. Seven controller routes matched
+1,216 sprite presentations and 61,845 visible background cells. The
+independent Haircut route also matched on 227 presentations and 7,581 cells.
+All 54 courses started, with one late entry update. Player records and
+battery reload passed. A separate cardinal-angle renderer shortcut passed
+its geometry checks but added one late catalog update and was discarded.
+
+SHA-256 `b78866de3fbc1f1c543697c8e5347d718ff4c72dd96f7210d2703bcca09f047a`.

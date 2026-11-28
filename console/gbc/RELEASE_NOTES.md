@@ -50,6 +50,17 @@ slowdown. The slowest tested route averages **28.59**. The 196/216 fully passing
 cases are a test pass rate, not the game's percentage speed. Local stalls
 remain; these short routes do not establish full-course or cartridge timing.
 
+## 0.96 test64 — Wheel pivots, braking and rider response
+
+Two-contact wheels can reject a pivot before computing its exact torque.
+Both brake arms share product rows, and twelve upright rider heads stay in
+sprite memory. The 54-course catalog fell from 60 to 57 late intervals.
+On the independent Haircut route the count fell from 16 to 11. All 100,382
+recorded physics substeps matched test63. The forced Steep Corner peak
+was 61.34 ms in PyBoy.
+
+[Playable 8 MiB ROM](build/elma-gbc-v0.96-test64-8m.gbc) · [Measurements and verification](PERFORMANCE.md#096-test64--wheel-pivots-braking-and-rider-response)
+
 ## 0.96 test63 — Wheel projections and resident motorcycle poses
 
 The wheel solver reuses exact products across contacts. Eleven common
